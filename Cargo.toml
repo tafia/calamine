@@ -1,0 +1,8 @@
+[package]
+name = "office"
+version = "0.1.0"
+authors = ["Johann Tuffe"]
+
+[dependencies]
+zip = "0.1.17"
+quick-xml = "0.2.1"
