@@ -12,9 +12,7 @@ use error::{ExcelError, ExcelResult};
 use zip::read::{ZipFile, ZipArchive};
 use quick_xml::{XmlReader, Event, AsStr};
 
-type SharedStringIndex = usize;
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DataType {
     Int(i64),
     Float(f64),
@@ -28,8 +26,8 @@ pub struct Excel {
 }
 
 #[derive(Debug, Default)]
-pub struct WorksheetData {
-    top_left: (u32, u32),
+pub struct Range {
+    position: (u32, u32),
     size: (usize, usize),
     inner: Vec<DataType>,
 }
@@ -48,13 +46,10 @@ impl Excel {
     }
 
     /// Get all data from `Worksheet`
-    pub fn worksheet_data(&mut self, name: &str) -> ExcelResult<WorksheetData> {
+    pub fn worksheet_range(&mut self, name: &str) -> ExcelResult<Range> {
         let strings = &self.strings;
-        let ws = match self.zip.by_name(&format!("xl/worksheets/{}.xml", name)) {
-            Ok(f) => f,
-            Err(e) => return Err(ExcelError::Zip(e)),
-        };
-        WorksheetData::from_xml(ws, strings)
+        let ws = try!(self.zip.by_name(&format!("xl/worksheets/{}.xml", name)));
+        Range::from_worksheet(ws, strings)
     }
 
     /// Read shared string list
@@ -78,14 +73,14 @@ impl Excel {
 
 }
 
-impl WorksheetData {
+impl Range {
 
     /// open a xml `ZipFile` reader and read content of *sheetData* and *dimension* node
-    fn from_xml(xml: ZipFile, strings: &[String]) -> ExcelResult<WorksheetData> {
+    fn from_worksheet(xml: ZipFile, strings: &[String]) -> ExcelResult<Range> {
         let mut xml = XmlReader::from_reader(BufReader::new(xml))
             .with_check(false)
             .trim_text(false);
-        let mut data = WorksheetData::default();
+        let mut data = Range::default();
         while let Some(res_event) = xml.next() {
             match res_event {
                 Err(e) => return Err(ExcelError::Xml(e)),
@@ -94,8 +89,8 @@ impl WorksheetData {
                         b"dimension" => match e.attributes().filter_map(|a| a.ok())
                                 .find(|&(key, _)| key == b"ref") {
                             Some((_, dim)) => {
-                                let (top_left, size) = try!(get_dimension(try!(dim.as_str())));
-                                data.top_left = top_left;
+                                let (position, size) = try!(get_dimension(try!(dim.as_str())));
+                                data.position = position;
                                 data.size = (size.0 as usize, size.1 as usize);
                                 data.inner.reserve_exact(data.size.0 * data.size.1);
                             },
@@ -117,13 +112,15 @@ impl WorksheetData {
     
     /// get worksheet position (row, column)
     pub fn get_position(&self) -> (u32, u32) {
-        self.top_left
+        self.position
     }
 
+    /// get size
     pub fn get_size(&self) -> (usize, usize) {
         self.size
     }
 
+    /// get cell value
     pub fn get_value(&self, i: usize, j: usize) -> &DataType {
         let idx = i * self.size.0 + j;
         &self.inner[idx]
@@ -188,7 +185,7 @@ impl WorksheetData {
 fn get_dimension(dimension: &str) -> ExcelResult<((u32, u32), (u32, u32))> {
     match dimension.chars().position(|c| c == ':') {
         None => {
-            get_row_column(dimension).map(|top_left| (top_left, (1, 1)))
+            get_row_column(dimension).map(|position| (position, (1, 1)))
         }, 
         Some(p) => {
             let top_left = try!(get_row_column(&dimension[..p]));
@@ -239,7 +236,7 @@ mod tests {
     fn it_works() {
         let mut xl = Excel::open("/home/jtuffe/download/DailyValo_FX_Rates_Credit_05 25 16.xlsm")
             .expect("cannot open excel file");
-        let data = xl.worksheet_data("sheet1");
+        let data = xl.worksheet_range("sheet1");
         println!("{:?}", data);
         assert!(data.is_ok());
     }
