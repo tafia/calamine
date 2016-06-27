@@ -7,6 +7,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 use std::collections::HashMap;
+use std::slice::Chunks;
 
 use error::{ExcelError, ExcelResult};
 
@@ -46,6 +47,11 @@ pub struct Range {
     position: (u32, u32),
     size: (usize, usize),
     inner: Vec<DataType>,
+}
+
+/// An iterator to read `Range` struct row by row
+pub struct Rows<'a> {
+    inner: Chunks<'a, DataType>,
 }
 
 impl Excel {
@@ -180,6 +186,12 @@ impl Range {
         &self.inner[idx]
     }
 
+    /// get an iterator over inner rows
+    pub fn rows(&self) -> Rows {
+        let width = self.size.0;
+        Rows { inner: self.inner.chunks(width) }
+    }
+
     /// read sheetData node
     fn read_sheet_data(&mut self, xml: &mut XmlReader<BufReader<ZipFile>>, strings: &[String]) 
         -> ExcelResult<()> 
@@ -235,6 +247,13 @@ impl Range {
         unexp!("Could not find </sheetData>")
     }
 
+}
+
+impl<'a> Iterator for Rows<'a> {
+    type Item = &'a [DataType];
+    fn next(&mut self) -> Option<&'a [DataType]> {
+        self.inner.next()
+    }
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
@@ -294,7 +313,9 @@ mod tests {
             .expect("cannot open excel file");
         println!("{:?}", xl.sheets);
         let data = xl.worksheet_range("Sheet1");
-        println!("{:?}", data);
         assert!(data.is_ok());
+        for (i, r) in data.unwrap().rows().enumerate() {
+            println!("Row {}: {:?}", i, r);
+        }
     }
 }
