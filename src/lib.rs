@@ -6,6 +6,7 @@ mod error;
 use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
+use std::collections::HashMap;
 
 use error::{ExcelError, ExcelResult};
 
@@ -23,6 +24,8 @@ pub enum DataType {
 pub struct Excel {
     zip: ZipArchive<File>,
     strings: Vec<String>,
+    /// Map of sheet names/sheet path within zip archive
+    sheets: HashMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -37,38 +40,77 @@ impl Excel {
     /// Opens a new workbook
     pub fn open<P: AsRef<Path>>(path: P) -> ExcelResult<Excel> {
         let f = try!(File::open(path));
-        let mut zip = try!(ZipArchive::new(f));
-        let strings = {
-            let xml = try!(zip.by_name("xl/sharedStrings.xml"));
-            try!(Excel::read_shared_strings(xml))
-        };
-        Ok(Excel{ zip: zip, strings: strings })
+        let zip = try!(ZipArchive::new(f));
+        let mut xl = Excel { zip: zip, strings: vec![], sheets: HashMap::new() };
+        try!(xl.read_shared_strings());
+        try!(xl.read_sheets_names());
+        Ok(xl)
     }
 
     /// Get all data from `Worksheet`
     pub fn worksheet_range(&mut self, name: &str) -> ExcelResult<Range> {
         let strings = &self.strings;
-        let ws = try!(self.zip.by_name(&format!("xl/worksheets/{}.xml", name)));
+        let ws = match self.sheets.get(name) {
+            Some(p) => try!(self.zip.by_name(p)),
+            None => return Err(ExcelError::Unexpected(format!("Sheet '{}' does not exist", name))),
+        };
         Range::from_worksheet(ws, strings)
     }
 
-    /// Read shared string list
-    fn read_shared_strings(xml: ZipFile) -> ExcelResult<Vec<String>> {
-        let mut xml = XmlReader::from_reader(BufReader::new(xml))
-            .with_check(false)
-            .trim_text(false);
-
-        let mut strings = Vec::new();
-        while let Some(res_event) = xml.next() {
-            match res_event {
-                Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                    strings.push(try!(xml.read_text(b"t")));
+    /// Loop through all archive files and opens 'xl/worksheets' files
+    /// Store sheet name and path into self.sheets
+    fn read_sheets_names(&mut self) -> ExcelResult<()> {
+        let sheets = {
+            let mut sheets = HashMap::new();
+            for i in 0..self.zip.len() {
+                let f = try!(self.zip.by_index(i));
+                let name = f.name().to_string();
+                if name.starts_with("xl/worksheets/") {
+                    let xml = XmlReader::from_reader(BufReader::new(f))
+                        .with_check(false)
+                        .trim_text(false);
+                    'xml_loop: for res_event in xml {
+                        if let Ok(Event::Start(ref e)) = res_event {
+                            if e.name() == b"sheetPr" {
+                                for a in e.attributes() {
+                                    if let Ok((b"codeName", v)) = a {
+                                        sheets.insert(try!(v.as_str()).to_string(), name);
+                                        break 'xml_loop;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                Err(e) => return Err(ExcelError::Xml(e)),
-                _ => (),
             }
-        }
-        Ok(strings)
+            sheets
+        };
+        self.sheets = sheets;
+        Ok(())
+    }
+
+    /// Read shared string list
+    fn read_shared_strings(&mut self) -> ExcelResult<()> {
+        let strings = {
+            let f = try!(self.zip.by_name("xl/sharedStrings.xml"));
+            let mut xml = XmlReader::from_reader(BufReader::new(f))
+                .with_check(false)
+                .trim_text(false);
+
+            let mut strings = Vec::new();
+            while let Some(res_event) = xml.next() {
+                match res_event {
+                    Ok(Event::Start(ref e)) if e.name() == b"t" => {
+                        strings.push(try!(xml.read_text(b"t")));
+                    }
+                    Err(e) => return Err(ExcelError::Xml(e)),
+                    _ => (),
+                }
+            }
+            strings
+        };
+        self.strings = strings;
+        Ok(())
     }
 
 }
@@ -148,7 +190,13 @@ impl Range {
                                                     let idx: usize = try!(v.parse());
                                                     DataType::String(strings[idx].clone())
                                                 },
-                                                _ => DataType::Float(try!(v.parse()))
+                                                // TODO: check in styles to know which type is
+                                                // supposed to be used
+                                                _ => match v.parse() {
+                                                    Ok(i) => DataType::Int(i),
+                                                    Err(_) => try!(v.parse()
+                                                                   .map(DataType::Float)),
+                                                },
                                             };
                                         self.inner.push(value);
                                         break;
@@ -174,7 +222,7 @@ impl Range {
                 _ => (),
             }
         }
-        Err(ExcelError::Unexpected("Reached end of file, expecting </sheetData>".to_string()))
+        Err(ExcelError::Unexpected("Could not find </sheetData>".to_string()))
     }
 
 }
@@ -236,7 +284,8 @@ mod tests {
     fn it_works() {
         let mut xl = Excel::open("/home/jtuffe/download/DailyValo_FX_Rates_Credit_05 25 16.xlsm")
             .expect("cannot open excel file");
-        let data = xl.worksheet_range("sheet1");
+        println!("{:?}", xl.sheets);
+        let data = xl.worksheet_range("Sheet1");
         println!("{:?}", data);
         assert!(data.is_ok());
     }
