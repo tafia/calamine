@@ -13,6 +13,19 @@ use error::{ExcelError, ExcelResult};
 use zip::read::{ZipFile, ZipArchive};
 use quick_xml::{XmlReader, Event, AsStr};
 
+macro_rules! unexp {
+    ($pat: expr) => {
+        {
+            return Err(ExcelError::Unexpected($pat.to_string()));
+        }
+    };
+    ($pat: expr, $($args: expr)* ) => {
+        {
+            return Err(ExcelError::Unexpected(format!($pat, $($args)*)));
+        }
+    };
+}
+
 #[derive(Debug, Clone)]
 pub enum DataType {
     Int(i64),
@@ -52,7 +65,7 @@ impl Excel {
         let strings = &self.strings;
         let ws = match self.sheets.get(name) {
             Some(p) => try!(self.zip.by_name(p)),
-            None => return Err(ExcelError::Unexpected(format!("Sheet '{}' does not exist", name))),
+            None => unexp!("Sheet '{}' does not exist", name),
         };
         Range::from_worksheet(ws, strings)
     }
@@ -136,8 +149,7 @@ impl Range {
                                 data.size = (size.0 as usize, size.1 as usize);
                                 data.inner.reserve_exact(data.size.0 * data.size.1);
                             },
-                            None => return Err(ExcelError::Unexpected(
-                                    format!("Expecting dimension, got {:?}", e))),
+                            None => unexp!("Expecting dimension, got {:?}", e),
                         },
                         b"sheetData" => {
                             let _ = try!(data.read_sheet_data(&mut xml, strings));
@@ -201,7 +213,7 @@ impl Range {
                                         self.inner.push(value);
                                         break;
                                     } else {
-                                        return Err(ExcelError::Unexpected("not v node".to_string()));
+                                        unexp!("not v node");
                                     }
                                 },
                                 Some(Ok(Event::End(ref e))) => {
@@ -210,9 +222,7 @@ impl Range {
                                         break;
                                     }
                                 }
-                                None => {
-                                    return Err(ExcelError::Unexpected("End of xml".to_string()));
-                                }
+                                None => unexp!("End of xml"),
                                 _ => (),
                             }
                         }
@@ -222,7 +232,7 @@ impl Range {
                 _ => (),
             }
         }
-        Err(ExcelError::Unexpected("Could not find </sheetData>".to_string()))
+        unexp!("Could not find </sheetData>")
     }
 
 }
@@ -255,8 +265,7 @@ fn get_row_column(range: &str) -> ExcelResult<(u32, u32)> {
                 if readrow {
                     rowpos -= 1;
                 } else {
-                    return Err(ExcelError::Unexpected(
-                        format!("Numeric character are only allowed at the end of the range: {}", c)));
+                    unexp!("Numeric character are only allowed at the end of the range: {}", c);
                 }
             }
             c @ 'A'...'Z' => {
@@ -269,8 +278,7 @@ fn get_row_column(range: &str) -> ExcelResult<(u32, u32)> {
                 col += ((c as u8 - b'a') as u32 + 1) * pow;
                 pow *= 26;
             },
-            _ => return Err(ExcelError::Unexpected(
-                    format!("Expecting alphanumeric character, got {:?}", c))),
+            _ => unexp!("Expecting alphanumeric character, got {:?}", c),
         }
     }
     let row = try!(range[rowpos..].parse());
