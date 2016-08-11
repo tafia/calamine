@@ -5,4 +5,4 @@ authors = ["Johann Tuffe"]
 
 [dependencies]
 zip = "0.1.17"
-quick-xml = "0.2.1"
+quick-xml = "0.3.1"

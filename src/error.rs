@@ -8,6 +8,7 @@ use std::io;
 use zip::result::ZipError;
 use quick_xml::error::Error as XmlError;
 use std::num::{ParseIntError, ParseFloatError};
+use std::string::FromUtf8Error;
 
 /// An error produced by an operation on CSV data.
 #[derive(Debug)]
@@ -22,6 +23,8 @@ pub enum ExcelError {
     ParseInt(ParseIntError),
     /// Error while parsing float
     ParseFloat(ParseFloatError),
+    /// FromUtf8
+    FromUtf8(FromUtf8Error),
     /// Unexpected error
     Unexpected(String),
 }
@@ -37,6 +40,7 @@ impl fmt::Display for ExcelError {
             ExcelError::Xml((ref err, i)) => write!(f, "{} at position {}", err, i),
             ExcelError::ParseInt(ref err) => write!(f, "{}", err),
             ExcelError::ParseFloat(ref err) => write!(f, "{}", err),
+            ExcelError::FromUtf8(ref err) => write!(f, "{}", err),
             ExcelError::Unexpected(ref err) => write!(f, "{}", err),
         }
     }
@@ -50,6 +54,7 @@ impl ::std::error::Error for ExcelError {
             ExcelError::Xml(..) => "Xml error",
             ExcelError::ParseInt(..) => "Parse int error",
             ExcelError::ParseFloat(..) => "Parse float error",
+            ExcelError::FromUtf8(..) => "Decode utf8 string errorr",
             ExcelError::Unexpected(..) => "Unexpected error",
         }
     }
@@ -84,4 +89,8 @@ impl From<ParseIntError> for ExcelError {
 
 impl From<ParseFloatError> for ExcelError {
     fn from(err: ParseFloatError) -> ExcelError { ExcelError::ParseFloat(err) }
+}
+
+impl From<FromUtf8Error> for ExcelError {
+    fn from(err: FromUtf8Error) -> ExcelError { ExcelError::FromUtf8(err) }
 }

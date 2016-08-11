@@ -2,6 +2,7 @@ extern crate zip;
 extern crate quick_xml;
 
 mod error;
+mod vba;
 
 use std::path::Path;
 use std::fs::File;
@@ -10,6 +11,7 @@ use std::collections::HashMap;
 use std::slice::Chunks;
 
 use error::{ExcelError, ExcelResult};
+use vba::VbaProject;
 
 use zip::read::{ZipFile, ZipArchive};
 use quick_xml::{XmlReader, Event, AsStr};
@@ -64,6 +66,17 @@ impl Excel {
         try!(xl.read_shared_strings());
         try!(xl.read_sheets_names());
         Ok(xl)
+    }
+
+    /// Does the workbook contain a vba project
+    pub fn has_vba(&mut self) -> bool {
+        self.zip.by_name("xl/vbaProject.bin").is_ok()
+    }
+
+    /// Gets vba project
+    pub fn vba_project(&mut self) -> ExcelResult<VbaProject> {
+        let f = try!(self.zip.by_name("xl/vbaProject.bin"));
+        VbaProject::new(f)
     }
 
     /// Get all data from `Worksheet`
