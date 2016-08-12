@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::io;
+use std::borrow::Cow;
 use zip::result::ZipError;
 use quick_xml::error::Error as XmlError;
 use std::num::{ParseIntError, ParseFloatError};
@@ -25,6 +26,8 @@ pub enum ExcelError {
     ParseFloat(ParseFloatError),
     /// FromUtf8
     FromUtf8(FromUtf8Error),
+    /// FromUtf18
+    FromUtf16(Cow<'static, str>),
     /// Unexpected error
     Unexpected(String),
 }
@@ -41,6 +44,7 @@ impl fmt::Display for ExcelError {
             ExcelError::ParseInt(ref err) => write!(f, "{}", err),
             ExcelError::ParseFloat(ref err) => write!(f, "{}", err),
             ExcelError::FromUtf8(ref err) => write!(f, "{}", err),
+            ExcelError::FromUtf16(ref err) => write!(f, "{}", err),
             ExcelError::Unexpected(ref err) => write!(f, "{}", err),
         }
     }
@@ -55,6 +59,7 @@ impl ::std::error::Error for ExcelError {
             ExcelError::ParseInt(..) => "Parse int error",
             ExcelError::ParseFloat(..) => "Parse float error",
             ExcelError::FromUtf8(..) => "Decode utf8 string errorr",
+            ExcelError::FromUtf16(..) => "Decode utf16 string errorr",
             ExcelError::Unexpected(..) => "Unexpected error",
         }
     }

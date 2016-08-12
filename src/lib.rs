@@ -1,5 +1,10 @@
 extern crate zip;
 extern crate quick_xml;
+extern crate encoding;
+extern crate byteorder;
+
+#[macro_use]
+extern crate log;
 
 mod error;
 mod vba;
@@ -319,9 +324,11 @@ fn get_row_column(range: &str) -> ExcelResult<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
+
     use super::Excel;
+
     #[test]
-    fn it_works() {
+    fn test_range_sample() {
         let mut xl = Excel::open("/home/jtuffe/download/DailyValo_FX_Rates_Credit_05 25 16.xlsm")
             .expect("cannot open excel file");
         println!("{:?}", xl.sheets);
@@ -330,5 +337,16 @@ mod tests {
         for (i, r) in data.unwrap().rows().enumerate() {
             println!("Row {}: {:?}", i, r);
         }
+    }
+    
+    #[test]
+    fn test_vba() {
+
+        let mut xl = Excel::open("/home/jtuffe/download/test_vba.xlsm")
+            .expect("cannot open excel file");
+
+        let vba = xl.vba_project().expect("could not find a vba project");
+        assert!(vba.get_stream("PROJECT").is_some());
+
     }
 }

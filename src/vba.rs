@@ -4,33 +4,17 @@
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use zip::read::ZipFile;
-use std::io::{Read};
+use std::io::{Read, Cursor};
 use error::{ExcelResult, ExcelError};
-use std::mem;
+use encoding::{Encoding, DecoderTrap};
+use encoding::all::UTF_16LE;
+use byteorder::{LittleEndian, ReadBytesExt};
 
-const OLE_SIGNATURE: &'static str = r#"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"#;
-// const DIFSECT: u32 = 0xFFFFFFFC;
-// const FATSECT: u32 = 0xFFFFFFFD;
+const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
-// const MODULE_EXTENSION: &'static str = "bas";
-// const CLASS_EXTENSION: &'static str = "cls";
-// const FORM_EXTENSION: &'static str = "frm";
-// const BINFILE_NAME: &'static str = "/vbaProject.bin";
 
-fn get_sector(data: &[u8], id: u32, sector_count: usize, sector_size: usize) -> ExcelResult<&[u8]> {
-    if id as usize >= sector_count {
-        return Err(ExcelError::Unexpected(format!("reference to invalid sector {}", id)));
-    }
-    Ok(&data[id as usize * sector_size .. (id as usize + 1) * sector_size])
-}
-
-fn read_signature<R: Read>(f: &mut R) -> ExcelResult<bool> {
-    let mut sig = [0; 8];
-    try!(f.read_exact(&mut sig));
-    Ok(sig.as_ref() == OLE_SIGNATURE.as_bytes())
-}
-
+#[allow(dead_code)]
 pub struct VbaProject {
     directories: Vec<Directory>,
     sectors: Sector,
@@ -41,62 +25,80 @@ impl VbaProject {
 
     pub fn new(mut f: ZipFile) -> ExcelResult<VbaProject> {
 
-        try!(read_signature(&mut f));
-
         // load header
+        debug!("loading header");
         let header = try!(Header::from_reader(&mut f));
 
+        // check signature
+        if header.ab_sig != OLE_SIGNATURE {
+            return Err(ExcelError::Unexpected("invalid OLE signature (not an office document?)".to_string()));
+        }
+
         let sector_size = 2u64.pow(header.sector_shift as u32) as usize;
-        
         if (f.size() as usize - 512) % sector_size != 0 {
             return Err(ExcelError::Unexpected("last sector has invalid size".to_string()));
         }
 
         // Read whole file in memory (the file is delimited by sectors)
-        let sector_count = (f.size() as usize - 512) / sector_size;
         let mut data = Vec::with_capacity(f.size() as usize - 512);
         try!(f.read_to_end(&mut data));
+        let sector = Sector::new(data, sector_size);
 
         // load fat and dif sectors
+        debug!("load dif");
         let mut fat_sectors = header.sect_fat.to_vec();
         let mut sector_id = header.sect_dif_start;
+        assert!(sector_size % 4 == 0);
         while sector_id != FREESECT && sector_id != ENDOFCHAIN {
-            let sector: &[u32] = unsafe {
-                mem::transmute(try!(get_sector(&data, sector_id, sector_count, sector_size)))
-            };
-            fat_sectors.extend_from_slice(&sector[..sector.len() - 1]);
-            sector_id = sector[sector.len() - 1];
-            //TODO: check if that sector has been read already (infinite loop)
+            let mut rdr = Cursor::new(sector.get(sector_id));
+            for _ in 0..sector_size / 4 {
+                fat_sectors.push(try!(rdr.read_u32::<LittleEndian>()));
+            }
+            sector_id = fat_sectors.pop().unwrap(); //TODO: check if in infinite loop
         }
 
         // load the FATs
+        debug!("load fat");
         let mut fat = Vec::with_capacity(fat_sectors.len() * sector_size);
         for sector_id in fat_sectors.into_iter().filter(|id| *id != FREESECT) {
-            fat.extend_from_slice(try!(get_sector(&data, sector_id, sector_count, sector_size)));
+            let mut rdr = Cursor::new(sector.get(sector_id));
+            for _ in 0..sector_size / 4 {
+                fat.push(try!(rdr.read_u32::<LittleEndian>()));
+            }
         }
-        let fat: Vec<u32> = unsafe { mem::transmute(fat) };
         
-        // create sector reader
-        let sectors = Sector::new(data, sector_count, sector_size, fat);
+        // set sector fats
+        let sectors = sector.with_fats(fat);
 
         // get the list of directory sectors
-        let directories: Vec<Directory> = unsafe { 
-            mem::transmute(try!(sectors.read_chain(header.sect_dir_start))) 
-        };
+        debug!("load dirs");
+        let buffer = sectors.read_chain(header.sect_dir_start);
+        let mut directories = Vec::with_capacity(buffer.len() / 128);
+        for c in buffer.chunks(128) {
+            directories.push(try!(Directory::from_slice(c)));
+        }
 
         // load the mini streams
         let mini_sectors = if directories[0].sect_start == ENDOFCHAIN {
             None
         } else {
-            let mut ministream = try!(sectors.read_chain(directories[0].sect_start)); 
+            debug!("load minis");
+            let mut ministream = sectors.read_chain(directories[0].sect_start);
+//             assert_eq!(ministream.len(), directories[0].ul_size as usize);
             ministream.truncate(directories[0].ul_size as usize); // should not be needed
 
-            let minifat: Vec<u32> = unsafe {
-                mem::transmute(try!(sectors.read_chain(header.sect_mini_fat_start)))
-            };
+            debug!("load minifat");
+            let buffer = sectors.read_chain(header.sect_mini_fat_start);
+            let len = buffer.len() / 4;
+            let mut rdr = Cursor::new(buffer);
+            let mut minifat = Vec::with_capacity(len);
+            for _ in 0..len {
+                minifat.push(try!(rdr.read_u32::<LittleEndian>()));
+            }
+
             let mini_sector_size = 2usize.pow(header.mini_sector_shift as u32);
-            let mini_sector_count = ministream.len() / mini_sector_size;
-            Some(Sector::new(ministream, mini_sector_count, mini_sector_size, minifat))
+            assert!(directories[0].ul_size as usize % mini_sector_size == 0);
+            Some(Sector::new(ministream, mini_sector_size).with_fats(minifat))
         };
 
         Ok(VbaProject {
@@ -107,6 +109,18 @@ impl VbaProject {
 
     }
 
+    pub fn get_stream(&self, name: &str) -> Option<usize> {
+        for (i, d) in self.directories.iter().enumerate() {
+            if let Ok(n) = d.get_name() {
+                if &*n == name {
+                    return Some(i);
+                }
+            } else {
+                return None;
+            }
+        }
+        None
+    }
 }
 
 #[allow(dead_code)]
@@ -134,44 +148,96 @@ struct Header {
 
 impl Header {
     fn from_reader<R: Read>(f: &mut R) -> ExcelResult<Header> {
-        let mut data = [0; 512];
-        try!(f.read_exact(&mut data));
-        Ok(unsafe { mem::transmute(data) })
+
+        let mut ab_sig = [0; 8];
+        try!(f.read_exact(&mut ab_sig));
+        let mut clid = [0; 16];
+        try!(f.read_exact(&mut clid));
+        
+        let minor_version = try!(f.read_u16::<LittleEndian>());
+        let dll_version = try!(f.read_u16::<LittleEndian>());
+        let byte_order = try!(f.read_u16::<LittleEndian>());
+        let sector_shift = try!(f.read_u16::<LittleEndian>());
+        let mini_sector_shift = try!(f.read_u16::<LittleEndian>());
+        let reserved = try!(f.read_u16::<LittleEndian>());
+        let reserved1 = try!(f.read_u32::<LittleEndian>());
+        let reserved2 = try!(f.read_u32::<LittleEndian>());
+        let sect_fat_len = try!(f.read_u32::<LittleEndian>());
+        let sect_dir_start = try!(f.read_u32::<LittleEndian>());
+        let signature = try!(f.read_u32::<LittleEndian>());
+        let mini_sector_cutoff = try!(f.read_u32::<LittleEndian>());
+        let sect_mini_fat_start = try!(f.read_u32::<LittleEndian>());
+        let sect_mini_fat_len = try!(f.read_u32::<LittleEndian>());
+        let sect_dif_start = try!(f.read_u32::<LittleEndian>());
+        let sect_dif_len = try!(f.read_u32::<LittleEndian>());
+
+        let mut sect_fat = [0u32; 109];
+        for i in 0..109 {
+            sect_fat[i] = try!(f.read_u32::<LittleEndian>());
+        }
+
+        Ok(Header {
+            ab_sig: ab_sig, 
+            clid: clid,
+            minor_version: minor_version,
+            dll_version: dll_version,
+            byte_order: byte_order,
+            sector_shift: sector_shift,
+            mini_sector_shift: mini_sector_shift,
+            reserved: reserved,
+            reserved1: reserved1,
+            reserved2: reserved2,
+            sect_fat_len: sect_fat_len,
+            sect_dir_start: sect_dir_start,
+            signature: signature,
+            mini_sector_cutoff: mini_sector_cutoff,
+            sect_mini_fat_start: sect_mini_fat_start,
+            sect_mini_fat_len: sect_mini_fat_len,
+            sect_dif_start: sect_dif_start,
+            sect_dif_len: sect_dif_len,
+            sect_fat: sect_fat,
+        })
     }
 }
 
 struct Sector {
     data: Vec<u8>,
     size: usize,
-    count: usize,
     fats: Vec<u32>,
 }
 
 impl Sector {
 
-    fn new(data: Vec<u8>, count: usize, size: usize, fats: Vec<u32>) -> Sector {
+    fn new(data: Vec<u8>, size: usize) -> Sector {
+        assert!(data.len() % size == 0);
         Sector {
             data: data,
             size: size as usize,
-            count: count as usize,
-            fats: fats,
+            fats: Vec::new(),
         }
     }
 
-    fn read_chain(&self, mut sector_id: u32) -> ExcelResult<Vec<u8>> {
+    fn with_fats(mut self, fats: Vec<u32>) -> Sector {
+        self.fats = fats;
+        self
+    }
+
+    fn get(&self, id: u32) -> &[u8] {
+        &self.data[id as usize * self.size .. (id as usize + 1) * self.size]
+    }
+
+    fn read_chain(&self, mut sector_id: u32) -> Vec<u8> {
         let mut buffer = Vec::new();
         while sector_id != ENDOFCHAIN {
-            let sector = try!(get_sector(&self.data, sector_id, self.count, self.size));
-            buffer.extend_from_slice(sector);
+            buffer.extend_from_slice(self.get(sector_id));
             sector_id = self.fats[sector_id as usize];
         }
-        Ok(buffer)
+        buffer
     }
-
 }
 
 #[allow(dead_code)]
-struct Directory {
+pub struct Directory {
     ab: [u8; 64],
     cb: u16,
     mse: i8,
@@ -181,16 +247,60 @@ struct Directory {
     id_child: u32,
     cls_id: [u8; 16],
     dw_user_flags: u32,
-    time: (u64, u64),
+    time: [u64; 2],
     sect_start: u32,
     ul_size: u32,
     dpt_prop_type: u16,
-    padding: [u8; 2],
 }
 
 impl Directory {
-//     fn get_name(&self) -> {
-//         self.name = ''.join([x for x in self._ab[0:self._cb] if ord(x) != 0])
-//     }
+
+    fn from_slice(slice: &[u8]) -> ExcelResult<Directory> {
+        let mut rdr = Cursor::new(slice);
+        let mut ab = [0; 64];
+        try!(rdr.read_exact(&mut ab));
+
+        let cb = try!(rdr.read_u16::<LittleEndian>());
+        let mse = try!(rdr.read_i8());
+        let flags = try!(rdr.read_i8());
+        let id_left_sib = try!(rdr.read_u32::<LittleEndian>());
+        let id_right_sib = try!(rdr.read_u32::<LittleEndian>());
+        let id_child = try!(rdr.read_u32::<LittleEndian>());
+        let mut cls_id = [0; 16];
+        try!(rdr.read_exact(&mut cls_id));
+        let dw_user_flags = try!(rdr.read_u32::<LittleEndian>());
+        let time = [try!(rdr.read_u64::<LittleEndian>()),
+                    try!(rdr.read_u64::<LittleEndian>())];
+        let sect_start = try!(rdr.read_u32::<LittleEndian>());
+        let ul_size = try!(rdr.read_u32::<LittleEndian>());
+        let dpt_prop_type = try!(rdr.read_u16::<LittleEndian>());
+
+        Ok(Directory {
+            ab: ab,
+            cb: cb,
+            mse: mse,
+            flags: flags,
+            id_left_sib: id_left_sib,
+            id_right_sib: id_right_sib,
+            id_child: id_child,
+            cls_id: cls_id,
+            dw_user_flags: dw_user_flags,
+            time: time,
+            sect_start: sect_start,
+            ul_size: ul_size,
+            dpt_prop_type: dpt_prop_type,
+        })
+
+    }
+
+    fn get_name(&self) -> ExcelResult<String> {
+        let mut name = try!(UTF_16LE.decode(&self.ab, DecoderTrap::Ignore)
+                            .map_err(ExcelError::FromUtf16));
+        if let Some(len) = name.as_bytes().iter().position(|b| *b == 0) {
+            name.truncate(len);
+        }
+        println!("{:?}", name);
+        Ok(name)
+    }
 }
 

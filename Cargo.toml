@@ -6,3 +6,6 @@ authors = ["Johann Tuffe"]
 [dependencies]
 zip = "0.1.17"
 quick-xml = "0.3.1"
+log = "0.3"
+encoding = "0.2.32"
+byteorder = "0.5.3"
