@@ -4,7 +4,10 @@
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use zip::read::ZipFile;
-use std::io::{Read, Cursor};
+use std::io::{Read, BufRead};
+use std::collections::HashMap;
+use std::cmp::{min, max};
+use std::path::PathBuf;
 use error::{ExcelResult, ExcelError};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
@@ -13,16 +16,19 @@ use byteorder::{LittleEndian, ReadBytesExt};
 const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
+const CLASS_EXTENSION: &'static str = "cls";
+const MODULE_EXTENSION: &'static str = "bas";
+const FORM_EXTENSION: &'static str = "frm";
 
 #[allow(dead_code)]
 pub struct VbaProject {
+    header: Header,
     directories: Vec<Directory>,
     sectors: Sector,
     mini_sectors: Option<Sector>,
 }
 
 impl VbaProject {
-
     pub fn new(mut f: ZipFile) -> ExcelResult<VbaProject> {
 
         // load header
@@ -48,12 +54,8 @@ impl VbaProject {
         debug!("load dif");
         let mut fat_sectors = header.sect_fat.to_vec();
         let mut sector_id = header.sect_dif_start;
-        assert!(sector_size % 4 == 0);
         while sector_id != FREESECT && sector_id != ENDOFCHAIN {
-            let mut rdr = Cursor::new(sector.get(sector_id));
-            for _ in 0..sector_size / 4 {
-                fat_sectors.push(try!(rdr.read_u32::<LittleEndian>()));
-            }
+            fat_sectors.extend_from_slice(&try!(to_u32_vec(sector.get(sector_id))));
             sector_id = fat_sectors.pop().unwrap(); //TODO: check if in infinite loop
         }
 
@@ -61,10 +63,7 @@ impl VbaProject {
         debug!("load fat");
         let mut fat = Vec::with_capacity(fat_sectors.len() * sector_size);
         for sector_id in fat_sectors.into_iter().filter(|id| *id != FREESECT) {
-            let mut rdr = Cursor::new(sector.get(sector_id));
-            for _ in 0..sector_size / 4 {
-                fat.push(try!(rdr.read_u32::<LittleEndian>()));
-            }
+            fat.extend_from_slice(&try!(to_u32_vec(sector.get(sector_id))));
         }
         
         // set sector fats
@@ -88,13 +87,7 @@ impl VbaProject {
             ministream.truncate(directories[0].ul_size as usize); // should not be needed
 
             debug!("load minifat");
-            let buffer = sectors.read_chain(header.sect_mini_fat_start);
-            let len = buffer.len() / 4;
-            let mut rdr = Cursor::new(buffer);
-            let mut minifat = Vec::with_capacity(len);
-            for _ in 0..len {
-                minifat.push(try!(rdr.read_u32::<LittleEndian>()));
-            }
+            let minifat = try!(to_u32_vec(&sectors.read_chain(header.sect_mini_fat_start)));
 
             let mini_sector_size = 2usize.pow(header.mini_sector_shift as u32);
             assert!(directories[0].ul_size as usize % mini_sector_size == 0);
@@ -102,6 +95,7 @@ impl VbaProject {
         };
 
         Ok(VbaProject {
+            header: header,
             directories: directories,
             sectors: sectors,
             mini_sectors: mini_sectors,
@@ -109,18 +103,226 @@ impl VbaProject {
 
     }
 
-    pub fn get_stream(&self, name: &str) -> Option<usize> {
-        for (i, d) in self.directories.iter().enumerate() {
-            if let Ok(n) = d.get_name() {
-                if &*n == name {
-                    return Some(i);
+    pub fn get_stream(&self, name: &str) -> Option<Vec<u8>> {
+        self.directories.iter()
+            .find(|d| d.get_name().map(|n| &*n == name).unwrap_or(false))
+            .map(|d| {
+                let mut data = if d.ul_size < self.header.mini_sector_cutoff {
+                    self.mini_sectors.as_ref()
+                        .map_or_else(|| Vec::new(), |s| s.read_chain(d.sect_start))
+                } else {
+                    self.sectors.read_chain(d.sect_start)
+                };
+                data.truncate(d.ul_size as usize);
+                data
+            })
+    }
+
+    pub fn get_code_modules(&self) -> ExcelResult<HashMap<String, &'static str>> {
+        let mut stream = &*match self.get_stream("PROJECT") {
+            Some(s) => s,
+            None => return Err(ExcelError::Unexpected("cannot find 'PROJECT' stream".to_string())),
+        };
+        
+        let mut code_modules = HashMap::new();
+        loop {
+            let mut line = String::new();
+            if try!(stream.read_line(&mut line)) == 0 { break; }
+            println!("{:?}", line);
+            let line = line.trim();
+            if line.is_empty() || line.starts_with("[") { continue; }
+            match line.find('=') {
+                None => continue, // invalid or unknown PROJECT property line
+                Some(pos) => {
+                    let value = match &line[..pos] {
+                        "Document" | "Class" => CLASS_EXTENSION,
+                        "Module" => MODULE_EXTENSION,
+                        "BaseClass" => FORM_EXTENSION,
+                        _ => continue,
+                    };
+                    code_modules.insert(line[pos + 1..].to_string(), value);
                 }
-            } else {
-                return None;
             }
         }
-        None
+        Ok(code_modules)
     }
+
+    pub fn parse_macros(&self) -> ExcelResult<(Vec<Reference>, ())> {
+        
+        // dir stream
+        let mut stream = &*match self.get_stream("dir") {
+            Some(s) => try!(decompress_stream(&s)),
+            None => return Err(ExcelError::Unexpected("cannot find 'dir' stream".to_string())),
+        };
+
+        // read header (not used)
+        try!(self.read_dir_header(&mut stream));
+
+        // array of REFERENCE records
+        let references = try!(self.read_references(&mut stream));
+
+        Ok((references, ()))
+
+    }
+
+    fn read_dir_header(&self, stream: &mut &[u8]) -> ExcelResult<()> {
+
+        // PROJECTSYSKIND Record
+        let mut buf = [0; 12];
+        try!(stream.read_exact(&mut buf[0..10]));
+        
+        // PROJECTLCID Record
+        try!(stream.read_exact(&mut buf[0..10]));
+
+        // PROJECTLCIDINVOKE Record
+        try!(stream.read_exact(&mut buf[0..10]));
+
+        // PROJECTCODEPAGE Record
+        try!(stream.read_exact(&mut buf[..8]));
+
+        // PROJECTNAME Record
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project name
+
+        // PROJECTDOCSTRING Record
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project doc string
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project doc string unicode
+
+        // PROJECTHELPFILEPATH Record - MS-OVBA 2.3.4.2.1.7
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project help file path - help file 1
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project help file path - help file 2
+
+        // PROJECTHELPCONTEXT Record
+        try!(stream.read_exact(&mut buf[..10]));
+
+        // PROJECTLIBFLAGS Record
+        try!(stream.read_exact(&mut buf[..10]));
+
+        // PROJECTVERSION Record
+        try!(stream.read_exact(&mut buf[..12]));
+
+        // PROJECTCONSTANTS Record
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project constants - constants
+        try!(stream.read_exact(&mut buf[..2]));
+        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+        try!(stream.read_exact(&mut vec![0; len])); // project constants - constants unicode
+
+        Ok(())
+
+    }
+
+    fn read_references(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Reference>> {
+
+        let mut references = Vec::new();
+        let mut buf = [0; 512];
+        let mut reference = Reference { 
+            name: "".to_string(), 
+            description: "".to_string(), 
+            path: "/".into() 
+        };
+        loop {
+
+            let check = stream.read_u16::<LittleEndian>();
+            match try!(check) {
+                0x000F => {
+                    if !reference.name.is_empty() { references.push(reference); }
+                    break;
+                },
+                0x0016 => { 
+                    if !reference.name.is_empty() { references.push(reference); }
+
+                    // REFERENCENAME
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref name
+
+                    let name = try!(::std::string::String::from_utf8(buf[..len].into()));
+                    reference = Reference {
+                        name: name.clone(),
+                        description: name.clone(),
+                        path: "/".into(),
+                    };
+
+                    try!(stream.read_exact(&mut buf[..2]));
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref name unicode
+                },
+                0x0033 => { 
+                    // REFERENCEORIGINAL (followed by REFERENCECONTROL)
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref original libid original
+                    println!("original libid: {:?}", ::std::str::from_utf8(&buf[..len]));
+                },
+                0x002F => { 
+                    // REFERENCECONTROL
+                    try!(stream.read_exact(&mut buf[..4]));
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref control libid twiddled
+                    try!(stream.read_exact(&mut buf[..6]));
+                    if try!(stream.read_u16::<LittleEndian>()) == 0x0016 {
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // ref control name record extended
+                        println!("ref control name: {:?}", ::std::str::from_utf8(&buf[..len]));
+
+                        try!(stream.read_exact(&mut buf[..2]));
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // ref control name unicode record extended
+                        try!(stream.read_exact(&mut buf[..2]));
+                    }
+                    try!(stream.read_exact(&mut buf[..4]));
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref control libid extended
+                    try!(stream.read_exact(&mut buf[..26]));
+                },
+                0x000D => {
+                    // REFERENCEREGISTERED
+                    try!(stream.read_exact(&mut buf[..4]));
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref registered libid
+                    {
+                        let registered_libid = try!(::std::str::from_utf8(&buf[..len]));
+                        let mut registered_parts = registered_libid.split('#').rev();
+                        
+                        registered_parts.next().map(|p| reference.description = p.to_string());
+                        registered_parts.next().map(|p| reference.path = p.into());
+                    }
+                    try!(stream.read_exact(&mut buf[..6]));
+                },
+                0x000E => {
+                    // REFERENCEPROJECT
+                    try!(stream.read_exact(&mut buf[..4]));
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref project libid absolute
+                    {
+                        let absolute = try!(::std::str::from_utf8(&buf[..len]));
+                        if absolute.starts_with("*\\C") {
+                            reference.path = absolute[3..].into();
+                        } else {
+                            reference.path = absolute.into();
+                        }
+                    }
+                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    try!(stream.read_exact(&mut buf[..len])); // ref project libid relative
+                    try!(stream.read_exact(&mut buf[..6]));
+                },
+                c => return Err(ExcelError::Unexpected(format!("invalid of unknown check Id {}", c))),
+            }
+        }
+
+        Ok(references)
+
+    }
+
 }
 
 #[allow(dead_code)]
@@ -200,6 +402,75 @@ impl Header {
     }
 }
 
+fn to_u32_vec(mut buffer: &[u8]) -> ExcelResult<Vec<u32>> {
+    assert!(buffer.len() % 4 == 0);
+    let mut res = Vec::with_capacity(buffer.len() / 4);
+    for _ in 0..buffer.len() / 4 {
+        res.push(try!(buffer.read_u32::<LittleEndian>()));
+    }
+    Ok(res)
+}
+
+fn decompress_stream(mut r: &[u8]) -> ExcelResult<Vec<u8>> {
+    let mut res = Vec::new();
+
+    if try!(r.read_u8()) != 1 {
+        return Err(ExcelError::Unexpected("invalid signature byte".to_string()));
+    }
+
+    while !r.is_empty() {
+
+        let compressed_chunk_header = try!(r.read_u16::<LittleEndian>());
+        let chunk_is_compressed = (compressed_chunk_header & 0x8000) >> 15;
+
+        if chunk_is_compressed == 0 { // uncompressed
+            let len = res.len();
+            res.extend_from_slice(&[0; 4096]);
+            try!(r.read_exact(&mut res[len..]));
+            continue;
+        }
+
+        let chunk_size = (compressed_chunk_header & 0x0FFF) + 3;
+        let compressed_end = min(r.len() as u16, chunk_size);
+        let decompressed_start = res.len();
+        let mut compressed_current = 0;
+        while compressed_current < compressed_end {
+            let flag_byte = try!(r.read_u8());
+            compressed_current += 1;
+
+            for bit_index in 0..8 {
+                if compressed_current >= compressed_end {
+                    break;
+                }
+
+                if (1 << bit_index) & flag_byte == 0 { // Literal token
+                    res.push(try!(r.read_u8()));
+                    compressed_current += 1;
+                } else {
+                    // copy tokens
+                    let copy_token = try!(r.read_u16::<LittleEndian>());
+                    let difference = (res.len() - decompressed_start) as f64;
+                    let bit_count = max(difference.log2().ceil() as u8, 4);
+                    let len_mask = 0xFFFF >> bit_count;
+                    let offset_mask = !len_mask;
+                    let len = (copy_token & len_mask) + 3;
+                    let temp1 = copy_token & offset_mask;
+                    let temp2 = 16 - bit_count;
+                    let offset = (temp1 >> temp2) + 1;
+                    let copy_source = res.len() - offset as usize;
+                    for i in 0..len as usize {
+                        let val = res[copy_source + i];
+                        res.push(val);
+                    }
+                    compressed_current += 2;
+                }
+            }
+
+        }
+    }
+    Ok(res)
+}
+
 struct Sector {
     data: Vec<u8>,
     size: usize,
@@ -234,6 +505,7 @@ impl Sector {
         }
         buffer
     }
+
 }
 
 #[allow(dead_code)]
@@ -255,8 +527,7 @@ pub struct Directory {
 
 impl Directory {
 
-    fn from_slice(slice: &[u8]) -> ExcelResult<Directory> {
-        let mut rdr = Cursor::new(slice);
+    fn from_slice(mut rdr: &[u8]) -> ExcelResult<Directory> {
         let mut ab = [0; 64];
         try!(rdr.read_exact(&mut ab));
 
@@ -295,12 +566,18 @@ impl Directory {
 
     fn get_name(&self) -> ExcelResult<String> {
         let mut name = try!(UTF_16LE.decode(&self.ab, DecoderTrap::Ignore)
-                            .map_err(ExcelError::FromUtf16));
+                            .map_err(ExcelError::Utf16));
         if let Some(len) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(len);
         }
-        println!("{:?}", name);
         Ok(name)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Reference {
+    pub name: String,
+    pub description: String,
+    pub path: PathBuf,
 }
 

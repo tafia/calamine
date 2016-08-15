@@ -19,6 +19,7 @@ use error::{ExcelError, ExcelResult};
 use vba::VbaProject;
 
 use zip::read::{ZipFile, ZipArchive};
+use zip::result::ZipError;
 use quick_xml::{XmlReader, Event, AsStr};
 
 macro_rules! unexp {
@@ -67,10 +68,7 @@ impl Excel {
     pub fn open<P: AsRef<Path>>(path: P) -> ExcelResult<Excel> {
         let f = try!(File::open(path));
         let zip = try!(ZipArchive::new(f));
-        let mut xl = Excel { zip: zip, strings: vec![], sheets: HashMap::new() };
-        try!(xl.read_shared_strings());
-        try!(xl.read_sheets_names());
-        Ok(xl)
+        Ok(Excel { zip: zip, strings: vec![], sheets: HashMap::new() })
     }
 
     /// Does the workbook contain a vba project
@@ -86,6 +84,8 @@ impl Excel {
 
     /// Get all data from `Worksheet`
     pub fn worksheet_range(&mut self, name: &str) -> ExcelResult<Range> {
+        try!(self.read_shared_strings());
+        try!(self.read_sheets_names());
         let strings = &self.strings;
         let ws = match self.sheets.get(name) {
             Some(p) => try!(self.zip.by_name(p)),
@@ -97,56 +97,63 @@ impl Excel {
     /// Loop through all archive files and opens 'xl/worksheets' files
     /// Store sheet name and path into self.sheets
     fn read_sheets_names(&mut self) -> ExcelResult<()> {
-        let sheets = {
-            let mut sheets = HashMap::new();
-            for i in 0..self.zip.len() {
-                let f = try!(self.zip.by_index(i));
-                let name = f.name().to_string();
-                if name.starts_with("xl/worksheets/") {
-                    let xml = XmlReader::from_reader(BufReader::new(f))
-                        .with_check(false)
-                        .trim_text(false);
-                    'xml_loop: for res_event in xml {
-                        if let Ok(Event::Start(ref e)) = res_event {
-                            if e.name() == b"sheetPr" {
-                                for a in e.attributes() {
-                                    if let Ok((b"codeName", v)) = a {
-                                        sheets.insert(try!(v.as_str()).to_string(), name);
-                                        break 'xml_loop;
+        if self.sheets.is_empty() {
+            let sheets = {
+                let mut sheets = HashMap::new();
+                for i in 0..self.zip.len() {
+                    let f = try!(self.zip.by_index(i));
+                    let name = f.name().to_string();
+                    if name.starts_with("xl/worksheets/") {
+                        let xml = XmlReader::from_reader(BufReader::new(f))
+                            .with_check(false)
+                            .trim_text(false);
+                        'xml_loop: for res_event in xml {
+                            if let Ok(Event::Start(ref e)) = res_event {
+                                if e.name() == b"sheetPr" {
+                                    for a in e.attributes() {
+                                        if let Ok((b"codeName", v)) = a {
+                                            sheets.insert(try!(v.as_str()).to_string(), name);
+                                            break 'xml_loop;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-            sheets
-        };
-        self.sheets = sheets;
+                sheets
+            };
+            self.sheets = sheets;
+        }
         Ok(())
     }
 
     /// Read shared string list
     fn read_shared_strings(&mut self) -> ExcelResult<()> {
-        let strings = {
-            let f = try!(self.zip.by_name("xl/sharedStrings.xml"));
-            let mut xml = XmlReader::from_reader(BufReader::new(f))
-                .with_check(false)
-                .trim_text(false);
+        if self.strings.is_empty() {
+            match self.zip.by_name("xl/sharedStrings.xml") {
+                Ok(f) => {
+                    let mut xml = XmlReader::from_reader(BufReader::new(f))
+                        .with_check(false)
+                        .trim_text(false);
 
-            let mut strings = Vec::new();
-            while let Some(res_event) = xml.next() {
-                match res_event {
-                    Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                        strings.push(try!(xml.read_text(b"t")));
+                    let mut strings = Vec::new();
+                    while let Some(res_event) = xml.next() {
+                        match res_event {
+                            Ok(Event::Start(ref e)) if e.name() == b"t" => {
+                                strings.push(try!(xml.read_text(b"t")));
+                            }
+                            Err(e) => return Err(ExcelError::Xml(e)),
+                            _ => (),
+                        }
                     }
-                    Err(e) => return Err(ExcelError::Xml(e)),
-                    _ => (),
-                }
+                    self.strings = strings;
+                },
+                Err(ZipError::FileNotFound) => (),
+                Err(e) => return Err(ExcelError::Zip(e)),
             }
-            strings
-        };
-        self.strings = strings;
+        }
+
         Ok(())
     }
 
@@ -341,12 +348,11 @@ mod tests {
     
     #[test]
     fn test_vba() {
-
-        let mut xl = Excel::open("/home/jtuffe/download/test_vba.xlsm")
-            .expect("cannot open excel file");
-
-        let vba = xl.vba_project().expect("could not find a vba project");
-        assert!(vba.get_stream("PROJECT").is_some());
-
+//         let path = "/home/jtuffe/download/test_vba.xlsm";
+        let path = "/home/jtuffe/download/Extractions Simples.xlsb";
+        let mut xl = Excel::open(path).expect("cannot open excel file");
+        let macros = xl.vba_project().unwrap().parse_macros();
+        println!("{:#?}", macros);
+        assert!(macros.is_ok());
     }
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Johann Tuffe"]
 
 [dependencies]
-zip = "0.1.17"
+zip = "0.1.18"
 quick-xml = "0.3.1"
 log = "0.3"
 encoding = "0.2.32"
