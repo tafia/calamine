@@ -351,8 +351,15 @@ mod tests {
 //         let path = "/home/jtuffe/download/test_vba.xlsm";
         let path = "/home/jtuffe/download/Extractions Simples.xlsb";
         let mut xl = Excel::open(path).expect("cannot open excel file");
-        let macros = xl.vba_project().unwrap().parse_macros();
-        println!("{:#?}", macros);
-        assert!(macros.is_ok());
+        let vba_project = xl.vba_project().unwrap();
+        let vba = vba_project.read_vba();
+        assert!(vba.is_ok());
+        let (references, modules) = vba.unwrap();
+        println!("references: {:#?}", references);
+        for module in &modules {
+            let data = vba_project.read_module(module).unwrap();
+            println!("module {}:\r\n{}", module.name, data);
+        }
+
     }
 }

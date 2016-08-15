@@ -128,7 +128,6 @@ impl VbaProject {
         loop {
             let mut line = String::new();
             if try!(stream.read_line(&mut line)) == 0 { break; }
-            println!("{:?}", line);
             let line = line.trim();
             if line.is_empty() || line.starts_with("[") { continue; }
             match line.find('=') {
@@ -147,7 +146,7 @@ impl VbaProject {
         Ok(code_modules)
     }
 
-    pub fn parse_macros(&self) -> ExcelResult<(Vec<Reference>, ())> {
+    pub fn read_vba(&self) -> ExcelResult<(Vec<Reference>, Vec<Module>)> {
         
         // dir stream
         let mut stream = &*match self.get_stream("dir") {
@@ -161,7 +160,9 @@ impl VbaProject {
         // array of REFERENCE records
         let references = try!(self.read_references(&mut stream));
 
-        Ok((references, ()))
+        // modules
+        let modules = try!(self.read_modules(&mut stream));
+        Ok((references, modules))
 
     }
 
@@ -321,6 +322,90 @@ impl VbaProject {
 
         Ok(references)
 
+    }
+
+    fn read_modules(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Module>> {
+        let mut buf = [0; 512];
+        try!(stream.read_exact(&mut buf[..4]));
+        
+        let module_len = try!(stream.read_u16::<LittleEndian>()) as usize;
+
+        try!(stream.read_exact(&mut buf[..8]));
+        let mut modules = Vec::with_capacity(module_len);
+
+        for _ in 0..module_len {
+            try!(stream.read_exact(&mut buf[..2]));
+
+            let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+            try!(stream.read_exact(&mut buf[..len])); // ref name
+            let name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
+            let mut module = Module { name: name, ..Default::default() };
+
+            loop {
+                let section_id = try!(stream.read_u16::<LittleEndian>());
+                match section_id {
+                    0x0047 => {
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // unicode name
+                    },
+                    0x001A => {
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // stream name
+                        module.stream_name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
+                        try!(stream.read_exact(&mut buf[..2]));
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // stream name unicode
+                    },
+                    0x001C => {
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // doc string
+                        try!(stream.read_exact(&mut buf[..2]));
+                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
+                        try!(stream.read_exact(&mut buf[..len])); // doc string unicode
+                    },
+                    0x0031 => {
+                        try!(stream.read_exact(&mut buf[..4])); // offset
+                        module.text_offset = try!(stream.read_u32::<LittleEndian>()) as usize;
+                    },
+                    0x001E => {
+                        try!(stream.read_exact(&mut buf[..8])); // help context
+                    },
+                    0x002C => {
+                        try!(stream.read_exact(&mut buf[..6])); // cookies
+                    },
+                    0x0021 | 0x0022 => {
+                        try!(stream.read_exact(&mut buf[..4])); // reserved
+                    },
+                    0x0025 => {
+                        try!(stream.read_exact(&mut buf[..4])); // read only
+                    },
+                    0x0028 => {
+                        try!(stream.read_exact(&mut buf[..4])); // private
+                    },
+                    0x002B => {
+                        try!(stream.read_exact(&mut buf[..4])); // private
+                        break;
+                    },
+                    s => return Err(ExcelError::Unexpected(
+                            format!("unknown or invalid module section id {}", s))),
+                }
+            }
+
+            modules.push(module);
+        }
+
+        Ok(modules)
+    }
+
+    pub fn read_module(&self, module: &Module) -> ExcelResult<String> {
+        match self.get_stream(&module.stream_name) {
+            None => Err(ExcelError::Unexpected(format!("cannot find {} stream", module.stream_name))),
+            Some(s) => {
+                let data = try!(decompress_stream(&s[module.text_offset..]));
+                let data = try!(::std::string::String::from_utf8(data));
+                Ok(data)
+            }
+        }
     }
 
 }
@@ -579,5 +664,12 @@ pub struct Reference {
     pub name: String,
     pub description: String,
     pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Module {
+    pub name: String,
+    stream_name: String,
+    text_offset: usize,
 }
 
