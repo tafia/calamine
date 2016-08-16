@@ -6,12 +6,12 @@
 use zip::read::ZipFile;
 use std::io::{Read, BufRead};
 use std::collections::HashMap;
-use std::cmp::{min, max};
 use std::path::PathBuf;
 use error::{ExcelResult, ExcelError};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
 use byteorder::{LittleEndian, ReadBytesExt};
+use log::LogLevel;
 
 const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
@@ -19,6 +19,9 @@ const FREESECT: u32 = 0xFFFFFFFF;
 const CLASS_EXTENSION: &'static str = "cls";
 const MODULE_EXTENSION: &'static str = "bas";
 const FORM_EXTENSION: &'static str = "frm";
+
+const POWER_2: [usize; 16] = [1   , 1<<1, 1<<2,  1<<3,  1<<4,  1<<5,  1<<6,  1<<7, 
+                              1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15];
 
 #[allow(dead_code)]
 pub struct VbaProject {
@@ -30,6 +33,7 @@ pub struct VbaProject {
 
 impl VbaProject {
     pub fn new(mut f: ZipFile) -> ExcelResult<VbaProject> {
+        debug!("new vba project");
 
         // load header
         debug!("loading header");
@@ -104,6 +108,7 @@ impl VbaProject {
     }
 
     pub fn get_stream(&self, name: &str) -> Option<Vec<u8>> {
+        debug!("get stream {}", name);
         self.directories.iter()
             .find(|d| d.get_name().map(|n| &*n == name).unwrap_or(false))
             .map(|d| {
@@ -147,6 +152,7 @@ impl VbaProject {
     }
 
     pub fn read_vba(&self) -> ExcelResult<(Vec<Reference>, Vec<Module>)> {
+        debug!("read vba");
         
         // dir stream
         let mut stream = &*match self.get_stream("dir") {
@@ -167,6 +173,7 @@ impl VbaProject {
     }
 
     fn read_dir_header(&self, stream: &mut &[u8]) -> ExcelResult<()> {
+        debug!("read dir header");
 
         // PROJECTSYSKIND Record
         let mut buf = [0; 12];
@@ -224,6 +231,7 @@ impl VbaProject {
     }
 
     fn read_references(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Reference>> {
+        debug!("read all references metadata");
 
         let mut references = Vec::new();
         let mut buf = [0; 512];
@@ -262,7 +270,7 @@ impl VbaProject {
                     // REFERENCEORIGINAL (followed by REFERENCECONTROL)
                     let len = try!(stream.read_u32::<LittleEndian>()) as usize;
                     try!(stream.read_exact(&mut buf[..len])); // ref original libid original
-                    println!("original libid: {:?}", ::std::str::from_utf8(&buf[..len]));
+                    debug!("ignored: original libid: {:?}", ::std::str::from_utf8(&buf[..len]));
                 },
                 0x002F => { 
                     // REFERENCECONTROL
@@ -273,7 +281,7 @@ impl VbaProject {
                     if try!(stream.read_u16::<LittleEndian>()) == 0x0016 {
                         let len = try!(stream.read_u32::<LittleEndian>()) as usize;
                         try!(stream.read_exact(&mut buf[..len])); // ref control name record extended
-                        println!("ref control name: {:?}", ::std::str::from_utf8(&buf[..len]));
+                        debug!("ignored: ref control name: {:?}", ::std::str::from_utf8(&buf[..len]));
 
                         try!(stream.read_exact(&mut buf[..2]));
                         let len = try!(stream.read_u32::<LittleEndian>()) as usize;
@@ -325,79 +333,83 @@ impl VbaProject {
     }
 
     fn read_modules(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Module>> {
-        let mut buf = [0; 512];
+        debug!("read all modules metadata");
+        let mut buf = [0; 4096];
         try!(stream.read_exact(&mut buf[..4]));
         
         let module_len = try!(stream.read_u16::<LittleEndian>()) as usize;
 
-        try!(stream.read_exact(&mut buf[..8]));
+        try!(stream.read_exact(&mut buf[..8])); // PROJECTCOOKIE record
         let mut modules = Vec::with_capacity(module_len);
 
         for _ in 0..module_len {
-            try!(stream.read_exact(&mut buf[..2]));
 
-            let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-            try!(stream.read_exact(&mut buf[..len])); // ref name
+            // name
+            let len = try!(read_variable_record(0x0019, stream, &mut buf));
             let name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
-            let mut module = Module { name: name, ..Default::default() };
 
-            loop {
-                let section_id = try!(stream.read_u16::<LittleEndian>());
-                match section_id {
-                    0x0047 => {
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // unicode name
-                    },
-                    0x001A => {
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // stream name
-                        module.stream_name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
-                        try!(stream.read_exact(&mut buf[..2]));
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // stream name unicode
-                    },
-                    0x001C => {
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // doc string
-                        try!(stream.read_exact(&mut buf[..2]));
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // doc string unicode
-                    },
-                    0x0031 => {
-                        try!(stream.read_exact(&mut buf[..4])); // offset
-                        module.text_offset = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    },
-                    0x001E => {
-                        try!(stream.read_exact(&mut buf[..8])); // help context
-                    },
-                    0x002C => {
-                        try!(stream.read_exact(&mut buf[..6])); // cookies
-                    },
-                    0x0021 | 0x0022 => {
-                        try!(stream.read_exact(&mut buf[..4])); // reserved
-                    },
-                    0x0025 => {
-                        try!(stream.read_exact(&mut buf[..4])); // read only
-                    },
-                    0x0028 => {
-                        try!(stream.read_exact(&mut buf[..4])); // private
-                    },
-                    0x002B => {
-                        try!(stream.read_exact(&mut buf[..4])); // private
-                        break;
-                    },
-                    s => return Err(ExcelError::Unexpected(
-                            format!("unknown or invalid module section id {}", s))),
-                }
+            // unicode name
+            try!(read_variable_record(0x0047, stream, &mut buf));
+
+            // stream name
+            let len = try!(read_variable_record(0x001A, stream, &mut buf));
+            let stream_name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
+
+            // stream name unicode
+            try!(read_variable_record(0x0032, stream, &mut buf));
+
+            // doc string
+            try!(read_variable_record(0x001C, stream, &mut buf));
+
+            // doc string unicode
+            try!(read_variable_record(0x0048, stream, &mut buf));
+
+            // offset
+            try!(check_record(0x0031, stream));
+            try!(stream.read_exact(&mut buf[..4]));
+            let offset = try!(stream.read_u32::<LittleEndian>()) as usize;
+
+            // help context
+            try!(check_record(0x001E, stream));
+            try!(stream.read_exact(&mut buf[..8]));
+
+            // cookie
+            try!(check_record(0x002C, stream));
+            try!(stream.read_exact(&mut buf[..6]));
+
+            match try!(stream.read_u16::<LittleEndian>()) {
+                0x0021 => (), // procedural module
+                0x0022 => (), // document, class or designer module
+                e => return Err(ExcelError::Unexpected(format!(
+                            "unknown module type {}", e))),
             }
 
-            modules.push(module);
+            loop {
+                try!(stream.read_exact(&mut buf[..4])); // reserved
+                match stream.read_u16::<LittleEndian>() {
+                    Ok(0x0025) => (), // readonly
+                    Ok(0x0028) => (), // private
+                    Ok(0x002B) => break,
+                    Ok(e) => return Err(ExcelError::Unexpected(format!(
+                                "unknown record id {}", e))),
+                    Err(e) => return Err(ExcelError::Io(e)),
+                }
+            }
+            try!(stream.read_exact(&mut buf[..4])); // reserved
+
+            modules.push(Module {
+                name: name,
+                stream_name: stream_name,
+                text_offset: offset,
+            });
         }
 
+        debug!("done reading modules metadata");
         Ok(modules)
     }
 
     pub fn read_module(&self, module: &Module) -> ExcelResult<String> {
+        debug!("read module {}", module.name);
         match self.get_stream(&module.stream_name) {
             None => Err(ExcelError::Unexpected(format!("cannot find {} stream", module.stream_name))),
             Some(s) => {
@@ -496,64 +508,73 @@ fn to_u32_vec(mut buffer: &[u8]) -> ExcelResult<Vec<u32>> {
     Ok(res)
 }
 
+/// To better understand what's happening, look at 
+/// http://www.wordarticles.com/Articles/Formats/StreamCompression.php
 fn decompress_stream(mut r: &[u8]) -> ExcelResult<Vec<u8>> {
+    debug!("decompress slice (len {})", r.len());
     let mut res = Vec::new();
 
-    if try!(r.read_u8()) != 1 {
+    if try!(r.read_u8()) != 0x01 {
         return Err(ExcelError::Unexpected("invalid signature byte".to_string()));
     }
 
     while !r.is_empty() {
 
-        let compressed_chunk_header = try!(r.read_u16::<LittleEndian>());
-        let chunk_is_compressed = (compressed_chunk_header & 0x8000) >> 15;
+        // each 'chunk' is 4096 wide, let's reserve that space
+        let start = res.len();
+        res.reserve(4096);
 
-        if chunk_is_compressed == 0 { // uncompressed
-            let len = res.len();
-            res.extend_from_slice(&[0; 4096]);
-            try!(r.read_exact(&mut res[len..]));
-            continue;
-        }
+        let chunk_header = try!(r.read_u16::<LittleEndian>());
+        let chunk_size = chunk_header & 0x0FFF;
+        let chunk_signature = (chunk_header & 0x7000) >> 12;
+        let chunk_flag = (chunk_header & 0x8000) >> 15;
 
-        let chunk_size = (compressed_chunk_header & 0x0FFF) + 3;
-        let compressed_end = min(r.len() as u16, chunk_size);
-        let decompressed_start = res.len();
-        let mut compressed_current = 0;
-        while compressed_current < compressed_end {
-            let flag_byte = try!(r.read_u8());
-            compressed_current += 1;
+        assert_eq!(chunk_signature, 0b011);
 
-            for bit_index in 0..8 {
-                if compressed_current >= compressed_end {
-                    break;
-                }
+        if chunk_flag == 0 { // uncompressed
 
-                if (1 << bit_index) & flag_byte == 0 { // Literal token
-                    res.push(try!(r.read_u8()));
-                    compressed_current += 1;
-                } else {
-                    // copy tokens
-                    let copy_token = try!(r.read_u16::<LittleEndian>());
-                    let difference = (res.len() - decompressed_start) as f64;
-                    let bit_count = max(difference.log2().ceil() as u8, 4);
-                    let len_mask = 0xFFFF >> bit_count;
-                    let offset_mask = !len_mask;
-                    let len = (copy_token & len_mask) + 3;
-                    let temp1 = copy_token & offset_mask;
-                    let temp2 = 16 - bit_count;
-                    let offset = (temp1 >> temp2) + 1;
-                    let copy_source = res.len() - offset as usize;
-                    for i in 0..len as usize {
-                        let val = res[copy_source + i];
-                        res.push(val);
+            res.extend_from_slice(&[0u8; 4096]);
+            try!(r.read_exact(&mut res[start..]));
+
+        } else {
+
+            let mut chunk_len = 0;
+            'chunk: loop {
+
+                let bit_flags = try!(r.read_u8());
+                chunk_len += 1;
+
+                for bit_index in 0..8 {
+
+                    if chunk_len > chunk_size { break 'chunk; }
+
+                    if (bit_flags & (1 << bit_index)) == 0 {
+                        // literal token
+                        res.push(try!(r.read_u8()));
+                        chunk_len += 1;
+                    } else {
+                        // copy token
+                        let token = try!(r.read_u16::<LittleEndian>());
+                        chunk_len += 2;
+
+                        let decomp_len = res.len() - start;
+                        let bit_count = (4..16).find(|i| POWER_2[*i] >= decomp_len).unwrap();
+                        let len_mask = 0xFFFF >> bit_count;
+                        let len = (token & len_mask) as usize + 3;
+                        let offset = ((token & !len_mask) >> (16 - bit_count)) as usize + 1;
+
+                        for i in (res.len() - offset)..(res.len() - offset + len) {
+                            let v = res[i];
+                            res.push(v);
+                        }
+
                     }
-                    compressed_current += 2;
                 }
             }
-
         }
     }
     Ok(res)
+
 }
 
 struct Sector {
@@ -583,6 +604,7 @@ impl Sector {
     }
 
     fn read_chain(&self, mut sector_id: u32) -> Vec<u8> {
+        debug!("chain reading sector {}", sector_id);
         let mut buffer = Vec::new();
         while sector_id != ENDOFCHAIN {
             buffer.extend_from_slice(self.get(sector_id));
@@ -657,6 +679,33 @@ impl Directory {
         }
         Ok(name)
     }
+}
+
+fn read_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<usize> {
+    try!(check_record(id, r));
+    let mut len = try!(r.read_u32::<LittleEndian>()) as usize;
+    if log_enabled!(LogLevel::Warn) {
+        if len > 100_000 {
+            warn!("record id {} as a suspicious huge length of {1} (hex: {1:x})", id, len);
+        }
+    }
+    if len > r.len() {
+        warn!("record id {} is bigger than reader length ({} > {2}), truncating to {2}", 
+              id, len, r.len());
+        len = r.len();
+    }
+    try!(r.read_exact(&mut buf[..len]));
+    Ok(len)
+}
+
+fn check_record(id: u16, r: &mut &[u8]) -> ExcelResult<()> {
+    debug!("check record {:x}", id);
+    let record_id = try!(r.read_u16::<LittleEndian>());
+    if record_id != id {
+        return Err(ExcelError::Unexpected(format!("invalid record id, found {:x}, expecting {:x}",
+                                                  record_id, id)));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

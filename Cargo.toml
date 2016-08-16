@@ -6,6 +6,10 @@ authors = ["Johann Tuffe"]
 [dependencies]
 zip = "0.1.18"
 quick-xml = "0.3.1"
-log = "0.3"
+log = "0.3.6"
 encoding = "0.2.32"
 byteorder = "0.5.3"
+
+[dev-dependencies]
+env_logger = "0.3.4"
+

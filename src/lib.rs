@@ -332,6 +332,8 @@ fn get_row_column(range: &str) -> ExcelResult<(u32, u32)> {
 #[cfg(test)]
 mod tests {
 
+    extern crate env_logger;
+
     use super::Excel;
 
     #[test]
@@ -348,12 +350,15 @@ mod tests {
     
     #[test]
     fn test_vba() {
+
+        env_logger::init().unwrap();
+
 //         let path = "/home/jtuffe/download/test_vba.xlsm";
         let path = "/home/jtuffe/download/Extractions Simples.xlsb";
+        let path = "/home/jtuffe/download/test_xl/ReportRDM_CVA VF_v3.xlsm";
         let mut xl = Excel::open(path).expect("cannot open excel file");
         let vba_project = xl.vba_project().unwrap();
         let vba = vba_project.read_vba();
-        assert!(vba.is_ok());
         let (references, modules) = vba.unwrap();
         println!("references: {:#?}", references);
         for module in &modules {
