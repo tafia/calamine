@@ -420,6 +420,17 @@ impl VbaProject {
         }
     }
 
+    pub fn read_module_mbcs(&self, module: &Module) -> ExcelResult<Vec<u8>> {
+        debug!("read module {}", module.name);
+        match self.get_stream(&module.stream_name) {
+            None => Err(ExcelError::Unexpected(format!("cannot find {} stream", module.stream_name))),
+            Some(s) => {
+                let data = try!(decompress_stream(&s[module.text_offset..]));
+                Ok(data)
+            }
+        }
+    }
+
 }
 
 #[allow(dead_code)]
