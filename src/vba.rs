@@ -697,7 +697,7 @@ fn read_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<u
     let mut len = try!(r.read_u32::<LittleEndian>()) as usize;
     if log_enabled!(LogLevel::Warn) {
         if len > 100_000 {
-            warn!("record id {} as a suspicious huge length of {1} (hex: {1:x})", id, len);
+            warn!("record id {} as a suspicious huge length of {} (hex: {:x})", id, len, len);
         }
     }
     if len > r.len() {
