@@ -174,57 +174,28 @@ impl VbaProject {
 
     fn read_dir_header(&self, stream: &mut &[u8]) -> ExcelResult<()> {
         debug!("read dir header");
+        let mut buf = [0; 2048]; // should be enough as per [MS-OVBA]
 
-        // PROJECTSYSKIND Record
-        let mut buf = [0; 12];
-        try!(stream.read_exact(&mut buf[0..10]));
+        // PROJECTSYSKIND, PROJECTLCID and PROJECTLCIDINVOKE Records
+        try!(stream.read_exact(&mut buf[0..38]));
         
-        // PROJECTLCID Record
-        try!(stream.read_exact(&mut buf[0..10]));
-
-        // PROJECTLCIDINVOKE Record
-        try!(stream.read_exact(&mut buf[0..10]));
-
-        // PROJECTCODEPAGE Record
-        try!(stream.read_exact(&mut buf[..8]));
-
         // PROJECTNAME Record
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project name
+        try!(check_variable_record(0x0004, stream, &mut buf));
 
         // PROJECTDOCSTRING Record
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project doc string
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project doc string unicode
+        try!(check_variable_record(0x0005, stream, &mut buf));
+        try!(check_variable_record(0x0040, stream, &mut buf)); // unicode
 
         // PROJECTHELPFILEPATH Record - MS-OVBA 2.3.4.2.1.7
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project help file path - help file 1
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project help file path - help file 2
+        try!(check_variable_record(0x0006, stream, &mut buf));
+        try!(check_variable_record(0x003D, stream, &mut buf));
 
-        // PROJECTHELPCONTEXT Record
-        try!(stream.read_exact(&mut buf[..10]));
-
-        // PROJECTLIBFLAGS Record
-        try!(stream.read_exact(&mut buf[..10]));
-
-        // PROJECTVERSION Record
-        try!(stream.read_exact(&mut buf[..12]));
+        // PROJECTHELPCONTEXT PROJECTLIBFLAGS and PROJECTVERSION Records
+        try!(stream.read_exact(&mut buf[..32]));
 
         // PROJECTCONSTANTS Record
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project constants - constants
-        try!(stream.read_exact(&mut buf[..2]));
-        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-        try!(stream.read_exact(&mut vec![0; len])); // project constants - constants unicode
+        try!(check_variable_record(0x000C, stream, &mut buf));
+        try!(check_variable_record(0x003C, stream, &mut buf)); // unicode
 
         Ok(())
 
@@ -235,26 +206,36 @@ impl VbaProject {
 
         let mut references = Vec::new();
         let mut buf = [0; 512];
+
         let mut reference = Reference { 
             name: "".to_string(), 
             description: "".to_string(), 
             path: "/".into() 
         };
+
+        fn set_module_from_libid(reference: &mut Reference, len: usize, buf: &mut [u8]) 
+            -> ExcelResult<()> 
+        {
+            let libid = try!(::std::str::from_utf8(&buf[..len]));
+            let mut parts = libid.split('#').rev();
+            parts.next().map(|p| reference.description = p.to_string());
+            parts.next().map(|p| reference.path = p.into());
+            Ok(())
+        }
+
         loop {
 
             let check = stream.read_u16::<LittleEndian>();
             match try!(check) {
-                0x000F => {
+                0x000F => { // termination of references array
                     if !reference.name.is_empty() { references.push(reference); }
                     break;
                 },
-                0x0016 => { 
+
+                0x0016 => { // REFERENCENAME
                     if !reference.name.is_empty() { references.push(reference); }
 
-                    // REFERENCENAME
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref name
-
+                    let len = try!(read_variable_record(stream, &mut buf));
                     let name = try!(::std::string::String::from_utf8(buf[..len].into()));
                     reference = Reference {
                         name: name.clone(),
@@ -262,56 +243,48 @@ impl VbaProject {
                         path: "/".into(),
                     };
 
-                    try!(stream.read_exact(&mut buf[..2]));
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref name unicode
+                    try!(check_variable_record(0x003E, stream, &mut buf)); // unicode
                 },
-                0x0033 => { 
-                    // REFERENCEORIGINAL (followed by REFERENCECONTROL)
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref original libid original
-                    debug!("ignored: original libid: {:?}", ::std::str::from_utf8(&buf[..len]));
-                },
-                0x002F => { 
-                    // REFERENCECONTROL
-                    try!(stream.read_exact(&mut buf[..4]));
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref control libid twiddled
-                    try!(stream.read_exact(&mut buf[..6]));
-                    if try!(stream.read_u16::<LittleEndian>()) == 0x0016 {
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // ref control name record extended
-                        debug!("ignored: ref control name: {:?}", ::std::str::from_utf8(&buf[..len]));
 
-                        try!(stream.read_exact(&mut buf[..2]));
-                        let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                        try!(stream.read_exact(&mut buf[..len])); // ref control name unicode record extended
-                        try!(stream.read_exact(&mut buf[..2]));
-                    }
+                0x0033 => { // REFERENCEORIGINAL (followed by REFERENCECONTROL)
+                    try!(read_variable_record(stream, &mut buf));
+                },
+
+                0x002F => { // REFERENCECONTROL
+                    try!(stream.read_exact(&mut buf[..4])); // len of total ref control
+
+                    let len = try!(read_variable_record(stream, &mut buf)); //libid twiddled
+                    try!(set_module_from_libid(&mut reference, len, &mut buf));
+
+                    try!(stream.read_exact(&mut buf[..6]));
+
+                    match try!(stream.read_u16::<LittleEndian>()) {
+                        0x0016 => { // optional name record extended
+                            try!(read_variable_record(stream, &mut buf)); // name extended
+                            try!(check_variable_record(0x003E, stream, &mut buf)); // name extended unicode
+                            try!(check_record(0x0030, stream));
+                        },
+                        0x0030 => (),
+                        e => return Err(ExcelError::Unexpected(format!(
+                                    "unexpected token in reference control {:x}", e))),
+                    } 
                     try!(stream.read_exact(&mut buf[..4]));
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref control libid extended
+                    try!(read_variable_record(stream, &mut buf)); // libid extended
                     try!(stream.read_exact(&mut buf[..26]));
                 },
-                0x000D => {
-                    // REFERENCEREGISTERED
+
+                0x000D => { // REFERENCEREGISTERED
                     try!(stream.read_exact(&mut buf[..4]));
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref registered libid
-                    {
-                        let registered_libid = try!(::std::str::from_utf8(&buf[..len]));
-                        let mut registered_parts = registered_libid.split('#').rev();
-                        
-                        registered_parts.next().map(|p| reference.description = p.to_string());
-                        registered_parts.next().map(|p| reference.path = p.into());
-                    }
+
+                    let len = try!(read_variable_record(stream, &mut buf)); // libid registered
+                    try!(set_module_from_libid(&mut reference, len, &mut buf));
+
                     try!(stream.read_exact(&mut buf[..6]));
                 },
-                0x000E => {
-                    // REFERENCEPROJECT
+
+                0x000E => { // REFERENCEPROJECT
                     try!(stream.read_exact(&mut buf[..4]));
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref project libid absolute
+                    let len = try!(read_variable_record(stream, &mut buf)); // project libid absolute
                     {
                         let absolute = try!(::std::str::from_utf8(&buf[..len]));
                         if absolute.starts_with("*\\C") {
@@ -320,8 +293,7 @@ impl VbaProject {
                             reference.path = absolute.into();
                         }
                     }
-                    let len = try!(stream.read_u32::<LittleEndian>()) as usize;
-                    try!(stream.read_exact(&mut buf[..len])); // ref project libid relative
+                    try!(read_variable_record(stream, &mut buf)); // project libid relative
                     try!(stream.read_exact(&mut buf[..6]));
                 },
                 c => return Err(ExcelError::Unexpected(format!("invalid of unknown check Id {}", c))),
@@ -345,24 +317,24 @@ impl VbaProject {
         for _ in 0..module_len {
 
             // name
-            let len = try!(read_variable_record(0x0019, stream, &mut buf));
+            let len = try!(check_variable_record(0x0019, stream, &mut buf));
             let name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
 
             // unicode name
-            try!(read_variable_record(0x0047, stream, &mut buf));
+            try!(check_variable_record(0x0047, stream, &mut buf));
 
             // stream name
-            let len = try!(read_variable_record(0x001A, stream, &mut buf));
+            let len = try!(check_variable_record(0x001A, stream, &mut buf));
             let stream_name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
 
             // stream name unicode
-            try!(read_variable_record(0x0032, stream, &mut buf));
+            try!(check_variable_record(0x0032, stream, &mut buf));
 
             // doc string
-            try!(read_variable_record(0x001C, stream, &mut buf));
+            try!(check_variable_record(0x001C, stream, &mut buf));
 
             // doc string unicode
-            try!(read_variable_record(0x0048, stream, &mut buf));
+            try!(check_variable_record(0x0048, stream, &mut buf));
 
             // offset
             try!(check_record(0x0031, stream));
@@ -692,20 +664,20 @@ impl Directory {
     }
 }
 
-fn read_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<usize> {
+fn read_variable_record(r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<usize> {
+    let len = try!(r.read_u32::<LittleEndian>()) as usize;
+    try!(r.read_exact(&mut buf[..len]));
+    Ok(len)
+}
+
+fn check_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<usize> {
     try!(check_record(id, r));
-    let mut len = try!(r.read_u32::<LittleEndian>()) as usize;
+    let len = try!(read_variable_record(r, buf));
     if log_enabled!(LogLevel::Warn) {
         if len > 100_000 {
-            warn!("record id {} as a suspicious huge length of {} (hex: {:x})", id, len, len);
+            warn!("record id {} as a suspicious huge length of {} (hex: {:x})", id, len, len as u32);
         }
     }
-    if len > r.len() {
-        warn!("record id {} is bigger than reader length ({} > {2}), truncating to {2}", 
-              id, len, r.len());
-        len = r.len();
-    }
-    try!(r.read_exact(&mut buf[..len]));
     Ok(len)
 }
 
