@@ -32,11 +32,15 @@ pub struct VbaProject {
 }
 
 impl VbaProject {
+
+    /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile`.
+    ///
+    /// Starts reading project metadata (header, directories, sectors and minisectors).
+    /// Warning: Buffers the entire ZipFile in memory, it may be bad for huge projects
     pub fn new(mut f: ZipFile) -> ExcelResult<VbaProject> {
         debug!("new vba project");
 
         // load header
-        debug!("loading header");
         let header = try!(Header::from_reader(&mut f));
 
         // check signature
@@ -107,7 +111,8 @@ impl VbaProject {
 
     }
 
-    pub fn get_stream(&self, name: &str) -> Option<Vec<u8>> {
+    /// Gets a stream by name out of directories
+    fn get_stream(&self, name: &str) -> Option<Vec<u8>> {
         debug!("get stream {}", name);
         self.directories.iter()
             .find(|d| d.get_name().map(|n| &*n == name).unwrap_or(false))
@@ -123,6 +128,7 @@ impl VbaProject {
             })
     }
 
+    /// Gets `Module` extensions, in case one wants to output the results
     pub fn get_code_modules(&self) -> ExcelResult<HashMap<String, &'static str>> {
         let mut stream = &*match self.get_stream("PROJECT") {
             Some(s) => s,
@@ -151,6 +157,7 @@ impl VbaProject {
         Ok(code_modules)
     }
 
+    /// Reads project `Reference`s and `Module`s
     pub fn read_vba(&self) -> ExcelResult<(Vec<Reference>, Vec<Module>)> {
         debug!("read vba");
         
@@ -198,7 +205,6 @@ impl VbaProject {
         try!(check_variable_record(0x003C, stream, &mut buf)); // unicode
 
         Ok(())
-
     }
 
     fn read_references(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Reference>> {
@@ -287,11 +293,11 @@ impl VbaProject {
                     let len = try!(read_variable_record(stream, &mut buf)); // project libid absolute
                     {
                         let absolute = try!(::std::str::from_utf8(&buf[..len]));
-                        if absolute.starts_with("*\\C") {
-                            reference.path = absolute[3..].into();
+                        reference.path = if absolute.starts_with("*\\C") { 
+                            absolute[3..].into()
                         } else {
-                            reference.path = absolute.into();
-                        }
+                            absolute.into()
+                        };
                     }
                     try!(read_variable_record(stream, &mut buf)); // project libid relative
                     try!(stream.read_exact(&mut buf[..6]));
@@ -301,7 +307,6 @@ impl VbaProject {
         }
 
         Ok(references)
-
     }
 
     fn read_modules(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Module>> {
@@ -320,21 +325,14 @@ impl VbaProject {
             let len = try!(check_variable_record(0x0019, stream, &mut buf));
             let name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
 
-            // unicode name
-            try!(check_variable_record(0x0047, stream, &mut buf));
+            try!(check_variable_record(0x0047, stream, &mut buf));      // unicode
 
-            // stream name
-            let len = try!(check_variable_record(0x001A, stream, &mut buf));
-            let stream_name = try!(::std::string::String::from_utf8(buf[..len].to_vec()));
+            let len = try!(check_variable_record(0x001A, stream, &mut buf)); // stream name
+            let stream_name = try!(::std::string::String::from_utf8(buf[..len].to_vec())); 
 
-            // stream name unicode
-            try!(check_variable_record(0x0032, stream, &mut buf));
-
-            // doc string
-            try!(check_variable_record(0x001C, stream, &mut buf));
-
-            // doc string unicode
-            try!(check_variable_record(0x0048, stream, &mut buf));
+            try!(check_variable_record(0x0032, stream, &mut buf));      // stream name unicode
+            try!(check_variable_record(0x001C, stream, &mut buf));      // doc string
+            try!(check_variable_record(0x0048, stream, &mut buf));      // doc string unicode
 
             // offset
             try!(check_record(0x0031, stream));
@@ -359,8 +357,7 @@ impl VbaProject {
             loop {
                 try!(stream.read_exact(&mut buf[..4])); // reserved
                 match stream.read_u16::<LittleEndian>() {
-                    Ok(0x0025) => (), // readonly
-                    Ok(0x0028) => (), // private
+                    Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
                     Ok(0x002B) => break,
                     Ok(e) => return Err(ExcelError::Unexpected(format!(
                                 "unknown record id {}", e))),
@@ -376,10 +373,14 @@ impl VbaProject {
             });
         }
 
-        debug!("done reading modules metadata");
         Ok(modules)
     }
 
+    /// Reads module content and tries to convert to utf8
+    ///
+    /// While it works most of the time, the modules are MBSC encoding and the conversion
+    /// may fail. If this is the case you should revert to `read_module_raw` as there is 
+    /// no built in decoding provided in this crate
     pub fn read_module(&self, module: &Module) -> ExcelResult<String> {
         debug!("read module {}", module.name);
         match self.get_stream(&module.stream_name) {
@@ -392,7 +393,8 @@ impl VbaProject {
         }
     }
 
-    pub fn read_module_mbcs(&self, module: &Module) -> ExcelResult<Vec<u8>> {
+    /// Reads module content (MBSC encoded) and output it as-is
+    pub fn read_module_raw(&self, module: &Module) -> ExcelResult<Vec<u8>> {
         debug!("read module {}", module.name);
         match self.get_stream(&module.stream_name) {
             None => Err(ExcelError::Unexpected(format!("cannot find {} stream", module.stream_name))),
@@ -405,26 +407,25 @@ impl VbaProject {
 
 }
 
-#[allow(dead_code)]
 struct Header {
     ab_sig: [u8; 8],
-    clid: [u8; 16],
-    minor_version: u16,
-    dll_version: u16,
-    byte_order: u16,
+    _clid: [u8; 16],
+    _minor_version: u16,
+    _dll_version: u16,
+    _byte_order: u16,
     sector_shift: u16,
     mini_sector_shift: u16,
-    reserved: u16,
-    reserved1: u32,
-    reserved2: u32,
-    sect_fat_len: u32,
+    _reserved: u16,
+    _reserved1: u32,
+    _reserved2: u32,
+    _sect_fat_len: u32,
     sect_dir_start: u32,
-    signature: u32,
+    _signature: u32,
     mini_sector_cutoff: u32,
     sect_mini_fat_start: u32,
-    sect_mini_fat_len: u32,
+    _sect_mini_fat_len: u32,
     sect_dif_start: u32,
-    sect_dif_len: u32,
+    _sect_dif_len: u32,
     sect_fat: [u32; 109]
 }
 
@@ -460,28 +461,29 @@ impl Header {
 
         Ok(Header {
             ab_sig: ab_sig, 
-            clid: clid,
-            minor_version: minor_version,
-            dll_version: dll_version,
-            byte_order: byte_order,
+            _clid: clid,
+            _minor_version: minor_version,
+            _dll_version: dll_version,
+            _byte_order: byte_order,
             sector_shift: sector_shift,
             mini_sector_shift: mini_sector_shift,
-            reserved: reserved,
-            reserved1: reserved1,
-            reserved2: reserved2,
-            sect_fat_len: sect_fat_len,
+            _reserved: reserved,
+            _reserved1: reserved1,
+            _reserved2: reserved2,
+            _sect_fat_len: sect_fat_len,
             sect_dir_start: sect_dir_start,
-            signature: signature,
+            _signature: signature,
             mini_sector_cutoff: mini_sector_cutoff,
             sect_mini_fat_start: sect_mini_fat_start,
-            sect_mini_fat_len: sect_mini_fat_len,
+            _sect_mini_fat_len: sect_mini_fat_len,
             sect_dif_start: sect_dif_start,
-            sect_dif_len: sect_dif_len,
+            _sect_dif_len: sect_dif_len,
             sect_fat: sect_fat,
         })
     }
 }
 
+/// Decode a buffer into u32 vector
 fn to_u32_vec(mut buffer: &[u8]) -> ExcelResult<Vec<u32>> {
     assert!(buffer.len() % 4 == 0);
     let mut res = Vec::with_capacity(buffer.len() / 4);
@@ -598,21 +600,20 @@ impl Sector {
 
 }
 
-#[allow(dead_code)]
 pub struct Directory {
     ab: [u8; 64],
-    cb: u16,
-    mse: i8,
-    flags: i8,
-    id_left_sib: u32,
-    id_right_sib: u32,
-    id_child: u32,
-    cls_id: [u8; 16],
-    dw_user_flags: u32,
-    time: [u64; 2],
+    _cb: u16,
+    _mse: i8,
+    _flags: i8,
+    _id_left_sib: u32,
+    _id_right_sib: u32,
+    _id_child: u32,
+    _cls_id: [u8; 16],
+    _dw_user_flags: u32,
+    _time: [u64; 2],
     sect_start: u32,
     ul_size: u32,
-    dpt_prop_type: u16,
+    _dpt_prop_type: u16,
 }
 
 impl Directory {
@@ -638,18 +639,18 @@ impl Directory {
 
         Ok(Directory {
             ab: ab,
-            cb: cb,
-            mse: mse,
-            flags: flags,
-            id_left_sib: id_left_sib,
-            id_right_sib: id_right_sib,
-            id_child: id_child,
-            cls_id: cls_id,
-            dw_user_flags: dw_user_flags,
-            time: time,
+            _cb: cb,
+            _mse: mse,
+            _flags: flags,
+            _id_left_sib: id_left_sib,
+            _id_right_sib: id_right_sib,
+            _id_child: id_child,
+            _cls_id: cls_id,
+            _dw_user_flags: dw_user_flags,
+            _time: time,
             sect_start: sect_start,
             ul_size: ul_size,
-            dpt_prop_type: dpt_prop_type,
+            _dpt_prop_type: dpt_prop_type,
         })
 
     }
@@ -675,7 +676,8 @@ fn check_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<
     let len = try!(read_variable_record(r, buf));
     if log_enabled!(LogLevel::Warn) {
         if len > 100_000 {
-            warn!("record id {} as a suspicious huge length of {} (hex: {:x})", id, len, len as u32);
+            warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
+                  id, len, len as u32);
         }
     }
     Ok(len)
@@ -685,12 +687,13 @@ fn check_record(id: u16, r: &mut &[u8]) -> ExcelResult<()> {
     debug!("check record {:x}", id);
     let record_id = try!(r.read_u16::<LittleEndian>());
     if record_id != id {
-        return Err(ExcelError::Unexpected(format!("invalid record id, found {:x}, expecting {:x}",
-                                                  record_id, id)));
+        return Err(ExcelError::Unexpected(
+                format!("invalid record id, found {:x}, expecting {:x}", record_id, id)));
     }
     Ok(())
 }
 
+/// A vba reference
 #[derive(Debug, Clone)]
 pub struct Reference {
     pub name: String,
@@ -698,6 +701,7 @@ pub struct Reference {
     pub path: PathBuf,
 }
 
+/// A vba module
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     pub name: String,
