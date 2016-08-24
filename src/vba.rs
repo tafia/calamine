@@ -701,6 +701,12 @@ pub struct Reference {
     pub path: PathBuf,
 }
 
+impl Reference {
+    pub fn is_missing(&self) -> bool {
+        !self.path.as_os_str().is_empty() && !self.path.exists()
+    }
+}
+
 /// A vba module
 #[derive(Debug, Clone, Default)]
 pub struct Module {

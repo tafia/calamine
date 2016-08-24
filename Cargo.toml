@@ -1,10 +1,10 @@
 [package]
 name = "office"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Johann Tuffe"]
 
 [dependencies]
-zip = "0.1.18"
+zip = { version = "0.1.18", default-features = false }
 quick-xml = "0.3.1"
 log = "0.3.6"
 encoding = "0.2.32"
@@ -12,4 +12,3 @@ byteorder = "0.5.3"
 
 [dev-dependencies]
 env_logger = "0.3.4"
-
