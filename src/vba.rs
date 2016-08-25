@@ -694,7 +694,7 @@ fn check_record(id: u16, r: &mut &[u8]) -> ExcelResult<()> {
 }
 
 /// A vba reference
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Reference {
     pub name: String,
     pub description: String,
