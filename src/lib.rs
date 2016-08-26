@@ -17,7 +17,7 @@ use std::io::BufReader;
 use std::collections::HashMap;
 use std::slice::Chunks;
 
-use errors::*;
+pub use errors::*;
 use vba::VbaProject;
 
 use zip::read::{ZipFile, ZipArchive};
