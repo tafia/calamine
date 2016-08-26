@@ -7,11 +7,11 @@ use zip::read::ZipFile;
 use std::io::{Read, BufRead};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use error::{ExcelResult, ExcelError};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
 use byteorder::{LittleEndian, ReadBytesExt};
 use log::LogLevel;
+use errors::*;
 
 const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
@@ -37,7 +37,7 @@ impl VbaProject {
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
     /// Warning: Buffers the entire ZipFile in memory, it may be bad for huge projects
-    pub fn new(mut f: ZipFile) -> ExcelResult<VbaProject> {
+    pub fn new(mut f: ZipFile) -> Result<VbaProject> {
         debug!("new vba project");
 
         // load header
@@ -45,12 +45,12 @@ impl VbaProject {
 
         // check signature
         if header.ab_sig != OLE_SIGNATURE {
-            return Err(ExcelError::Unexpected("invalid OLE signature (not an office document?)".to_string()));
+            return Err("invalid OLE signature (not an office document?)".into());
         }
 
         let sector_size = 2u64.pow(header.sector_shift as u32) as usize;
         if (f.size() as usize - 512) % sector_size != 0 {
-            return Err(ExcelError::Unexpected("last sector has invalid size".to_string()));
+            return Err("last sector has invalid size".into());
         }
 
         // Read whole file in memory (the file is delimited by sectors)
@@ -129,10 +129,10 @@ impl VbaProject {
     }
 
     /// Gets `Module` extensions, in case one wants to output the results
-    pub fn get_code_modules(&self) -> ExcelResult<HashMap<String, &'static str>> {
+    pub fn get_code_modules(&self) -> Result<HashMap<String, &'static str>> {
         let mut stream = &*match self.get_stream("PROJECT") {
             Some(s) => s,
-            None => return Err(ExcelError::Unexpected("cannot find 'PROJECT' stream".to_string())),
+            None => return Err("cannot find 'PROJECT' stream".into()),
         };
         
         let mut code_modules = HashMap::new();
@@ -158,13 +158,13 @@ impl VbaProject {
     }
 
     /// Reads project `Reference`s and `Module`s
-    pub fn read_vba(&self) -> ExcelResult<(Vec<Reference>, Vec<Module>)> {
+    pub fn read_vba(&self) -> Result<(Vec<Reference>, Vec<Module>)> {
         debug!("read vba");
         
         // dir stream
         let mut stream = &*match self.get_stream("dir") {
             Some(s) => try!(decompress_stream(&s)),
-            None => return Err(ExcelError::Unexpected("cannot find 'dir' stream".to_string())),
+            None => return Err("cannot find 'dir' stream".into()),
         };
 
         // read header (not used)
@@ -179,7 +179,7 @@ impl VbaProject {
 
     }
 
-    fn read_dir_header(&self, stream: &mut &[u8]) -> ExcelResult<()> {
+    fn read_dir_header(&self, stream: &mut &[u8]) -> Result<()> {
         debug!("read dir header");
         let mut buf = [0; 2048]; // should be enough as per [MS-OVBA]
 
@@ -207,7 +207,7 @@ impl VbaProject {
         Ok(())
     }
 
-    fn read_references(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Reference>> {
+    fn read_references(&self, stream: &mut &[u8]) -> Result<Vec<Reference>> {
         debug!("read all references metadata");
 
         let mut references = Vec::new();
@@ -220,7 +220,7 @@ impl VbaProject {
         };
 
         fn set_module_from_libid(reference: &mut Reference, len: usize, buf: &mut [u8]) 
-            -> ExcelResult<()> 
+            -> Result<()> 
         {
             let libid = try!(::std::str::from_utf8(&buf[..len]));
             let mut parts = libid.split('#').rev();
@@ -271,8 +271,7 @@ impl VbaProject {
                             try!(check_record(0x0030, stream));
                         },
                         0x0030 => (),
-                        e => return Err(ExcelError::Unexpected(format!(
-                                    "unexpected token in reference control {:x}", e))),
+                        e => return Err(format!( "unexpected token in reference control {:x}", e).into()),
                     } 
                     try!(stream.read_exact(&mut buf[..4]));
                     try!(read_variable_record(stream, &mut buf)); // libid extended
@@ -302,14 +301,14 @@ impl VbaProject {
                     try!(read_variable_record(stream, &mut buf)); // project libid relative
                     try!(stream.read_exact(&mut buf[..6]));
                 },
-                c => return Err(ExcelError::Unexpected(format!("invalid of unknown check Id {}", c))),
+                c => return Err(format!("invalid of unknown check Id {}", c).into()),
             }
         }
 
         Ok(references)
     }
 
-    fn read_modules(&self, stream: &mut &[u8]) -> ExcelResult<Vec<Module>> {
+    fn read_modules(&self, stream: &mut &[u8]) -> Result<Vec<Module>> {
         debug!("read all modules metadata");
         let mut buf = [0; 4096];
         try!(stream.read_exact(&mut buf[..4]));
@@ -350,8 +349,7 @@ impl VbaProject {
             match try!(stream.read_u16::<LittleEndian>()) {
                 0x0021 => (), // procedural module
                 0x0022 => (), // document, class or designer module
-                e => return Err(ExcelError::Unexpected(format!(
-                            "unknown module type {}", e))),
+                e => return Err(format!("unknown module type {}", e).into()),
             }
 
             loop {
@@ -359,9 +357,8 @@ impl VbaProject {
                 match stream.read_u16::<LittleEndian>() {
                     Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
                     Ok(0x002B) => break,
-                    Ok(e) => return Err(ExcelError::Unexpected(format!(
-                                "unknown record id {}", e))),
-                    Err(e) => return Err(ExcelError::Io(e)),
+                    Ok(e) => return Err(format!("unknown record id {}", e).into()),
+                    Err(e) => return Err(e.into()),
                 }
             }
             try!(stream.read_exact(&mut buf[..4])); // reserved
@@ -381,10 +378,10 @@ impl VbaProject {
     /// While it works most of the time, the modules are MBSC encoding and the conversion
     /// may fail. If this is the case you should revert to `read_module_raw` as there is 
     /// no built in decoding provided in this crate
-    pub fn read_module(&self, module: &Module) -> ExcelResult<String> {
+    pub fn read_module(&self, module: &Module) -> Result<String> {
         debug!("read module {}", module.name);
         match self.get_stream(&module.stream_name) {
-            None => Err(ExcelError::Unexpected(format!("cannot find {} stream", module.stream_name))),
+            None => Err(format!("cannot find {} stream", module.stream_name).into()),
             Some(s) => {
                 let data = try!(decompress_stream(&s[module.text_offset..]));
                 let data = try!(::std::string::String::from_utf8(data));
@@ -394,10 +391,10 @@ impl VbaProject {
     }
 
     /// Reads module content (MBSC encoded) and output it as-is
-    pub fn read_module_raw(&self, module: &Module) -> ExcelResult<Vec<u8>> {
+    pub fn read_module_raw(&self, module: &Module) -> Result<Vec<u8>> {
         debug!("read module {}", module.name);
         match self.get_stream(&module.stream_name) {
-            None => Err(ExcelError::Unexpected(format!("cannot find {} stream", module.stream_name))),
+            None => Err(format!("cannot find {} stream", module.stream_name).into()),
             Some(s) => {
                 let data = try!(decompress_stream(&s[module.text_offset..]));
                 Ok(data)
@@ -430,7 +427,7 @@ struct Header {
 }
 
 impl Header {
-    fn from_reader<R: Read>(f: &mut R) -> ExcelResult<Header> {
+    fn from_reader<R: Read>(f: &mut R) -> Result<Header> {
 
         let mut ab_sig = [0; 8];
         try!(f.read_exact(&mut ab_sig));
@@ -484,7 +481,7 @@ impl Header {
 }
 
 /// Decode a buffer into u32 vector
-fn to_u32_vec(mut buffer: &[u8]) -> ExcelResult<Vec<u32>> {
+fn to_u32_vec(mut buffer: &[u8]) -> Result<Vec<u32>> {
     assert!(buffer.len() % 4 == 0);
     let mut res = Vec::with_capacity(buffer.len() / 4);
     for _ in 0..buffer.len() / 4 {
@@ -495,12 +492,12 @@ fn to_u32_vec(mut buffer: &[u8]) -> ExcelResult<Vec<u32>> {
 
 /// To better understand what's happening, look at 
 /// http://www.wordarticles.com/Articles/Formats/StreamCompression.php
-fn decompress_stream(mut r: &[u8]) -> ExcelResult<Vec<u8>> {
+fn decompress_stream(mut r: &[u8]) -> Result<Vec<u8>> {
     debug!("decompress slice (len {})", r.len());
     let mut res = Vec::new();
 
     if try!(r.read_u8()) != 0x01 {
-        return Err(ExcelError::Unexpected("invalid signature byte".to_string()));
+        return Err("invalid signature byte".into());
     }
 
     while !r.is_empty() {
@@ -618,7 +615,7 @@ pub struct Directory {
 
 impl Directory {
 
-    fn from_slice(mut rdr: &[u8]) -> ExcelResult<Directory> {
+    fn from_slice(mut rdr: &[u8]) -> Result<Directory> {
         let mut ab = [0; 64];
         try!(rdr.read_exact(&mut ab));
 
@@ -655,9 +652,9 @@ impl Directory {
 
     }
 
-    fn get_name(&self) -> ExcelResult<String> {
+    fn get_name(&self) -> Result<String> {
         let mut name = try!(UTF_16LE.decode(&self.ab, DecoderTrap::Ignore)
-                            .map_err(ExcelError::Utf16));
+                            .map_err(|e| e.to_string()));
         if let Some(len) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(len);
         }
@@ -665,13 +662,13 @@ impl Directory {
     }
 }
 
-fn read_variable_record(r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<usize> {
+fn read_variable_record(r: &mut &[u8], buf: &mut [u8]) -> Result<usize> {
     let len = try!(r.read_u32::<LittleEndian>()) as usize;
     try!(r.read_exact(&mut buf[..len]));
     Ok(len)
 }
 
-fn check_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<usize> {
+fn check_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> Result<usize> {
     try!(check_record(id, r));
     let len = try!(read_variable_record(r, buf));
     if log_enabled!(LogLevel::Warn) {
@@ -683,14 +680,14 @@ fn check_variable_record(id: u16, r: &mut &[u8], buf: &mut [u8]) -> ExcelResult<
     Ok(len)
 }
 
-fn check_record(id: u16, r: &mut &[u8]) -> ExcelResult<()> {
+fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
     debug!("check record {:x}", id);
     let record_id = try!(r.read_u16::<LittleEndian>());
     if record_id != id {
-        return Err(ExcelError::Unexpected(
-                format!("invalid record id, found {:x}, expecting {:x}", record_id, id)));
+        Err(format!("invalid record id, found {:x}, expecting {:x}", record_id, id).into())
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 /// A vba reference

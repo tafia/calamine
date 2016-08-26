@@ -2,11 +2,13 @@ extern crate zip;
 extern crate quick_xml;
 extern crate encoding;
 extern crate byteorder;
+#[macro_use]
+extern crate error_chain;
 
 #[macro_use]
 extern crate log;
 
-mod error;
+mod errors;
 mod vba;
 
 use std::path::Path;
@@ -15,7 +17,7 @@ use std::io::BufReader;
 use std::collections::HashMap;
 use std::slice::Chunks;
 
-use error::{ExcelError, ExcelResult};
+use errors::*;
 use vba::VbaProject;
 
 use zip::read::{ZipFile, ZipArchive};
@@ -25,12 +27,12 @@ use quick_xml::{XmlReader, Event, AsStr};
 macro_rules! unexp {
     ($pat: expr) => {
         {
-            return Err(ExcelError::Unexpected($pat.to_string()));
+            return Err($pat.into());
         }
     };
     ($pat: expr, $($args: expr)* ) => {
         {
-            return Err(ExcelError::Unexpected(format!($pat, $($args)*)));
+            return Err(format!($pat, $($args)*).into());
         }
     };
 }
@@ -65,7 +67,7 @@ pub struct Rows<'a> {
 impl Excel {
 
     /// Opens a new workbook
-    pub fn open<P: AsRef<Path>>(path: P) -> ExcelResult<Excel> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
         let f = try!(File::open(path));
         let zip = try!(ZipArchive::new(f));
         Ok(Excel { zip: zip, strings: vec![], sheets: HashMap::new() })
@@ -77,13 +79,13 @@ impl Excel {
     }
 
     /// Gets vba project
-    pub fn vba_project(&mut self) -> ExcelResult<VbaProject> {
+    pub fn vba_project(&mut self) -> Result<VbaProject> {
         let f = try!(self.zip.by_name("xl/vbaProject.bin"));
         VbaProject::new(f)
     }
 
     /// Get all data from `Worksheet`
-    pub fn worksheet_range(&mut self, name: &str) -> ExcelResult<Range> {
+    pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         try!(self.read_shared_strings());
         try!(self.read_sheets_names());
         let strings = &self.strings;
@@ -96,7 +98,7 @@ impl Excel {
 
     /// Loop through all archive files and opens 'xl/worksheets' files
     /// Store sheet name and path into self.sheets
-    fn read_sheets_names(&mut self) -> ExcelResult<()> {
+    fn read_sheets_names(&mut self) -> Result<()> {
         if self.sheets.is_empty() {
             let sheets = {
                 let mut sheets = HashMap::new();
@@ -129,7 +131,7 @@ impl Excel {
     }
 
     /// Read shared string list
-    fn read_shared_strings(&mut self) -> ExcelResult<()> {
+    fn read_shared_strings(&mut self) -> Result<()> {
         if self.strings.is_empty() {
             match self.zip.by_name("xl/sharedStrings.xml") {
                 Ok(f) => {
@@ -143,14 +145,14 @@ impl Excel {
                             Ok(Event::Start(ref e)) if e.name() == b"t" => {
                                 strings.push(try!(xml.read_text(b"t")));
                             }
-                            Err(e) => return Err(ExcelError::Xml(e)),
+                            Err(e) => return Err(e.into()),
                             _ => (),
                         }
                     }
                     self.strings = strings;
                 },
                 Err(ZipError::FileNotFound) => (),
-                Err(e) => return Err(ExcelError::Zip(e)),
+                Err(e) => return Err(e.into()),
             }
         }
 
@@ -162,14 +164,14 @@ impl Excel {
 impl Range {
 
     /// open a xml `ZipFile` reader and read content of *sheetData* and *dimension* node
-    fn from_worksheet(xml: ZipFile, strings: &[String]) -> ExcelResult<Range> {
+    fn from_worksheet(xml: ZipFile, strings: &[String]) -> Result<Range> {
         let mut xml = XmlReader::from_reader(BufReader::new(xml))
             .with_check(false)
             .trim_text(false);
         let mut data = Range::default();
         while let Some(res_event) = xml.next() {
             match res_event {
-                Err(e) => return Err(ExcelError::Xml(e)),
+                Err(e) => return Err(e.into()),
                 Ok(Event::Start(ref e)) => {
                     match e.name() {
                         b"dimension" => match e.attributes().filter_map(|a| a.ok())
@@ -219,16 +221,16 @@ impl Range {
 
     /// read sheetData node
     fn read_sheet_data(&mut self, xml: &mut XmlReader<BufReader<ZipFile>>, strings: &[String]) 
-        -> ExcelResult<()> 
+        -> Result<()> 
     {
         while let Some(res_event) = xml.next() {
             match res_event {
-                Err(e) => return Err(ExcelError::Xml(e)),
+                Err(e) => return Err(e.into()),
                 Ok(Event::Start(ref c_element)) => {
                     if c_element.name() == b"c" {
                         loop {
                             match xml.next() {
-                                Some(Err(e)) => return Err(ExcelError::Xml(e)),
+                                Some(Err(e)) => return Err(e.into()),
                                 Some(Ok(Event::Start(ref e))) => {
                                     if e.name() == b"v" {
                                         let v = try!(xml.read_text(b"v"));
@@ -284,7 +286,7 @@ impl<'a> Iterator for Rows<'a> {
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
 /// - top left (row, column), 
 /// - size (width, height)
-fn get_dimension(dimension: &str) -> ExcelResult<((u32, u32), (u32, u32))> {
+fn get_dimension(dimension: &str) -> Result<((u32, u32), (u32, u32))> {
     match dimension.chars().position(|c| c == ':') {
         None => {
             get_row_column(dimension).map(|position| (position, (1, 1)))
@@ -298,7 +300,7 @@ fn get_dimension(dimension: &str) -> ExcelResult<((u32, u32), (u32, u32))> {
 }
 
 /// converts a text range name into its position (row, column)
-fn get_row_column(range: &str) -> ExcelResult<(u32, u32)> {
+fn get_row_column(range: &str) -> Result<(u32, u32)> {
     let mut col = 0;
     let mut pow = 1;
     let mut rowpos = range.len();
