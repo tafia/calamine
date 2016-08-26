@@ -9,7 +9,7 @@ extern crate error_chain;
 extern crate log;
 
 mod errors;
-mod vba;
+pub mod vba;
 
 use std::path::Path;
 use std::fs::File;
