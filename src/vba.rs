@@ -3,7 +3,6 @@
 //! Retranscription from: 
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
-use zip::read::ZipFile;
 use std::io::{Read, BufRead};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -37,7 +36,7 @@ impl VbaProject {
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
     /// Warning: Buffers the entire ZipFile in memory, it may be bad for huge projects
-    pub fn new(mut f: ZipFile) -> Result<VbaProject> {
+    pub fn new<R: Read>(mut f: R, len: usize) -> Result<VbaProject> {
         debug!("new vba project");
 
         // load header
@@ -49,12 +48,12 @@ impl VbaProject {
         }
 
         let sector_size = 2u64.pow(header.sector_shift as u32) as usize;
-        if (f.size() as usize - 512) % sector_size != 0 {
+        if (len - 512) % sector_size != 0 {
             return Err("last sector has invalid size".into());
         }
 
         // Read whole file in memory (the file is delimited by sectors)
-        let mut data = Vec::with_capacity(f.size() as usize - 512);
+        let mut data = Vec::with_capacity(len - 512);
         try!(f.read_to_end(&mut data));
         let sector = Sector::new(data, sector_size);
 
