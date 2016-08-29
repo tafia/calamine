@@ -45,8 +45,14 @@ pub enum DataType {
     Empty,
 }
 
+enum FileType {
+    /// Compound File Binary Format [MS-CFB]
+    CFB(File),
+    Zip(ZipArchive<File>),
+}
+
 pub struct Excel {
-    zip: ZipArchive<File>,
+    zip: FileType,
     strings: Vec<String>,
     /// Map of sheet names/sheet path within zip archive
     sheets: HashMap<String, String>,
@@ -68,20 +74,37 @@ impl Excel {
 
     /// Opens a new workbook
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
-        let f = try!(File::open(path));
-        let zip = try!(ZipArchive::new(f));
+        let f = try!(File::open(&path));
+        let zip = match path.as_ref().extension().and_then(|s| s.to_str()) {
+            Some("xls") | Some("xla") => FileType::CFB(f),
+            Some("xlsb") | Some("xlsm") | Some("xlam") => FileType::Zip(try!(ZipArchive::new(f))),
+            Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
+            None => return Err("expecting a file with an extension".into()),
+        };
         Ok(Excel { zip: zip, strings: vec![], sheets: HashMap::new() })
     }
 
     /// Does the workbook contain a vba project
     pub fn has_vba(&mut self) -> bool {
-        self.zip.by_name("xl/vbaProject.bin").is_ok()
+        match self.zip {
+            FileType::CFB(_) => true,
+            FileType::Zip(ref mut z) => z.by_name("xl/vbaProject.bin").is_ok()
+        }
     }
 
     /// Gets vba project
     pub fn vba_project(&mut self) -> Result<VbaProject> {
-        let f = try!(self.zip.by_name("xl/vbaProject.bin"));
-        VbaProject::new(f)
+        match self.zip {
+            FileType::CFB(ref mut f) => {
+                let len = try!(f.metadata()).len() as usize;
+                VbaProject::new(f, len)
+            },
+            FileType::Zip(ref mut z) => {
+                let f = try!(z.by_name("xl/vbaProject.bin"));
+                let len = f.size() as usize;
+                VbaProject::new(f, len)
+            }
+        }
     }
 
     /// Get all data from `Worksheet`
@@ -89,8 +112,12 @@ impl Excel {
         try!(self.read_shared_strings());
         try!(self.read_sheets_names());
         let strings = &self.strings;
+        let z = match self.zip {
+            FileType::CFB(_) => return Err("worksheet_range not implemented for CFB files".into()),
+            FileType::Zip(ref mut z) => z
+        };
         let ws = match self.sheets.get(name) {
-            Some(p) => try!(self.zip.by_name(p)),
+            Some(p) => try!(z.by_name(p)),
             None => unexp!("Sheet '{}' does not exist", name),
         };
         Range::from_worksheet(ws, strings)
@@ -102,8 +129,12 @@ impl Excel {
         if self.sheets.is_empty() {
             let sheets = {
                 let mut sheets = HashMap::new();
-                for i in 0..self.zip.len() {
-                    let f = try!(self.zip.by_index(i));
+                let z = match self.zip {
+                    FileType::CFB(_) => return Err("read_sheet_names not implemented for CFB files".into()),
+                    FileType::Zip(ref mut z) => z
+                };
+                for i in 0..z.len() {
+                    let f = try!(z.by_index(i));
                     let name = f.name().to_string();
                     if name.starts_with("xl/worksheets/") {
                         let xml = XmlReader::from_reader(BufReader::new(f))
@@ -133,7 +164,11 @@ impl Excel {
     /// Read shared string list
     fn read_shared_strings(&mut self) -> Result<()> {
         if self.strings.is_empty() {
-            match self.zip.by_name("xl/sharedStrings.xml") {
+            let z = match self.zip {
+                FileType::CFB(_) => return Err("read_shared_strings not implemented for CFB files".into()),
+                FileType::Zip(ref mut z) => z
+            };
+            match z.by_name("xl/sharedStrings.xml") {
                 Ok(f) => {
                     let mut xml = XmlReader::from_reader(BufReader::new(f))
                         .with_check(false)
@@ -337,6 +372,8 @@ mod tests {
     extern crate env_logger;
 
     use super::Excel;
+    use std::fs::File;
+    use super::vba::VbaProject;
 
     #[test]
     fn test_range_sample() {
@@ -358,8 +395,10 @@ mod tests {
 //         let path = "/home/jtuffe/download/test_vba.xlsm";
         let path = "/home/jtuffe/download/Extractions Simples.xlsb";
         let path = "/home/jtuffe/download/test_xl/ReportRDM_CVA VF_v3.xlsm";
-        let mut xl = Excel::open(path).expect("cannot open excel file");
-        let vba_project = xl.vba_project().unwrap();
+        let path = "/home/jtuffe/download/KelvinsAutoEmailer.xls";
+        let f = File::open(path).unwrap();
+        let len = f.metadata().unwrap().len() as usize;
+        let vba_project = VbaProject::new(f, len).unwrap();
         let vba = vba_project.read_vba();
         let (references, modules) = vba.unwrap();
         println!("references: {:#?}", references);
