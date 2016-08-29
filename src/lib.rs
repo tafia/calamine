@@ -77,7 +77,8 @@ impl Excel {
         let f = try!(File::open(&path));
         let zip = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::CFB(f),
-            Some("xlsb") | Some("xlsm") | Some("xlam") => FileType::Zip(try!(ZipArchive::new(f))),
+            Some("xlsx") | Some("xlsb") | Some("xlsm") | 
+                Some("xlam") => FileType::Zip(try!(ZipArchive::new(f))),
             Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
             None => return Err("expecting a file with an extension".into()),
         };
