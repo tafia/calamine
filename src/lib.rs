@@ -1,3 +1,5 @@
+#![feature(conservative_impl_trait)]
+
 extern crate zip;
 extern crate quick_xml;
 extern crate encoding;
