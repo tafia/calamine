@@ -127,10 +127,7 @@ impl Excel {
             FileType::Zip(ref mut z) => z
         };
         let ws = match self.sheets.get(name) {
-            Some(p) => {
-                println!("get sheet {} at path {}", name, p);
-                try!(z.by_name(p))
-            },
+            Some(p) => try!(z.by_name(p)),
             None => unexp!("Sheet '{}' does not exist", name),
         };
         Range::from_worksheet(ws, strings)
@@ -299,13 +296,14 @@ impl Range {
 
     /// get cell value
     pub fn get_value(&self, i: usize, j: usize) -> &DataType {
-        let idx = i * self.size.0 + j;
+        assert!((i, j) < self.size);
+        let idx = i * self.size.1 + j;
         &self.inner[idx]
     }
 
     /// get an iterator over inner rows
     pub fn rows(&self) -> Rows {
-        let width = self.size.0;
+        let width = self.size.1;
         Rows { inner: self.inner.chunks(width) }
     }
 
