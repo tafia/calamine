@@ -210,7 +210,7 @@ impl Excel {
     fn read_relationships(&mut self) -> Result<()> {
         if self.relationships.is_empty() {
             let z = match self.zip {
-                FileType::CFB(_) => return Err("read_shared_strings not implemented for CFB files".into()),
+                FileType::CFB(_) => return Err("read_relationships not implemented for CFB files".into()),
                 FileType::Zip(ref mut z) => z
             };
             match z.by_name("xl/_rels/workbook.xml.rels") {
