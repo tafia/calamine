@@ -39,7 +39,7 @@ macro_rules! unexp {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
     Int(i64),
     Float(f64),
@@ -56,6 +56,7 @@ enum FileType {
 pub struct Excel {
     zip: FileType,
     strings: Vec<String>,
+    relationships: HashMap<Vec<u8>, String>,
     /// Map of sheet names/sheet path within zip archive
     sheets: HashMap<String, String>,
 }
@@ -84,7 +85,12 @@ impl Excel {
             Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
             None => return Err("expecting a file with an extension".into()),
         };
-        Ok(Excel { zip: zip, strings: vec![], sheets: HashMap::new() })
+        Ok(Excel { 
+            zip: zip, 
+            strings: vec![], 
+            relationships: HashMap::new(),
+            sheets: HashMap::new(),
+        })
     }
 
     /// Does the workbook contain a vba project
@@ -113,6 +119,7 @@ impl Excel {
     /// Get all data from `Worksheet`
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         try!(self.read_shared_strings());
+        try!(self.read_relationships());
         try!(self.read_sheets_names());
         let strings = &self.strings;
         let z = match self.zip {
@@ -120,46 +127,51 @@ impl Excel {
             FileType::Zip(ref mut z) => z
         };
         let ws = match self.sheets.get(name) {
-            Some(p) => try!(z.by_name(p)),
+            Some(p) => {
+                println!("get sheet {} at path {}", name, p);
+                try!(z.by_name(p))
+            },
             None => unexp!("Sheet '{}' does not exist", name),
         };
         Range::from_worksheet(ws, strings)
     }
 
-    /// Loop through all archive files and opens 'xl/worksheets' files
-    /// Store sheet name and path into self.sheets
+    /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn read_sheets_names(&mut self) -> Result<()> {
         if self.sheets.is_empty() {
-            let sheets = {
-                let mut sheets = HashMap::new();
-                let z = match self.zip {
-                    FileType::CFB(_) => return Err("read_sheet_names not implemented for CFB files".into()),
-                    FileType::Zip(ref mut z) => z
-                };
-                for i in 0..z.len() {
-                    let f = try!(z.by_index(i));
-                    let name = f.name().to_string();
-                    if name.starts_with("xl/worksheets/") {
-                        let xml = XmlReader::from_reader(BufReader::new(f))
-                            .with_check(false)
-                            .trim_text(false);
-                        'xml_loop: for res_event in xml {
-                            if let Ok(Event::Start(ref e)) = res_event {
-                                if e.name() == b"sheetPr" {
-                                    for a in e.attributes() {
-                                        if let Ok((b"codeName", v)) = a {
-                                            sheets.insert(try!(v.as_str()).to_string(), name);
-                                            break 'xml_loop;
-                                        }
+            let z = match self.zip {
+                FileType::CFB(_) => return Err("read_sheet_names not implemented for CFB files".into()),
+                FileType::Zip(ref mut z) => z
+            };
+
+            match z.by_name("xl/workbook.xml") {
+                Ok(f) => {
+                    let mut xml = XmlReader::from_reader(BufReader::new(f))
+                        .with_check(false)
+                        .trim_text(false);
+
+                    while let Some(res_event) = xml.next() {
+                        match res_event {
+                            Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
+                                let mut name = String::new();
+                                let mut path = String::new();
+                                for a in e.attributes() {
+                                    match try!(a) {
+                                        (b"name", v) => name = try!(v.as_str()).to_string(),
+                                        (b"r:id", v) => path = format!("xl/{}", self.relationships[v]),
+                                        _ => (),
                                     }
                                 }
+                                self.sheets.insert(name, path);
                             }
+                            Err(e) => return Err(e.into()),
+                            _ => (),
                         }
                     }
-                }
-                sheets
-            };
-            self.sheets = sheets;
+                },
+                Err(ZipError::FileNotFound) => (),
+                Err(e) => return Err(e.into()),
+            }
         }
         Ok(())
     }
@@ -188,6 +200,46 @@ impl Excel {
                         }
                     }
                     self.strings = strings;
+                },
+                Err(ZipError::FileNotFound) => (),
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Read workbook relationships
+    fn read_relationships(&mut self) -> Result<()> {
+        if self.relationships.is_empty() {
+            let z = match self.zip {
+                FileType::CFB(_) => return Err("read_shared_strings not implemented for CFB files".into()),
+                FileType::Zip(ref mut z) => z
+            };
+            match z.by_name("xl/_rels/workbook.xml.rels") {
+                Ok(f) => {
+                    let mut xml = XmlReader::from_reader(BufReader::new(f))
+                        .with_check(false)
+                        .trim_text(false);
+
+                    while let Some(res_event) = xml.next() {
+                        match res_event {
+                            Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
+                                let mut id = Vec::new();
+                                let mut target = String::new();
+                                for a in e.attributes() {
+                                    match try!(a) {
+                                        (b"Id", v) => id.extend_from_slice(v),
+                                        (b"Target", v) => target = try!(v.as_str()).to_string(),
+                                        _ => (),
+                                    }
+                                }
+                                self.relationships.insert(id, target);
+                            }
+                            Err(e) => return Err(e.into()),
+                            _ => (),
+                        }
+                    }
                 },
                 Err(ZipError::FileNotFound) => (),
                 Err(e) => return Err(e.into()),
@@ -369,46 +421,3 @@ fn get_row_column(range: &str) -> Result<(u32, u32)> {
     Ok((row, col))
 }
 
-#[cfg(test)]
-mod tests {
-
-    extern crate env_logger;
-
-    use super::Excel;
-    use std::fs::File;
-    use super::vba::VbaProject;
-
-    #[test]
-    fn test_range_sample() {
-        let mut xl = Excel::open("/home/jtuffe/download/DailyValo_FX_Rates_Credit_05 25 16.xlsm")
-            .expect("cannot open excel file");
-        println!("{:?}", xl.sheets);
-        let data = xl.worksheet_range("Sheet1");
-        assert!(data.is_ok());
-        for (i, r) in data.unwrap().rows().enumerate() {
-            println!("Row {}: {:?}", i, r);
-        }
-    }
-    
-    #[test]
-    fn test_vba() {
-
-        env_logger::init().unwrap();
-
-//         let path = "/home/jtuffe/download/test_vba.xlsm";
-        let path = "/home/jtuffe/download/Extractions Simples.xlsb";
-        let path = "/home/jtuffe/download/test_xl/ReportRDM_CVA VF_v3.xlsm";
-        let path = "/home/jtuffe/download/KelvinsAutoEmailer.xls";
-        let f = File::open(path).unwrap();
-        let len = f.metadata().unwrap().len() as usize;
-        let vba_project = VbaProject::new(f, len).unwrap();
-        let vba = vba_project.read_vba();
-        let (references, modules) = vba.unwrap();
-        println!("references: {:#?}", references);
-        for module in &modules {
-            let data = vba_project.read_module(module).unwrap();
-            println!("module {}:\r\n{}", module.name, data);
-        }
-
-    }
-}
