@@ -337,7 +337,7 @@ impl Range {
                                                 },
                                                 Some((_, b"b")) => {
                                                     // boolean
-                                                    DataType::Bool(try!(v.parse()))
+                                                    DataType::Bool(v != "0")
                                                 },
                                                 _ => match v.parse() {
                                                     // TODO: check in styles to know which type is
