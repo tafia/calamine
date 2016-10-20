@@ -22,7 +22,6 @@ error_chain! {
         ::std::num::ParseIntError, ParseInt;
         ::std::num::ParseFloatError, ParseFloat;
         ::std::str::Utf8Error, Utf8;
-//         ::std::borrow::Cow<'static, str>, Utf16;
         ::std::string::FromUtf8Error, FromUtf8;
     }
 

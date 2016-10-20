@@ -44,6 +44,7 @@ pub enum DataType {
     Int(i64),
     Float(f64),
     String(String),
+    Bool(bool),
     Empty,
 }
 
@@ -319,29 +320,37 @@ impl Range {
                         loop {
                             match xml.next() {
                                 Some(Err(e)) => return Err(e.into()),
-                                Some(Ok(Event::Start(ref e))) => {
-                                    if e.name() == b"v" {
+                                Some(Ok(Event::Start(ref e))) => match e.name() {
+                                    b"v" => {
+                                        // value
                                         let v = try!(xml.read_text(b"v"));
                                         let value = match c_element.attributes()
                                             .filter_map(|a| a.ok())
                                             .find(|&(k, _)| k == b"t") {
-                                                Some((_, b"s")) => {
+                                                Some((_, b"s")) => { // shared string
                                                     let idx: usize = try!(v.parse());
                                                     DataType::String(strings[idx].clone())
                                                 },
-                                                // TODO: check in styles to know which type is
-                                                // supposed to be used
+                                                Some((_, b"str")) => {
+                                                    // regular string
+                                                    DataType::String(v)
+                                                },
+                                                Some((_, b"b")) => {
+                                                    // boolean
+                                                    DataType::Bool(v != "0")
+                                                },
                                                 _ => match v.parse() {
+                                                    // TODO: check in styles to know which type is
+                                                    // supposed to be used
                                                     Ok(i) => DataType::Int(i),
-                                                    Err(_) => try!(v.parse()
-                                                                   .map(DataType::Float)),
+                                                    Err(_) => try!(v.parse().map(DataType::Float)),
                                                 },
                                             };
                                         self.inner.push(value);
                                         break;
-                                    } else {
-                                        unexp!("not v node");
-                                    }
+                                    },
+                                    b"f" => (), // formula, ignore
+                                    _name => unexp!("not v or f node"),
                                 },
                                 Some(Ok(Event::End(ref e))) => {
                                     if e.name() == b"c" {
