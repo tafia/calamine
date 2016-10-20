@@ -206,11 +206,29 @@ impl Excel {
                         .with_check(false)
                         .trim_text(false);
 
+                    let mut rich_buffer: Option<String> = None;
                     let mut strings = Vec::new();
                     while let Some(res_event) = xml.next() {
                         match res_event {
+                            Ok(Event::Start(ref e)) if e.name() == b"r" => {
+                                if let None = rich_buffer {
+                                    // use a buffer since richtext has multiples <r> and <t> for the same cell
+                                    rich_buffer = Some(String::new());
+                                }
+                            },
+                            Ok(Event::End(ref e)) if e.name() == b"si" => {
+                                if let Some(s) = rich_buffer {
+                                    strings.push(s);
+                                    rich_buffer = None;
+                                }
+                            },
                             Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                                strings.push(try!(xml.read_text(b"t")));
+                                let value = try!(xml.read_text(b"t"));
+                                if let Some(ref mut s) = rich_buffer {
+                                    s.push_str(&value);
+                                } else {
+                                    strings.push(value);
+                                }
                             }
                             Err(e) => return Err(e.into()),
                             _ => (),

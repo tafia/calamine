@@ -54,3 +54,17 @@ fn issue_6() {
     assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
     assert_eq!(r.next(), None);
 }
+
+#[test]
+fn issue_9() {
+    let path = format!("{}/tests/issue9.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("Feuil1").unwrap();
+    let mut r = range.rows();
+    assert_eq!(r.next(), Some(&[String("test1".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("test2 other".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("test3 aaa".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("test4".to_string())] as &[DataType]));
+    assert_eq!(r.next(), None);
+}
