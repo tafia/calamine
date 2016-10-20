@@ -1,3 +1,11 @@
+//! Rust Excel reader
+//!
+//! # Status
+//!
+//! Reads excel workbooks and vba project. This mainly works except for 
+//! binary file format (xls and xlsb) where only VBA is currently supported.
+//!
+#![deny(missing_docs)]
 #![feature(conservative_impl_trait)]
 
 extern crate zip;
@@ -39,21 +47,31 @@ macro_rules! unexp {
     };
 }
 
+/// An enum to represent all different excel data types that can appear as 
+/// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
+    /// Unsigned integer
     Int(i64),
+    /// Float
     Float(f64),
+    /// String
     String(String),
+    /// Boolean
     Bool(bool),
+    /// Empty cell
     Empty,
 }
 
+/// Excel file types
 enum FileType {
-    /// Compound File Binary Format [MS-CFB]
+    /// Compound File Binary Format [MS-CFB] (xls and xlsb)
     CFB(File),
+    /// Regular file (xlsx, xlsm, xlam)
     Zip(ZipArchive<File>),
 }
 
+/// A wrapper struct over the Excel file
 pub struct Excel {
     zip: FileType,
     strings: Vec<String>,
@@ -62,6 +80,7 @@ pub struct Excel {
     sheets: HashMap<String, String>,
 }
 
+/// A struct which represents a squared selection of cells 
 #[derive(Debug, Default)]
 pub struct Range {
     position: (u32, u32),

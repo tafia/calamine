@@ -18,6 +18,7 @@ const FREESECT: u32 = 0xFFFFFFFF;
 const POWER_2: [usize; 16] = [1   , 1<<1, 1<<2,  1<<3,  1<<4,  1<<5,  1<<6,  1<<7, 
                               1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15];
 
+/// A struct for managing VBA reading
 #[allow(dead_code)]
 pub struct VbaProject {
     header: Header,
@@ -363,6 +364,7 @@ impl VbaProject {
 
 }
 
+/// A hidden struct which defines vba project
 struct Header {
     ab_sig: [u8; 8],
     sector_shift: u16,
@@ -496,6 +498,7 @@ fn decompress_stream<I: Iterator<Item=u8>>(mut r: I) -> Result<Vec<u8>> {
 
 }
 
+/// A struct corresponding to the elementary block of memory
 struct Sector {
     data: Vec<u8>,
     size: usize,
@@ -532,6 +535,7 @@ impl Sector {
 
 }
 
+/// An iterator over `Sector`s which represents the final memory allocated
 struct SectorChain<'a> {
     sector: &'a Sector,
     id: u32,
@@ -551,7 +555,8 @@ impl<'a> Iterator for SectorChain<'a> {
     }
 }
 
-pub struct Directory {
+/// A struct representing sector organizations, behaves similarly to a tree
+struct Directory {
     sect_start: u32,
     ul_size: u32,
     name: String,
@@ -628,12 +633,16 @@ fn to_u32<'a>(s: &'a [u8]) -> impl Iterator<Item=u32> + 'a {
 /// A vba reference
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Reference {
+    /// name
     pub name: String,
+    /// description
     pub description: String,
+    /// location of the reference
     pub path: PathBuf,
 }
 
 impl Reference {
+    /// Check if the reference location is accessible
     pub fn is_missing(&self) -> bool {
         !self.path.as_os_str().is_empty() && !self.path.exists()
     }
@@ -642,6 +651,7 @@ impl Reference {
 /// A vba module
 #[derive(Debug, Clone, Default)]
 pub struct Module {
+    /// module name as it appears in vba project
     pub name: String,
     stream_name: String,
     text_offset: usize,

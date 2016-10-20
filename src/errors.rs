@@ -3,6 +3,8 @@
 //! Provides all excel error conversion and description
 //! Also provides `Result` as a alias of `Result<_, ExcelError>
 
+#![allow(missing_docs)]
+
 use quick_xml::error::Error as XmlError;
 
 error_chain! {
