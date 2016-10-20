@@ -47,6 +47,27 @@ macro_rules! unexp {
     };
 }
 
+// https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
+/// An enum to represent all different excel errors that can appear as
+/// a value in a worksheet cell
+#[derive(Debug, Clone, PartialEq)]
+pub enum CellErrorType {
+    /// Division by 0 error
+    Div0,
+    /// Unavailable value error
+    NA,
+    /// Invalid name error
+    Name,
+    /// Null value error
+    Null,
+    /// Number error
+    Num,
+    /// Invalid cell reference error
+    Ref,
+    /// Value error
+    Value,
+}
+
 /// An enum to represent all different excel data types that can appear as 
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +80,8 @@ pub enum DataType {
     String(String),
     /// Boolean
     Bool(bool),
+    /// Error
+    Error(CellErrorType),
     /// Empty cell
     Empty,
 }
@@ -376,6 +399,10 @@ impl Range {
                                                     // boolean
                                                     DataType::Bool(v != "0")
                                                 },
+                                                Some((_, b"e")) => {
+                                                    // error
+                                                    DataType::Error(parse_error(v.as_ref()))
+                                                },
                                                 _ => match v.parse() {
                                                     // TODO: check in styles to know which type is
                                                     // supposed to be used
@@ -465,3 +492,27 @@ fn get_row_column(range: &str) -> Result<(u32, u32)> {
     Ok((row, col))
 }
 
+/// converts a string into an `CellErrorType`
+fn parse_error(v: &str) -> CellErrorType {
+    match v {
+        "#DIV/0!" => CellErrorType::Div0,
+        "#N/A" => CellErrorType::NA,
+        "#NAME?" => CellErrorType::Name,
+        "#NULL!" => CellErrorType::Null,
+        "#NUM!" => CellErrorType::Num,
+        "#REF!" => CellErrorType::Ref,
+        "#VALUE!" => CellErrorType::Value,
+        _ => unimplemented!(),
+    }
+}
+
+#[test]
+fn test_parse_error() {
+    assert_eq!(parse_error("#DIV/0!"), CellErrorType::Div0);
+    assert_eq!(parse_error("#N/A"), CellErrorType::NA);
+    assert_eq!(parse_error("#NAME?"), CellErrorType::Name);
+    assert_eq!(parse_error("#NULL!"), CellErrorType::Null);
+    assert_eq!(parse_error("#NUM!"), CellErrorType::Num);
+    assert_eq!(parse_error("#REF!"), CellErrorType::Ref);
+    assert_eq!(parse_error("#VALUE!"), CellErrorType::Value);
+}
