@@ -21,7 +21,6 @@ error_chain! {
         XmlError, Xml;
         ::std::num::ParseIntError, ParseInt;
         ::std::num::ParseFloatError, ParseFloat;
-        ::std::str::ParseBoolError, ParseBool;
         ::std::str::Utf8Error, Utf8;
         ::std::string::FromUtf8Error, FromUtf8;
     }
