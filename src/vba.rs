@@ -108,7 +108,7 @@ impl VbaProject {
     }
 
     /// Gets a stream by name out of directories
-    fn get_stream<'a>(&'a self, name: &str) -> Option<impl Iterator<Item=u8> + 'a> {
+    fn get_stream<'a>(&'a self, name: &str) -> Option<StreamIter> {
         debug!("get stream {}", name);
         match self.directories.iter()
             .find(|d| &*d.name == name) {
@@ -119,8 +119,12 @@ impl VbaProject {
                 } else {
                     Some(&self.sectors)
                 };
-                sectors.map(|ss| ss.read_chain(d.sect_start)
-                            .flat_map(|s| s.iter()).take(d.ul_size as usize).cloned())
+                sectors.map(|ss| StreamIter {
+                    cur_len: 0,
+                    len: d.ul_size as usize,
+                    chain: ss.read_chain(d.sect_start),
+                    current: [].iter(),
+                })
             }
         }
     }
@@ -555,6 +559,34 @@ impl<'a> Iterator for SectorChain<'a> {
     }
 }
 
+struct StreamIter<'a> {
+    len: usize,
+    cur_len: usize,
+    chain: SectorChain<'a>,
+    current: ::std::slice::Iter<'a, u8>,
+}
+
+impl<'a> Iterator for StreamIter<'a> {
+
+    type Item=u8;
+    fn next(&mut self) -> Option<u8> {
+        if self.cur_len == self.len {
+            return None;
+        }
+        self.cur_len += 1;
+        if let Some(u) = self.current.next() {
+            Some(*u)
+        } else {
+            if let Some(c) = self.chain.next() {
+                self.current = c.iter();
+                self.current.next().map(|n| *n)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 /// A struct representing sector organizations, behaves similarly to a tree
 struct Directory {
     sect_start: u32,
@@ -624,9 +656,23 @@ fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
     }
 }
 
-fn to_u32<'a>(s: &'a [u8]) -> impl Iterator<Item=u32> + 'a {
-    s.chunks(4).map(|c| unsafe { ::std::ptr::read(c as *const [u8] as *const u32) })
+struct U32Iter<'a> {
+    chunks: ::std::slice::Chunks<'a, u8>,
 }
+
+fn to_u32(s: &[u8]) -> U32Iter {
+    U32Iter {
+        chunks: s.chunks(4),
+    }
+}
+
+impl<'a> Iterator for U32Iter<'a> {
+    type Item=u32;
+    fn next(&mut self) -> Option<u32> {
+        self.chunks.next().map(|c| unsafe { ::std::ptr::read(c as *const [u8] as *const u32) }) 
+    }
+}
+
 
 /// A vba reference
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
