@@ -607,11 +607,9 @@ fn read_variable_record<'a>(r: &mut &'a[u8]) -> Result<&'a[u8]> {
 fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
     try!(check_record(id, r));
     let record = try!(read_variable_record(r));
-    if log_enabled!(LogLevel::Warn) {
-        if record.len() > 100_000 {
-            warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
-                  id, record.len(), record.len() as u32);
-        }
+    if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
+        warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
+              id, record.len(), record.len() as u32);
     }
     Ok(record)
 }

@@ -186,11 +186,11 @@ impl Excel {
 
             match z.by_name("xl/workbook.xml") {
                 Ok(f) => {
-                    let mut xml = XmlReader::from_reader(BufReader::new(f))
+                    let xml = XmlReader::from_reader(BufReader::new(f))
                         .with_check(false)
                         .trim_text(false);
 
-                    while let Some(res_event) = xml.next() {
+                    for res_event in xml {
                         match res_event {
                             Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
                                 let mut name = String::new();
@@ -276,11 +276,11 @@ impl Excel {
             };
             match z.by_name("xl/_rels/workbook.xml.rels") {
                 Ok(f) => {
-                    let mut xml = XmlReader::from_reader(BufReader::new(f))
+                    let xml = XmlReader::from_reader(BufReader::new(f))
                         .with_check(false)
                         .trim_text(false);
 
-                    while let Some(res_event) = xml.next() {
+                    for res_event in xml {
                         match res_event {
                             Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
                                 let mut id = Vec::new();
@@ -333,7 +333,7 @@ impl Range {
                             None => unexp!("Expecting dimension, got {:?}", e),
                         },
                         b"sheetData" => {
-                            let _ = try!(data.read_sheet_data(&mut xml, strings));
+                            try!(data.read_sheet_data(&mut xml, strings));
                         }
                         _ => (),
                     }
