@@ -1,4 +1,9 @@
-# Excel files reader in rust
+# office
+
+Excel files reader in rust
+
+[![Build Status](https://travis-ci.org/tafia/office.svg?branch=master)](https://travis-ci.org/tafia/office)
+[![Build status](https://ci.appveyor.com/api/projects/status/nqagdg5o9evq31qu/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/office/branch/master)
 
 ## Status
 
