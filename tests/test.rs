@@ -1,7 +1,8 @@
 extern crate office;
 
 use office::Excel;
-use office::DataType::{self, Int, String, Float, Bool};
+use office::DataType::{self, Int, String, Float, Bool, Error};
+use office::CellErrorType::*;
 
 #[test]
 fn issue_2() {
@@ -52,6 +53,23 @@ fn issue_6() {
     assert_eq!(r.next(), Some(&[Int(2)] as &[DataType]));
     assert_eq!(r.next(), Some(&[String("ab".to_string())] as &[DataType]));
     assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
+    assert_eq!(r.next(), None);
+}
+
+#[test]
+fn error_file() {
+    let path = format!("{}/tests/errors.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("Feuil1").unwrap();
+    let mut r = range.rows();
+    assert_eq!(r.next(), Some(&[Error(Div0)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Error(Name)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Error(Value)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Error(Null)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Error(Ref)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Error(Num)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Error(NA)] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 
