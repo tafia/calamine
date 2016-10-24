@@ -10,6 +10,7 @@ use encoding::all::UTF_16LE;
 use byteorder::{LittleEndian, ReadBytesExt};
 use log::LogLevel;
 use errors::*;
+use utils::*;
 
 const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
@@ -627,51 +628,6 @@ impl Directory {
     }
 
 }
-
-fn read_variable_record<'a>(r: &mut &'a[u8]) -> Result<&'a[u8]> {
-    let len = try!(r.read_u32::<LittleEndian>()) as usize;
-    let (read, next) = r.split_at(len);
-    *r = next;
-    Ok(read)
-}
-
-fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
-    try!(check_record(id, r));
-    let record = try!(read_variable_record(r));
-    if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
-        warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
-              id, record.len(), record.len() as u32);
-    }
-    Ok(record)
-}
-
-fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
-    debug!("check record {:x}", id);
-    let record_id = try!(r.read_u16::<LittleEndian>());
-    if record_id != id {
-        Err(format!("invalid record id, found {:x}, expecting {:x}", record_id, id).into())
-    } else {
-        Ok(())
-    }
-}
-
-struct U32Iter<'a> {
-    chunks: ::std::slice::Chunks<'a, u8>,
-}
-
-fn to_u32(s: &[u8]) -> U32Iter {
-    U32Iter {
-        chunks: s.chunks(4),
-    }
-}
-
-impl<'a> Iterator for U32Iter<'a> {
-    type Item=u32;
-    fn next(&mut self) -> Option<u32> {
-        self.chunks.next().map(|c| unsafe { ::std::ptr::read(c as *const [u8] as *const u32) }) 
-    }
-}
-
 
 /// A vba reference
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]

@@ -18,6 +18,7 @@ extern crate error_chain;
 extern crate log;
 
 mod errors;
+mod utils;
 pub mod vba;
 
 use std::path::Path;
