@@ -6,7 +6,6 @@
 //! binary file format (xls and xlsb) where only VBA is currently supported.
 //!
 #![deny(missing_docs)]
-#![feature(conservative_impl_trait)]
 
 extern crate zip;
 extern crate quick_xml;
