@@ -86,3 +86,18 @@ fn issue_9() {
     assert_eq!(r.next(), Some(&[String("test4".to_string())] as &[DataType]));
     assert_eq!(r.next(), None);
 }
+
+#[test]
+fn vba() {
+    let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let vba = excel.vba_project().unwrap();
+    let modules = vba.read_vba().unwrap().1;
+    let test_vba = modules.into_iter().find(|m| &*m.name == "testVBA").unwrap();
+    assert_eq!(vba.read_module(&test_vba).unwrap(), "Attribute VB_Name = \"testVBA\"\
+    \r\nPublic Sub test()\
+    \r\n    MsgBox \"Hello from vba!\"\
+    \r\nEnd Sub\
+    \r\n");
+}
