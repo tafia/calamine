@@ -94,11 +94,10 @@ fn vba() {
 
     let vba = excel.vba_project().unwrap();
     let modules = vba.read_vba().unwrap().1;
-    let testVBA = modules.into_iter().find(|m| &*m.name == "testVBA").unwrap();
-    assert_eq!(vba.read_module(&testVBA).unwrap(), "Attribute VB_Name = \"testVBA\"\
+    let test_vba = modules.into_iter().find(|m| &*m.name == "testVBA").unwrap();
+    assert_eq!(vba.read_module(&test_vba).unwrap(), "Attribute VB_Name = \"testVBA\"\
     \r\nPublic Sub test()\
     \r\n    MsgBox \"Hello from vba!\"\
     \r\nEnd Sub\
     \r\n");
-
 }
