@@ -386,7 +386,8 @@ impl Range {
                                         let value = match c_element.attributes()
                                             .filter_map(|a| a.ok())
                                             .find(|&(k, _)| k == b"t") {
-                                                Some((_, b"s")) => { // shared string
+                                                Some((_, b"s")) => {
+                                                    // shared string
                                                     let idx: usize = try!(v.parse());
                                                     DataType::String(strings[idx].clone())
                                                 },

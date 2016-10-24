@@ -123,7 +123,7 @@ impl VbaProject {
                     cur_len: 0,
                     len: d.ul_size as usize,
                     chain: ss.read_chain(d.sect_start),
-                    current: [].iter(),
+                    current: [].iter().cloned(),
                 })
             }
         }
@@ -566,7 +566,7 @@ struct StreamIter<'a> {
     len: usize,
     cur_len: usize,
     chain: SectorChain<'a>,
-    current: ::std::slice::Iter<'a, u8>,
+    current: ::std::iter::Cloned<::std::slice::Iter<'a, u8>>,
 }
 
 impl<'a> Iterator for StreamIter<'a> {
@@ -577,14 +577,12 @@ impl<'a> Iterator for StreamIter<'a> {
             return None;
         }
         self.cur_len += 1;
-        if let Some(u) = self.current.next() {
-            Some(*u)
-        } else if let Some(c) = self.chain.next() {
-            self.current = c.iter();
-            self.current.next().map(|n| *n)
-        } else {
-            None
-        }
+        self.current.next().or_else(|| {
+            self.chain.next().and_then(|c| {
+                self.current = c.iter().cloned();
+                self.current.next()
+            })
+        })
     }
 }
 
