@@ -28,6 +28,7 @@ use std::path::Path;
 use std::collections::HashMap;
 use std::fs::File;
 use std::slice::Chunks;
+use std::str::FromStr;
 
 pub use errors::*;
 use vba::VbaProject;
@@ -53,18 +54,18 @@ pub enum CellErrorType {
     Value,
 }
 
-impl CellErrorType {
-    /// converts a string into an `CellErrorType`
-    fn parse(v: &str) -> CellErrorType {
-        match v {
-            "#DIV/0!" => CellErrorType::Div0,
-            "#N/A" => CellErrorType::NA,
-            "#NAME?" => CellErrorType::Name,
-            "#NULL!" => CellErrorType::Null,
-            "#NUM!" => CellErrorType::Num,
-            "#REF!" => CellErrorType::Ref,
-            "#VALUE!" => CellErrorType::Value,
-            _ => unimplemented!(),
+impl FromStr for CellErrorType {
+    type Err = errors::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "#DIV/0!" => Ok(CellErrorType::Div0),
+            "#N/A" => Ok(CellErrorType::NA),
+            "#NAME?" => Ok(CellErrorType::Name),
+            "#NULL!" => Ok(CellErrorType::Null),
+            "#NUM!" => Ok(CellErrorType::Num),
+            "#REF!" => Ok(CellErrorType::Ref),
+            "#VALUE!" => Ok(CellErrorType::Value),
+            _ => Err(format!("{} is not an excel error", s).into()),
         }
     }
 }

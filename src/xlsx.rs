@@ -6,7 +6,7 @@ use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
 use quick_xml::{XmlReader, Event, AsStr};
 
-use {CellErrorType, DataType, ExcelReader, Range};
+use {DataType, ExcelReader, Range};
 use vba::VbaProject;
 use utils;
 use errors::*;
@@ -227,7 +227,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>, strings: &[String], 
                                             },
                                             Some((_, b"e")) => {
                                                 // error
-                                                DataType::Error(CellErrorType::parse(v.as_ref()))
+                                                DataType::Error(try!(v.parse()))
                                             },
                                             _ => match v.parse() {
                                                 // TODO: check in styles to know which type is
