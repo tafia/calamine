@@ -95,7 +95,7 @@ enum FileType {
     /// Regular xml zipped file (xlsx, xlsm, xlam)
     Xlsx(xlsx::Xlsx),
     /// Binary zipped file (xlsb)
-    Xlsb(xlsx::Xlsx),
+    Xlsb(xlsb::Xlsb),
 }
 
 /// A wrapper struct over the Excel file
@@ -144,7 +144,7 @@ impl Excel {
         let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::Xls(try!(xls::Xls::new(f))),
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(try!(xlsx::Xlsx::new(f))),
-            Some("xlsb") => FileType::Xlsb(try!(xlsx::Xlsx::new(f))),
+            Some("xlsb") => FileType::Xlsb(try!(xlsb::Xlsb::new(f))),
             Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
             None => return Err("expecting a file with an extension".into()),
         };
@@ -192,6 +192,8 @@ impl Excel {
 
 /// A trait to share excel reader functions accross different `FileType`s
 pub trait ExcelReader: Sized {
+    /// Creates a new instance based on the actual file
+    fn new(f: File) -> Result<Self>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets vba project

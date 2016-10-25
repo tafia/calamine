@@ -17,17 +17,11 @@ pub struct Xlsx {
     zip: ZipArchive<File>,
 }
 
-impl Xlsx {
-    pub fn new(f: File) -> Result<Self> {
-        let zip = try!(ZipArchive::new(f));
-        Ok(Xlsx {
-            zip: zip,
-        })
-    }
-
-}
-
 impl ExcelReader for Xlsx {
+
+    fn new(f: File) -> Result<Self> {
+        Ok(Xlsx { zip: try!(ZipArchive::new(f)) })
+    }
 
     fn has_vba(&mut self) -> bool {
         self.zip.by_name("xl/vbaProject.bin").is_ok()

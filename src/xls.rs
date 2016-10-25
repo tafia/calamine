@@ -11,15 +11,10 @@ pub struct Xls {
     file: File,
 }
 
-impl Xls {
-    pub fn new(f: File) -> Result<Self> {
-        Ok(Xls {
-            file: f,
-        })
-    }
-}
-
 impl ExcelReader for Xls {
+    fn new(f: File) -> Result<Self> {
+        Ok(Xls { file: f, })
+    }
     fn has_vba(&mut self) -> bool {
         true
     }
