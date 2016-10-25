@@ -242,13 +242,13 @@ impl<'a> Iterator for Rows<'a> {
 
 #[test]
 fn test_parse_error() {
-    assert_eq!(CellErrorType::parse("#DIV/0!"), CellErrorType::Div0);
-    assert_eq!(CellErrorType::parse("#N/A"), CellErrorType::NA);
-    assert_eq!(CellErrorType::parse("#NAME?"), CellErrorType::Name);
-    assert_eq!(CellErrorType::parse("#NULL!"), CellErrorType::Null);
-    assert_eq!(CellErrorType::parse("#NUM!"), CellErrorType::Num);
-    assert_eq!(CellErrorType::parse("#REF!"), CellErrorType::Ref);
-    assert_eq!(CellErrorType::parse("#VALUE!"), CellErrorType::Value);
+    assert_eq!(CellErrorType::from_str("#DIV/0!").unwrap(), CellErrorType::Div0);
+    assert_eq!(CellErrorType::from_str("#N/A").unwrap(), CellErrorType::NA);
+    assert_eq!(CellErrorType::from_str("#NAME?").unwrap(), CellErrorType::Name);
+    assert_eq!(CellErrorType::from_str("#NULL!").unwrap(), CellErrorType::Null);
+    assert_eq!(CellErrorType::from_str("#NUM!").unwrap(), CellErrorType::Num);
+    assert_eq!(CellErrorType::from_str("#REF!").unwrap(), CellErrorType::Ref);
+    assert_eq!(CellErrorType::from_str("#VALUE!").unwrap(), CellErrorType::Value);
 }
 
 #[test]
