@@ -1,7 +1,7 @@
 extern crate office;
 
 use office::Excel;
-use office::DataType::{self, Int, String, Float, Bool, Error};
+use office::DataType::{self, Int, String, Float, Bool, Error, Empty};
 use office::CellErrorType::*;
 
 #[test]
@@ -53,6 +53,7 @@ fn issue_6() {
     assert_eq!(r.next(), Some(&[Int(2)] as &[DataType]));
     assert_eq!(r.next(), Some(&[String("ab".to_string())] as &[DataType]));
     assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 

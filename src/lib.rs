@@ -19,20 +19,18 @@ extern crate log;
 
 mod errors;
 mod utils;
+mod xlsb;
+mod xlsx;
+mod xls;
 pub mod vba;
 
 use std::path::Path;
-use std::fs::File;
-use std::io::BufReader;
 use std::collections::HashMap;
+use std::fs::File;
 use std::slice::Chunks;
 
 pub use errors::*;
 use vba::VbaProject;
-
-use zip::read::{ZipFile, ZipArchive};
-use zip::result::ZipError;
-use quick_xml::{XmlReader, Event, AsStr};
 
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
 /// An enum to represent all different excel errors that can appear as
@@ -55,6 +53,22 @@ pub enum CellErrorType {
     Value,
 }
 
+impl CellErrorType {
+    /// converts a string into an `CellErrorType`
+    fn parse(v: &str) -> CellErrorType {
+        match v {
+            "#DIV/0!" => CellErrorType::Div0,
+            "#N/A" => CellErrorType::NA,
+            "#NAME?" => CellErrorType::Name,
+            "#NULL!" => CellErrorType::Null,
+            "#NUM!" => CellErrorType::Num,
+            "#REF!" => CellErrorType::Ref,
+            "#VALUE!" => CellErrorType::Value,
+            _ => unimplemented!(),
+        }
+    }
+}
+
 /// An enum to represent all different excel data types that can appear as 
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
@@ -75,15 +89,17 @@ pub enum DataType {
 
 /// Excel file types
 enum FileType {
-    /// Compound File Binary Format [MS-CFB] (xls and xlsb)
-    CFB(File),
-    /// Regular file (xlsx, xlsm, xlam)
-    Zip(ZipArchive<File>),
+    /// Compound File Binary Format [MS-CFB] (xls, xla)
+    Xls(xls::Xls),
+    /// Regular xml zipped file (xlsx, xlsm, xlam)
+    Xlsx(xlsx::Xlsx),
+    /// Binary zipped file (xlsb)
+    Xlsb(xlsx::Xlsx),
 }
 
 /// A wrapper struct over the Excel file
 pub struct Excel {
-    zip: FileType,
+    file: FileType,
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
     /// Map of sheet names/sheet path within zip archive
@@ -103,241 +119,93 @@ pub struct Rows<'a> {
     inner: Chunks<'a, DataType>,
 }
 
-impl Excel {
+macro_rules! inner {
+    ($s:expr, $func:ident()) => {{
+        match $s.file {
+            FileType::Xls(ref mut f) => f.$func(),
+            FileType::Xlsx(ref mut f) => f.$func(),
+            FileType::Xlsb(ref mut f) => f.$func(),
+        }
+    }};
+    ($s:expr, $func:ident($first_arg:expr $(, $args:expr)*)) => {{
+        match $s.file {
+            FileType::Xls(ref mut f) => f.$func($first_arg $(, $args)*),
+            FileType::Xlsx(ref mut f) => f.$func($first_arg $(, $args)*),
+            FileType::Xlsb(ref mut f) => f.$func($first_arg $(, $args)*),
+        }
+    }};
+}
 
+impl Excel {
     /// Opens a new workbook
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
         let f = try!(File::open(&path));
-        let zip = match path.as_ref().extension().and_then(|s| s.to_str()) {
-            Some("xls") | Some("xla") => FileType::CFB(f),
-            Some("xlsx") | Some("xlsb") | Some("xlsm") | 
-                Some("xlam") => FileType::Zip(try!(ZipArchive::new(f))),
+        let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
+            Some("xls") | Some("xla") => FileType::Xls(try!(xls::Xls::new(f))),
+            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(try!(xlsx::Xlsx::new(f))),
+            Some("xlsb") => FileType::Xlsb(try!(xlsx::Xlsx::new(f))),
             Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
             None => return Err("expecting a file with an extension".into()),
         };
         Ok(Excel { 
-            zip: zip, 
+            file: file, 
             strings: vec![], 
             relationships: HashMap::new(),
             sheets: HashMap::new(),
         })
     }
 
+    /// Get all data from `Worksheet`
+    pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
+        if self.strings.is_empty() {
+            let strings = try!(inner!(self, read_shared_strings()));
+            self.strings = strings;
+        }
+
+        if self.relationships.is_empty() {
+            let rels = try!(inner!(self, read_relationships()));
+            self.relationships = rels;
+        }
+
+        if self.sheets.is_empty() {
+            let sheets = try!(inner!(self, read_sheets_names(&self.relationships)));
+            self.sheets = sheets;
+        }
+
+        match self.sheets.get(name) {
+            Some(ref p) => inner!(self, read_worksheet_range(p, &self.strings)), 
+            None => Err(format!("Sheet '{}' does not exist", name).into()),
+        }
+    }
+
     /// Does the workbook contain a vba project
     pub fn has_vba(&mut self) -> bool {
-        match self.zip {
-            FileType::CFB(_) => true,
-            FileType::Zip(ref mut z) => z.by_name("xl/vbaProject.bin").is_ok()
-        }
+        inner!(self, has_vba())
     }
 
     /// Gets vba project
     pub fn vba_project(&mut self) -> Result<VbaProject> {
-        match self.zip {
-            FileType::CFB(ref mut f) => {
-                let len = try!(f.metadata()).len() as usize;
-                VbaProject::new(f, len)
-            },
-            FileType::Zip(ref mut z) => {
-                let f = try!(z.by_name("xl/vbaProject.bin"));
-                let len = f.size() as usize;
-                VbaProject::new(f, len)
-            }
-        }
+        inner!(self, vba_project())
     }
+}
 
-    /// Get all data from `Worksheet`
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
-        try!(self.read_shared_strings());
-        try!(self.read_relationships());
-        try!(self.read_sheets_names());
-        let strings = &self.strings;
-        let z = match self.zip {
-            FileType::CFB(_) => return Err("worksheet_range not implemented for CFB files".into()),
-            FileType::Zip(ref mut z) => z
-        };
-        let ws = match self.sheets.get(name) {
-            Some(p) => try!(z.by_name(p)),
-            None => return Err(format!("Sheet '{}' does not exist", name).into()),
-        };
-        Range::from_worksheet(ws, strings)
-    }
-
-    /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self) -> Result<()> {
-        if self.sheets.is_empty() {
-            let z = match self.zip {
-                FileType::CFB(_) => return Err("read_sheet_names not implemented for CFB files".into()),
-                FileType::Zip(ref mut z) => z
-            };
-
-            match z.by_name("xl/workbook.xml") {
-                Ok(f) => {
-                    let xml = XmlReader::from_reader(BufReader::new(f))
-                        .with_check(false)
-                        .trim_text(false);
-
-                    for res_event in xml {
-                        match res_event {
-                            Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
-                                let mut name = String::new();
-                                let mut path = String::new();
-                                for a in e.attributes() {
-                                    match try!(a) {
-                                        (b"name", v) => name = try!(v.as_str()).to_string(),
-                                        (b"r:id", v) => path = format!("xl/{}", self.relationships[v]),
-                                        _ => (),
-                                    }
-                                }
-                                self.sheets.insert(name, path);
-                            }
-                            Err(e) => return Err(e.into()),
-                            _ => (),
-                        }
-                    }
-                },
-                Err(ZipError::FileNotFound) => (),
-                Err(e) => return Err(e.into()),
-            }
-        }
-        Ok(())
-    }
-
+/// A trait to share excel reader functions accross different `FileType`s
+pub trait ExcelReader: Sized {
+    /// Does the workbook contain a vba project
+    fn has_vba(&mut self) -> bool;
+    /// Gets vba project
+    fn vba_project(&mut self) -> Result<VbaProject>;
     /// Read shared string list
-    fn read_shared_strings(&mut self) -> Result<()> {
-        if self.strings.is_empty() {
-            let z = match self.zip {
-                FileType::CFB(_) => return Err("read_shared_strings not implemented for CFB files".into()),
-                FileType::Zip(ref mut z) => z
-            };
-            match z.by_name("xl/sharedStrings.xml") {
-                Ok(f) => {
-                    let mut xml = XmlReader::from_reader(BufReader::new(f))
-                        .with_check(false)
-                        .trim_text(false);
-
-                    let mut rich_buffer: Option<String> = None;
-                    let mut strings = Vec::new();
-                    while let Some(res_event) = xml.next() {
-                        match res_event {
-                            Ok(Event::Start(ref e)) if e.name() == b"r" => {
-                                if let None = rich_buffer {
-                                    // use a buffer since richtext has multiples <r> and <t> for the same cell
-                                    rich_buffer = Some(String::new());
-                                }
-                            },
-                            Ok(Event::End(ref e)) if e.name() == b"si" => {
-                                if let Some(s) = rich_buffer {
-                                    strings.push(s);
-                                    rich_buffer = None;
-                                }
-                            },
-                            Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                                let value = try!(xml.read_text(b"t"));
-                                if let Some(ref mut s) = rich_buffer {
-                                    s.push_str(&value);
-                                } else {
-                                    strings.push(value);
-                                }
-                            }
-                            Err(e) => return Err(e.into()),
-                            _ => (),
-                        }
-                    }
-                    self.strings = strings;
-                },
-                Err(ZipError::FileNotFound) => (),
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        Ok(())
-    }
-
+    fn read_shared_strings(&mut self) -> Result<Vec<String>>;
+    /// Read sheets from workbook.xml and get their corresponding path from relationships
+    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<HashMap<String, String>>;
     /// Read workbook relationships
-    fn read_relationships(&mut self) -> Result<()> {
-        if self.relationships.is_empty() {
-            let z = match self.zip {
-                FileType::CFB(_) => return Err("read_relationships not implemented for CFB files".into()),
-                FileType::Zip(ref mut z) => z
-            };
-            match z.by_name("xl/_rels/workbook.xml.rels") {
-                Ok(f) => {
-                    let xml = XmlReader::from_reader(BufReader::new(f))
-                        .with_check(false)
-                        .trim_text(false);
-
-                    for res_event in xml {
-                        match res_event {
-                            Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
-                                let mut id = Vec::new();
-                                let mut target = String::new();
-                                for a in e.attributes() {
-                                    match try!(a) {
-                                        (b"Id", v) => id.extend_from_slice(v),
-                                        (b"Target", v) => target = try!(v.as_str()).to_string(),
-                                        _ => (),
-                                    }
-                                }
-                                self.relationships.insert(id, target);
-                            }
-                            Err(e) => return Err(e.into()),
-                            _ => (),
-                        }
-                    }
-                },
-                Err(ZipError::FileNotFound) => (),
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        Ok(())
-    }
-
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
+    /// Read worksheet data in corresponding worksheet path
+    fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range>;
 }
 
 impl Range {
-
-    /// open a xml `ZipFile` reader and read content of *sheetData* and *dimension* node
-    fn from_worksheet(xml: ZipFile, strings: &[String]) -> Result<Range> {
-        let mut xml = XmlReader::from_reader(BufReader::new(xml))
-            .with_check(false)
-            .trim_text(false);
-        let mut data = Range::default();
-        while let Some(res_event) = xml.next() {
-            match res_event {
-                Err(e) => return Err(e.into()),
-                Ok(Event::Start(ref e)) => {
-                    match e.name() {
-                        b"dimension" => {
-                            let mut dim = None;
-                            for a in e.attributes() {
-                                if let (b"ref", rdim) = try!(a) {
-                                    dim = Some(rdim);
-                                    break;
-                                }
-                            }
-                            match dim {
-                                None => return Err(format!("Expecting dimension, got {:?}", e).into()),
-                                Some(dim) => {
-                                    let (position, size) = try!(get_dimension(dim));
-                                    data.position = position;
-                                    data.size = (size.0 as usize, size.1 as usize);
-                                    data.inner.reserve_exact(data.size.0 * data.size.1);
-                                }
-                            }
-                        },
-                        b"sheetData" => try!(data.read_sheet_data(&mut xml, strings)),
-                        _ => (),
-                    }
-                },
-                _ => (),
-            }
-        }
-        data.inner.shrink_to_fit();
-        Ok(data)
-    }
-    
     /// get worksheet position (row, column)
     pub fn get_position(&self) -> (u32, u32) {
         self.position
@@ -360,75 +228,6 @@ impl Range {
         let width = self.size.1;
         Rows { inner: self.inner.chunks(width) }
     }
-
-    /// read sheetData node
-    fn read_sheet_data(&mut self, xml: &mut XmlReader<BufReader<ZipFile>>, strings: &[String]) 
-        -> Result<()> 
-    {
-        while let Some(res_event) = xml.next() {
-            match res_event {
-                Err(e) => return Err(e.into()),
-                Ok(Event::Start(ref c_element)) => {
-                    if c_element.name() == b"c" {
-                        loop {
-                            match xml.next() {
-                                Some(Err(e)) => return Err(e.into()),
-                                Some(Ok(Event::Start(ref e))) => match e.name() {
-                                    b"v" => {
-                                        // value
-                                        let v = try!(xml.read_text(b"v"));
-                                        let value = match c_element.attributes()
-                                            .filter_map(|a| a.ok())
-                                            .find(|&(k, _)| k == b"t") {
-                                                Some((_, b"s")) => {
-                                                    // shared string
-                                                    let idx: usize = try!(v.parse());
-                                                    DataType::String(strings[idx].clone())
-                                                },
-                                                Some((_, b"str")) => {
-                                                    // regular string
-                                                    DataType::String(v)
-                                                },
-                                                Some((_, b"b")) => {
-                                                    // boolean
-                                                    DataType::Bool(v != "0")
-                                                },
-                                                Some((_, b"e")) => {
-                                                    // error
-                                                    DataType::Error(parse_error(v.as_ref()))
-                                                },
-                                                _ => match v.parse() {
-                                                    // TODO: check in styles to know which type is
-                                                    // supposed to be used
-                                                    Ok(i) => DataType::Int(i),
-                                                    Err(_) => try!(v.parse().map(DataType::Float)),
-                                                },
-                                            };
-                                        self.inner.push(value);
-                                        break;
-                                    },
-                                    b"f" => (), // formula, ignore
-                                    _name => return Err("not v or f node".into()),
-                                },
-                                Some(Ok(Event::End(ref e))) => {
-                                    if e.name() == b"c" {
-                                        self.inner.push(DataType::Empty);
-                                        break;
-                                    }
-                                }
-                                None => return Err("End of xml".into()),
-                                _ => (),
-                            }
-                        }
-                    }
-                },
-                Ok(Event::End(ref e)) if e.name() == b"sheetData" => return Ok(()),
-                _ => (),
-            }
-        }
-        Err("Could not find </sheetData>".into())
-    }
-
 }
 
 impl<'a> Iterator for Rows<'a> {
@@ -438,88 +237,20 @@ impl<'a> Iterator for Rows<'a> {
     }
 }
 
-/// converts a text representation (e.g. "A6:G67") of a dimension into integers
-/// - top left (row, column), 
-/// - size (width, height)
-fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
-    let parts: Vec<_> = try!(dimension.split(|c| *c == b':')
-        .map(|s| get_row_column(s))
-        .collect::<Result<Vec<_>>>());
-
-    match parts.len() {
-        0 => Err("dimension cannot be empty".into()),
-        1 => Ok((parts[0], (1, 1))),
-        2 => Ok((parts[0], (parts[1].0 - parts[0].0 + 1, parts[1].1 - parts[0].1 + 1))),
-        len => Err(format!("range dimension has 0 or 1 ':', got {}", len).into()),
-    }
-}
-
-/// converts a text range name into its position (row, column)
-fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
-    let (mut row, mut col) = (0, 0);
-    let mut pow = 1;
-    let mut readrow = true;
-    for c in range.iter().rev() {
-        match *c {
-            c @ b'0'...b'9' => {
-                if readrow {
-                    row += ((c - b'0') as u32) * pow;
-                    pow *= 10;
-                } else {
-                    return Err(format!("Numeric character are only allowed \
-                        at the end of the range: {:x}", c).into());
-                }
-            }
-            c @ b'A'...b'Z' => {
-                if readrow { 
-                    pow = 1;
-                    readrow = false;
-                }
-                col += ((c - b'A') as u32 + 1) * pow;
-                pow *= 26;
-            },
-            c @ b'a'...b'z' => {
-                if readrow { 
-                    pow = 1;
-                    readrow = false;
-                }
-                col += ((c - b'a') as u32 + 1) * pow;
-                pow *= 26;
-            },
-            _ => return Err(format!("Expecting alphanumeric character, got {:x}", c).into()),
-        }
-    }
-    Ok((row, col))
-}
-
-/// converts a string into an `CellErrorType`
-fn parse_error(v: &str) -> CellErrorType {
-    match v {
-        "#DIV/0!" => CellErrorType::Div0,
-        "#N/A" => CellErrorType::NA,
-        "#NAME?" => CellErrorType::Name,
-        "#NULL!" => CellErrorType::Null,
-        "#NUM!" => CellErrorType::Num,
-        "#REF!" => CellErrorType::Ref,
-        "#VALUE!" => CellErrorType::Value,
-        _ => unimplemented!(),
-    }
-}
-
 #[test]
 fn test_parse_error() {
-    assert_eq!(parse_error("#DIV/0!"), CellErrorType::Div0);
-    assert_eq!(parse_error("#N/A"), CellErrorType::NA);
-    assert_eq!(parse_error("#NAME?"), CellErrorType::Name);
-    assert_eq!(parse_error("#NULL!"), CellErrorType::Null);
-    assert_eq!(parse_error("#NUM!"), CellErrorType::Num);
-    assert_eq!(parse_error("#REF!"), CellErrorType::Ref);
-    assert_eq!(parse_error("#VALUE!"), CellErrorType::Value);
+    assert_eq!(CellErrorType::parse("#DIV/0!"), CellErrorType::Div0);
+    assert_eq!(CellErrorType::parse("#N/A"), CellErrorType::NA);
+    assert_eq!(CellErrorType::parse("#NAME?"), CellErrorType::Name);
+    assert_eq!(CellErrorType::parse("#NULL!"), CellErrorType::Null);
+    assert_eq!(CellErrorType::parse("#NUM!"), CellErrorType::Num);
+    assert_eq!(CellErrorType::parse("#REF!"), CellErrorType::Ref);
+    assert_eq!(CellErrorType::parse("#VALUE!"), CellErrorType::Value);
 }
 
 #[test]
 fn test_dimensions() {
-    assert_eq!(get_row_column(b"A1").unwrap(), (1, 1));
-    assert_eq!(get_row_column(b"C107").unwrap(), (107, 3));
-    assert_eq!(get_dimension(b"C2:D35").unwrap(), ((2, 3), (34, 2)));
+    assert_eq!(utils::get_row_column(b"A1").unwrap(), (1, 1));
+    assert_eq!(utils::get_row_column(b"C107").unwrap(), (107, 3));
+    assert_eq!(utils::get_dimension(b"C2:D35").unwrap(), ((2, 3), (34, 2)));
 }
