@@ -123,7 +123,7 @@ impl VbaProject {
                     cur_len: 0,
                     len: d.ul_size as usize,
                     chain: ss.read_chain(d.sect_start),
-                    current: [].iter(),
+                    current: [].iter().cloned(),
                 })
             }
         }
@@ -316,8 +316,8 @@ impl VbaProject {
             *stream = &stream[6..];
 
             match try!(stream.read_u16::<LittleEndian>()) {
-                0x0021 => (), // procedural module
-                0x0022 => (), // document, class or designer module
+                0x0021 /* procedural module */ |
+                0x0022 /* document, class or designer module */ => (),
                 e => return Err(format!("unknown module type {}", e).into()),
             }
 
@@ -422,8 +422,8 @@ impl Header {
     }
 }
 
-/// To better understand what's happening, look at 
-/// http://www.wordarticles.com/Articles/Formats/StreamCompression.php
+/// To better understand what's happening, look
+/// [here](http://www.wordarticles.com/Articles/Formats/StreamCompression.php)
 fn decompress_stream<I: Iterator<Item=u8>>(mut r: I) -> Result<Vec<u8>> {
     debug!("decompress stream");
     let mut res = Vec::new();
@@ -464,6 +464,7 @@ fn decompress_stream<I: Iterator<Item=u8>>(mut r: I) -> Result<Vec<u8>> {
         } else {
 
             let mut chunk_len = 0;
+            let mut buf = [0u8; 4096];
             'chunk: loop {
 
                 let bit_flags: u8 = try!(ok_or(r.next(), "no bit_flag in compressed stream"));
@@ -485,14 +486,16 @@ fn decompress_stream<I: Iterator<Item=u8>>(mut r: I) -> Result<Vec<u8>> {
                         let decomp_len = res.len() - start;
                         let bit_count = (4..16).find(|i| POWER_2[*i] >= decomp_len).unwrap();
                         let len_mask = 0xFFFF >> bit_count;
-                        let len = (token & len_mask) as usize + 3;
+                        let mut len = (token & len_mask) as usize + 3;
                         let offset = ((token & !len_mask) >> (16 - bit_count)) as usize + 1;
 
-                        for i in (res.len() - offset)..(res.len() - offset + len) {
-                            let v = res[i];
-                            res.push(v);
+                        while len > offset {
+                            buf[..offset].copy_from_slice(&res[res.len() - offset..]);
+                            res.extend_from_slice(&buf[..offset]);
+                            len -= offset;
                         }
-
+                        buf[..len].copy_from_slice(&res[res.len() - offset..res.len() - offset + len]);
+                        res.extend_from_slice(&buf[..len]);
                     }
                 }
             }
@@ -563,7 +566,7 @@ struct StreamIter<'a> {
     len: usize,
     cur_len: usize,
     chain: SectorChain<'a>,
-    current: ::std::slice::Iter<'a, u8>,
+    current: ::std::iter::Cloned<::std::slice::Iter<'a, u8>>,
 }
 
 impl<'a> Iterator for StreamIter<'a> {
@@ -574,16 +577,12 @@ impl<'a> Iterator for StreamIter<'a> {
             return None;
         }
         self.cur_len += 1;
-        if let Some(u) = self.current.next() {
-            Some(*u)
-        } else {
-            if let Some(c) = self.chain.next() {
-                self.current = c.iter();
-                self.current.next().map(|n| *n)
-            } else {
-                None
-            }
-        }
+        self.current.next().or_else(|| {
+            self.chain.next().and_then(|c| {
+                self.current = c.iter().cloned();
+                self.current.next()
+            })
+        })
     }
 }
 

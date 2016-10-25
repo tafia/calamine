@@ -33,19 +33,6 @@ use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
 use quick_xml::{XmlReader, Event, AsStr};
 
-macro_rules! unexp {
-    ($pat: expr) => {
-        {
-            return Err($pat.into());
-        }
-    };
-    ($pat: expr, $($args: expr)* ) => {
-        {
-            return Err(format!($pat, $($args)*).into());
-        }
-    };
-}
-
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
 /// An enum to represent all different excel errors that can appear as
 /// a value in a worksheet cell
@@ -170,7 +157,7 @@ impl Excel {
         };
         let ws = match self.sheets.get(name) {
             Some(p) => try!(z.by_name(p)),
-            None => unexp!("Sheet '{}' does not exist", name),
+            None => return Err(format!("Sheet '{}' does not exist", name).into()),
         };
         Range::from_worksheet(ws, strings)
     }
@@ -321,19 +308,25 @@ impl Range {
                 Err(e) => return Err(e.into()),
                 Ok(Event::Start(ref e)) => {
                     match e.name() {
-                        b"dimension" => match e.attributes().filter_map(|a| a.ok())
-                                .find(|&(key, _)| key == b"ref") {
-                            Some((_, dim)) => {
-                                let (position, size) = try!(get_dimension(try!(dim.as_str())));
-                                data.position = position;
-                                data.size = (size.0 as usize, size.1 as usize);
-                                data.inner.reserve_exact(data.size.0 * data.size.1);
-                            },
-                            None => unexp!("Expecting dimension, got {:?}", e),
+                        b"dimension" => {
+                            let mut dim = None;
+                            for a in e.attributes() {
+                                if let (b"ref", rdim) = try!(a) {
+                                    dim = Some(rdim);
+                                    break;
+                                }
+                            }
+                            match dim {
+                                None => return Err(format!("Expecting dimension, got {:?}", e).into()),
+                                Some(dim) => {
+                                    let (position, size) = try!(get_dimension(dim));
+                                    data.position = position;
+                                    data.size = (size.0 as usize, size.1 as usize);
+                                    data.inner.reserve_exact(data.size.0 * data.size.1);
+                                }
+                            }
                         },
-                        b"sheetData" => {
-                            try!(data.read_sheet_data(&mut xml, strings));
-                        }
+                        b"sheetData" => try!(data.read_sheet_data(&mut xml, strings)),
                         _ => (),
                     }
                 },
@@ -386,7 +379,8 @@ impl Range {
                                         let value = match c_element.attributes()
                                             .filter_map(|a| a.ok())
                                             .find(|&(k, _)| k == b"t") {
-                                                Some((_, b"s")) => { // shared string
+                                                Some((_, b"s")) => {
+                                                    // shared string
                                                     let idx: usize = try!(v.parse());
                                                     DataType::String(strings[idx].clone())
                                                 },
@@ -413,7 +407,7 @@ impl Range {
                                         break;
                                     },
                                     b"f" => (), // formula, ignore
-                                    _name => unexp!("not v or f node"),
+                                    _name => return Err("not v or f node".into()),
                                 },
                                 Some(Ok(Event::End(ref e))) => {
                                     if e.name() == b"c" {
@@ -421,7 +415,7 @@ impl Range {
                                         break;
                                     }
                                 }
-                                None => unexp!("End of xml"),
+                                None => return Err("End of xml".into()),
                                 _ => (),
                             }
                         }
@@ -431,7 +425,7 @@ impl Range {
                 _ => (),
             }
         }
-        unexp!("Could not find </sheetData>")
+        Err("Could not find </sheetData>".into())
     }
 
 }
@@ -446,48 +440,54 @@ impl<'a> Iterator for Rows<'a> {
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
 /// - top left (row, column), 
 /// - size (width, height)
-fn get_dimension(dimension: &str) -> Result<((u32, u32), (u32, u32))> {
-    match dimension.chars().position(|c| c == ':') {
-        None => {
-            get_row_column(dimension).map(|position| (position, (1, 1)))
-        }, 
-        Some(p) => {
-            let top_left = try!(get_row_column(&dimension[..p]));
-            let bottom_right = try!(get_row_column(&dimension[p + 1..]));
-            Ok((top_left, (bottom_right.0 - top_left.0 + 1, bottom_right.1 - top_left.1 + 1)))
-        }
+fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
+    let parts: Vec<_> = try!(dimension.split(|c| *c == b':')
+        .map(|s| get_row_column(s))
+        .collect::<Result<Vec<_>>>());
+
+    match parts.len() {
+        0 => Err("dimension cannot be empty".into()),
+        1 => Ok((parts[0], (1, 1))),
+        2 => Ok((parts[0], (parts[1].0 - parts[0].0 + 1, parts[1].1 - parts[0].1 + 1))),
+        len => Err(format!("range dimension has 0 or 1 ':', got {}", len).into()),
     }
 }
 
 /// converts a text range name into its position (row, column)
-fn get_row_column(range: &str) -> Result<(u32, u32)> {
-    let mut col = 0;
+fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
+    let (mut row, mut col) = (0, 0);
     let mut pow = 1;
-    let mut rowpos = range.len();
     let mut readrow = true;
-    for c in range.chars().rev() {
-        match c {
-            '0'...'9' => {
+    for c in range.iter().rev() {
+        match *c {
+            c @ b'0'...b'9' => {
                 if readrow {
-                    rowpos -= 1;
+                    row += ((c - b'0') as u32) * pow;
+                    pow *= 10;
                 } else {
-                    unexp!("Numeric character are only allowed at the end of the range: {}", c);
+                    return Err(format!("Numeric character are only allowed \
+                        at the end of the range: {:x}", c).into());
                 }
             }
-            c @ 'A'...'Z' => {
-                readrow = false;
-                col += ((c as u8 - b'A') as u32 + 1) * pow;
+            c @ b'A'...b'Z' => {
+                if readrow { 
+                    pow = 1;
+                    readrow = false;
+                }
+                col += ((c - b'A') as u32 + 1) * pow;
                 pow *= 26;
             },
-            c @ 'a'...'z' => {
-                readrow = false;
-                col += ((c as u8 - b'a') as u32 + 1) * pow;
+            c @ b'a'...b'z' => {
+                if readrow { 
+                    pow = 1;
+                    readrow = false;
+                }
+                col += ((c - b'a') as u32 + 1) * pow;
                 pow *= 26;
             },
-            _ => unexp!("Expecting alphanumeric character, got {:?}", c),
+            _ => return Err(format!("Expecting alphanumeric character, got {:x}", c).into()),
         }
     }
-    let row = try!(range[rowpos..].parse());
     Ok((row, col))
 }
 
@@ -514,4 +514,11 @@ fn test_parse_error() {
     assert_eq!(parse_error("#NUM!"), CellErrorType::Num);
     assert_eq!(parse_error("#REF!"), CellErrorType::Ref);
     assert_eq!(parse_error("#VALUE!"), CellErrorType::Value);
+}
+
+#[test]
+fn test_dimensions() {
+    assert_eq!(get_row_column(b"A1").unwrap(), (1, 1));
+    assert_eq!(get_row_column(b"C107").unwrap(), (107, 3));
+    assert_eq!(get_dimension(b"C2:D35").unwrap(), ((2, 3), (34, 2)));
 }
