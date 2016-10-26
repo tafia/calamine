@@ -51,6 +51,11 @@ impl<'a> Iterator for U32Iter<'a> {
     }
 }
 
+/// Converts the first 4 bytes into u32
+pub fn start_u32(s: &[u8]) -> u32 {
+    unsafe { ::std::ptr::read(&s[..4] as *const [u8] as *const u32) }
+}
+
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
 /// - top left (row, column), 
 /// - size (width, height)

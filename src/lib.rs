@@ -52,6 +52,8 @@ pub enum CellErrorType {
     Ref,
     /// Value error
     Value,
+    /// Getting data
+    GettingData,
 }
 
 impl FromStr for CellErrorType {
@@ -209,6 +211,16 @@ pub trait ExcelReader: Sized {
 }
 
 impl Range {
+
+    /// creates a new range
+    pub fn new(position: (u32, u32), size: (usize, usize), data: Vec<DataType>) -> Range {
+        Range {
+            position: position,
+            size: size,
+            inner: data,
+        }
+    }
+
     /// get worksheet position (row, column)
     pub fn get_position(&self) -> (u32, u32) {
         self.position
