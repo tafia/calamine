@@ -110,8 +110,8 @@ fn xlsb() {
 
     let range = excel.worksheet_range("issue2").unwrap();
     let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Int(1), String("a".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Int(2), String("b".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Int(3), String("c".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
     assert_eq!(r.next(), None);
 }

@@ -185,7 +185,7 @@ impl ExcelReader for Xlsb {
                 let mut span_iter = utils::to_u32(&buf[17..]).take(span_len * 2);
                 let mut cols = Vec::with_capacity(size.1);
                 for _ in 0..span_len {
-                    cols.extend(span_iter.next().unwrap()..span_iter.next().unwrap());
+                    cols.extend(span_iter.next().unwrap()..(span_iter.next().unwrap() + 1));
                 }
                 cols
             };
@@ -202,16 +202,22 @@ impl ExcelReader for Xlsb {
                         0x0092 => return Err("Expecting cell, got BrtEndSheetData".into()),
                         0x0001 => (), // BrtCellBlank: nothing to do as it is the default value
                         0x0002 => { // BrtCellRk MS-XLSB 2.5.122
-                            let rk = utils::start_u32(&buf[8..12]);
-                            let d100 = (rk & 0b10000000) == 0;
+                            let d100 = (buf[8] & 1) != 0;
+                            let is_int = (buf[8] & 2) != 0;
+                            buf[8] &= 0xFC;
                             // TODO: use unchecked if too slow ...
-                            data[idx] = if (rk & 0b01000000) == 0 {
-                                let v = (rk & 0b00111111) as i64;
-                                DataType::Int( if d100 { v } else { v/100 })
+                            data[idx] = if is_int {
+                                let v = unsafe { 
+                                    (ptr::read(&buf[8..12] as *const [u8] as *const i32) >> 2) as i64
+                                };
+                                DataType::Int( if d100 { v/100 } else { v })
                             } else {
-                                let v = ((rk & 0b00111111) as i64) << 34; 
-                                let v = unsafe { ptr::read(&v as *const i64 as *const f64) };
-                                DataType::Float( if d100 { v } else { v/100f64 })
+                                let mut v = [0u8; 8];
+                                v[4..].copy_from_slice(&buf[8..12]);
+                                let v = unsafe { 
+                                    ptr::read(&v as *const [u8] as *const f64)
+                                };
+                                DataType::Float( if d100 { v/100.0 } else { v })
                             };
                         },
                         0x0003 => { // BrtCellError
@@ -247,7 +253,7 @@ impl ExcelReader for Xlsb {
                 }
             }
 
-            if (row, *cols.last().unwrap()) == position {
+            if (row, *cols.last().unwrap()) == (position.0 + size.0 as u32 -1, position.1 + size.1 as u32 - 1)  {
                 return Ok(Range::new(position, size, data))
             }
         }
