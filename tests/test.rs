@@ -1,7 +1,7 @@
 extern crate office;
 
 use office::Excel;
-use office::DataType::{self, Int, String, Float, Bool, Error};
+use office::DataType::{self, Int, String, Float, Bool, Error, Empty};
 use office::CellErrorType::*;
 
 #[test]
@@ -53,6 +53,7 @@ fn issue_6() {
     assert_eq!(r.next(), Some(&[Int(2)] as &[DataType]));
     assert_eq!(r.next(), Some(&[String("ab".to_string())] as &[DataType]));
     assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 
@@ -100,4 +101,17 @@ fn vba() {
     \r\n    MsgBox \"Hello from vba!\"\
     \r\nEnd Sub\
     \r\n");
+}
+
+#[test]
+fn xlsb() {
+    let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("issue2").unwrap();
+    let mut r = range.rows();
+    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
+    assert_eq!(r.next(), None);
 }
