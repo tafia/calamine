@@ -1,7 +1,7 @@
 extern crate office;
 
 use office::Excel;
-use office::DataType::{self, Int, String, Float, Bool, Error, Empty};
+use office::DataType::{self, String, Float, Bool, Error, Empty};
 use office::CellErrorType::*;
 
 #[test]
@@ -11,9 +11,9 @@ fn issue_2() {
 
     let range = excel.worksheet_range("issue2").unwrap();
     let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Int(1), String("a".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Int(2), String("b".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Int(3), String("c".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 
@@ -25,7 +25,7 @@ fn issue_3() {
 
     let range = excel.worksheet_range("Sheet1").unwrap();
     let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Int(1), String("a".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 
@@ -49,8 +49,8 @@ fn issue_6() {
 
     let range = excel.worksheet_range("issue6").unwrap();
     let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Int(1)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Int(2)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(1.)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(2.)] as &[DataType]));
     assert_eq!(r.next(), Some(&[String("ab".to_string())] as &[DataType]));
     assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
     assert_eq!(r.next(), Some(&[Empty] as &[DataType]));

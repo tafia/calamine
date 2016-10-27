@@ -223,12 +223,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>, strings: &[String], 
                                                 // error
                                                 DataType::Error(try!(v.parse()))
                                             },
-                                            _ => match v.parse() {
-                                                // TODO: check in styles to know which type is
-                                                // supposed to be used
-                                                Ok(i) => DataType::Int(i),
-                                                Err(_) => try!(v.parse().map(DataType::Float)),
-                                            },
+                                            _ => try!(v.parse().map(DataType::Float)),
                                         };
                                     data.push(value);
                                     break;
