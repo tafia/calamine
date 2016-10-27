@@ -150,10 +150,8 @@ impl ExcelReader for Xlsb {
 
         let _ = try!(iter.fill_next(0x0081, &mut buf)); // BrtBeginSheet
 
-        // BrtWsDim
-        let _ = try!(iter.next_skip_blocks(0x0094, &[
-                                          (0x0093, None),         // BrtWsProp
-                                          ], &mut buf)); 
+        // BrtWsDim, skipping BrtWsProp
+        let _ = try!(iter.next_skip_blocks(0x0094, &[(0x0093, None)], &mut buf)); 
         let (position, size) = unchecked_rfx(&buf[..16]);
 
         if size.0 == 0 || size.1 == 0 {
@@ -205,7 +203,6 @@ impl ExcelReader for Xlsb {
                             let d100 = (buf[8] & 1) != 0;
                             let is_int = (buf[8] & 2) != 0;
                             buf[8] &= 0xFC;
-                            // TODO: use unchecked if too slow ...
                             data[idx] = if is_int {
                                 let v = unsafe { 
                                     (ptr::read(&buf[8..12] as *const [u8] as *const i32) >> 2) as i64
@@ -249,12 +246,14 @@ impl ExcelReader for Xlsb {
                         },
                         _ => continue, // anything else, ignore and try next
                     }
-                    break;
-                }
-            }
 
-            if (row, *cols.last().unwrap()) == (position.0 + size.0 as u32 -1, position.1 + size.1 as u32 - 1)  {
-                return Ok(Range::new(position, size, data))
+                    // return if the last cell has been set
+                    if idx == data.len() - 1 {
+                        return Ok(Range::new(position, size, data))
+                    } else {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -344,14 +343,3 @@ fn unchecked_rfx(buf: &[u8]) -> ((u32, u32), (usize, usize)) {
     ((rw_first, col_first), 
      ((rw_last - rw_first + 1) as usize, (col_last - col_first + 1) as usize))
 }
-
-// fn nullable_wide_str(buf: &[u8]) -> Result<Option<String>> {
-//     let len = utils::start_u32(buf);
-//     if len == 0xFFFFFFFF {
-//         Ok(None)
-//     } else {
-//         let s = &buf[4..4 + len as usize * 2];
-//         let s = try!(UTF_16LE.decode(s, DecoderTrap::Ignore).map_err(|e| e.to_string()));
-//         Ok(Some(s))
-//     }
-// }
