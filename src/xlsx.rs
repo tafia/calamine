@@ -90,10 +90,10 @@ impl ExcelReader for Xlsx {
                         Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
                             let mut name = String::new();
                             let mut path = String::new();
-                            for a in e.attributes() {
+                            for a in e.unescaped_attributes() {
                                 match try!(a) {
                                     (b"name", v) => name = try!(v.as_str()).to_string(),
-                                    (b"r:id", v) => path = format!("xl/{}", relationships[v]),
+                                    (b"r:id", v) => path = format!("xl/{}", relationships[&*v]),
                                     _ => (),
                                 }
                             }
