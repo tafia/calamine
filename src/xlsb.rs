@@ -6,7 +6,7 @@ use std::ptr;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::ReadBytesExt;
 use quick_xml::{XmlReader, Event, AsStr};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
@@ -86,7 +86,7 @@ impl ExcelReader for Xlsb {
         let mut buf = vec![0; 1024];
 
         let _ = try!(iter.fill_next(0x009F, &mut buf)); // BrtBeginSst
-        let len = try!((&mut &*buf).read_u32::<LittleEndian>()) as usize;
+        let len = utils::start_u32(&buf[4..8]) as usize;
         let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
