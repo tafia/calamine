@@ -129,3 +129,39 @@ fn xlsb() {
     assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
     assert_eq!(r.next(), None);
 }
+
+#[test]
+fn special_chrs_xlsx() {
+    let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("spc_chrs").unwrap();
+    let mut r = range.rows();
+    assert_eq!(r.next(), Some(&[String("&".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("<".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String(">".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("aaa ' aaa".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("\"".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("☺".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("֍".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("àâéêèçöïî«»".to_string())] as &[DataType]));
+    assert_eq!(r.next(), None);
+}
+
+#[test]
+fn special_chrs_xlsb() {
+    let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("spc_chrs").unwrap();
+    let mut r = range.rows();
+    assert_eq!(r.next(), Some(&[String("&".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("<".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String(">".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("aaa ' aaa".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("\"".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("☺".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("֍".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[String("àâéêèçöïî«»".to_string())] as &[DataType]));
+    assert_eq!(r.next(), None);
+}
