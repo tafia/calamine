@@ -5,9 +5,12 @@
 
 use std::io::Read;
 use std::path::PathBuf;
+
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
 use byteorder::{LittleEndian, ReadBytesExt};
+use log::LogLevel;
+
 use errors::*;
 use utils;
 
@@ -59,16 +62,16 @@ impl VbaProject {
         let mut fat_sectors = header.sect_fat.to_vec();
         let mut sector_id = header.sect_dif_start;
         while sector_id != FREESECT && sector_id != ENDOFCHAIN {
-            fat_sectors.extend(utils::to_u32(sector.get(sector_id)));
+            fat_sectors.extend_from_slice(utils::to_u32(sector.get(sector_id)));
             sector_id = fat_sectors.pop().unwrap(); //TODO: check if in infinite loop
         }
 
         // load the FATs
         debug!("load fat");
-        let fat = fat_sectors.into_iter()
-            .filter(|id| *id != FREESECT)
-            .flat_map(|id| utils::to_u32(sector.get(id)))
-            .collect::<Vec<_>>();
+        let mut fat = Vec::new();
+        for id in fat_sectors.into_iter().filter(|id| *id != FREESECT) {
+            fat.extend_from_slice(utils::to_u32(sector.get(id)));
+        }
         debug!("fats: {:?}", fat);
         
         // set sector fats
@@ -90,8 +93,10 @@ impl VbaProject {
             ministream.truncate(directories[0].ul_size as usize);
 
             debug!("load minifat");
-            let minifat = sectors.read_chain(header.sect_mini_fat_start)
-                .flat_map(|s| utils::to_u32(s)).collect::<Vec<_>>();
+            let mut minifat = Vec::new();
+            for s in sectors.read_chain(header.sect_mini_fat_start) {
+                minifat.extend_from_slice(utils::to_u32(s));
+            }
 
             let mini_sector_size = 2usize.pow(header.mini_sector_shift as u32);
             assert!(directories[0].ul_size as usize % mini_sector_size == 0);
@@ -110,8 +115,7 @@ impl VbaProject {
     /// Gets a stream by name out of directories
     fn get_stream<'a>(&'a self, name: &str) -> Option<StreamIter> {
         debug!("get stream {}", name);
-        match self.directories.iter()
-            .find(|d| &*d.name == name) {
+        match self.directories.iter().find(|d| &*d.name == name) {
             None => None,
             Some(d) => {
                 let sectors = if d.ul_size < self.header.mini_sector_cutoff {
@@ -158,22 +162,22 @@ impl VbaProject {
         *stream = &stream[38..];
         
         // PROJECTNAME Record
-        try!(utils::check_variable_record(0x0004, stream));
+        try!(check_variable_record(0x0004, stream));
 
         // PROJECTDOCSTRING Record
-        try!(utils::check_variable_record(0x0005, stream));
-        try!(utils::check_variable_record(0x0040, stream)); // unicode
+        try!(check_variable_record(0x0005, stream));
+        try!(check_variable_record(0x0040, stream)); // unicode
 
         // PROJECTHELPFILEPATH Record - MS-OVBA 2.3.4.2.1.7
-        try!(utils::check_variable_record(0x0006, stream));
-        try!(utils::check_variable_record(0x003D, stream));
+        try!(check_variable_record(0x0006, stream));
+        try!(check_variable_record(0x003D, stream));
 
         // PROJECTHELPCONTEXT PROJECTLIBFLAGS and PROJECTVERSION Records
         *stream = &stream[32..];
 
         // PROJECTCONSTANTS Record
-        try!(utils::check_variable_record(0x000C, stream));
-        try!(utils::check_variable_record(0x003C, stream)); // unicode
+        try!(check_variable_record(0x000C, stream));
+        try!(check_variable_record(0x003C, stream)); // unicode
 
         Ok(())
     }
@@ -211,7 +215,7 @@ impl VbaProject {
                 0x0016 => { // REFERENCENAME
                     if !reference.name.is_empty() { references.push(reference); }
 
-                    let name = try!(utils::read_variable_record(stream, 1));
+                    let name = try!(read_variable_record(stream, 1));
                     let name = try!(::std::string::String::from_utf8(name.to_vec()));
                     reference = Reference {
                         name: name.clone(),
@@ -219,39 +223,39 @@ impl VbaProject {
                         path: "/".into(),
                     };
 
-                    try!(utils::check_variable_record(0x003E, stream)); // unicode
+                    try!(check_variable_record(0x003E, stream)); // unicode
                 },
 
                 0x0033 => { // REFERENCEORIGINAL (followed by REFERENCECONTROL)
-                    try!(utils::read_variable_record(stream, 1));
+                    try!(read_variable_record(stream, 1));
                 },
 
                 0x002F => { // REFERENCECONTROL
                     *stream = &stream[4..]; // len of total ref control
 
-                    let libid = try!(utils::read_variable_record(stream, 1)); //libid twiddled
+                    let libid = try!(read_variable_record(stream, 1)); //libid twiddled
                     try!(set_module_from_libid(&mut reference, libid));
 
                     *stream = &stream[6..];
 
                     match try!(stream.read_u16::<LittleEndian>()) {
                         0x0016 => { // optional name record extended
-                            try!(utils::read_variable_record(stream, 1)); // name extended
-                            try!(utils::check_variable_record(0x003E, stream)); // name extended unicode
-                            try!(utils::check_record(0x0030, stream));
+                            try!(read_variable_record(stream, 1)); // name extended
+                            try!(check_variable_record(0x003E, stream)); // name extended unicode
+                            try!(check_record(0x0030, stream));
                         },
                         0x0030 => (),
                         e => return Err(format!( "unexpected token in reference control {:x}", e).into()),
                     } 
                     *stream = &stream[4..];
-                    try!(utils::read_variable_record(stream, 1)); // libid extended
+                    try!(read_variable_record(stream, 1)); // libid extended
                     *stream = &stream[26..];
                 },
 
                 0x000D => { // REFERENCEREGISTERED
                     *stream = &stream[4..];
 
-                    let libid = try!(utils::read_variable_record(stream, 1)); // libid registered
+                    let libid = try!(read_variable_record(stream, 1)); // libid registered
                     try!(set_module_from_libid(&mut reference, libid));
 
                     *stream = &stream[6..];
@@ -259,7 +263,7 @@ impl VbaProject {
 
                 0x000E => { // REFERENCEPROJECT
                     *stream = &stream[4..];
-                    let absolute = try!(utils::read_variable_record(stream, 1)); // project libid absolute
+                    let absolute = try!(read_variable_record(stream, 1)); // project libid absolute
                     {
                         let absolute = try!(::std::str::from_utf8(absolute));
                         reference.path = if absolute.starts_with("*\\C") { 
@@ -268,7 +272,7 @@ impl VbaProject {
                             absolute.into()
                         };
                     }
-                    try!(utils::read_variable_record(stream, 1)); // project libid relative
+                    try!(read_variable_record(stream, 1)); // project libid relative
                     *stream = &stream[6..];
                 },
                 c => return Err(format!("invalid of unknown check Id {}", c).into()),
@@ -290,29 +294,29 @@ impl VbaProject {
         for _ in 0..module_len {
 
             // name
-            let name = try!(utils::check_variable_record(0x0019, stream));
+            let name = try!(check_variable_record(0x0019, stream));
             let name = try!(::std::string::String::from_utf8(name.to_vec()));
 
-            try!(utils::check_variable_record(0x0047, stream));      // unicode
+            try!(check_variable_record(0x0047, stream));      // unicode
 
-            let stream_name = try!(utils::check_variable_record(0x001A, stream)); // stream name
+            let stream_name = try!(check_variable_record(0x001A, stream)); // stream name
             let stream_name = try!(::std::string::String::from_utf8(stream_name.to_vec())); 
 
-            try!(utils::check_variable_record(0x0032, stream));      // stream name unicode
-            try!(utils::check_variable_record(0x001C, stream));      // doc string
-            try!(utils::check_variable_record(0x0048, stream));      // doc string unicode
+            try!(check_variable_record(0x0032, stream));      // stream name unicode
+            try!(check_variable_record(0x001C, stream));      // doc string
+            try!(check_variable_record(0x0048, stream));      // doc string unicode
 
             // offset
-            try!(utils::check_record(0x0031, stream));
+            try!(check_record(0x0031, stream));
             *stream = &stream[4..];
             let offset = try!(stream.read_u32::<LittleEndian>()) as usize;
 
             // help context
-            try!(utils::check_record(0x001E, stream));
+            try!(check_record(0x001E, stream));
             *stream = &stream[8..];
 
             // cookie
-            try!(utils::check_record(0x002C, stream));
+            try!(check_record(0x002C, stream));
             *stream = &stream[6..];
 
             match try!(stream.read_u16::<LittleEndian>()) {
@@ -407,7 +411,7 @@ impl Header {
 
         let mut sect_fat = [0u8; 109 * 4];
         try!(f.read_exact(&mut sect_fat));
-        let sect_fat = unsafe { ::std::ptr::read(sect_fat.as_ptr() as *const [u32; 109]) };
+        let sect_fat = unsafe { *(&sect_fat as *const [u8; 109 * 4] as *const [u32; 109]) };
 
         Ok(Header {
             ab_sig: ab_sig, 
@@ -653,4 +657,36 @@ pub struct Module {
     pub name: String,
     stream_name: String,
     text_offset: usize,
+}
+
+/// Reads a variable length record
+/// 
+/// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
+fn read_variable_record<'a>(r: &mut &'a[u8], mult: usize) -> Result<&'a[u8]> {
+    let len = try!(r.read_u32::<LittleEndian>()) as usize * mult;
+    let (read, next) = r.split_at(len);
+    *r = next;
+    Ok(read)
+}
+
+/// Check that next record matches `id` and returns a variable length record
+fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
+    try!(check_record(id, r));
+    let record = try!(read_variable_record(r, 1));
+    if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
+        warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
+              id, record.len(), record.len() as u32);
+    }
+    Ok(record)
+}
+
+/// Check that next record matches `id`
+fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
+    debug!("check record {:x}", id);
+    let record_id = try!(r.read_u16::<LittleEndian>());
+    if record_id != id {
+        Err(format!("invalid record id, found {:x}, expecting {:x}", record_id, id).into())
+    } else {
+        Ok(())
+    }
 }

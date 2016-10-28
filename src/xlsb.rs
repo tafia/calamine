@@ -2,7 +2,6 @@ use std::string::String;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::collections::HashMap;
-use std::ptr;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
@@ -85,8 +84,8 @@ impl ExcelReader for Xlsb {
         let mut iter = try!(self.iter("xl/sharedStrings.bin"));
         let mut buf = vec![0; 1024];
 
-        let _ = try!(iter.fill_next(0x009F, &mut buf)); // BrtBeginSst
-        let len = utils::start_u32(&buf[4..8]) as usize;
+        let _ = try!(iter.next_skip_blocks(0x009F, &[], &mut buf)); // BrtBeginSst
+        let len = read_as_usize(&buf[4..8]);
         let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
@@ -111,10 +110,9 @@ impl ExcelReader for Xlsb {
         let mut iter = try!(self.iter("xl/workbook.bin"));
         let mut buf = vec![0; 1024];
 
-        let _ = try!(iter.fill_next(0x0083, &mut buf)); // BrtBeginBook
-
         // BrtBeginBundleShs
         let _ = try!(iter.next_skip_blocks(0x008F, &[
+                                          (0x0083, None),         // BrtBeginBook
                                           (0x0080, None),         // BrtFileVersion
                                           (0x0099, None),         // BrtWbProp
                                           (0x02A4, Some(0x0224)), // File Sharing
@@ -130,7 +128,7 @@ impl ExcelReader for Xlsb {
                 typ => return Err(format!("Expecting end of sheet, got {:x}", typ).into()),
             }
             let len = try!(iter.fill_buffer(&mut buf));
-            let rel_len = utils::start_u32(&buf[8..len]);
+            let rel_len = read_u32(&buf[8..len]);
             if rel_len != 0xFFFFFFFF {
                 let rel_len = rel_len as usize * 2;
                 let relid = &buf[12..12 + rel_len];
@@ -148,10 +146,11 @@ impl ExcelReader for Xlsb {
         let mut iter = try!(self.iter(path));
         let mut buf = vec![0; 1024];
 
-        let _ = try!(iter.fill_next(0x0081, &mut buf)); // BrtBeginSheet
-
-        // BrtWsDim, skipping BrtWsProp
-        let _ = try!(iter.next_skip_blocks(0x0094, &[(0x0093, None)], &mut buf)); 
+        // BrtWsDim
+        let _ = try!(iter.next_skip_blocks(0x0094, &[
+                                           (0x0081, None), // BrtBeginSheet
+                                           (0x0093, None), // BrtWsProp
+                                           ], &mut buf)); 
         let (position, size) = unchecked_rfx(&buf[..16]);
 
         if size.0 == 0 || size.1 == 0 {
@@ -167,97 +166,86 @@ impl ExcelReader for Xlsb {
                                           ], &mut buf)); 
 
         let mut data = vec![DataType::Empty; (size.0 * size.1) as usize];
-        
-        // loop through all non empty rows
-        loop {
-            // BrtRowHdr
-            let _ = try!(iter.next_skip_blocks(0x0000, &[
-                                              (0x0025, Some(0x0026)), // AC blocks
-                                              (0x0023, Some(0x0024)), // future
-                                              ], &mut buf)); 
-            let row = utils::start_u32(&buf);
+ 
+        // Initialization: first BrtRowHdr
+        let mut typ = 0x0000;
+        let mut len = try!(iter.next_skip_blocks(typ, &[
+                                          (0x0025, Some(0x0026)), // AC blocks
+                                          (0x0023, Some(0x0024)), // future
+                                          ], &mut buf)); 
+        let mut indexes = indexes_from_spans(&position, &size, &buf[..len]).into_iter();
+        let mut idx = indexes.next();
 
-            // get column indexes
-            let cols = {
-                let span_len = utils::start_u32(&buf[13..]) as usize;
-                let mut span_iter = utils::to_u32(&buf[17..]).take(span_len * 2);
-                let mut cols = Vec::with_capacity(size.1);
-                for _ in 0..span_len {
-                    cols.extend(span_iter.next().unwrap()..(span_iter.next().unwrap() + 1));
-                }
-                cols
+        // loop until end of sheet
+        loop { 
+
+            typ = try!(iter.read_type());
+            len = try!(iter.fill_buffer(&mut buf));
+
+            let value = match typ {
+                0x0001 => DataType::Empty, // BrtCellBlank
+                0x0002 => { // BrtCellRk MS-XLSB 2.5.122
+                    let d100 = (buf[8] & 1) != 0;
+                    let is_int = (buf[8] & 2) != 0;
+                    buf[8] &= 0xFC;
+                    if is_int { 
+                        let v = (read_slice::<i32>(&buf[8..12]) >> 2) as i64;
+                        DataType::Int( if d100 { v/100 } else { v })
+                    } else {
+                        let mut v = [0u8; 8];
+                        v[4..].copy_from_slice(&buf[8..12]);
+                        let v = read_slice(&v);
+                        DataType::Float( if d100 { v/100.0 } else { v })
+                    }
+                },
+                0x0003 => { // BrtCellError
+                    DataType::Error(match buf[8] {
+                        0x00 => CellErrorType::Null,
+                        0x07 => CellErrorType::Div0,
+                        0x0F => CellErrorType::Value,
+                        0x17 => CellErrorType::Ref,
+                        0x1D => CellErrorType::Name,
+                        0x24 => CellErrorType::Num,
+                        0x2A => CellErrorType::NA,
+                        0x2B => CellErrorType::GettingData,
+                        c => return Err(format!("Unrecognised cell error code 0x{:x}", c).into()),
+                    })
+                },
+                0x0004 => DataType::Bool(buf[8] != 0), // BrtCellBool 
+                0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal 
+                0x0006 => DataType::String(try!(wide_str(&buf[8..]))), // BrtCellSt 
+                0x0007 => { // BrtCellIsst
+                    let isst = read_as_usize(&buf[8..12]);
+                    DataType::String(strings[isst].clone())
+                },
+                0x0000 => {
+                    // BrtRowHdr: parse columns and reset indexes
+                    indexes = indexes_from_spans(&position, &size, &buf[..len]).into_iter();
+                    idx = indexes.next();
+                    continue;
+                },
+                0x0092 => return Ok(Range::new(position, size, data)),// BrtEndSheetData
+                _ => continue,  // anything else, ignore and try next, without changing idx
             };
 
-            // read all values for the row
-            for idx in cols.iter()
-                .map(|col| (row - position.0) as usize * size.1 + (*col - position.1) as usize) {
-                loop {
-                    // read record
-                    let typ = try!(iter.read_type());
-                    let _ = try!(iter.fill_buffer(&mut buf));
-
-                    match typ {
-                        0x0092 => return Err("Expecting cell, got BrtEndSheetData".into()),
-                        0x0001 => (), // BrtCellBlank: nothing to do as it is the default value
-                        0x0002 => { // BrtCellRk MS-XLSB 2.5.122
-                            let d100 = (buf[8] & 1) != 0;
-                            let is_int = (buf[8] & 2) != 0;
-                            buf[8] &= 0xFC;
-                            data[idx] = if is_int {
-                                let v = unsafe { 
-                                    (ptr::read(&buf[8..12] as *const [u8] as *const i32) >> 2) as i64
-                                };
-                                DataType::Int( if d100 { v/100 } else { v })
-                            } else {
-                                let mut v = [0u8; 8];
-                                v[4..].copy_from_slice(&buf[8..12]);
-                                let v = unsafe { 
-                                    ptr::read(&v as *const [u8] as *const f64)
-                                };
-                                DataType::Float( if d100 { v/100.0 } else { v })
-                            };
-                        },
-                        0x0003 => { // BrtCellError
-                            data[idx] = DataType::Error(match buf[8] {
-                                0x00 => CellErrorType::Null,
-                                0x07 => CellErrorType::Div0,
-                                0x0F => CellErrorType::Value,
-                                0x17 => CellErrorType::Ref,
-                                0x1D => CellErrorType::Name,
-                                0x24 => CellErrorType::Num,
-                                0x2A => CellErrorType::NA,
-                                0x2B => CellErrorType::GettingData,
-                                c => return Err(format!("Unrecognised cell error code 0x{:x}", c).into()),
-                            });
-                        },
-                        0x0004 => { // BrtCellBool
-                            data[idx] = DataType::Bool(buf[8] != 0);
-                        },
-                        0x0005 => { // BrtCellReal
-                            let v = unsafe { ptr::read(&buf[8..16] as *const [u8] as *const f64) };
-                            data[idx] = DataType::Float(v);
-                        },
-                        0x0006 => { // BrtCellSt
-                            data[idx] = DataType::String(try!(wide_str(&buf[8..])));
-                        },
-                        0x0007 => { // BrtCellIsst
-                            let isst = utils::start_u32(&buf[8..12]) as usize;
-                            data[idx] = DataType::String(strings[isst].clone());
-                        },
-                        _ => continue, // anything else, ignore and try next
-                    }
-
-                    // return if the last cell has been set
-                    if idx == data.len() - 1 {
-                        return Ok(Range::new(position, size, data))
-                    } else {
-                        break;
-                    }
-                }
+            if let Some(i) = idx {
+                data[i] = value;
             }
+            idx = indexes.next();
         }
     }
+}
 
+fn indexes_from_spans(position: &(u32, u32), size: &(usize, usize), buf: &[u8]) -> Vec<usize> {
+    let row = read_u32(&buf);
+    let idx_start = (row - position.0) as usize * size.1;
+
+    // read directly the spans and deduct the len from the BrtRowHdr len
+    let spans = utils::to_u32(&buf[17..]);
+    spans
+        .chunks(2).flat_map(|c| c[0]..(c[1] + 1))
+        .map(|col| idx_start + (col - position.1) as usize)
+        .collect()
 }
 
 struct RecordIter<'a> {
@@ -290,17 +278,7 @@ impl<'a> RecordIter<'a> {
         Ok(len)
     }
 
-    fn fill_next(&mut self, record_type: u16, buf: &mut Vec<u8>) -> Result<usize> {
-        let typ = try!(self.read_type());
-        if record_type != typ {
-            Err(format!("Unexpected record: expecting 0x{:x}, found 0x{:x}", 
-                        record_type, typ).into())
-        } else {
-            self.fill_buffer(buf)
-        }
-    }
-
-    /// Reads next type, and discard block between `start` and `end`
+    /// Reads next type, and discard blocks between `start` and `end`
     fn next_skip_blocks(&mut self, record_type: u16, bounds: &[(u16, Option<u16>)], 
                        buf: &mut Vec<u8>) -> Result<usize> 
     {
@@ -308,18 +286,16 @@ impl<'a> RecordIter<'a> {
         loop {
             let typ = try!(self.read_type());
             match end {
-                Some(e) if e == typ => end = None,
-                Some(_) => (),
-                None if typ == record_type => {
-                    return self.fill_buffer(buf);
+                Some(e) if e == typ        => end = None,
+                Some(_)                    => (),
+                None if typ == record_type => return self.fill_buffer(buf),
+                None                       => {
+                    match bounds.iter().position(|b| b.0 == typ) {
+                        Some(i) => end = bounds[i].1,
+                        None => return Err(format!("Unexpected record after block: \
+                            expecting 0x{:x} found 0x{:x}", record_type, typ).into()),
+                    }
                 },
-                None => match bounds.iter().position(|b| b.0 == typ) {
-                    Some(i) => {
-                        end = bounds[i].1;
-                    },
-                    None => return Err(format!("Unexpected record after block: \
-                        expecting 0x{:x} found 0x{:x}", record_type, typ).into())
-                }
             }
             let _ = try!(self.fill_buffer(buf));
         }
@@ -328,18 +304,30 @@ impl<'a> RecordIter<'a> {
 }
 
 fn wide_str(buf: &[u8]) -> Result<String> {
-    let len = utils::start_u32(buf);
-    let s = &buf[4..4 + len as usize * 2];
+    let len = read_as_usize(buf);
+    let s = &buf[4..4 + len * 2];
     UTF_16LE.decode(s, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
 }
 
 fn unchecked_rfx(buf: &[u8]) -> ((u32, u32), (usize, usize)) {
-    let mut iter = utils::to_u32(&buf[..16]);
-    let rw_first = iter.next().unwrap();
-    let rw_last = iter.next().unwrap();
-    let col_first = iter.next().unwrap();
-    let col_last = iter.next().unwrap();
+    let s = utils::to_u32(&buf[..16]);
+    let (rw_first, rw_last, col_first, col_last) = (s[0], s[1], s[2], s[3]);
 
     ((rw_first, col_first), 
      ((rw_last - rw_first + 1) as usize, (col_last - col_first + 1) as usize))
+}
+
+fn read_slice<T>(s: &[u8]) -> T {
+    unsafe { ::std::ptr::read(&s[..::std::mem::size_of::<T>()] as *const [u8] as *const T) }
+}
+
+/// Converts the first 4 bytes into u32
+/// 
+/// panics if s.len() < 4
+fn read_u32(s: &[u8]) -> u32 {
+    read_slice(s)
+}
+
+fn read_as_usize(s: &[u8]) -> usize {
+    read_u32(s) as usize
 }
