@@ -165,16 +165,15 @@ impl ExcelReader for Xlsb {
                                           (0x0186, Some(0x0187)), // Col Infos
                                           ], &mut buf)); 
 
-        let mut data = vec![DataType::Empty; (size.0 * size.1) as usize];
- 
         // Initialization: first BrtRowHdr
         let mut typ = 0x0000;
         let mut len = try!(iter.next_skip_blocks(typ, &[
                                           (0x0025, Some(0x0026)), // AC blocks
                                           (0x0023, Some(0x0024)), // future
                                           ], &mut buf)); 
-        let mut indexes = indexes_from_spans(&position, &size, &buf[..len]).into_iter();
-        let mut idx = indexes.next();
+        let mut iter_pos = positions_from_spans(&buf[..len]).into_iter();
+        let mut pos = iter_pos.next();
+        let mut range = Range::new(position, size);
 
         // loop until end of sheet
         loop { 
@@ -220,32 +219,27 @@ impl ExcelReader for Xlsb {
                 },
                 0x0000 => {
                     // BrtRowHdr: parse columns and reset indexes
-                    indexes = indexes_from_spans(&position, &size, &buf[..len]).into_iter();
-                    idx = indexes.next();
+                    iter_pos = positions_from_spans(&buf[..len]).into_iter();
+                    pos = iter_pos.next();
                     continue;
                 },
-                0x0092 => return Ok(Range::new(position, size, data)),// BrtEndSheetData
+                0x0092 => return Ok(range),  // BrtEndSheetData
                 _ => continue,  // anything else, ignore and try next, without changing idx
             };
 
-            if let Some(i) = idx {
-                data[i] = value;
+            if let Some(p) = pos {
+                range.set_value(p, value);
             }
-            idx = indexes.next();
+            pos = iter_pos.next();
         }
     }
 }
 
-fn indexes_from_spans(position: &(u32, u32), size: &(usize, usize), buf: &[u8]) -> Vec<usize> {
+fn positions_from_spans(buf: &[u8]) -> Vec<(u32, u32)> {
     let row = read_u32(&buf);
-    let idx_start = (row - position.0) as usize * size.1;
-
     // read directly the spans and deduct the len from the BrtRowHdr len
     let spans = utils::to_u32(&buf[17..]);
-    spans
-        .chunks(2).flat_map(|c| c[0]..(c[1] + 1))
-        .map(|col| idx_start + (col - position.1) as usize)
-        .collect()
+    spans.chunks(2).flat_map(|c| c[0]..(c[1] + 1)).map(|col| (row, col)).collect()
 }
 
 struct RecordIter<'a> {

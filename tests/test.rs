@@ -54,6 +54,7 @@ fn issue_6() {
     assert_eq!(r.next(), Some(&[String("ab".to_string())] as &[DataType]));
     assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
     assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 
@@ -71,6 +72,19 @@ fn error_file() {
     assert_eq!(r.next(), Some(&[Error(Ref)] as &[DataType]));
     assert_eq!(r.next(), Some(&[Error(Num)] as &[DataType]));
     assert_eq!(r.next(), Some(&[Error(NA)] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
     assert_eq!(r.next(), None);
 }
 
