@@ -166,92 +166,86 @@ impl ExcelReader for Xlsb {
                                           ], &mut buf)); 
 
         let mut data = vec![DataType::Empty; (size.0 * size.1) as usize];
-        
-        // loop through all non empty rows
-        loop {
-            // BrtRowHdr
-            let len = try!(iter.next_skip_blocks(0x0000, &[
-                                              (0x0025, Some(0x0026)), // AC blocks
-                                              (0x0023, Some(0x0024)), // future
-                                              ], &mut buf)); 
-            let row = read_u32(&buf);
-            println!("row: {}/{}", row, position.0 + size.0 as u32 - 1);
+ 
+        // Initialization: first BrtRowHdr
+        let mut typ = 0x0000;
+        let mut len = try!(iter.next_skip_blocks(typ, &[
+                                          (0x0025, Some(0x0026)), // AC blocks
+                                          (0x0023, Some(0x0024)), // future
+                                          ], &mut buf)); 
+        let mut indexes = indexes_from_spans(&position, &size, &buf[..len]).into_iter();
+        let mut idx = indexes.next();
 
-            // get column indexes
-            let cols: Vec<_> = {
-                // read directly the spans and deduct the len from the BrtRowHdr len
-                let spans = utils::to_u32(&buf[17..len]);
-                spans.chunks(2).filter(|c| c[0] < 16384 && c[1] < 16384)
-                    .flat_map(|c| c[0]..(c[1] + 1)).collect()
+        // loop until end of sheet
+        loop { 
+
+            typ = try!(iter.read_type());
+            len = try!(iter.fill_buffer(&mut buf));
+
+            let value = match typ {
+                0x0001 => DataType::Empty, // BrtCellBlank
+                0x0002 => { // BrtCellRk MS-XLSB 2.5.122
+                    let d100 = (buf[8] & 1) != 0;
+                    let is_int = (buf[8] & 2) != 0;
+                    buf[8] &= 0xFC;
+                    if is_int { 
+                        let v = (read_slice::<i32>(&buf[8..12]) >> 2) as i64;
+                        DataType::Int( if d100 { v/100 } else { v })
+                    } else {
+                        let mut v = [0u8; 8];
+                        v[4..].copy_from_slice(&buf[8..12]);
+                        let v = read_slice(&v);
+                        DataType::Float( if d100 { v/100.0 } else { v })
+                    }
+                },
+                0x0003 => { // BrtCellError
+                    DataType::Error(match buf[8] {
+                        0x00 => CellErrorType::Null,
+                        0x07 => CellErrorType::Div0,
+                        0x0F => CellErrorType::Value,
+                        0x17 => CellErrorType::Ref,
+                        0x1D => CellErrorType::Name,
+                        0x24 => CellErrorType::Num,
+                        0x2A => CellErrorType::NA,
+                        0x2B => CellErrorType::GettingData,
+                        c => return Err(format!("Unrecognised cell error code 0x{:x}", c).into()),
+                    })
+                },
+                0x0004 => DataType::Bool(buf[8] != 0), // BrtCellBool 
+                0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal 
+                0x0006 => DataType::String(try!(wide_str(&buf[8..]))), // BrtCellSt 
+                0x0007 => { // BrtCellIsst
+                    let isst = read_as_usize(&buf[8..12]);
+                    DataType::String(strings[isst].clone())
+                },
+                0x0000 => {
+                    // BrtRowHdr: parse columns and reset indexes
+                    indexes = indexes_from_spans(&position, &size, &buf[..len]).into_iter();
+                    idx = indexes.next();
+                    continue;
+                },
+                0x0092 => return Ok(Range::new(position, size, data)),// BrtEndSheetData
+                _ => continue,  // anything else, ignore and try next, without changing idx
             };
 
-            // read all values for the row
-            for idx in cols.into_iter()
-                .map(|col| (row - position.0) as usize * size.1 + (col - position.1) as usize) {
-                println!("idx: {}/{}", idx, data.len());
-                loop {
-                    // read record
-                    let typ = try!(iter.read_type());
-                    let _ = try!(iter.fill_buffer(&mut buf));
-
-                    match typ {
-                        0x0092 => return Err("Expecting cell, got BrtEndSheetData".into()),
-                        0x0001 => (), // BrtCellBlank: nothing to do as it is the default value
-                        0x0002 => { // BrtCellRk MS-XLSB 2.5.122
-                            let d100 = (buf[8] & 1) != 0;
-                            let is_int = (buf[8] & 2) != 0;
-                            buf[8] &= 0xFC;
-                            data[idx] = if is_int { 
-                                let v = (read_slice::<i32>(&buf[8..12]) >> 2) as i64;
-                                DataType::Int( if d100 { v/100 } else { v })
-                            } else {
-                                let mut v = [0u8; 8];
-                                v[4..].copy_from_slice(&buf[8..12]);
-                                let v = read_slice(&v);
-                                DataType::Float( if d100 { v/100.0 } else { v })
-                            };
-                        },
-                        0x0003 => { // BrtCellError
-                            data[idx] = DataType::Error(match buf[8] {
-                                0x00 => CellErrorType::Null,
-                                0x07 => CellErrorType::Div0,
-                                0x0F => CellErrorType::Value,
-                                0x17 => CellErrorType::Ref,
-                                0x1D => CellErrorType::Name,
-                                0x24 => CellErrorType::Num,
-                                0x2A => CellErrorType::NA,
-                                0x2B => CellErrorType::GettingData,
-                                c => return Err(format!("Unrecognised cell error code 0x{:x}", c).into()),
-                            });
-                        },
-                        0x0004 => { // BrtCellBool
-                            data[idx] = DataType::Bool(buf[8] != 0);
-                        },
-                        0x0005 => { // BrtCellReal
-                            data[idx] = DataType::Float(read_slice(&buf[8..16]));
-                        },
-                        0x0006 => { // BrtCellSt
-                            data[idx] = DataType::String(try!(wide_str(&buf[8..])));
-                        },
-                        0x0007 => { // BrtCellIsst
-                            let isst = read_as_usize(&buf[8..12]);
-                            data[idx] = DataType::String(strings[isst].clone());
-                        },
-                        0x0000 => return Err("Expecting cell value, found new row".into()),
-                        _ => continue, // anything else, ignore and try next
-                    }
-
-                    // return if the last cell has been set
-                    if idx == data.len() - 1 {
-                        return Ok(Range::new(position, size, data))
-                    } else {
-                        break;
-                    }
-                }
+            if let Some(i) = idx {
+                data[i] = value;
             }
+            idx = indexes.next();
         }
     }
+}
 
+fn indexes_from_spans(position: &(u32, u32), size: &(usize, usize), buf: &[u8]) -> Vec<usize> {
+    let row = read_u32(&buf);
+    let idx_start = (row - position.0) as usize * size.1;
+
+    // read directly the spans and deduct the len from the BrtRowHdr len
+    let spans = utils::to_u32(&buf[17..]);
+    spans
+        .chunks(2).flat_map(|c| c[0]..(c[1] + 1))
+        .map(|col| idx_start + (col - position.1) as usize)
+        .collect()
 }
 
 struct RecordIter<'a> {
@@ -337,4 +331,3 @@ fn read_u32(s: &[u8]) -> u32 {
 fn read_as_usize(s: &[u8]) -> usize {
     read_u32(s) as usize
 }
-

@@ -3,7 +3,7 @@ use errors::*;
 /// Converts a &[u8] into a &[u32]
 pub fn to_u32(s: &[u8]) -> &[u32] {
     assert!(s.len() % 4 == 0);
-    unsafe { &(*(s as *const [u8] as *const [u32]))[..s.len() / 4] }
+    unsafe { ::std::slice::from_raw_parts(s as *const [u8] as *const u32, s.len() / 4) }
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
