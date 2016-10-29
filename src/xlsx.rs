@@ -168,13 +168,11 @@ impl ExcelReader for Xlsx {
                                     let (position, size) = try!(utils::get_dimension(dim));
                                     data.position = position;
                                     data.size = (size.0 as usize, size.1 as usize);
+                                    data.inner = vec![DataType::Empty; (size.0 * size.1) as usize];
                                 }
                             }
                         },
-                        b"sheetData" => {
-                            data.inner = try!(read_sheet_data(&mut xml, strings, 
-                                                              data.size.0 * data.size.1))
-                        },
+                        b"sheetData" => try!(read_sheet_data(&mut xml, strings, &mut data)),
                         _ => (),
                     }
                 },
@@ -187,63 +185,62 @@ impl ExcelReader for Xlsx {
 }
 
 /// read sheetData node
-fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>, strings: &[String], len: usize) 
-    -> Result<Vec<DataType>>
-{
-    let mut data = Vec::with_capacity(len);
+fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>, 
+                   strings: &[String], range: &mut Range) -> Result<()> {
     while let Some(res_event) = xml.next() {
         match res_event {
             Err(e) => return Err(e.into()),
-            Ok(Event::Start(ref c_element)) => {
-                if c_element.name() == b"c" {
-                    loop {
-                        match xml.next() {
-                            Some(Err(e)) => return Err(e.into()),
-                            Some(Ok(Event::Start(ref e))) => match e.name() {
-                                b"v" => {
-                                    // value
-                                    let v = try!(xml.read_text(b"v"));
-                                    let value = match c_element.attributes()
-                                        .filter_map(|a| a.ok())
-                                        .find(|&(k, _)| k == b"t") {
-                                            Some((_, b"s")) => {
-                                                // shared string
-                                                let idx: usize = try!(v.parse());
-                                                DataType::String(strings[idx].clone())
-                                            },
-                                            Some((_, b"str")) => {
-                                                // regular string
-                                                DataType::String(v)
-                                            },
-                                            Some((_, b"b")) => {
-                                                // boolean
-                                                DataType::Bool(v != "0")
-                                            },
-                                            Some((_, b"e")) => {
-                                                // error
-                                                DataType::Error(try!(v.parse()))
-                                            },
-                                            _ => try!(v.parse().map(DataType::Float)),
-                                        };
-                                    data.push(value);
-                                    break;
-                                },
-                                b"f" => (), // formula, ignore
-                                _name => return Err("not v or f node".into()),
+            Ok(Event::Start(ref c_element)) if c_element.name() == b"c" => {
+                let pos = match c_element.attributes().filter_map(|a| match a {
+                    Err(e) => Some(Err(e.into())),
+                    Ok((b"r", v)) => Some(utils::get_row_column(v)),
+                    _ => None,
+                }).next() {
+                    Some(v) => try!(v),
+                    None => return Err("Cell without a 'r' reference tag".into()),
+                };
+                loop {
+                    match xml.next() {
+                        Some(Err(e)) => return Err(e.into()),
+                        Some(Ok(Event::Start(ref e))) => match e.name() {
+                            b"v" => {
+                                // value
+                                let v = try!(xml.read_text(b"v"));
+                                let value = match c_element.attributes()
+                                    .filter_map(|a| a.ok())
+                                    .find(|&(k, _)| k == b"t") {
+                                        Some((_, b"s")) => {
+                                            // shared string
+                                            let idx: usize = try!(v.parse());
+                                            DataType::String(strings[idx].clone())
+                                        },
+                                        Some((_, b"str")) => {
+                                            // regular string
+                                            DataType::String(v)
+                                        },
+                                        Some((_, b"b")) => {
+                                            // boolean
+                                            DataType::Bool(v != "0")
+                                        },
+                                        Some((_, b"e")) => {
+                                            // error
+                                            DataType::Error(try!(v.parse()))
+                                        },
+                                        _ => try!(v.parse().map(DataType::Float)),
+                                    };
+                                range.set_value(pos, value);
+                                break;
                             },
-                            Some(Ok(Event::End(ref e))) => {
-                                if e.name() == b"c" {
-                                    data.push(DataType::Empty);
-                                    break;
-                                }
-                            }
-                            None => return Err("End of xml".into()),
-                            _ => (),
-                        }
+                            b"f" => (), // formula, ignore
+                            _name => return Err("not v or f node".into()),
+                        },
+                        Some(Ok(Event::End(ref e))) if e.name() == b"c" => break,
+                        None => return Err("End of xml".into()),
+                        _ => (),
                     }
                 }
             },
-            Ok(Event::End(ref e)) if e.name() == b"sheetData" => return Ok(data),
+            Ok(Event::End(ref e)) if e.name() == b"sheetData" => return Ok(()),
             _ => (),
         }
     }

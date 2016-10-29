@@ -213,11 +213,11 @@ pub trait ExcelReader: Sized {
 impl Range {
 
     /// creates a new range
-    pub fn new(position: (u32, u32), size: (usize, usize), data: Vec<DataType>) -> Range {
+    pub fn new(position: (u32, u32), size: (usize, usize)) -> Range {
         Range {
             position: position,
             size: size,
-            inner: data,
+            inner: vec![DataType::Empty; size.0 * size.1],
         }
     }
 
@@ -229,6 +229,13 @@ impl Range {
     /// get size
     pub fn get_size(&self) -> (usize, usize) {
         self.size
+    }
+
+    /// set inner value
+    pub fn set_value(&mut self, pos: (u32, u32), value: DataType) {
+        assert!(self.position <= pos);
+        let idx = (pos.0 - self.position.0) * self.size.1 as u32 + pos.1 - self.position.1;
+        self.inner[idx as usize] = value;
     }
 
     /// get cell value
