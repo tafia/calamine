@@ -57,7 +57,7 @@ impl ExcelReader for Xlsx {
                             }
                         },
                         Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                            let value = try!(xml.read_text(b"t"));
+                            let value = try!(xml.read_text_unescaped(b"t"));
                             if let Some(ref mut s) = rich_buffer {
                                 s.push_str(&value);
                             } else {
@@ -205,7 +205,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                         Some(Ok(Event::Start(ref e))) => match e.name() {
                             b"v" => {
                                 // value
-                                let v = try!(xml.read_text(b"v"));
+                                let v = try!(xml.read_text_unescaped(b"v"));
                                 let value = match c_element.attributes()
                                     .filter_map(|a| a.ok())
                                     .find(|&(k, _)| k == b"t") {

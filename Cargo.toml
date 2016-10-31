@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 zip = { version = "0.1.19", default-features = false }
-quick-xml = "0.4.0"
+quick-xml = "0.4.1"
 log = "0.3.6"
 encoding = "0.2.33"
 byteorder = "0.5.3"
