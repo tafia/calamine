@@ -35,7 +35,6 @@ impl VbaProject {
     /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile`.
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
-    /// Warning: Buffers the entire ZipFile in memory, it may be bad for huge projects
     pub fn new<R: Read>(mut f: &mut R, len: usize) -> Result<VbaProject> {
         debug!("new vba project");
 
@@ -134,6 +133,19 @@ impl VbaProject {
     }
 
     /// Reads project `Reference`s and `Module`s
+    ///
+    /// # Examples
+    /// ```
+    /// use office::Excel;
+    ///
+    /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut vba = Excel::open(path)
+    ///     .and_then(|mut xl| xl.vba_project())
+    ///     .expect("Cannot read vba project");
+    /// let (references, modules) = vba.read_vba().unwrap();
+    /// println!("References: {:?}", references);
+    /// println!("Modules: {:?}", modules);
+    /// ```
     pub fn read_vba(&self) -> Result<(Vec<Reference>, Vec<Module>)> {
         debug!("read vba");
         
@@ -351,6 +363,22 @@ impl VbaProject {
     /// While it works most of the time, the modules are MBSC encoding and the conversion
     /// may fail. If this is the case you should revert to `read_module_raw` as there is 
     /// no built in decoding provided in this crate
+    ///
+    /// # Examples
+    /// ```
+    /// use office::Excel;
+    ///
+    /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut vba = Excel::open(path)
+    ///     .and_then(|mut xl| xl.vba_project())
+    ///     .expect("Cannot read vba project");
+    /// let (_, modules) = vba.read_vba().unwrap();
+    /// for m in modules {
+    ///     println!("Module {}:", m.name);
+    ///     println!("{}", vba.read_module(&m)
+    ///                       .expect(&format!("cannot read {:?} module", m)));
+    /// }
+    /// ```
     pub fn read_module(&self, module: &Module) -> Result<String> {
         debug!("read module {}", module.name);
         let data = try!(self.read_module_raw(module));
@@ -358,7 +386,7 @@ impl VbaProject {
         Ok(data)
     }
 
-    /// Reads module content (MBSC encoded) and output it as-is
+    /// Reads module content (MBSC encoded) and output it as-is (binary output)
     pub fn read_module_raw(&self, module: &Module) -> Result<Vec<u8>> {
         debug!("read module raw {}", module.name);
         match self.get_stream(&module.stream_name) {
