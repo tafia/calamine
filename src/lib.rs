@@ -259,6 +259,31 @@ impl Excel {
     pub fn vba_project(&mut self) -> Result<VbaProject> {
         inner!(self, vba_project())
     }
+
+    /// Get all sheet names of this workbook
+    ///
+    /// # Examples
+    /// ```
+    /// use office::Excel;
+    ///
+    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook = Excel::open(path).unwrap();
+    /// println!("Sheets: {:#?}", workbook.sheet_names());
+    /// ```
+    pub fn sheet_names(&mut self) -> Result<Vec<String>> {
+
+        if self.relationships.is_empty() {
+            let rels = try!(inner!(self, read_relationships()));
+            self.relationships = rels;
+        }
+
+        if self.sheets.is_empty() {
+            let sheets = try!(inner!(self, read_sheets_names(&self.relationships)));
+            self.sheets = sheets;
+        }
+
+        Ok(self.sheets.keys().map(|k| k.to_string()).collect())
+    }
 }
 
 /// A trait to share excel reader functions accross different `FileType`s
