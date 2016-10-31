@@ -141,6 +141,14 @@ macro_rules! inner {
 
 impl Excel {
     /// Opens a new workbook
+    ///
+    /// # Examples
+    /// ```
+    /// use office::Excel;
+    ///
+    /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
+    /// assert!(Excel::open(path).is_ok());
+    /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
         let f = try!(File::open(&path));
         let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
@@ -159,6 +167,15 @@ impl Excel {
     }
 
     /// Get all data from `Worksheet`
+    ///
+    /// # Examples
+    /// ```
+    /// use office::Excel;
+    ///
+    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook = Excel::open(path).unwrap();
+    /// let range = workbook.worksheet_range("Sheet1").unwrap();
+    /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         if self.strings.is_empty() {
             let strings = try!(inner!(self, read_shared_strings()));
@@ -187,6 +204,20 @@ impl Excel {
     }
 
     /// Gets vba project
+    ///
+    /// # Examples
+    /// ```
+    /// use office::Excel;
+    ///
+    /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook = Excel::open(path).unwrap();
+    /// if workbook.has_vba() {
+    ///     let mut vba = workbook.vba_project().unwrap();
+    ///     let (references, modules) = vba.read_vba().unwrap();
+    ///     println!("References: {:?}", references);
+    ///     println!("Modules: {:?}", modules);
+    /// }
+    /// ```
     pub fn vba_project(&mut self) -> Result<VbaProject> {
         inner!(self, vba_project())
     }
@@ -212,7 +243,7 @@ pub trait ExcelReader: Sized {
 
 impl Range {
 
-    /// creates a new range
+    /// Creates a new range
     pub fn new(position: (u32, u32), size: (usize, usize)) -> Range {
         Range {
             position: position,
@@ -221,31 +252,54 @@ impl Range {
         }
     }
 
-    /// get worksheet position (row, column)
+    /// Get top left cell position (row, column)
     pub fn get_position(&self) -> (u32, u32) {
         self.position
     }
 
-    /// get size
+    /// Get size
     pub fn get_size(&self) -> (usize, usize) {
         self.size
     }
 
-    /// set inner value
+    /// Set inner value
+    ///
+    /// Panics if indexes are out of range bounds
+    ///
+    /// # Examples
+    /// ```
+    /// use office::{Range, DataType};
+    ///
+    /// let mut range = Range::new((0, 0), (5, 2));
+    /// assert_eq!(range.get_value(2, 1), &DataType::Empty);
+    /// range.set_value((2, 1), DataType::Float(1.0));
+    /// assert_eq!(range.get_value(2, 1), &DataType::Float(1.0));
+    /// ```
     pub fn set_value(&mut self, pos: (u32, u32), value: DataType) {
         assert!(self.position <= pos);
         let idx = (pos.0 - self.position.0) * self.size.1 as u32 + pos.1 - self.position.1;
         self.inner[idx as usize] = value;
     }
 
-    /// get cell value
+    /// Get cell value
+    ///
+    /// Panics if indexes are out of range bounds
     pub fn get_value(&self, i: usize, j: usize) -> &DataType {
         assert!((i, j) < self.size);
         let idx = i * self.size.1 + j;
         &self.inner[idx]
     }
 
-    /// get an iterator over inner rows
+    /// Get an iterator over inner rows
+    ///
+    /// # Examples
+    /// ```
+    /// use office::{Range, DataType};
+    ///
+    /// let range = Range::new((0, 0), (5, 2));
+    /// // with rows item row: &[DataType]
+    /// assert_eq!(range.rows().flat_map(|row| row).count(), 10);
+    /// ```
     pub fn rows(&self) -> Rows {
         let width = self.size.1;
         Rows { inner: self.inner.chunks(width) }
