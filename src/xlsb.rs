@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use byteorder::ReadBytesExt;
 use quick_xml::{XmlReader, Event, AsStr};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
@@ -22,7 +21,7 @@ pub struct Xlsb {
 impl Xlsb {
     fn iter<'a>(&'a mut self, path: &str) -> Result<RecordIter<'a>> {
         match self.zip.by_name(path) {
-            Ok(f) => Ok(RecordIter { r: BufReader::new(f) }),
+            Ok(f) => Ok(RecordIter { r: BufReader::new(f), b: [0] }),
             Err(ZipError::FileNotFound) => Err(format!("file {} does not exist", path).into()),
             Err(e) => Err(e.into()),
         }
@@ -81,11 +80,14 @@ impl ExcelReader for Xlsb {
 
     /// MS-XLSB 2.1.7.45
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        let mut iter = try!(self.iter("xl/sharedStrings.bin"));
+        let mut iter = match self.iter("xl/sharedStrings.bin") {
+            Ok(iter) => iter,
+            Err(_) => return Ok(Vec::new()), // it is fine if path does not exists
+        };
         let mut buf = vec![0; 1024];
 
         let _ = try!(iter.next_skip_blocks(0x009F, &[], &mut buf)); // BrtBeginSst
-        let len = read_as_usize(&buf[4..8]);
+        let len = read_usize(&buf[4..8]);
         let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
@@ -93,11 +95,6 @@ impl ExcelReader for Xlsb {
             let _ = try!(iter.next_skip_blocks(0x0013, &[
                                                (0x0023, Some(0x0024)) // future
                                                ], &mut buf)); // BrtSSTItem
-            let flags = buf[0];
-            if flags & 0b11000000 != 0 {
-                // suppose A and B == 0
-                return Err("only regular shared strings are supported".into());
-            }
             strings.push(try!(wide_str(&buf[1..])));
         }
         Ok(strings)
@@ -166,13 +163,10 @@ impl ExcelReader for Xlsb {
                                           ], &mut buf)); 
 
         // Initialization: first BrtRowHdr
-        let mut typ = 0x0000;
-        let mut len = try!(iter.next_skip_blocks(typ, &[
-                                          (0x0025, Some(0x0026)), // AC blocks
-                                          (0x0023, Some(0x0024)), // future
-                                          ], &mut buf)); 
-        let mut iter_pos = positions_from_spans(&buf[..len]).into_iter();
-        let mut pos = iter_pos.next();
+        let mut typ: u16;
+        let mut len: usize;
+        let mut iter_pos = Vec::new().into_iter();
+        let mut pos = None;
         let mut range = Range::new(position, size);
 
         // loop until end of sheet
@@ -214,12 +208,12 @@ impl ExcelReader for Xlsb {
                 0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal 
                 0x0006 => DataType::String(try!(wide_str(&buf[8..]))), // BrtCellSt 
                 0x0007 => { // BrtCellIsst
-                    let isst = read_as_usize(&buf[8..12]);
+                    let isst = read_usize(&buf[8..12]);
                     DataType::String(strings[isst].clone())
                 },
                 0x0000 => {
                     // BrtRowHdr: parse columns and reset indexes
-                    iter_pos = positions_from_spans(&buf[..len]).into_iter();
+                    iter_pos = try!(positions_from_spans(&buf[..len])).into_iter();
                     pos = iter_pos.next();
                     continue;
                 },
@@ -235,23 +229,32 @@ impl ExcelReader for Xlsb {
     }
 }
 
-fn positions_from_spans(buf: &[u8]) -> Vec<(u32, u32)> {
+fn positions_from_spans(buf: &[u8]) -> Result<Vec<(u32, u32)>> {
     let row = read_u32(&buf);
-    // read directly the spans and deduct the len from the BrtRowHdr len
-    let spans = utils::to_u32(&buf[17..]);
-    spans.chunks(2).flat_map(|c| c[0]..(c[1] + 1)).map(|col| (row, col)).collect()
+    let len = read_usize(&buf[13..]);
+    if len >= 16 {
+        return Err("Cannot have more than 16 col spans".into());
+    }
+    let spans = utils::to_u32(&buf[17..17 + len * 8]);
+    Ok(spans.chunks(2).flat_map(|c| c[0]..(c[1] + 1)).map(|col| (row, col)).collect())
 }
 
 struct RecordIter<'a> {
+    b: [u8; 1],
     r: BufReader<ZipFile<'a>>,
 }
 
 impl<'a> RecordIter<'a> {
 
+    fn read_u8(&mut self) -> Result<u8> {
+        try!(self.r.read_exact(&mut self.b));
+        Ok(self.b[0])
+    }
+
     fn read_type(&mut self) -> Result<u16> {
-        let b = try!(self.r.read_u8());
+        let b = try!(self.read_u8());
         let typ = if (b & 0x80) == 0x80 {
-            (b & 0x7F) as u16 + (((try!(self.r.read_u8()) & 0x7F) as u16)<<7)
+            (b & 0x7F) as u16 + (((try!(self.read_u8()) & 0x7F) as u16)<<7)
         } else {
             b as u16
         };
@@ -259,11 +262,11 @@ impl<'a> RecordIter<'a> {
     }
 
     fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
-        let mut b = try!(self.r.read_u8());
+        let mut b = try!(self.read_u8());
         let mut len = b as usize;
         for i in 0..3 {
             if (b & 0x80) == 0 { break; }
-            b = try!(self.r.read_u8());
+            b = try!(self.read_u8());
             len += (b as usize) << (7 * i);
         } 
         if buf.len() < len { *buf = vec![0; len]; }
@@ -298,7 +301,7 @@ impl<'a> RecordIter<'a> {
 }
 
 fn wide_str(buf: &[u8]) -> Result<String> {
-    let len = read_as_usize(buf);
+    let len = read_usize(buf);
     let s = &buf[4..4 + len * 2];
     UTF_16LE.decode(s, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
 }
@@ -315,13 +318,10 @@ fn read_slice<T>(s: &[u8]) -> T {
     unsafe { ::std::ptr::read(&s[..::std::mem::size_of::<T>()] as *const [u8] as *const T) }
 }
 
-/// Converts the first 4 bytes into u32
-/// 
-/// panics if s.len() < 4
 fn read_u32(s: &[u8]) -> u32 {
     read_slice(s)
 }
 
-fn read_as_usize(s: &[u8]) -> usize {
+fn read_usize(s: &[u8]) -> usize {
     read_u32(s) as usize
 }
