@@ -1,3 +1,6 @@
+//! Internal module providing handy function
+
+
 use errors::*;
 
 /// Converts a &[u8] into a &[u32]

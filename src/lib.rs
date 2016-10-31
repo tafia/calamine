@@ -5,6 +5,44 @@
 //! Reads excel workbooks and vba project. This mainly works except for 
 //! binary file format (xls and xlsb) where only VBA is currently supported.
 //!
+//! # Examples
+//! ```
+//! use office::{Excel, Range, DataType};
+//!
+//! // opens a new workbook
+//! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+//! let mut workbook = Excel::open(path).unwrap();
+//!
+//! // Check if the workbook has a vba project
+//! if workbook.has_vba() {
+//!     let mut vba = workbook.vba_project().unwrap();
+//!     if let Ok((references, modules)) = vba.read_vba() {
+//!         for m in modules {
+//!             if &m.name == "module1" {
+//!                 println!("Module 1 code:");
+//!                 println!("{}", vba.read_module(&m).unwrap());
+//!             }
+//!         }
+//!         for r in references {
+//!             if r.is_missing() {
+//!                 println!("Reference {} is broken or not accessible", r.name);
+//!             }
+//!         }
+//!     }
+//! }
+//!
+//! // Read whole worksheet data and provide some statistics
+//! if let Ok(range) = workbook.worksheet_range("Sheet1") {
+//!     let total_cells = range.get_size().0 * range.get_size().1;
+//!     let non_empty_cells: usize = range.rows().map(|r| {
+//!         r.iter().filter(|cell| cell != &&DataType::Empty).count()
+//!     }).sum();
+//!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
+//!              total_cells, non_empty_cells);
+//! }
+//! ```
+//!
+//!
 #![deny(missing_docs)]
 
 extern crate zip;
