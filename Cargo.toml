@@ -15,3 +15,6 @@ log = "0.3.6"
 encoding = "0.2.33"
 byteorder = "0.5.3"
 error-chain = "0.5.0"
+
+[dev-dependencies]
+glob = "0.2.11"
