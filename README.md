@@ -55,9 +55,9 @@ Please look at [examples](https://github.com/tafia/office/tree/master/examples) 
 
 ## Performance
 
-While is no official benchmark yet, my first tests show a major boost compared to official C# libraries:
+While there is no official benchmark yet, my first tests show a significant boost compared to official C# libraries:
 - Reading cell values: at least 3 times faster
-- Reading vba code: you do not need to read the cells before processing the vba part, which saves a crazy amount of time
+- Reading vba code: office does not read all sheets when opening your workbook, this is not fair
 
 ## Warning
 
@@ -69,7 +69,7 @@ As a result there is a large room for improvement: only items related to either 
 Many (most) part of the specifications are not implemented, the attention has been put on reading cell values and vba code.
 
 The main unsupported items are:
-- no support for reading `.xls` files (vba is ok though)
+- no support for reading `.xls` cells (vba is ok though)
 - no support for decoding MBSC vba code, office tries to decode as normal utf8, which is ok most of the time but not accurate
 - no support for writing excel files, this is a read-only libray
 
