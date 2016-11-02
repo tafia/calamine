@@ -16,9 +16,9 @@
 //! // Check if the workbook has a vba project
 //! if workbook.has_vba() {
 //!     let mut vba = workbook.vba_project().unwrap();
-//!     let module1 = try!(vba.get_module("Module 1"));
+//!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
-//!     println!("{}", vba.read_module(&m).unwrap());
+//!     println!("{}", module1);
 //!     for r in vba.get_references() {
 //!         if r.is_missing() {
 //!             println!("Reference {} is broken or not accessible", r.name);

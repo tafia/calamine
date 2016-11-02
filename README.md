@@ -34,17 +34,12 @@ let mut workbook = Excel::open(path).unwrap();
 // Check if the workbook has a vba project
 if workbook.has_vba() {
     let mut vba = workbook.vba_project().unwrap();
-    if let Ok((references, modules)) = vba.read_vba() {
-        for m in modules {
-            if &m.name == "module1" {
-                println!("Module 1 code:");
-                println!("{}", vba.read_module(&m).unwrap());
-            }
-        }
-        for r in references {
-            if r.is_missing() {
-                println!("Reference {} is broken or not accessible", r.name);
-            }
+    let module1 = vba.get_module("Module 1").unwrap();
+    println!("Module 1 code:");
+    println!("{}", module1);
+    for r in vba.get_references() {
+        if r.is_missing() {
+            println!("Reference {} is broken or not accessible", r.name);
         }
     }
 }
