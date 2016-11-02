@@ -13,6 +13,17 @@ As long as your files are *simple enough*, this library is ready for use.
 
 ## Usage
 
+### Simple example to get started:
+```rust
+let mut excel = Excel::open("file.xlsx").unwrap();
+let r = excel.worksheet_range("Sheet1").unwrap();
+for row in r.rows() {
+    println!("row={:?}, row[0]={:?}", row, row[0]);
+}
+```
+
+### More complex one dealing with vba and `DataTypes`
+
 ```rust
 use office::{Excel, Range, DataType};
 
