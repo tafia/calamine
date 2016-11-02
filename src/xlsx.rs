@@ -40,11 +40,11 @@ impl ExcelReader for Xlsx {
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-//     fn vba_project(&mut self) -> Result<VbaProject<ZipFile>> {
-//         let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
-//         let len = f.size() as usize;
-//         VbaProject::new(&mut f, len)
-//     }
+    fn vba_project(&mut self) -> Result<VbaProject> {
+        let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
+        let len = f.size() as usize;
+        VbaProject::new(&mut f, len)
+    }
 
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {
         let mut xml = match self.xml_reader("xl/sharedStrings.xml") {

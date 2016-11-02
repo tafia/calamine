@@ -38,11 +38,11 @@ impl ExcelReader for Xlsb {
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-//     fn vba_project(&mut self) -> Result<VbaProject> {
-//         let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
-//         let len = f.size() as usize;
-//         VbaProject::new(&mut f, len)
-//     }
+    fn vba_project(&mut self) -> Result<VbaProject> {
+        let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
+        let len = f.size() as usize;
+        VbaProject::new(&mut f, len)
+    }
 
     /// MS-XLSB
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {

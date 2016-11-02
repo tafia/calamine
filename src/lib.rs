@@ -16,17 +16,12 @@
 //! // Check if the workbook has a vba project
 //! if workbook.has_vba() {
 //!     let mut vba = workbook.vba_project().unwrap();
-//!     if let Ok((references, modules)) = vba.read_vba() {
-//!         for m in modules {
-//!             if &m.name == "module1" {
-//!                 println!("Module 1 code:");
-//!                 println!("{}", vba.read_module(&m).unwrap());
-//!             }
-//!         }
-//!         for r in references {
-//!             if r.is_missing() {
-//!                 println!("Reference {} is broken or not accessible", r.name);
-//!             }
+//!     let module1 = try!(vba.get_module("Module 1"));
+//!     println!("Module 1 code:");
+//!     println!("{}", vba.read_module(&m).unwrap());
+//!     for r in vba.get_references() {
+//!         if r.is_missing() {
+//!             println!("Reference {} is broken or not accessible", r.name);
 //!         }
 //!     }
 //! }
@@ -148,19 +143,6 @@ pub struct Excel {
     sheets: HashMap<String, String>,
 }
 
-/// A struct which represents a squared selection of cells 
-#[derive(Debug, Default)]
-pub struct Range {
-    position: (u32, u32),
-    size: (usize, usize),
-    inner: Vec<DataType>,
-}
-
-/// An iterator to read `Range` struct row by row
-pub struct Rows<'a> {
-    inner: Chunks<'a, DataType>,
-}
-
 macro_rules! inner {
     ($s:expr, $func:ident()) => {{
         match $s.file {
@@ -252,14 +234,13 @@ impl Excel {
     /// let mut workbook = Excel::open(path).unwrap();
     /// if workbook.has_vba() {
     ///     let mut vba = workbook.vba_project().unwrap();
-    ///     let (references, modules) = vba.read_vba().unwrap();
-    ///     println!("References: {:?}", references);
-    ///     println!("Modules: {:?}", modules);
+    ///     println!("References: {:?}", vba.get_references());
+    ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
     /// ```
-//     pub fn vba_project(&mut self) -> Result<VbaProject> {
-//         inner!(self, vba_project())
-//     }
+    pub fn vba_project(&mut self) -> Result<VbaProject> {
+        inner!(self, vba_project())
+    }
 
     /// Get all sheet names of this workbook
     ///
@@ -293,9 +274,9 @@ pub trait ExcelReader: Sized {
     fn new(f: File) -> Result<Self>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
-    /// Gets vba project
-//     fn vba_project(&mut self) -> Result<VbaProject>;
-    /// Read shared string list
+    /// Gets `VbaProject`
+    fn vba_project(&mut self) -> Result<VbaProject>;
+    /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<HashMap<String, String>>;
@@ -303,6 +284,19 @@ pub trait ExcelReader: Sized {
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
     /// Read worksheet data in corresponding worksheet path
     fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range>;
+}
+
+/// A struct which represents a squared selection of cells 
+#[derive(Debug, Default)]
+pub struct Range {
+    position: (u32, u32),
+    size: (usize, usize),
+    inner: Vec<DataType>,
+}
+
+/// An iterator to read `Range` struct row by row
+pub struct Rows<'a> {
+    inner: Chunks<'a, DataType>,
 }
 
 impl Range {

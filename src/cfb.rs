@@ -1,35 +1,27 @@
 //! Coumpound File Binary format MS-CFB
 
 use std::io::Read;
-use std::path::PathBuf;
 
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
-use byteorder::{LittleEndian, ReadBytesExt};
-use log::LogLevel;
 
 use errors::*;
 use utils::*;
 
-const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
 
-const POWER_2: [usize; 16] = [1   , 1<<1, 1<<2,  1<<3,  1<<4,  1<<5,  1<<6,  1<<7, 
-                              1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15];
-
 /// A struct for managing Compound File Binary format
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct Cfb {
     directories: Vec<Directory>,
-    sectors: Sector,
+    sectors: Sectors,
     fats: Vec<u32>,
-    mini_sectors: Sector,
+    mini_sectors: Sectors,
     mini_fats: Vec<u32>,
 }
 
 impl Cfb {
-
     /// Create a new `Cfb`
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
@@ -37,11 +29,7 @@ impl Cfb {
 
         // load header
         let (h, mut difat) = try!(Header::from_reader(&mut f));
-        
-        let mut sectors = match h.sector_size {
-            SectorSize::u512 => Sector::new(512, Vec::with_capacity(len)),
-            SectorSize::u4096 => Sector::new(4096, Vec::with_capacity(len)),
-        };
+        let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
 
         // load fat and dif sectors
         debug!("load difat");
@@ -60,88 +48,48 @@ impl Cfb {
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = try!(sectors.get_chain(h.dir_start, &fats, f, h.dir_len * 128));
-        let dirs: Vec<_> = try!(dirs.chunks(128).map(|c| Directory::from_slice(c)).collect());
+        let dirs = try!(sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size));
+        let dirs: Vec<_> = try!(dirs.chunks(128)
+                                .map(|c| Directory::from_slice(c, h.sector_size)).collect());
 
         if dirs.is_empty() || dirs[0].start == ENDOFCHAIN {
             return Err("Unexpected empty root directory".into());
         }
+        debug!("{:?}", dirs);
 
         // load the mini streams
         debug!("load minis");
         let ministream = try!(sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len));
-        let minifat = try!(sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * 4));
+        let minifat = try!(sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size));
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
             directories: dirs,
             sectors: sectors,
             fats: fats,
-            mini_sectors: Sector::new(64, ministream),
+            mini_sectors: Sectors::new(64, ministream),
             mini_fats: minifat,
         })
     }
 
     /// Gets a stream by name out of directories
     pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>> {
-        debug!("get stream {}", name);
         match self.directories.iter().find(|d| &*d.name == name) {
             None => Err(format!("Cannot find {} stream", name).into()),
             Some(d) => {
-                if d.len < 64 {
+                if d.len < 4096 {
                     self.mini_sectors.get_chain(d.start, &self.mini_fats, r, d.len)
                 } else {
                     self.sectors.get_chain(d.start, &self.fats, r, d.len)
-                }.and_then(|stream| decompress_stream(&stream))
+                }
             }
         }
     }
-
-//     pub fn get_dir_stream<R: Read>(&mut self, r: &mut R) -> Result<Vec<Directory>> {
-//         // dir stream
-//         let mut stream = try!(self.get_stream("dir"));
-// 
-//         // read header (not used)
-//         try!(self.read_dir_header(&mut &stream));
-//     }
-// 
-//     fn read_dir_header(&self, stream: &mut &*[u8]) -> Result<()> {
-//         debug!("read dir header");
-// 
-//         // PROJECTSYSKIND, PROJECTLCID and PROJECTLCIDINVOKE Records
-//         *stream = &stream[38..];
-//         
-//         // PROJECTNAME Record
-//         try!(check_variable_record(0x0004, stream));
-// 
-//         // PROJECTDOCSTRING Record
-//         try!(check_variable_record(0x0005, stream));
-//         try!(check_variable_record(0x0040, stream)); // unicode
-// 
-//         // PROJECTHELPFILEPATH Record - MS-OVBA 2.3.4.2.1.7
-//         try!(check_variable_record(0x0006, stream));
-//         try!(check_variable_record(0x003D, stream));
-// 
-//         // PROJECTHELPCONTEXT PROJECTLIBFLAGS and PROJECTVERSION Records
-//         *stream = &stream[32..];
-// 
-//         // PROJECTCONSTANTS Record
-//         try!(check_variable_record(0x000C, stream));
-//         try!(check_variable_record(0x003C, stream)); // unicode
-// 
-//         Ok(())
-//     }
-
-}
-
-/// Gets the sector size used throughout the file, mini-sector always beeing 64
-enum SectorSize {
-    u512,
-    u4096,
 }
 
 /// A hidden struct which defines cfb files structure
+#[derive(Debug)]
 struct Header {
-    sector_size: SectorSize,
+    sector_size: usize,
     dir_len: usize,
     dir_start: u32,
     fat_len: usize,
@@ -152,26 +100,30 @@ struct Header {
 
 impl Header {
     fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>)> {
-
         let mut buf = [0u8; 512];
         try!(f.read_exact(&mut buf));
 
-        // check signature
-        if &buf[..8] != OLE_SIGNATURE {
+        // check ole signature
+        if &buf[..8] != [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] {
             return Err("invalid OLE signature (not an office document?)".into());
         }
 
         let sector_size = match read_u16(&buf[30..32]) {
-            0x0009 => SectorSize::u512,
+            0x0009 => 512,
             0x000C => {
-                // sector size is 4096 bytes, so the remaining header bytes have to be read
+                // sector size is 4096 bytes, but header is 512 bytes,
+                // so the remaining sector bytes have to be read
                 let mut buf_end = [0u8; 3584];
-                try!(f.read_exact(&mut buf));
-                SectorSize::u4096
+                try!(f.read_exact(&mut buf_end));
+                4096
             },
             s => return Err(format!("Invalid sector shift, expecting 0x09 \
                                      or 0x0C, got {:x}", s).into()),
         };
+
+        if read_u16(&buf[32..34]) != 0x0006 {
+            return Err("Invalid minisector shift".into());
+        }
 
         let dir_len = read_usize(&buf[40..44]);
         let fat_len = read_usize(&buf[44..48]);
@@ -197,15 +149,18 @@ impl Header {
 }
 
 /// A struct corresponding to the elementary block of memory
-struct Sector {
+///
+/// `data` will persist in memory to ensure the file is read once
+#[derive(Debug)]
+struct Sectors {
     data: Vec<u8>,
     size: usize,
 }
 
-impl Sector {
+impl Sectors {
 
-    fn new(size: usize, data: Vec<u8>) -> Sector {
-        Sector {
+    fn new(size: usize, data: Vec<u8>) -> Sectors {
+        Sectors {
             data: data,
             size: size,
         }
@@ -224,32 +179,38 @@ impl Sector {
 
     fn get_chain<R: Read>(&mut self, mut sector_id: u32, fats: &[u32], 
                           r: &mut R, len: usize) -> Result<Vec<u8>> {
-        let mut chain = Vec::with_capacity(len);
+        let mut chain = if len > 0 { Vec::with_capacity(len) } else { Vec::new() };
         while sector_id != ENDOFCHAIN {
             chain.extend_from_slice(try!(self.get(sector_id, r)));
             sector_id = fats[sector_id as usize];
         }
+        if len > 0 { chain.truncate(len); }
         Ok(chain)
     }
 
 }
 
 /// A struct representing sector organizations, behaves similarly to a tree
+#[derive(Debug)]
 struct Directory {
+    name: String,
     start: u32,
     len: usize,
-    name: String,
 }
 
 impl Directory {
-    fn from_slice(buf: &[u8]) -> Result<Directory> {
+    fn from_slice(buf: &[u8], sector_size: usize) -> Result<Directory> {
         let mut name = try!(UTF_16LE.decode(&buf[..64], DecoderTrap::Ignore)
                             .map_err(|e| e.to_string()));
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
         let start = read_u32(&buf[116..120]);
-        let len = read_slice::<u64>(&buf[120..128]) as usize;
+        let len = if sector_size == 512 {
+            read_slice::<u32>(&buf[120..124]) as usize
+        } else {
+            read_slice::<u64>(&buf[120..128]) as usize
+        };
 
         Ok(Directory {
             start: start,
@@ -259,45 +220,16 @@ impl Directory {
     }
 }
 
-/// Reads a variable length record
-/// 
-/// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
-fn read_variable_record<'a>(r: &mut &'a[u8], mult: usize) -> Result<&'a[u8]> {
-    let len = try!(r.read_u32::<LittleEndian>()) as usize * mult;
-    let (read, next) = r.split_at(len);
-    *r = next;
-    Ok(read)
-}
+/// Decompresses stream
+pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
 
-/// Check that next record matches `id` and returns a variable length record
-fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
-    try!(check_record(id, r));
-    let record = try!(read_variable_record(r, 1));
-    if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
-        warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
-              id, record.len(), record.len() as u32);
-    }
-    Ok(record)
-}
+    const POWER_2: [usize; 16] = [1   , 1<<1, 1<<2,  1<<3,  1<<4,  1<<5,  1<<6,  1<<7, 
+                                  1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15];
 
-/// Check that next record matches `id`
-fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
-    debug!("check record {:x}", id);
-    let record_id = try!(r.read_u16::<LittleEndian>());
-    if record_id != id {
-        Err(format!("invalid record id, found {:x}, expecting {:x}", record_id, id).into())
-    } else {
-        Ok(())
-    }
-}
-
-/// To better understand what's happening, look
-/// [here](http://www.wordarticles.com/Articles/Formats/StreamCompression.php)
-fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
     debug!("decompress stream");
     let mut res = Vec::new();
 
-    if s[0] == 0x01 {
+    if s[0] != 0x01 {
         return Err("invalid signature byte".into());
     }
 
@@ -315,7 +247,7 @@ fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
         let chunk_signature = (chunk_header & 0x7000) >> 12;
         let chunk_flag = (chunk_header & 0x8000) >> 15;
 
-        assert_eq!(chunk_signature, 0b011);
+        assert_eq!(chunk_signature, 0b011, "i={}, len={}", i, s.len());
 
         if chunk_flag == 0 { // uncompressed
             res.extend_from_slice(&s[i..i + 4096]);
