@@ -11,9 +11,9 @@ A Excel file reader, in Rust.
 
 As long as your files are *simple enough*, this library is ready for use.
 
-## Usage
+## Examples
 
-### Simple example
+### Simple
 ```rust
 let mut excel = Excel::open("file.xlsx").unwrap();
 let r = excel.worksheet_range("Sheet1").unwrap();
@@ -22,7 +22,7 @@ for row in r.rows() {
 }
 ```
 
-### More complex example
+### More complex
 
 ```rust
 use office::{Excel, Range, DataType};
@@ -60,7 +60,7 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
 }
 ```
 
-### Additional examples
+### Others
 
 Browse the [examples](https://github.com/tafia/office/tree/master/examples) directory.
 
