@@ -60,6 +60,7 @@ mod utils;
 mod xlsb;
 mod xlsx;
 mod xls;
+mod cfb;
 pub mod vba;
 
 use std::path::Path;
@@ -256,9 +257,9 @@ impl Excel {
     ///     println!("Modules: {:?}", modules);
     /// }
     /// ```
-    pub fn vba_project(&mut self) -> Result<VbaProject> {
-        inner!(self, vba_project())
-    }
+//     pub fn vba_project(&mut self) -> Result<VbaProject> {
+//         inner!(self, vba_project())
+//     }
 
     /// Get all sheet names of this workbook
     ///
@@ -293,7 +294,7 @@ pub trait ExcelReader: Sized {
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets vba project
-    fn vba_project(&mut self) -> Result<VbaProject>;
+//     fn vba_project(&mut self) -> Result<VbaProject>;
     /// Read shared string list
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships

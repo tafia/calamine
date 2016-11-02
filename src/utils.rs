@@ -1,6 +1,5 @@
 //! Internal module providing handy function
 
-
 use errors::*;
 
 /// Converts a &[u8] into a &[u32]
@@ -63,3 +62,18 @@ pub fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
     Ok((row, col))
 }
 
+pub fn read_slice<T>(s: &[u8]) -> T {
+    unsafe { ::std::ptr::read(&s[..::std::mem::size_of::<T>()] as *const [u8] as *const T) }
+}
+
+pub fn read_u32(s: &[u8]) -> u32 {
+    read_slice(s)
+}
+
+pub fn read_u16(s: &[u8]) -> u16 {
+    read_slice(s)
+}
+
+pub fn read_usize(s: &[u8]) -> usize {
+    read_u32(s) as usize
+}

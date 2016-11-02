@@ -13,6 +13,7 @@ use log::LogLevel;
 
 use errors::*;
 use utils;
+use cfb::Cfb;
 
 const OLE_SIGNATURE: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
@@ -24,112 +25,16 @@ const POWER_2: [usize; 16] = [1   , 1<<1, 1<<2,  1<<3,  1<<4,  1<<5,  1<<6,  1<<
 /// A struct for managing VBA reading
 #[allow(dead_code)]
 pub struct VbaProject {
-    header: Header,
-    directories: Vec<Directory>,
-    sectors: Sector,
-    mini_sectors: Option<Sector>,
+    cfb: Cfb,
 }
 
 impl VbaProject {
 
-    /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile`.
+    /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile` or xls file
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
-    pub fn new<R: Read>(mut f: &mut R, len: usize) -> Result<VbaProject> {
-        debug!("new vba project");
-
-        // load header
-        let header = try!(Header::from_reader(&mut f));
-
-        // check signature
-        if header.ab_sig != OLE_SIGNATURE {
-            return Err("invalid OLE signature (not an office document?)".into());
-        }
-
-        let sector_size = 2u64.pow(header.sector_shift as u32) as usize;
-        if (len - 512) % sector_size != 0 {
-            return Err("last sector has invalid size".into());
-        }
-
-        // Read whole file in memory (the file is delimited by sectors)
-        let mut data = Vec::with_capacity(len - 512);
-        try!(f.read_to_end(&mut data));
-        let sector = Sector::new(data, sector_size);
-
-        // load fat and dif sectors
-        debug!("load dif");
-        let mut fat_sectors = header.sect_fat.to_vec();
-        let mut sector_id = header.sect_dif_start;
-        while sector_id != FREESECT && sector_id != ENDOFCHAIN {
-            fat_sectors.extend_from_slice(utils::to_u32(sector.get(sector_id)));
-            sector_id = fat_sectors.pop().unwrap(); //TODO: check if in infinite loop
-        }
-
-        // load the FATs
-        debug!("load fat");
-        let mut fat = Vec::new();
-        for id in fat_sectors.into_iter().filter(|id| *id != FREESECT) {
-            fat.extend_from_slice(utils::to_u32(sector.get(id)));
-        }
-        debug!("fats: {:?}", fat);
-        
-        // set sector fats
-        let sectors = sector.with_fats(fat);
-
-        // get the list of directory sectors
-        debug!("load dirs");
-        let directories = try!(sectors.read_chain(header.sect_dir_start)
-            .flat_map(|sector| sector.chunks(128).map(|c| Directory::from_slice(c)))
-            .collect::<Result<Vec<Directory>>>());
-
-        // load the mini streams
-        let mini_sectors = if directories[0].sect_start == ENDOFCHAIN {
-            None
-        } else {
-            debug!("load minis");
-            let mut ministream = sectors.read_chain(directories[0].sect_start)
-                .collect::<Vec<_>>().concat();
-            ministream.truncate(directories[0].ul_size as usize);
-
-            debug!("load minifat");
-            let mut minifat = Vec::new();
-            for s in sectors.read_chain(header.sect_mini_fat_start) {
-                minifat.extend_from_slice(utils::to_u32(s));
-            }
-
-            let mini_sector_size = 2usize.pow(header.mini_sector_shift as u32);
-            assert!(directories[0].ul_size as usize % mini_sector_size == 0);
-            Some(Sector::new(ministream, mini_sector_size).with_fats(minifat))
-        };
-
-        Ok(VbaProject {
-            header: header,
-            directories: directories,
-            sectors: sectors,
-            mini_sectors: mini_sectors,
-        })
-
-    }
-
-    /// Gets a stream by name out of directories
-    fn get_stream<'a>(&'a self, name: &str) -> Option<StreamIter> {
-        debug!("get stream {}", name);
-        match self.directories.iter().find(|d| &*d.name == name) {
-            None => None,
-            Some(d) => {
-                let sectors = if d.ul_size < self.header.mini_sector_cutoff {
-                    self.mini_sectors.as_ref()
-                } else {
-                    Some(&self.sectors)
-                };
-                sectors.map(|ss| StreamIter {
-                    cur_len: 0,
-                    len: d.ul_size as usize,
-                    chain: ss.read_chain(d.sect_start),
-                    current: [].iter().cloned(),
-                })
-            }
-        }
+    pub fn new<R: Read>(f: &mut R, len: usize) -> Result<VbaProject> {
+        Cfb::new(f, len).map(|cfb| VbaProject { cfb: cfb, })
     }
 
     /// Reads project `Reference`s and `Module`s
@@ -146,25 +51,21 @@ impl VbaProject {
     /// println!("References: {:?}", references);
     /// println!("Modules: {:?}", modules);
     /// ```
-    pub fn read_vba(&self) -> Result<(Vec<Reference>, Vec<Module>)> {
+    fn read_vba<R: Read>(&mut self, r: &mut R) -> Result<(Vec<Reference>, Vec<Module>)> {
         debug!("read vba");
         
         // dir stream
-        let mut stream = &*match self.get_stream("dir") {
-            Some(s) => try!(decompress_stream(s)),
-            None => return Err("cannot find 'dir' stream".into()),
-        };
+        let mut stream = try!(self.cfb.get_stream("dir", r));
 
         // read header (not used)
-        try!(self.read_dir_header(&mut stream));
+        try!(self.read_dir_header(&mut &*stream));
 
         // array of REFERENCE records
-        let references = try!(self.read_references(&mut stream));
+        let references = try!(self.read_references(&mut &*stream));
 
         // modules
-        let modules = try!(self.read_modules(&mut stream));
+        let modules = try!(self.read_modules(&mut &*stream));
         Ok((references, modules))
-
     }
 
     fn read_dir_header(&self, stream: &mut &[u8]) -> Result<()> {
@@ -379,23 +280,24 @@ impl VbaProject {
     ///                       .expect(&format!("cannot read {:?} module", m)));
     /// }
     /// ```
-    pub fn read_module(&self, module: &Module) -> Result<String> {
+    pub fn read_module<R: Read>(&mut self, module: &Module, r: &mut R) -> Result<String> {
         debug!("read module {}", module.name);
-        let data = try!(self.read_module_raw(module));
+        let data = try!(self.read_module_raw(module, r));
         let data = try!(::std::string::String::from_utf8(data));
         Ok(data)
     }
 
     /// Reads module content (MBSC encoded) and output it as-is (binary output)
-    pub fn read_module_raw(&self, module: &Module) -> Result<Vec<u8>> {
+    pub fn read_module_raw<R: Read>(&mut self, module: &Module, r: &mut R) -> Result<Vec<u8>> {
         debug!("read module raw {}", module.name);
-        match self.get_stream(&module.stream_name) {
-            None => Err(format!("cannot find {} stream", module.stream_name).into()),
-            Some(s) => {
-                let data = try!(decompress_stream(s.skip(module.text_offset)));
-                Ok(data)
-            }
-        }
+        self.cfb.get_stream(&module.stream_name, r)
+//         match self.cfb.get_stream(&module.stream_name, r) {
+//             None => Err(format!("cannot find {} stream", module.stream_name).into()),
+//             Some(s) => {
+//                 let data = try!(decompress_stream(s.skip(module.text_offset)));
+//                 Ok(data)
+//             }
+//         }
     }
 
 }

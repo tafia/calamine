@@ -11,7 +11,7 @@ use encoding::all::UTF_16LE;
 
 use {DataType, ExcelReader, Range, CellErrorType};
 use vba::VbaProject;
-use utils;
+use utils::{self, read_u32, read_usize, read_slice};
 use errors::*;
  
 pub struct Xlsb {
@@ -38,11 +38,11 @@ impl ExcelReader for Xlsb {
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-    fn vba_project(&mut self) -> Result<VbaProject> {
-        let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
-        let len = f.size() as usize;
-        VbaProject::new(&mut f, len)
-    }
+//     fn vba_project(&mut self) -> Result<VbaProject> {
+//         let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
+//         let len = f.size() as usize;
+//         VbaProject::new(&mut f, len)
+//     }
 
     /// MS-XLSB
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
@@ -312,16 +312,4 @@ fn unchecked_rfx(buf: &[u8]) -> ((u32, u32), (usize, usize)) {
 
     ((rw_first, col_first), 
      ((rw_last - rw_first + 1) as usize, (col_last - col_first + 1) as usize))
-}
-
-fn read_slice<T>(s: &[u8]) -> T {
-    unsafe { ::std::ptr::read(&s[..::std::mem::size_of::<T>()] as *const [u8] as *const T) }
-}
-
-fn read_u32(s: &[u8]) -> u32 {
-    read_slice(s)
-}
-
-fn read_usize(s: &[u8]) -> usize {
-    read_u32(s) as usize
 }
