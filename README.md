@@ -13,7 +13,7 @@ As long as your files are *simple enough*, this library is ready for use.
 
 ## Usage
 
-### Simple example to get started:
+### Simple example
 ```rust
 let mut excel = Excel::open("file.xlsx").unwrap();
 let r = excel.worksheet_range("Sheet1").unwrap();
@@ -22,7 +22,7 @@ for row in r.rows() {
 }
 ```
 
-### More complex one dealing with vba and `DataTypes`
+### More complex example
 
 ```rust
 use office::{Excel, Range, DataType};
@@ -60,9 +60,9 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
 }
 ```
 
-## Examples
+### Additional examples
 
-Please look at [examples](https://github.com/tafia/office/tree/master/examples) folder.
+Browse the [examples](https://github.com/tafia/office/tree/master/examples) directory.
 
 ## Performance
 
