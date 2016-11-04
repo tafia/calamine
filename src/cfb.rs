@@ -71,12 +71,18 @@ impl Cfb {
         })
     }
 
+    /// Checks if directory exists
+    pub fn has_directory(&self, name: &str) -> bool {
+        self.directories.iter().any(|d| &*d.name == name)
+    }
+
     /// Gets a stream by name out of directories
     pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>> {
         match self.directories.iter().find(|d| &*d.name == name) {
             None => Err(format!("Cannot find {} stream", name).into()),
             Some(d) => {
                 if d.len < 4096 {
+                    // TODO: Study the possibility to return a `VecArray` (stack allocated)
                     self.mini_sectors.get_chain(d.start, &self.mini_fats, r, d.len)
                 } else {
                     self.sectors.get_chain(d.start, &self.fats, r, d.len)

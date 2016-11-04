@@ -27,16 +27,19 @@ impl VbaProject {
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
     pub fn new<R: Read>(r: &mut R, len: usize) -> Result<VbaProject> {
+        let cfb = try!(Cfb::new(r, len));
+        VbaProject::from_cfb(r, cfb)
+    }
 
-        let mut cfb = try!(Cfb::new(r, len));
+    fn from_cfb<R: Read>(r: &mut R, mut cfb: Cfb) -> Result<VbaProject> {
         let (refs, mods) = try!(read_vba(&mut cfb, r));
 
         // read all modules
-        let modules: HashMap<_,_> = try!(mods.into_iter()
-            .map(|m| cfb.get_stream(&m.stream_name, r)
-                 .and_then(|s| ::cfb::decompress_stream(&s[m.text_offset..])
-                           .map(move |s| (m.name, s))))
-            .collect());
+        let modules = try!(mods.into_iter()
+                           .map(|m| cfb.get_stream(&m.stream_name, r)
+                                .and_then(|s| ::cfb::decompress_stream(&s[m.text_offset..])
+                                          .map(move |s| (m.name, s))))
+                           .collect());
 
         Ok(VbaProject {
             cfb: cfb,
@@ -44,6 +47,7 @@ impl VbaProject {
             modules: modules,
         })
     }
+
 
     /// Gets the list of `Reference`s
     pub fn get_references(&self) -> &[Reference] {
