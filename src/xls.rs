@@ -9,12 +9,14 @@ use errors::*;
 use {ExcelReader, Range, DataType, CellErrorType};
 use vba::VbaProject;
 use cfb::Cfb;
-use utils::{read_u16, read_slice};
+use utils::{read_u16, read_u32, read_slice};
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls {
     r: BufReader<File>,
     cfb: Cfb,
+    sheets: HashMap<String, String>,
+    strings: Vec<String>,
 }
 
 impl ExcelReader for Xls {
@@ -22,8 +24,8 @@ impl ExcelReader for Xls {
     fn new(r: File) -> Result<Self> {
         let len = try!(r.metadata()).len() as usize;
         let mut r = BufReader::new(r);
-        let cfb = try!(Cfb::new(&mut r, len));
-        Ok(Xls { r: r, cfb: cfb })
+        let cfb = try!(Cfb::new(&mut r, len ));
+        Ok(Xls { r: r, cfb: cfb, sheets: HashMap::new(), strings: Vec::new(), })
     }
 
     fn has_vba(&mut self) -> bool {
@@ -39,10 +41,9 @@ impl ExcelReader for Xls {
     /// Parses Workbook stream, no need for the relationships variable
     fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) 
         -> Result<HashMap<String, String>> {
-        let sheets = HashMap::new();
         let wb = try!(self.cfb.get_stream("Workbook", &mut self.r));
-        try!(parse_workbook(&wb));
-        Ok(sheets)
+        try!(self.parse_workbook(&wb));
+        Ok(self.sheets.clone())
     }
 
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {
@@ -50,11 +51,50 @@ impl ExcelReader for Xls {
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
-        unimplemented!()
+        Ok(HashMap::new())
     }
 
     fn read_worksheet_range(&mut self, _: &str, _: &[String]) -> Result<Range> {
         unimplemented!()
+    }
+}
+
+impl Xls {
+    fn parse_workbook(&mut self, mut wb: &[u8]) -> Result<()> {
+        let records = RecordIter { stream: &mut wb };
+
+        let mut biff = 0;
+        let mut depth = 0;
+        let mut ignore = false;
+        let mut cells = Vec::new();
+
+        for record in records {
+            let r = try!(record);
+            if ignore && r.typ != 0x0009 { // within an unsupported substream
+                continue;
+            }
+            println!("typ: {:x}", r.typ);
+            match r.typ {
+                0x0009 => { // BOF
+                    depth += 1;
+                    biff = read_u16(r.data);
+                    let dt = read_u16(&r.data[2..]);
+                    ignore = !(dt == 0x0005 || dt == 0x0010);
+                },
+                0x000A => { // EOF
+                    if depth == 1 { break; }
+                    depth -= 1;
+                },
+                0x00FC => self.strings = try!(parse_sst(r.data)), // SST
+                0x0085 => { self.sheets.insert(try!(parse_sheet_name(r.data)).1, "".to_string()); }, // BoundSheet8
+                0x0203 => cells.push(try!(parse_number(r.data))), // Number 
+                0x0205 => cells.push(try!(parse_bool_err(r.data))), // BoolErr
+                0x027E => cells.push(try!(parse_rk(r.data))), // RK
+                0x00FD => cells.push(try!(parse_label_sst(r.data, &self.strings))), // LabelSst
+                _ => (),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -73,41 +113,10 @@ struct RecordIter<'a> {
     stream: &'a[u8],
 }
 
-fn parse_workbook(mut wb: &[u8]) -> Result<()> {
-    let records = RecordIter { stream: &mut wb };
-
-    let mut sheet_names = Vec::new();
-    let mut biff = 0;
-    let mut depth = 0;
-    let mut ignore = false;
-    let mut cells = Vec::new();
-    let mut strings = Vec::new();
-
-    for record in records {
-        let r = try!(record);
-        if ignore && r.typ != 0x0009 { // within an unsupported substream
-            continue;
-        }
-        match r.typ {
-            0x0009 => { // BOF
-                depth += 1;
-                biff = read_u16(r.data);
-                let dt = read_u16(&r.data[2..]);
-                ignore = !(dt == 0x0005 || dt == 0x0010);
-            },
-            0x000A => { // EOF
-                if depth == 1 { break; }
-                depth -= 1;
-            },
-            0x00FC => strings = try!(parse_sst(r.data)), // SST
-            0x0085 => sheet_names.push(r.data.to_vec()), // BoundSheet8
-            0x0203 => cells.push(try!(parse_number(r.data))), // Number 
-            0x0205 => cells.push(try!(parse_bool_err(r.data))),// BoolErr
-            0x027E => cells.push(try!(parse_rk(r.data))),// RK
-            _ => (),
-        }
-    }
-    Ok(())
+fn parse_sheet_name(r: &[u8]) -> Result<(usize, String)> {
+    let pos = read_u32(r) as usize;
+    let sheet = try!(parse_short_string(&r[6..]));
+    Ok((pos, sheet))
 }
 
 fn parse_sst(r: &[u8]) -> Result<Vec<String>> {
@@ -116,7 +125,7 @@ fn parse_sst(r: &[u8]) -> Result<Vec<String>> {
     }
     let len = read_slice::<i32>(&r[4..]) as usize;
     let mut sst = Vec::with_capacity(len);
-    let mut read = &mut &*r;
+    let mut read = &mut &r[8..];
     for _ in 0..len {
         sst.push(try!(read_rich_extended_string(read)));
     }
@@ -181,45 +190,95 @@ fn parse_rk(r: &[u8]) -> Result<Cell> {
     Ok(Cell { row: row, col: col, val: v })
 }
 
-fn parse_string(r: &[u8]) -> Result<String> {
+fn parse_short_string(r: &[u8]) -> Result<String> {
     if r.len() < 2 {
-        return Err("Invalid string length".into());
+        return Err("Invalid short string length".into());
     }
-    let mut len = read_u16(r) as usize;
-    let zero_high_byte = r[3] == 0;
+    let mut len = r[0] as usize;
+    let zero_high_byte = r[1] == 0;
     if zero_high_byte {
-        if r.len() < 3 + len {
-            return Err("Invalid string length".into());
+        if r.len() < 2 + len {
+            return Err(format!("Invalid short string length {} < {}", r.len(), 2 + len).into());
         }
-        ::std::str::from_utf8(&r[3..3 + len]).map(|s| s.to_string()).map_err(|e| e.into())
+        ::std::str::from_utf8(&r[2..2 + len]).map(|s| s.to_string()).map_err(|e| e.into())
     } else {
         len *= 2;
-        if r.len() < 3 + len {
-            return Err("Invalid string length".into());
+        if r.len() < 2 + len {
+            return Err(format!("Invalid short string length {} < {}", r.len(), 2 + len).into());
         }
-        UTF_16LE.decode(&r[3..3 + len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+        UTF_16LE.decode(&r[2..2 + len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
     }
 }
 
-fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
-    if r.len() < 2 {
-        return Err("Invalid string length".into());
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell> {
+    if r.len() < 10 {
+        return Err("Invalid short string length".into());
     }
+    let row = read_u16(r);
+    let col = read_u16(&r[2..]);
+    let i = read_u32(&r[6..]) as usize;
+    Ok(Cell { row: row, col: col, val: DataType::String(strings[i].clone()), })
+}
+
+
+// fn parse_string(r: &[u8]) -> Result<String> {
+//     if r.len() < 3 {
+//         return Err("Invalid string length".into());
+//     }
+//     let mut len = read_u16(r) as usize;
+//     let zero_high_byte = r[2] == 0;
+//     if zero_high_byte {
+//         if r.len() < 3 + len {
+//             return Err(format!("Invalid string length {} < {}", r.len(), 3 + len).into());
+//         }
+//         ::std::str::from_utf8(&r[3..3 + len]).map(|s| s.to_string()).map_err(|e| e.into())
+//     } else {
+//         len *= 2;
+//         if r.len() < 3 + len {
+//             return Err(format!("Invalid string length {} < {}", r.len(), 3 + len).into());
+//         }
+//         UTF_16LE.decode(&r[3..3 + len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+//     }
+// }
+
+fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
+    if r.len() < 3 {
+        return Err("Invalid rich extended string length".into());
+    }
+
     let mut len = read_u16(r) as usize;
-    let zero_high_byte = (r[3] & 0x1) == 0;
-    let s = if zero_high_byte {
-        if r.len() < 9 + len {
-            return Err("Invalid string length".into());
+    let mut start = 3;
+    let flags = r[2];
+    let high_byte = flags & 0x1;
+    let ext_st = flags & 0x4;
+    let rich_st = flags & 0x8;
+    let str_len = len;
+
+    if rich_st != 0 { 
+        len += 4 * read_u16(&r[start..]) as usize;
+        start += 2;
+    }
+    if ext_st != 0 { 
+        len += read_slice::<i32>(&r[start..]) as usize;
+        start += 4;
+    }
+    
+    let s = if high_byte == 0 {
+        if r.len() < start + len {
+            return Err(format!("Invalid rich extended string \
+                                length: {} < {}", r.len(), start + len).into());
         }
-        ::std::str::from_utf8(&r[9..9 + len]).map(|s| s.to_string()).map_err(|e| e.into())
+        ::std::str::from_utf8(&r[start..start + str_len]).map(|s| s.to_string()).map_err(|e| e.into())
     } else {
-        len *= 2;
-        if r.len() < 9 + len {
-            return Err("Invalid string length".into());
+        len += str_len;
+        if r.len() < start + len {
+            return Err(format!("Invalid rich extended string \
+                                length: {} < {}", r.len(), start + len).into());
         }
-        UTF_16LE.decode(&r[9..9 + len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+        UTF_16LE.decode(&r[start..start + 2 * str_len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
     };
-    *r = &r[9 + len..];
+
+    *r = &r[start + len..];
     s
 }
 

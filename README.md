@@ -9,7 +9,9 @@ A Excel file reader, in Rust.
 
 **office** is a pure Rust library to process excel files. 
 
-As long as your files are *simple enough*, this library is ready for use.
+As long as your files are *simple enough*, this library should just work.
+
+Inspired by [js-xlsx](https://github.com/SheetJS/js-xlsx).
 
 ## Examples
 
