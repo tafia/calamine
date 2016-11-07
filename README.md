@@ -11,8 +11,6 @@ A Excel file reader, in Rust.
 
 As long as your files are *simple enough*, this library should just work.
 
-Inspired by [js-xlsx](https://github.com/SheetJS/js-xlsx).
-
 ## Examples
 
 ### Simple
@@ -33,19 +31,6 @@ use office::{Excel, Range, DataType};
 let path = "/path/to/my/excel/file.xlsm";
 let mut workbook = Excel::open(path).unwrap();
 
-// Check if the workbook has a vba project
-if workbook.has_vba() {
-    let mut vba = workbook.vba_project().unwrap();
-    let module1 = vba.get_module("Module 1").unwrap();
-    println!("Module 1 code:");
-    println!("{}", module1);
-    for r in vba.get_references() {
-        if r.is_missing() {
-            println!("Reference {} is broken or not accessible", r.name);
-        }
-    }
-}
-
 // Read whole worksheet data and provide some statistics
 if let Ok(range) = workbook.worksheet_range("Sheet1") {
     let total_cells = range.get_size().0 * range.get_size().1;
@@ -54,6 +39,20 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
     }).sum();
     println!("Found {} cells in 'Sheet1', including {} non empty cells",
              total_cells, non_empty_cells);
+}
+
+// Check if the workbook has a vba project
+if workbook.has_vba() {
+    let mut vba = workbook.vba_project().expect("Cannot find VbaProjec");
+    let vba = vba.to_mut();
+    let module1 = vba.get_module("Module 1").unwrap();
+    println!("Module 1 code:");
+    println!("{}", module1);
+    for r in vba.get_references() {
+        if r.is_missing() {
+            println!("Reference {} is broken or not accessible", r.name);
+        }
+    }
 }
 ```
 
@@ -77,9 +76,8 @@ As a result there is a large room for improvement: only items related to either 
 Many (most) part of the specifications are not implemented, the attention has been put on reading cell values and vba code.
 
 The main unsupported items are:
-- no support for reading `.xls` cells (vba is ok though)
-- no support for decoding MBSC vba code, office tries to decode as normal utf8, which is ok most of the time but not accurate
 - no support for writing excel files, this is a read-only libray
+- no support for decoding MBSC vba code, office tries to decode as normal utf8, which is ok most of the time but not accurate
 
 ## License
 
