@@ -108,7 +108,7 @@ fn vba() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let mut vba = excel.vba_project().unwrap();
-    assert_eq!(vba.get_module("testVBA").unwrap(), "Attribute VB_Name = \"testVBA\"\
+    assert_eq!(vba.to_mut().get_module("testVBA").unwrap(), "Attribute VB_Name = \"testVBA\"\
     \r\nPublic Sub test()\
     \r\n    MsgBox \"Hello from vba!\"\
     \r\nEnd Sub\

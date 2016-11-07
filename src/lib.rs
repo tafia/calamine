@@ -13,19 +13,6 @@
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
 //! let mut workbook = Excel::open(path).unwrap();
 //!
-//! // Check if the workbook has a vba project
-//! if workbook.has_vba() {
-//!     let mut vba = workbook.vba_project().unwrap();
-//!     let module1 = vba.get_module("Module 1").unwrap();
-//!     println!("Module 1 code:");
-//!     println!("{}", module1);
-//!     for r in vba.get_references() {
-//!         if r.is_missing() {
-//!             println!("Reference {} is broken or not accessible", r.name);
-//!         }
-//!     }
-//! }
-//!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
@@ -34,6 +21,20 @@
 //!     }).sum();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
 //!              total_cells, non_empty_cells);
+//! }
+//!
+//! // Check if the workbook has a vba project
+//! if workbook.has_vba() {
+//!     let mut vba = workbook.vba_project().expect("Cannot find VbaProjec");
+//!     let vba = vba.to_mut();
+//!     let module1 = vba.get_module("Module 1").unwrap();
+//!     println!("Module 1 code:");
+//!     println!("{}", module1);
+//!     for r in vba.get_references() {
+//!         if r.is_missing() {
+//!             println!("Reference {} is broken or not accessible", r.name);
+//!         }
+//!     }
 //! }
 //! ```
 //!
@@ -63,6 +64,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::slice::Chunks;
 use std::str::FromStr;
+use std::borrow::Cow;
 
 pub use errors::*;
 use vba::VbaProject;
@@ -238,7 +240,7 @@ impl Excel {
     ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
     /// ```
-    pub fn vba_project(&mut self) -> Result<VbaProject> {
+    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
         inner!(self, vba_project())
     }
 
@@ -275,7 +277,7 @@ pub trait ExcelReader: Sized {
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<VbaProject>;
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>>;
     /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships
@@ -360,7 +362,6 @@ impl Range {
     /// ```
     pub fn rows(&self) -> Rows {
         let width = self.size.1;
-        println!("rows width :{}", width);
         Rows { inner: self.inner.chunks(width) }
     }
 }

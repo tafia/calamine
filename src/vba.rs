@@ -15,6 +15,7 @@ use cfb::Cfb;
 
 /// A struct for managing VBA reading
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct VbaProject {
     cfb: Cfb,
     references: Vec<Reference>,
@@ -31,7 +32,8 @@ impl VbaProject {
         VbaProject::from_cfb(r, cfb)
     }
 
-    fn from_cfb<R: Read>(r: &mut R, mut cfb: Cfb) -> Result<VbaProject> {
+    /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
+    pub fn from_cfb<R: Read>(r: &mut R, mut cfb: Cfb) -> Result<VbaProject> {
         let (refs, mods) = try!(read_vba(&mut cfb, r));
 
         // read all modules
@@ -47,7 +49,6 @@ impl VbaProject {
             modules: modules,
         })
     }
-
 
     /// Gets the list of `Reference`s
     pub fn get_references(&self) -> &[Reference] {
@@ -70,9 +71,9 @@ impl VbaProject {
     /// use office::Excel;
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut vba = Excel::open(path)
-    ///     .and_then(|mut xl| xl.vba_project())
-    ///     .expect("Cannot read vba project");
+    /// let mut xl = Excel::open(path).expect("Cannot find excel file");
+    /// let mut vba = xl.vba_project().expect("Cannot find vba project");
+    /// let vba = vba.to_mut();
     /// let modules = vba.get_module_names().into_iter()
     ///                  .map(|s| s.to_string()).collect::<Vec<_>>();
     /// for m in modules {

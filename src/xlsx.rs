@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::collections::HashMap;
+use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
@@ -40,10 +41,10 @@ impl ExcelReader for Xlsx {
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-    fn vba_project(&mut self) -> Result<VbaProject> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
         let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
         let len = f.size() as usize;
-        VbaProject::new(&mut f, len)
+        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
     }
 
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {

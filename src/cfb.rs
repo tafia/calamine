@@ -12,7 +12,7 @@ const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
 
 /// A struct for managing Compound File Binary format
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Cfb {
     directories: Vec<Directory>,
     sectors: Sectors,
@@ -157,7 +157,7 @@ impl Header {
 /// A struct corresponding to the elementary block of memory
 ///
 /// `data` will persist in memory to ensure the file is read once
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Sectors {
     data: Vec<u8>,
     size: usize,
@@ -197,7 +197,7 @@ impl Sectors {
 }
 
 /// A struct representing sector organizations, behaves similarly to a tree
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Directory {
     name: String,
     start: u32,

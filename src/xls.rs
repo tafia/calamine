@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::collections::HashMap;
 use std::io::BufReader;
+use std::borrow::Cow;
 
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
@@ -11,10 +12,16 @@ use vba::VbaProject;
 use cfb::Cfb;
 use utils::{read_u16, read_u32, read_slice};
 
+enum CfbWrap {
+    Wb(Cfb, BufReader<File>),
+    Vba(VbaProject),
+}
+
 /// A struct representing an old xls format file (CFB)
 pub struct Xls {
     sheets: HashMap<String, Range>,
     strings: Vec<String>,
+    cfb: Option<CfbWrap>,
 }
 
 impl ExcelReader for Xls {
@@ -25,20 +32,38 @@ impl ExcelReader for Xls {
         let mut cfb = try!(Cfb::new(&mut r, len ));
         let wb = try!(cfb.get_stream("Workbook", &mut r));
 
-        let mut xls = Xls { sheets: HashMap::new(), strings: Vec::new(), };
+        let mut xls = Xls { 
+            sheets: HashMap::new(), 
+            strings: Vec::new(), 
+            cfb: Some(CfbWrap::Wb(cfb, r)),
+        };
         try!(xls.parse_workbook(&wb));
         Ok(xls)
     }
 
     fn has_vba(&mut self) -> bool {
-//         self.cfb.has_directory("_VBA_PROJECT_CUR")
-        true
+        match self.cfb {
+            Some(CfbWrap::Wb(ref cfb, _)) => cfb.has_directory("_VBA_PROJECT_CUR"),
+            Some(CfbWrap::Vba(_)) => true,
+            None => unreachable!(), // option is used to transfer ownership only
+        }
     }
 
-    fn vba_project(&mut self) -> Result<VbaProject> {
-//         let len = try!(self.file.get_ref().metadata()).len() as usize;
-//         VbaProject::new(&mut self.file, len)
-        unimplemented!()        
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
+        if let Some(CfbWrap::Wb(..)) = self.cfb {
+            match self.cfb.take() {
+                Some(CfbWrap::Wb(cfb, mut r)) => {
+                    let vba = try!(VbaProject::from_cfb(&mut r, cfb));
+                    self.cfb = Some(CfbWrap::Vba(vba));
+                },
+                _ => unreachable!(),
+            }
+        }
+
+        match self.cfb {
+            Some(CfbWrap::Vba(ref v)) => Ok(Cow::Borrowed(v)),
+            _ => unreachable!(),
+        }
     }
 
     /// Parses Workbook stream, no need for the relationships variable
