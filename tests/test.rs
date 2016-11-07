@@ -107,10 +107,8 @@ fn vba() {
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
-    let vba = excel.vba_project().unwrap();
-    let modules = vba.read_vba().unwrap().1;
-    let test_vba = modules.into_iter().find(|m| &*m.name == "testVBA").unwrap();
-    assert_eq!(vba.read_module(&test_vba).unwrap(), "Attribute VB_Name = \"testVBA\"\
+    let mut vba = excel.vba_project().unwrap();
+    assert_eq!(vba.to_mut().get_module("testVBA").unwrap(), "Attribute VB_Name = \"testVBA\"\
     \r\nPublic Sub test()\
     \r\n    MsgBox \"Hello from vba!\"\
     \r\nEnd Sub\
@@ -120,6 +118,19 @@ fn vba() {
 #[test]
 fn xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("issue2").unwrap();
+    let mut r = range.rows();
+    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
+    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
+    assert_eq!(r.next(), None);
+}
+
+#[test]
+fn xls() {
+    let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();

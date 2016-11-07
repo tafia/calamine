@@ -43,13 +43,9 @@ fn main() {
                 if xl.has_vba() {
                     match xl.vba_project() {
                         Ok(ref mut vba) => {
-                            match vba.read_vba() {
-                                Ok((refs, _)) => {
-                                    missing = Some(refs.into_iter()
-                                        .filter(|r| r.is_missing()).count());
-                                },
-                                Err(e) => status.push(FileStatus::VbaError(e)),
-                            }
+                            let refs = vba.get_references();
+                            missing = Some(refs.into_iter()
+                                .filter(|r| r.is_missing()).count());
                         },
                         Err(e) => status.push(FileStatus::VbaError(e)),
                     }

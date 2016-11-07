@@ -13,24 +13,6 @@
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
 //! let mut workbook = Excel::open(path).unwrap();
 //!
-//! // Check if the workbook has a vba project
-//! if workbook.has_vba() {
-//!     let mut vba = workbook.vba_project().unwrap();
-//!     if let Ok((references, modules)) = vba.read_vba() {
-//!         for m in modules {
-//!             if &m.name == "module1" {
-//!                 println!("Module 1 code:");
-//!                 println!("{}", vba.read_module(&m).unwrap());
-//!             }
-//!         }
-//!         for r in references {
-//!             if r.is_missing() {
-//!                 println!("Reference {} is broken or not accessible", r.name);
-//!             }
-//!         }
-//!     }
-//! }
-//!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
@@ -39,6 +21,20 @@
 //!     }).sum();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
 //!              total_cells, non_empty_cells);
+//! }
+//!
+//! // Check if the workbook has a vba project
+//! if workbook.has_vba() {
+//!     let mut vba = workbook.vba_project().expect("Cannot find VbaProjec");
+//!     let vba = vba.to_mut();
+//!     let module1 = vba.get_module("Module 1").unwrap();
+//!     println!("Module 1 code:");
+//!     println!("{}", module1);
+//!     for r in vba.get_references() {
+//!         if r.is_missing() {
+//!             println!("Reference {} is broken or not accessible", r.name);
+//!         }
+//!     }
 //! }
 //! ```
 //!
@@ -60,6 +56,7 @@ mod utils;
 mod xlsb;
 mod xlsx;
 mod xls;
+mod cfb;
 pub mod vba;
 
 use std::path::Path;
@@ -67,6 +64,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::slice::Chunks;
 use std::str::FromStr;
+use std::borrow::Cow;
 
 pub use errors::*;
 use vba::VbaProject;
@@ -145,19 +143,6 @@ pub struct Excel {
     relationships: HashMap<Vec<u8>, String>,
     /// Map of sheet names/sheet path within zip archive
     sheets: HashMap<String, String>,
-}
-
-/// A struct which represents a squared selection of cells 
-#[derive(Debug, Default)]
-pub struct Range {
-    position: (u32, u32),
-    size: (usize, usize),
-    inner: Vec<DataType>,
-}
-
-/// An iterator to read `Range` struct row by row
-pub struct Rows<'a> {
-    inner: Chunks<'a, DataType>,
 }
 
 macro_rules! inner {
@@ -251,12 +236,11 @@ impl Excel {
     /// let mut workbook = Excel::open(path).unwrap();
     /// if workbook.has_vba() {
     ///     let mut vba = workbook.vba_project().unwrap();
-    ///     let (references, modules) = vba.read_vba().unwrap();
-    ///     println!("References: {:?}", references);
-    ///     println!("Modules: {:?}", modules);
+    ///     println!("References: {:?}", vba.get_references());
+    ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
     /// ```
-    pub fn vba_project(&mut self) -> Result<VbaProject> {
+    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
         inner!(self, vba_project())
     }
 
@@ -292,9 +276,9 @@ pub trait ExcelReader: Sized {
     fn new(f: File) -> Result<Self>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
-    /// Gets vba project
-    fn vba_project(&mut self) -> Result<VbaProject>;
-    /// Read shared string list
+    /// Gets `VbaProject`
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>>;
+    /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<HashMap<String, String>>;
@@ -302,6 +286,19 @@ pub trait ExcelReader: Sized {
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
     /// Read worksheet data in corresponding worksheet path
     fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range>;
+}
+
+/// A struct which represents a squared selection of cells 
+#[derive(Debug, Default, Clone)]
+pub struct Range {
+    position: (u32, u32),
+    size: (usize, usize),
+    inner: Vec<DataType>,
+}
+
+/// An iterator to read `Range` struct row by row
+pub struct Rows<'a> {
+    inner: Chunks<'a, DataType>,
 }
 
 impl Range {

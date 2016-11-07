@@ -1,6 +1,6 @@
 [package]
 name = "office"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/office"
 documentation = "https://docs.rs/office"
