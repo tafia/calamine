@@ -13,9 +13,7 @@ use utils::{read_u16, read_u32, read_slice};
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls {
-    r: BufReader<File>,
-    cfb: Cfb,
-    sheets: HashMap<String, String>,
+    sheets: HashMap<String, Range>,
     strings: Vec<String>,
 }
 
@@ -24,12 +22,17 @@ impl ExcelReader for Xls {
     fn new(r: File) -> Result<Self> {
         let len = try!(r.metadata()).len() as usize;
         let mut r = BufReader::new(r);
-        let cfb = try!(Cfb::new(&mut r, len ));
-        Ok(Xls { r: r, cfb: cfb, sheets: HashMap::new(), strings: Vec::new(), })
+        let mut cfb = try!(Cfb::new(&mut r, len ));
+        let wb = try!(cfb.get_stream("Workbook", &mut r));
+
+        let mut xls = Xls { sheets: HashMap::new(), strings: Vec::new(), };
+        try!(xls.parse_workbook(&wb));
+        Ok(xls)
     }
 
     fn has_vba(&mut self) -> bool {
-        self.cfb.has_directory("_VBA_PROJECT_CUR")
+//         self.cfb.has_directory("_VBA_PROJECT_CUR")
+        true
     }
 
     fn vba_project(&mut self) -> Result<VbaProject> {
@@ -41,76 +44,73 @@ impl ExcelReader for Xls {
     /// Parses Workbook stream, no need for the relationships variable
     fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) 
         -> Result<HashMap<String, String>> {
-        let wb = try!(self.cfb.get_stream("Workbook", &mut self.r));
-        try!(self.parse_workbook(&wb));
-        Ok(self.sheets.clone())
+        Ok(self.sheets.keys().map(|k| (k.to_string(), k.to_string())).collect())
     }
 
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        Ok(Vec::new())
+        Ok(self.strings.clone())
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
         Ok(HashMap::new())
     }
 
-    fn read_worksheet_range(&mut self, _: &str, _: &[String]) -> Result<Range> {
-        unimplemented!()
+    fn read_worksheet_range(&mut self, name: &str, _: &[String]) -> Result<Range> {
+        match self.sheets.get(name) {
+            None => Err(format!("Sheet '{}' does not exist", name).into()),
+            Some(r) => Ok(r.clone()),
+        }
     }
 }
 
 impl Xls {
-    fn parse_workbook(&mut self, mut wb: &[u8]) -> Result<()> {
-        let records = RecordIter { stream: &mut wb };
+    fn parse_workbook(&mut self, stream: &[u8]) -> Result<()> {
 
-        let mut biff = 0;
-        let mut depth = 0;
-        let mut ignore = false;
-        let mut cells = Vec::new();
+        let mut sheets = Vec::new(); 
+        {
+            let mut wb = stream;
+            let records = RecordIter { stream: &mut wb };
+            for record in records {
+                let r = try!(record);
+                println!("typ: {}", r.typ);
+                match r.typ {
+                    0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
+                        return Err("Expecting Workbook BOF".into());
+                    }, // BOF,
+                    0x013D => {
+                        let sheet_len = r.data.len() / 2;
+                        sheets.reserve(sheet_len);
+                    }, // RRTabId
+                    0x0085 => sheets.push(try!(parse_sheet_name(r.data))), // BoundSheet8
+                    0x00FC => self.strings = try!(parse_sst(r.data)), // SST
+                    0x000A => break, // EOF,
+                    _ => (),
+                }
+            }
+        }
 
-        for record in records {
-            let r = try!(record);
-            if ignore && r.typ != 0x0009 { // within an unsupported substream
-                continue;
+        'sh: for (pos, name) in sheets.into_iter() {
+            println!("reading sheet: {}, pos {}", name, pos);
+            let mut sh = &stream[pos..];
+            let records = RecordIter { stream: &mut sh };
+            let mut range = Range::default();
+            for record in records {
+                let r = try!(record);
+                match r.typ {
+                    0x0009 => if read_u16(&r.data[2..]) != 0x0010 { continue 'sh; }, // BOF, worksheet
+                    0x0200 => range = try!(parse_dimensions(r.data)), // Dimensions
+                    0x0203 => try!(parse_number(r.data, &mut range)), // Number 
+                    0x0205 => try!(parse_bool_err(r.data, &mut range)), // BoolErr
+                    0x027E => try!(parse_rk(r.data, &mut range)), // RK
+                    0x00FD => try!(parse_label_sst(r.data, &self.strings, &mut range)), // LabelSst
+                    0x000A => break, // EOF,
+                    _ => (),
+                }
             }
-            println!("typ: {:x}", r.typ);
-            match r.typ {
-                0x0009 => { // BOF
-                    depth += 1;
-                    biff = read_u16(r.data);
-                    let dt = read_u16(&r.data[2..]);
-                    ignore = !(dt == 0x0005 || dt == 0x0010);
-                },
-                0x000A => { // EOF
-                    if depth == 1 { break; }
-                    depth -= 1;
-                },
-                0x00FC => self.strings = try!(parse_sst(r.data)), // SST
-                0x0085 => { self.sheets.insert(try!(parse_sheet_name(r.data)).1, "".to_string()); }, // BoundSheet8
-                0x0203 => cells.push(try!(parse_number(r.data))), // Number 
-                0x0205 => cells.push(try!(parse_bool_err(r.data))), // BoolErr
-                0x027E => cells.push(try!(parse_rk(r.data))), // RK
-                0x00FD => cells.push(try!(parse_label_sst(r.data, &self.strings))), // LabelSst
-                _ => (),
-            }
+            self.sheets.insert(name, range);
         }
         Ok(())
     }
-}
-
-struct Cell {
-    row: u16,
-    col: u16,
-    val: DataType,
-}
-
-struct Record<'a> {
-    typ: u16,
-    data: &'a [u8],
-}
-
-struct RecordIter<'a> {
-    stream: &'a[u8],
 }
 
 fn parse_sheet_name(r: &[u8]) -> Result<(usize, String)> {
@@ -132,17 +132,18 @@ fn parse_sst(r: &[u8]) -> Result<Vec<String>> {
     Ok(sst)
 }
 
-fn parse_number(r: &[u8]) -> Result<Cell> {
+fn parse_number(r: &[u8], range: &mut Range) -> Result<()> {
     if r.len() < 14 {
         return Err("Invalid number length".into());
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let v = read_slice::<f64>(&r[6..]);
-    Ok(Cell { row: row, col: col, val: DataType::Float(v), })
+    range.set_value((row as u32, col as u32), DataType::Float(v));
+    Ok(())
 }
 
-fn parse_bool_err(r: &[u8]) -> Result<Cell> {
+fn parse_bool_err(r: &[u8], range: &mut Range) -> Result<()> {
     if r.len() < 8 {
         return Err("Invalid BoolErr length".into());
     }
@@ -163,10 +164,11 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell> {
         },
         e => return Err(format!("Unrecognized fError {:x}", e).into()),
     };
-    Ok(Cell { row: row, col: col, val: v, })
+    range.set_value((row as u32, col as u32), v);
+    Ok(())
 }
  
-fn parse_rk(r: &[u8]) -> Result<Cell> {
+fn parse_rk(r: &[u8], range: &mut Range) -> Result<()> {
     if r.len() < 10 {
         return Err("Invalid rk length".into());
     }
@@ -187,7 +189,8 @@ fn parse_rk(r: &[u8]) -> Result<Cell> {
         DataType::Float( if d100 { v/100.0 } else { v })
     };
 
-    Ok(Cell { row: row, col: col, val: v })
+    range.set_value((row as u32, col as u32), v);
+    Ok(())
 }
 
 fn parse_short_string(r: &[u8]) -> Result<String> {
@@ -210,36 +213,31 @@ fn parse_short_string(r: &[u8]) -> Result<String> {
     }
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell> {
+fn parse_label_sst(r: &[u8], strings: &[String], range: &mut Range) -> Result<()> {
     if r.len() < 10 {
         return Err("Invalid short string length".into());
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
-    Ok(Cell { row: row, col: col, val: DataType::String(strings[i].clone()), })
+    range.set_value((row as u32, col as u32), DataType::String(strings[i].clone()));
+    Ok(())
 }
 
+fn parse_dimensions(r: &[u8]) -> Result<Range> {
+    if r.len() < 14 {
+        return Err("Invalid dimensions lengths".into());
+    }
+    let rw_first = read_u32(&r[0..4]);
+    let rw_last = read_u32(&r[4..8]) - 1;
+    let col_first = read_u16(&r[8..10]);
+    let col_last = read_u16(&r[10..12]) - 1;
 
-// fn parse_string(r: &[u8]) -> Result<String> {
-//     if r.len() < 3 {
-//         return Err("Invalid string length".into());
-//     }
-//     let mut len = read_u16(r) as usize;
-//     let zero_high_byte = r[2] == 0;
-//     if zero_high_byte {
-//         if r.len() < 3 + len {
-//             return Err(format!("Invalid string length {} < {}", r.len(), 3 + len).into());
-//         }
-//         ::std::str::from_utf8(&r[3..3 + len]).map(|s| s.to_string()).map_err(|e| e.into())
-//     } else {
-//         len *= 2;
-//         if r.len() < 3 + len {
-//             return Err(format!("Invalid string length {} < {}", r.len(), 3 + len).into());
-//         }
-//         UTF_16LE.decode(&r[3..3 + len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
-//     }
-// }
+    let start = (rw_first, col_first as u32);
+    let size = ((rw_last - rw_first + 1) as usize, (col_last - col_first + 1) as usize);
+
+    Ok(Range::new(start, size))
+}
 
 fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
     if r.len() < 3 {
@@ -280,6 +278,15 @@ fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
 
     *r = &r[start + len..];
     s
+}
+
+struct Record<'a> {
+    typ: u16,
+    data: &'a [u8],
+}
+
+struct RecordIter<'a> {
+    stream: &'a[u8],
 }
 
 impl<'a> Iterator for RecordIter<'a> {

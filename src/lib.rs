@@ -287,7 +287,7 @@ pub trait ExcelReader: Sized {
 }
 
 /// A struct which represents a squared selection of cells 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Range {
     position: (u32, u32),
     size: (usize, usize),
@@ -360,6 +360,7 @@ impl Range {
     /// ```
     pub fn rows(&self) -> Rows {
         let width = self.size.1;
+        println!("rows width :{}", width);
         Rows { inner: self.inner.chunks(width) }
     }
 }
