@@ -2,8 +2,9 @@
 //!
 //! # Status
 //!
-//! Reads excel workbooks and vba project. This mainly works except for 
-//! binary file format (xls and xlsb) where only VBA is currently supported.
+//! **office** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
+//! 
+//! Read both cell values and vba project.
 //!
 //! # Examples
 //! ```

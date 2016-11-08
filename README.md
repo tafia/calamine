@@ -5,6 +5,8 @@ A Excel file reader, in pure Rust.
 [![Build Status](https://travis-ci.org/tafia/office.svg?branch=master)](https://travis-ci.org/tafia/office)
 [![Build status](https://ci.appveyor.com/api/projects/status/nqagdg5o9evq31qu/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/office/branch/master)
 
+[Documentation](https://docs.rs/office/)
+
 ## Description
 
 **office** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 

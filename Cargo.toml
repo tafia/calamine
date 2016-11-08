@@ -5,7 +5,7 @@ authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/office"
 documentation = "https://docs.rs/office"
 description = "Excel reader"
-keywords = ["excel", "vba", "office", "xml"]
+keywords = ["excel", "vba", "office", "xml", "xls", "xlsx", "xslb", "xlsm", "xla", "xlam"]
 license = "MIT"
 
 [dependencies]
