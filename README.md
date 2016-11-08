@@ -1,15 +1,16 @@
 # office
 
-A Excel file reader, in Rust.
+A Excel file reader, in pure Rust.
 
 [![Build Status](https://travis-ci.org/tafia/office.svg?branch=master)](https://travis-ci.org/tafia/office)
 [![Build status](https://ci.appveyor.com/api/projects/status/nqagdg5o9evq31qu/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/office/branch/master)
 
 ## Description
 
-**office** is a pure Rust library to process excel files. 
+**office** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
 
 As long as your files are *simple enough*, this library should just work.
+For anything else, please file an issue with a failing test or send a pull request!
 
 ## Examples
 
@@ -43,7 +44,7 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
 
 // Check if the workbook has a vba project
 if workbook.has_vba() {
-    let mut vba = workbook.vba_project().expect("Cannot find VbaProjec");
+    let mut vba = workbook.vba_project().expect("Cannot find VbaProject");
     let vba = vba.to_mut();
     let module1 = vba.get_module("Module 1").unwrap();
     println!("Module 1 code:");
@@ -66,18 +67,19 @@ While there is no official benchmark yet, my first tests show a significant boos
 - Reading cell values: at least 3 times faster
 - Reading vba code: office does not read all sheets when opening your workbook, this is not fair
 
-## Warning
-
-This library is very young and is not a transcription of an existing library.
-As a result there is a large room for improvement: only items related to either cell values or vba is implemented.
-
 ## Unsupported
 
-Many (most) part of the specifications are not implemented, the attention has been put on reading cell values and vba code.
+Many (most) part of the specifications are not implemented, the focus has been put on reading cell **values** and **vba** code.
 
 The main unsupported items are:
 - no support for writing excel files, this is a read-only libray
-- no support for decoding MBSC vba code, office tries to decode as normal utf8, which is ok most of the time but not accurate
+- no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
+- no support for decoding MBSC vba code, only tries to decode as normal utf8, which is ok most of the time but not accurate
+
+## Credits
+
+Thanks to [xlsx-js](https://github.com/SheetJS/js-xlsx) developpers!
+This library is by far the simplest open source implementation I could find and helps making sense out of official documentation.
 
 ## License
 

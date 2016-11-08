@@ -25,7 +25,7 @@
 //!
 //! // Check if the workbook has a vba project
 //! if workbook.has_vba() {
-//!     let mut vba = workbook.vba_project().expect("Cannot find VbaProjec");
+//!     let mut vba = workbook.vba_project().expect("Cannot find VbaProject");
 //!     let vba = vba.to_mut();
 //!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
