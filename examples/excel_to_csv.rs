@@ -17,7 +17,7 @@ fn main() {
 
     let sce = PathBuf::from(file);
     match sce.extension().and_then(|s| s.to_str()) {
-        Some("xlsx") | Some("xlsm") | Some("xlsb") => (),
+        Some("xlsx") | Some("xlsm") | Some("xlsb") | Some("xls") => (),
         _ => panic!("Expecting an excel file"),
     }
 
