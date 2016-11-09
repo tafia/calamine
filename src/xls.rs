@@ -97,7 +97,6 @@ impl Xls {
             let records = RecordIter { stream: &mut wb };
             for record in records {
                 let r = try!(record);
-                println!("typ: {}", r.typ);
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
                         return Err("Expecting Workbook BOF".into());
@@ -115,7 +114,6 @@ impl Xls {
         }
 
         'sh: for (pos, name) in sheets.into_iter() {
-            println!("reading sheet: {}, pos {}", name, pos);
             let mut sh = &stream[pos..];
             let records = RecordIter { stream: &mut sh };
             let mut range = Range::default();
