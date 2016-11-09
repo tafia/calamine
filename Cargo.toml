@@ -1,5 +1,5 @@
 [package]
-name = "calamince"
+name = "calamine"
 version = "0.1.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
