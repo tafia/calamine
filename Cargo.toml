@@ -1,6 +1,6 @@
 [package]
-name = "office"
-version = "0.8.2"
+name = "calamince"
+version = "0.1.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/office"
