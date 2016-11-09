@@ -3,9 +3,9 @@ name = "calamine"
 version = "0.1.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
-documentation = "https://docs.rs/office"
-description = "See 'calamine' crate. Contact me for 'office' ownership"
-keywords = ["excel", "xls", "vba", "xml"]
+documentation = "https://docs.rs/calamine"
+description = "Excel reader. Fast. In Rust"
+keywords = ["excel", "xls", "vba", "xml", "office"]
 license = "MIT"
 readme = "README.md"
 
