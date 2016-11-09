@@ -68,7 +68,7 @@ impl VbaProject {
     ///
     /// # Examples
     /// ```
-    /// use office::Excel;
+    /// use calamine::Excel;
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut xl = Excel::open(path).expect("Cannot find excel file");

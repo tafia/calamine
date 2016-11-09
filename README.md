@@ -1,15 +1,15 @@
-# office
+# calamine
 
 A Excel file reader, in pure Rust.
 
-[![Build Status](https://travis-ci.org/tafia/office.svg?branch=master)](https://travis-ci.org/tafia/office)
-[![Build status](https://ci.appveyor.com/api/projects/status/nqagdg5o9evq31qu/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/office/branch/master)
+[![Build Status](https://travis-ci.org/tafia/calamine.svg?branch=master)](https://travis-ci.org/tafia/calamine)
+[![Build status](https://ci.appveyor.com/api/projects/status/njpnhq54h5hxsgel/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/calamine/branch/master)
 
-[Documentation](https://docs.rs/office/)
+[Documentation](https://docs.rs/calamine/)
 
 ## Description
 
-**office** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
+**calamine** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
 
 As long as your files are *simple enough*, this library should just work.
 For anything else, please file an issue with a failing test or send a pull request!
@@ -28,7 +28,7 @@ for row in r.rows() {
 ### More complex
 
 ```rust
-use office::{Excel, Range, DataType};
+use calamine::{Excel, Range, DataType};
 
 // opens a new workbook
 let path = "/path/to/my/excel/file.xlsm";
@@ -61,13 +61,13 @@ if workbook.has_vba() {
 
 ### Others
 
-Browse the [examples](https://github.com/tafia/office/tree/master/examples) directory.
+Browse the [examples](https://github.com/tafia/calamine/tree/master/examples) directory.
 
 ## Performance
 
 While there is no official benchmark yet, my first tests show a significant boost compared to official C# libraries:
 - Reading cell values: at least 3 times faster
-- Reading vba code: office does not read all sheets when opening your workbook, this is not fair
+- Reading vba code: calamine does not read all sheets when opening your workbook, this is not fair
 
 ## Unsupported
 

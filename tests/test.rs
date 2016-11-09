@@ -1,8 +1,8 @@
-extern crate office;
+extern crate calamine;
 
-use office::Excel;
-use office::DataType::{self, String, Float, Bool, Error, Empty};
-use office::CellErrorType::*;
+use calamine::Excel;
+use calamine::DataType::{self, String, Float, Bool, Error, Empty};
+use calamine::CellErrorType::*;
 
 #[test]
 fn issue_2() {

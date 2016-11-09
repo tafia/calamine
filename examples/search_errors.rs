@@ -1,9 +1,9 @@
-extern crate office;
+extern crate calamine;
 extern crate glob;
 
 use std::env;
 use glob::{glob, GlobError};
-use office::{Excel, DataType, Error};
+use calamine::{Excel, DataType, Error};
 
 type MissingReference = Option<usize>;
 

@@ -2,13 +2,13 @@
 //!
 //! # Status
 //!
-//! **office** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
+//! **calamine** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
 //! 
 //! Read both cell values and vba project.
 //!
 //! # Examples
 //! ```
-//! use office::{Excel, Range, DataType};
+//! use calamine::{Excel, Range, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
@@ -168,7 +168,7 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use office::Excel;
+    /// use calamine::Excel;
     ///
     /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     /// assert!(Excel::open(path).is_ok());
@@ -194,7 +194,7 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use office::Excel;
+    /// use calamine::Excel;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut workbook = Excel::open(path).unwrap();
@@ -231,7 +231,7 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use office::Excel;
+    /// use calamine::Excel;
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut workbook = Excel::open(path).unwrap();
@@ -249,7 +249,7 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use office::Excel;
+    /// use calamine::Excel;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut workbook = Excel::open(path).unwrap();
@@ -329,7 +329,7 @@ impl Range {
     ///
     /// # Examples
     /// ```
-    /// use office::{Range, DataType};
+    /// use calamine::{Range, DataType};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
     /// assert_eq!(range.get_value(2, 1), &DataType::Empty);
@@ -355,7 +355,7 @@ impl Range {
     ///
     /// # Examples
     /// ```
-    /// use office::{Range, DataType};
+    /// use calamine::{Range, DataType};
     ///
     /// let range = Range::new((0, 0), (5, 2));
     /// // with rows item row: &[DataType]
