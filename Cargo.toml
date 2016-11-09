@@ -1,10 +1,10 @@
 [package]
 name = "office"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
-repository = "https://github.com/tafia/office"
+repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/office"
-description = "Excel reader"
+description = "See 'calamine' crate. Contact me for 'office' ownership"
 keywords = ["excel", "xls", "vba", "xml"]
 license = "MIT"
 readme = "README.md"
