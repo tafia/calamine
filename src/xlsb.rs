@@ -223,7 +223,7 @@ impl ExcelReader for Xlsb {
             };
 
             if let Some(p) = pos {
-                range.set_value(p, value);
+                try!(range.set_value(p, value));
             }
             pos = iter_pos.next();
         }

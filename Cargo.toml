@@ -1,10 +1,10 @@
 [package]
 name = "calamine"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/calamine"
-description = "Excel reader. Fast. In Rust"
+description = "Excel reader in pure rust"
 keywords = ["excel", "xls", "vba", "xml", "office"]
 license = "MIT"
 readme = "README.md"
