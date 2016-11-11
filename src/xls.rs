@@ -221,8 +221,12 @@ fn parse_short_string(r: &[u8]) -> Result<String> {
         return Err("Invalid short string length".into());
     }
     let mut len = r[0] as usize;
-    let zero_high_byte = r[1] == 0;
-    let bytes = if zero_high_byte {
+    let high_byte = r[1];
+    if high_byte != 0 { len *= 2; }
+    if r.len() < 2 + len {
+        return Err(format!("Invalid short string length: {} < {}", r.len(), 2 + len).into());
+    }
+    let bytes = if high_byte == 0 {
         // add 0x00 high bytes to unicodes
         let mut bytes = vec![0; len * 2];
         for (i, sce) in r[2..2 + len].iter().enumerate() {
@@ -274,6 +278,7 @@ fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
     let rich_st = flags & 0x8;
     let str_len = len;
 
+    if high_byte != 0 { len += str_len; }
     if rich_st != 0 { 
         len += 4 * read_u16(&r[start..]) as usize;
         start += 2;
@@ -281,6 +286,10 @@ fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
     if ext_st != 0 { 
         len += read_slice::<i32>(&r[start..]) as usize;
         start += 4;
+    }
+    if r.len() < start + len {
+        return Err(format!("Invalid rich extended string length: {} < {}", 
+                           r.len(), start + len).into());
     }
     
     let bytes = if high_byte == 0 {
@@ -291,14 +300,8 @@ fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
         }
         Cow::Owned(bytes)
     } else {
-        len += str_len;
         Cow::Borrowed(&r[start..start + 2 * str_len])
     };
-
-    if r.len() < start + len {
-        return Err(format!("Invalid rich extended string \
-                            length: {} < {}", r.len(), start + len).into());
-    }
 
     *r = &r[start + len..];
     UTF_16LE.decode(&bytes, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
