@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.1.3
+- fix: [xls] better management of continue record for rich_extended_strings
+
 ## 0.1.2
 - fix: [all] return error when trying to set out of bound values in `Range`
 - fix: [xls] do a proper encoding when reading cells (force 2 bytes unicode instead of utf8)
