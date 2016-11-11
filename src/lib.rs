@@ -299,7 +299,7 @@ pub struct Range {
 
 /// An iterator to read `Range` struct row by row
 pub struct Rows<'a> {
-    inner: Chunks<'a, DataType>,
+    inner: Option<Chunks<'a, DataType>>,
 }
 
 impl Range {
@@ -366,15 +366,19 @@ impl Range {
     /// assert_eq!(range.rows().flat_map(|row| row).count(), 10);
     /// ```
     pub fn rows(&self) -> Rows {
-        let width = self.size.1;
-        Rows { inner: self.inner.chunks(width) }
+        if self.inner.is_empty() {
+            Rows { inner: None }
+        } else {
+            let width = self.size.1;
+            Rows { inner: Some(self.inner.chunks(width)) }
+        }
     }
 }
 
 impl<'a> Iterator for Rows<'a> {
     type Item = &'a [DataType];
     fn next(&mut self) -> Option<&'a [DataType]> {
-        self.inner.next()
+        self.inner.as_mut().and_then(|c| c.next())
     }
 }
 
