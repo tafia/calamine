@@ -103,13 +103,13 @@ impl Xls {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
                         return Err("Expecting Workbook BOF".into());
                     }, // BOF,
-                    0x0042 => self.codepage = read_u16(r.data), // CodePage (defines encoding)
+                    0x0042 => self.codepage = read_u16(&r.data), // CodePage (defines encoding)
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheets.reserve(sheet_len);
                     }, // RRTabId
-                    0x0085 => sheets.push(try!(parse_sheet_name(r.data))), // BoundSheet8
-                    0x00FC => self.strings = try!(parse_sst(r.data)), // SST
+                    0x0085 => sheets.push(try!(parse_sheet_name(&r.data))), // BoundSheet8
+                    0x00FC => self.strings = try!(parse_sst(&r.data)), // SST
                     0x000A => break, // EOF,
                     _ => (),
                 }
@@ -124,11 +124,11 @@ impl Xls {
                 let r = try!(record);
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0010 { continue 'sh; }, // BOF, worksheet
-                    0x0200 => range = try!(parse_dimensions(r.data)), // Dimensions
-                    0x0203 => try!(parse_number(r.data, &mut range)), // Number 
-                    0x0205 => try!(parse_bool_err(r.data, &mut range)), // BoolErr
-                    0x027E => try!(parse_rk(r.data, &mut range)), // RK
-                    0x00FD => try!(parse_label_sst(r.data, &self.strings, &mut range)), // LabelSst
+                    0x0200 => range = try!(parse_dimensions(&r.data)), // Dimensions
+                    0x0203 => try!(parse_number(&r.data, &mut range)), // Number 
+                    0x0205 => try!(parse_bool_err(&r.data, &mut range)), // BoolErr
+                    0x027E => try!(parse_rk(&r.data, &mut range)), // RK
+                    0x00FD => try!(parse_label_sst(&r.data, &self.strings, &mut range)), // LabelSst
                     0x000A => break, // EOF,
                     _ => (),
                 }
@@ -306,7 +306,7 @@ fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
 
 struct Record<'a> {
     typ: u16,
-    data: &'a [u8],
+    data: Cow<'a, [u8]>,
 }
 
 struct RecordIter<'a> {
@@ -324,12 +324,32 @@ impl<'a> Iterator for RecordIter<'a> {
             }
         }
         let t = read_u16(self.stream);
-        let len = read_u16(&self.stream[2..]) as usize;
+        let mut len = read_u16(&self.stream[2..]) as usize;
         if self.stream.len() < len + 4 {
             return Some(Err("Expecting record length, found end of stream".into()));
         }
-        let (data, next) = self.stream.split_at(len + 4);
+        let (mut data, mut next) = self.stream.split_at(len + 4);
         self.stream = next;
-        Some(Ok(Record { typ: t, data: &data[4..] }))
+
+        // Append next record data if it is a Continue record
+        let cow = if next.len() > 4 && read_u16(next) == 0x003C {
+            let mut c = data[4..].to_vec();
+            while next.len() > 4 && read_u16(next) == 0x003C {
+                len = read_u16(&self.stream[2..]) as usize;
+                if self.stream.len() < len + 4 {
+                    return Some(Err("Expecting continue record length, found end of stream".into()));
+                }
+                let sp = self.stream.split_at(len + 4);
+                data = sp.0;
+                next = sp.1;
+                c.extend_from_slice(&data[4..]);
+                self.stream = next;
+            }
+            Cow::Owned(c)
+        } else {
+            Cow::Borrowed(&data[4..])
+        };
+
+        Some(Ok(Record { typ: t, data: cow }))
     }
 }
