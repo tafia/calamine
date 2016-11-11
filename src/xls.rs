@@ -2,6 +2,7 @@ use std::fs::File;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::borrow::Cow;
+use std::cmp::min;
 
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
@@ -98,7 +99,7 @@ impl Xls {
             let mut wb = stream;
             let records = RecordIter { stream: &mut wb };
             for record in records {
-                let r = try!(record);
+                let mut r = try!(record);
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
                         return Err("Expecting Workbook BOF".into());
@@ -109,7 +110,7 @@ impl Xls {
                         sheets.reserve(sheet_len);
                     }, // RRTabId
                     0x0085 => sheets.push(try!(parse_sheet_name(&r.data))), // BoundSheet8
-                    0x00FC => self.strings = try!(parse_sst(&r.data)), // SST
+                    0x00FC => self.strings = try!(parse_sst(&mut r)), // SST
                     0x000A => break, // EOF,
                     _ => (),
                 }
@@ -143,19 +144,6 @@ fn parse_sheet_name(r: &[u8]) -> Result<(usize, String)> {
     let pos = read_u32(r) as usize;
     let sheet = try!(parse_short_string(&r[6..]));
     Ok((pos, sheet))
-}
-
-fn parse_sst(r: &[u8]) -> Result<Vec<String>> {
-    if r.len() < 8 {
-        return Err("Invalid sst length".into());
-    }
-    let len = read_slice::<i32>(&r[4..]) as usize;
-    let mut sst = Vec::with_capacity(len);
-    let mut read = &mut &r[8..];
-    for _ in 0..len {
-        sst.push(try!(read_rich_extended_string(read)));
-    }
-    Ok(sst)
 }
 
 fn parse_number(r: &[u8], range: &mut Range) -> Result<()> {
@@ -265,51 +253,117 @@ fn parse_dimensions(r: &[u8]) -> Result<Range> {
     Ok(Range::new(start, size))
 }
 
-fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
-    if r.len() < 3 {
+fn parse_sst(r: &mut Record) -> Result<Vec<String>> {
+    if r.data.len() < 8 {
+        return Err("Invalid sst length".into());
+    }
+    let len = read_slice::<i32>(&r.data[4..]) as usize;
+    let mut sst = Vec::with_capacity(len);
+    r.data = &r.data[8..];
+    for i in 0..len {
+        sst.push(try!(read_rich_extended_string(r)));
+    }
+    Ok(sst)
+}
+
+fn read_rich_extended_string(r: &mut Record) -> Result<String> {
+    if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
         return Err("Invalid rich extended string length".into());
     }
 
-    let mut len = read_u16(r) as usize;
-    let mut start = 3;
-    let flags = r[2];
+    let str_len = read_u16(r.data) as usize;
+    let flags = r.data[2];
+    r.data = &r.data[3..];
     let high_byte = flags & 0x1;
     let ext_st = flags & 0x4;
     let rich_st = flags & 0x8;
-    let str_len = len;
 
-    if high_byte != 0 { len += str_len; }
-    if rich_st != 0 { 
-        len += 4 * read_u16(&r[start..]) as usize;
-        start += 2;
-    }
-    if ext_st != 0 { 
-        len += read_slice::<i32>(&r[start..]) as usize;
-        start += 4;
-    }
-    if r.len() < start + len {
-        return Err(format!("Invalid rich extended string length: {} < {}", 
-                           r.len(), start + len).into());
-    }
-    
-    let bytes = if high_byte == 0 {
-        // add 0x00 high bytes to unicodes
-        let mut bytes = vec![0; str_len * 2];
-        for (i, sce) in r[start..start + str_len].iter().enumerate() {
-            bytes[2 * i] = *sce;
-        }
-        Cow::Owned(bytes)
+    let mut unused_len = if rich_st != 0 { 
+        let l = 4 * read_u16(&r.data) as usize;
+        r.data = &r.data[2..];
+        l
     } else {
-        Cow::Borrowed(&r[start..start + 2 * str_len])
+        0
+    };
+    if ext_st != 0 { 
+        unused_len += read_slice::<i32>(&r.data) as usize;
+        r.data = &r.data[4..];
     };
 
-    *r = &r[start + len..];
-    UTF_16LE.decode(&bytes, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+    let s = try!(read_dbcs(high_byte, str_len, r));
+
+    while unused_len > 0 {
+        if r.data.is_empty() && !r.continue_record() {
+            return Err("continued record too short while reading extended string".into());
+        }
+        let l = min(unused_len, r.data.len());
+        let (_, next) = r.data.split_at(l);
+        r.data = next;
+        unused_len -= l;
+    }
+
+    Ok(s)
+}
+
+fn read_dbcs<'a>(mut high_byte: u8, mut len: usize, r: &mut Record) -> Result<String>
+{
+    let mut s = String::with_capacity(len);
+    while len > 0 {
+        let (l, bytes) = if high_byte == 0 {
+            let l = min(r.data.len(), len);
+            let (data, next) = r.data.split_at(l);
+            r.data = next;
+
+            // add 0x00 high bytes to unicodes
+            let mut bytes = vec![0; l * 2];
+            for (i, sce) in data.iter().enumerate() {
+                bytes[2 * i] = *sce;
+            }
+            (l, Cow::Owned(bytes))
+        } else {
+            let l = min(r.data.len() / 2, len);
+            let (data, next) = r.data.split_at(2 * l);
+            r.data = next;
+            (l, Cow::Borrowed(data))
+        };
+
+        let s_rec: Result<String> = UTF_16LE.decode(&bytes, DecoderTrap::Ignore)
+            .map_err(|e| e.to_string().into());
+        s.push_str(&try!(s_rec));
+
+        len -= l;
+        if len > 0 {
+           if r.continue_record() {
+               high_byte = r.data[0] & 0x1;
+               r.data = &r.data[1..];
+           } else {
+               return Err("Cannot decode entire dbcs stream".into());
+           }
+        }
+    }
+    Ok(s)
 }
 
 struct Record<'a> {
     typ: u16,
-    data: Cow<'a, [u8]>,
+    data: &'a[u8],
+    cont: Option<Vec<&'a[u8]>>,
+}
+
+impl<'a> Record<'a> {
+    fn continue_record(&mut self) -> bool {
+        match self.cont {
+            None => false,
+            Some(ref mut v) => {
+                if v.is_empty() {
+                    false
+                } else {
+                    self.data = v.remove(0);
+                    true
+                }
+            }
+        }
+    }
 }
 
 struct RecordIter<'a> {
@@ -331,28 +385,27 @@ impl<'a> Iterator for RecordIter<'a> {
         if self.stream.len() < len + 4 {
             return Some(Err("Expecting record length, found end of stream".into()));
         }
-        let (mut data, mut next) = self.stream.split_at(len + 4);
+        let (data, next) = self.stream.split_at(len + 4);
         self.stream = next;
+        let d = &data[4..];
 
         // Append next record data if it is a Continue record
-        let cow = if next.len() > 4 && read_u16(next) == 0x003C {
-            let mut c = data[4..].to_vec();
-            while next.len() > 4 && read_u16(next) == 0x003C {
+        let cont = if next.len() > 4 && read_u16(next) == 0x003C {
+            let mut cont = Vec::new();
+            while self.stream.len() > 4 && read_u16(self.stream) == 0x003C {
                 len = read_u16(&self.stream[2..]) as usize;
                 if self.stream.len() < len + 4 {
                     return Some(Err("Expecting continue record length, found end of stream".into()));
                 }
                 let sp = self.stream.split_at(len + 4);
-                data = sp.0;
-                next = sp.1;
-                c.extend_from_slice(&data[4..]);
-                self.stream = next;
+                cont.push(&sp.0[4..]);
+                self.stream = sp.1;
             }
-            Cow::Owned(c)
+            Some(cont)
         } else {
-            Cow::Borrowed(&data[4..])
+            None
         };
 
-        Some(Ok(Record { typ: t, data: cow }))
+        Some(Ok(Record { typ: t, data: d, cont: cont }))
     }
 }
