@@ -336,10 +336,14 @@ impl Range {
     /// range.set_value((2, 1), DataType::Float(1.0));
     /// assert_eq!(range.get_value(2, 1), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, pos: (u32, u32), value: DataType) {
-        assert!(self.position <= pos);
+    pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
         let idx = (pos.0 - self.position.0) * self.size.1 as u32 + pos.1 - self.position.1;
-        self.inner[idx as usize] = value;
+        let idx = idx as usize;
+        if idx >= self.inner.len() {
+            return Err("range dimension and cell position are incompatible".into());
+        }
+        self.inner[idx] = value;
+        Ok(())
     }
 
     /// Get cell value

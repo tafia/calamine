@@ -162,8 +162,7 @@ fn parse_number(r: &[u8], range: &mut Range) -> Result<()> {
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let v = read_slice::<f64>(&r[6..]);
-    range.set_value((row as u32, col as u32), DataType::Float(v));
-    Ok(())
+    range.set_value((row as u32, col as u32), DataType::Float(v))
 }
 
 fn parse_bool_err(r: &[u8], range: &mut Range) -> Result<()> {
@@ -187,8 +186,7 @@ fn parse_bool_err(r: &[u8], range: &mut Range) -> Result<()> {
         },
         e => return Err(format!("Unrecognized fError {:x}", e).into()),
     };
-    range.set_value((row as u32, col as u32), v);
-    Ok(())
+    range.set_value((row as u32, col as u32), v)
 }
  
 fn parse_rk(r: &[u8], range: &mut Range) -> Result<()> {
@@ -212,8 +210,7 @@ fn parse_rk(r: &[u8], range: &mut Range) -> Result<()> {
         DataType::Float( if d100 { v/100.0 } else { v })
     };
 
-    range.set_value((row as u32, col as u32), v);
-    Ok(())
+    range.set_value((row as u32, col as u32), v)
 }
 
 fn parse_short_string(r: &[u8]) -> Result<String> {
@@ -243,12 +240,11 @@ fn parse_label_sst(r: &[u8], strings: &[String], range: &mut Range) -> Result<()
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
-    range.set_value((row as u32, col as u32), DataType::String(strings[i].clone()));
-    Ok(())
+    range.set_value((row as u32, col as u32), DataType::String(strings[i].clone()))
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Range> {
-    if r.len() < 14 {
+    if r.len() != 14 {
         return Err("Invalid dimensions lengths".into());
     }
     let rw_first = read_u32(&r[0..4]);

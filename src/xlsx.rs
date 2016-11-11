@@ -216,7 +216,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                                         },
                                         _ => try!(v.parse().map(DataType::Float)),
                                     };
-                                range.set_value(pos, value);
+                                try!(range.set_value(pos, value));
                                 break;
                             },
                             b"f" => (), // formula, ignore
