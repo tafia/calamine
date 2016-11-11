@@ -19,6 +19,7 @@ enum CfbWrap {
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls {
+    codepage: u16,
     sheets: HashMap<String, Range>,
     strings: Vec<String>,
     cfb: Option<CfbWrap>,
@@ -33,6 +34,7 @@ impl ExcelReader for Xls {
         let wb = try!(cfb.get_stream("Workbook", &mut r));
 
         let mut xls = Xls { 
+            codepage: 1200,
             sheets: HashMap::new(), 
             strings: Vec::new(), 
             cfb: Some(CfbWrap::Wb(cfb, r)),
@@ -101,6 +103,7 @@ impl Xls {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
                         return Err("Expecting Workbook BOF".into());
                     }, // BOF,
+                    0x0042 => self.codepage = read_u16(r.data), // CodePage (defines encoding)
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheets.reserve(sheet_len);
@@ -219,18 +222,18 @@ fn parse_short_string(r: &[u8]) -> Result<String> {
     }
     let mut len = r[0] as usize;
     let zero_high_byte = r[1] == 0;
-    if zero_high_byte {
-        if r.len() < 2 + len {
-            return Err(format!("Invalid short string length {} < {}", r.len(), 2 + len).into());
+    let bytes = if zero_high_byte {
+        // add 0x00 high bytes to unicodes
+        let mut bytes = vec![0; len * 2];
+        for (i, sce) in r[2..2 + len].iter().enumerate() {
+            bytes[2 * i] = *sce;
         }
-        ::std::str::from_utf8(&r[2..2 + len]).map(|s| s.to_string()).map_err(|e| e.into())
+        Cow::Owned(bytes)
     } else {
         len *= 2;
-        if r.len() < 2 + len {
-            return Err(format!("Invalid short string length {} < {}", r.len(), 2 + len).into());
-        }
-        UTF_16LE.decode(&r[2..2 + len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
-    }
+        Cow::Borrowed(&r[2..2 + len])
+    };
+    UTF_16LE.decode(&bytes, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
 }
 
 fn parse_label_sst(r: &[u8], strings: &[String], range: &mut Range) -> Result<()> {
@@ -280,23 +283,25 @@ fn read_rich_extended_string(r: &mut &[u8]) -> Result<String> {
         start += 4;
     }
     
-    let s = if high_byte == 0 {
-        if r.len() < start + len {
-            return Err(format!("Invalid rich extended string \
-                                length: {} < {}", r.len(), start + len).into());
+    let bytes = if high_byte == 0 {
+        // add 0x00 high bytes to unicodes
+        let mut bytes = vec![0; str_len * 2];
+        for (i, sce) in r[start..start + str_len].iter().enumerate() {
+            bytes[2 * i] = *sce;
         }
-        ::std::str::from_utf8(&r[start..start + str_len]).map(|s| s.to_string()).map_err(|e| e.into())
+        Cow::Owned(bytes)
     } else {
         len += str_len;
-        if r.len() < start + len {
-            return Err(format!("Invalid rich extended string \
-                                length: {} < {}", r.len(), start + len).into());
-        }
-        UTF_16LE.decode(&r[start..start + 2 * str_len], DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+        Cow::Borrowed(&r[start..start + 2 * str_len])
     };
 
+    if r.len() < start + len {
+        return Err(format!("Invalid rich extended string \
+                            length: {} < {}", r.len(), start + len).into());
+    }
+
     *r = &r[start + len..];
-    s
+    UTF_16LE.decode(&bytes, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
 }
 
 struct Record<'a> {
