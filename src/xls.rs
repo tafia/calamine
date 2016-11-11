@@ -251,12 +251,12 @@ fn parse_dimensions(r: &[u8]) -> Result<Range> {
         return Err("Invalid dimensions lengths".into());
     }
     let rw_first = read_u32(&r[0..4]);
-    let rw_last = read_u32(&r[4..8]) - 1;
+    let rw_last = read_u32(&r[4..8]);
     let col_first = read_u16(&r[8..10]);
-    let col_last = read_u16(&r[10..12]) - 1;
+    let col_last = read_u16(&r[10..12]);
 
     let start = (rw_first, col_first as u32);
-    let size = ((rw_last - rw_first + 1) as usize, (col_last - col_first + 1) as usize);
+    let size = ((rw_last - rw_first) as usize, (col_last - col_first) as usize);
 
     Ok(Range::new(start, size))
 }
