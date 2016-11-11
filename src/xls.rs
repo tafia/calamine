@@ -260,7 +260,7 @@ fn parse_sst(r: &mut Record) -> Result<Vec<String>> {
     let len = read_slice::<i32>(&r.data[4..]) as usize;
     let mut sst = Vec::with_capacity(len);
     r.data = &r.data[8..];
-    for i in 0..len {
+    for _ in 0..len {
         sst.push(try!(read_rich_extended_string(r)));
     }
     Ok(sst)
