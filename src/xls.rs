@@ -18,6 +18,11 @@ enum CfbWrap {
     Vba(VbaProject),
 }
 
+enum XlsEncoding {
+    HighByte(bool), // stores high_byte for the stream (unicode ....)
+    Other, // Windows-1252 ...
+}
+
 /// A struct representing an old xls format file (CFB)
 pub struct Xls {
     codepage: u16,
@@ -98,6 +103,7 @@ impl Xls {
         let mut sheets = Vec::new(); 
         {
             let mut wb = stream;
+            let mut encoding = XlsEncoding::HighByte(false);
             let records = RecordIter { stream: &mut wb };
             for record in records {
                 let mut r = try!(record);
@@ -105,13 +111,18 @@ impl Xls {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
                         return Err("Expecting Workbook BOF".into());
                     }, // BOF,
-                    0x0042 => self.codepage = read_u16(&r.data), // CodePage (defines encoding)
+                    0x0042 => {
+                        self.codepage = read_u16(&r.data);
+                        if self.codepage != 1200 {
+                            encoding = XlsEncoding::Other;
+                        }
+                    }, // CodePage (defines encoding)
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheets.reserve(sheet_len);
                     }, // RRTabId
-                    0x0085 => sheets.push(try!(parse_sheet_name(&r.data))), // BoundSheet8
-                    0x00FC => self.strings = try!(parse_sst(&mut r)), // SST
+                    0x0085 => sheets.push(try!(parse_sheet_name(&mut r, &mut encoding))), // BoundSheet8
+                    0x00FC => self.strings = try!(parse_sst(&mut r, &mut encoding)), // SST
                     0x000A => break, // EOF,
                     _ => (),
                 }
@@ -141,9 +152,10 @@ impl Xls {
     }
 }
 
-fn parse_sheet_name(r: &[u8]) -> Result<(usize, String)> {
-    let pos = read_u32(r) as usize;
-    let sheet = try!(parse_short_string(&r[6..]));
+fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize, String)> {
+    let pos = read_u32(r.data) as usize;
+    r.data = &r.data[6..];
+    let sheet = try!(parse_short_string(r, encoding));
     Ok((pos, sheet))
 }
 
@@ -205,28 +217,19 @@ fn parse_rk(r: &[u8], range: &mut Range) -> Result<()> {
     range.set_value((row as u32, col as u32), v)
 }
 
-fn parse_short_string(r: &[u8]) -> Result<String> {
-    if r.len() < 2 {
+fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
+    if r.data.len() < 2 {
         return Err("Invalid short string length".into());
     }
-    let mut len = r[0] as usize;
-    let high_byte = r[1];
-    if high_byte != 0 { len *= 2; }
-    if r.len() < 2 + len {
-        return Err(format!("Invalid short string length: {} < {}", r.len(), 2 + len).into());
+    let len = r.data[0] as usize;
+    match encoding {
+        &mut XlsEncoding::HighByte(ref mut b) => {
+            *b = r.data[1] != 0;
+            r.data = &r.data[2..];
+        },
+        &mut XlsEncoding::Other => r.data = &r.data[1..],
     }
-    let bytes = if high_byte == 0 {
-        // add 0x00 high bytes to unicodes
-        let mut bytes = vec![0; len * 2];
-        for (i, sce) in r[2..2 + len].iter().enumerate() {
-            bytes[2 * i] = *sce;
-        }
-        Cow::Owned(bytes)
-    } else {
-        len *= 2;
-        Cow::Borrowed(&r[2..2 + len])
-    };
-    UTF_16LE.decode(&bytes, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+    read_dbcs(encoding, len, r)
 }
 
 fn parse_label_sst(r: &[u8], strings: &[String], range: &mut Range) -> Result<()> {
@@ -254,7 +257,7 @@ fn parse_dimensions(r: &[u8]) -> Result<Range> {
     Ok(Range::new(start, size))
 }
 
-fn parse_sst(r: &mut Record) -> Result<Vec<String>> {
+fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {
     if r.data.len() < 8 {
         return Err("Invalid sst length".into());
     }
@@ -262,12 +265,12 @@ fn parse_sst(r: &mut Record) -> Result<Vec<String>> {
     let mut sst = Vec::with_capacity(len);
     r.data = &r.data[8..];
     for _ in 0..len {
-        sst.push(try!(read_rich_extended_string(r)));
+        sst.push(try!(read_rich_extended_string(r, encoding)));
     }
     Ok(sst)
 }
 
-fn read_rich_extended_string(r: &mut Record) -> Result<String> {
+fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
     if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
         return Err("Invalid rich extended string length".into());
     }
@@ -275,9 +278,12 @@ fn read_rich_extended_string(r: &mut Record) -> Result<String> {
     let str_len = read_u16(r.data) as usize;
     let flags = r.data[2];
     r.data = &r.data[3..];
-    let high_byte = flags & 0x1;
     let ext_st = flags & 0x4;
     let rich_st = flags & 0x8;
+
+    if let &mut XlsEncoding::HighByte(ref mut b) = encoding {
+        *b = flags & 0x1 != 0;
+    }
 
     let mut unused_len = if rich_st != 0 { 
         let l = 4 * read_u16(&r.data) as usize;
@@ -291,7 +297,7 @@ fn read_rich_extended_string(r: &mut Record) -> Result<String> {
         r.data = &r.data[4..];
     };
 
-    let s = try!(read_dbcs(high_byte, str_len, r));
+    let s = try!(read_dbcs(encoding, str_len, r));
 
     while unused_len > 0 {
         if r.data.is_empty() && !r.continue_record() {
@@ -306,26 +312,29 @@ fn read_rich_extended_string(r: &mut Record) -> Result<String> {
     Ok(s)
 }
 
-fn read_dbcs<'a>(mut high_byte: u8, mut len: usize, r: &mut Record) -> Result<String>
+fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String>
 {
     let mut s = String::with_capacity(len);
     while len > 0 {
-        let (l, bytes) = if high_byte == 0 {
-            let l = min(r.data.len(), len);
-            let (data, next) = r.data.split_at(l);
-            r.data = next;
+        let (l, bytes) = match encoding {
+            &mut XlsEncoding::Other | &mut XlsEncoding::HighByte(false) => {
+                let l = min(r.data.len(), len);
+                let (data, next) = r.data.split_at(l);
+                r.data = next;
 
-            // add 0x00 high bytes to unicodes
-            let mut bytes = vec![0; l * 2];
-            for (i, sce) in data.iter().enumerate() {
-                bytes[2 * i] = *sce;
+                // add 0x00 high bytes to unicodes
+                let mut bytes = vec![0; l * 2];
+                for (i, sce) in data.iter().enumerate() {
+                    bytes[2 * i] = *sce;
+                }
+                (l, Cow::Owned(bytes))
+            },
+            &mut XlsEncoding::HighByte(true) => {
+                let l = min(r.data.len() / 2, len);
+                let (data, next) = r.data.split_at(2 * l);
+                r.data = next;
+                (l, Cow::Borrowed(data))
             }
-            (l, Cow::Owned(bytes))
-        } else {
-            let l = min(r.data.len() / 2, len);
-            let (data, next) = r.data.split_at(2 * l);
-            r.data = next;
-            (l, Cow::Borrowed(data))
         };
 
         let s_rec: Result<String> = UTF_16LE.decode(&bytes, DecoderTrap::Ignore)
@@ -335,8 +344,13 @@ fn read_dbcs<'a>(mut high_byte: u8, mut len: usize, r: &mut Record) -> Result<St
         len -= l;
         if len > 0 {
            if r.continue_record() {
-               high_byte = r.data[0] & 0x1;
-               r.data = &r.data[1..];
+               match encoding {
+                   &mut XlsEncoding::HighByte(ref mut b) => {
+                       *b = r.data[0] & 0x1 != 0;
+                       r.data = &r.data[1..];
+                   },
+                   &mut XlsEncoding::Other => {},
+               }
            } else {
                return Err("Cannot decode entire dbcs stream".into());
            }
