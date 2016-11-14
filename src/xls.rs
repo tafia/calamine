@@ -258,7 +258,11 @@ fn parse_dimensions(r: &[u8]) -> Result<Range> {
         _ => return Err("Invalid dimensions lengths".into()),
     };
 
-    Ok(Range::new((rf, cf), ((rl - rf) as usize, (cl - cf) as usize)))
+    if rl == 0 || cl == 0 {
+        Ok(Range::new((0, 0), (0, 0)))
+    } else {
+        Ok(Range::new((rf, cf), (rl - 1, cl - 1)))
+    }
 }
 
 fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {

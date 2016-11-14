@@ -9,7 +9,6 @@ use quick_xml::{XmlReader, Event, AsStr};
 
 use {DataType, ExcelReader, Range};
 use vba::VbaProject;
-use utils;
 use errors::*;
 
 /// A struct representing xml zipped excel file
@@ -153,8 +152,8 @@ impl ExcelReader for Xlsx {
                         b"dimension" => {
                             for a in e.attributes() {
                                 if let (b"ref", rdim) = try!(a) {
-                                    let (position, size) = try!(utils::get_dimension(rdim));
-                                    data = Range::new(position, (size.0 as usize, size.1 as usize));
+                                    let (start, end) = try!(get_dimension(rdim));
+                                    data = Range::new(start, end);
                                     continue 'xml;
                                 }
                             }
@@ -181,7 +180,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
             Ok(Event::Start(ref c_element)) if c_element.name() == b"c" => {
                 let pos = match c_element.attributes().filter_map(|a| match a {
                     Err(e) => Some(Err(e.into())),
-                    Ok((b"r", v)) => Some(utils::get_row_column(v)),
+                    Ok((b"r", v)) => Some(get_row_column(v)),
                     _ => None,
                 }).next() {
                     Some(v) => try!(v),
@@ -233,4 +232,65 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
         }
     }
     Err("Could not find </sheetData>".into())
+}
+
+/// converts a text representation (e.g. "A6:G67") of a dimension into integers
+/// - top left (row, column), 
+/// - bottom right (row, column)
+fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
+    let parts: Vec<_> = try!(dimension.split(|c| *c == b':')
+        .map(|s| get_row_column(s))
+        .collect::<Result<Vec<_>>>());
+
+    match parts.len() {
+        0 => Err("dimension cannot be empty".into()),
+        1 => Ok((parts[0], parts[0])),
+        2 => Ok((parts[0], parts[1])),
+        len => Err(format!("range dimension has 0 or 1 ':', got {}", len).into()),
+    }
+}
+
+/// converts a text range name into its position (row, column) (0 based index)
+fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
+    let (mut row, mut col) = (0, 0);
+    let mut pow = 1;
+    let mut readrow = true;
+    for c in range.iter().rev() {
+        match *c {
+            c @ b'0'...b'9' => {
+                if readrow {
+                    row += ((c - b'0') as u32) * pow;
+                    pow *= 10;
+                } else {
+                    return Err(format!("Numeric character are only allowed \
+                        at the end of the range: {:x}", c).into());
+                }
+            }
+            c @ b'A'...b'Z' => {
+                if readrow { 
+                    pow = 1;
+                    readrow = false;
+                }
+                col += ((c - b'A') as u32 + 1) * pow;
+                pow *= 26;
+            },
+            c @ b'a'...b'z' => {
+                if readrow { 
+                    pow = 1;
+                    readrow = false;
+                }
+                col += ((c - b'a') as u32 + 1) * pow;
+                pow *= 26;
+            },
+            _ => return Err(format!("Expecting alphanumeric character, got {:x}", c).into()),
+        }
+    }
+    Ok((row - 1, col - 1))
+}
+
+#[test]
+fn test_dimensions() {
+    assert_eq!(get_row_column(b"A1").unwrap(), (0, 0));
+    assert_eq!(get_row_column(b"C107").unwrap(), (106, 2));
+    assert_eq!(get_dimension(b"C2:D35").unwrap(), ((1, 2), (34, 3)));
 }

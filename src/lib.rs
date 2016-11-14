@@ -8,7 +8,7 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Excel, Range, DataType};
+//! use calamine::{Excel, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
@@ -197,8 +197,9 @@ impl Excel {
     /// use calamine::Excel;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).unwrap();
-    /// let range = workbook.worksheet_range("Sheet1").unwrap();
+    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
+    /// println!("Used range size: {:?}", range.get_size());
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         if self.strings.is_empty() {
@@ -236,7 +237,7 @@ impl Excel {
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut workbook = Excel::open(path).unwrap();
     /// if workbook.has_vba() {
-    ///     let mut vba = workbook.vba_project().unwrap();
+    ///     let vba = workbook.vba_project().expect("Cannot find vba project");
     ///     println!("References: {:?}", vba.get_references());
     ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
@@ -292,8 +293,8 @@ pub trait ExcelReader: Sized {
 /// A struct which represents a squared selection of cells 
 #[derive(Debug, Default, Clone)]
 pub struct Range {
-    position: (u32, u32),
-    size: (usize, usize),
+    start: (u32, u32),
+    end: (u32, u32),
     inner: Vec<DataType>,
 }
 
@@ -305,22 +306,37 @@ pub struct Rows<'a> {
 impl Range {
 
     /// Creates a new range
-    pub fn new(position: (u32, u32), size: (usize, usize)) -> Range {
+    pub fn new(start: (u32, u32), end: (u32, u32)) -> Range {
         Range {
-            position: position,
-            size: size,
-            inner: vec![DataType::Empty; size.0 * size.1],
+            start: start,
+            end: end,
+            inner: vec![DataType::Empty; ((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize],
         }
     }
 
     /// Get top left cell position (row, column)
     pub fn get_position(&self) -> (u32, u32) {
-        self.position
+        self.start
+    }
+
+    /// Get column width
+    pub fn width(&self) -> usize {
+        (self.end.1 - self.start.1 + 1) as usize
+    }
+
+    /// Get column width
+    pub fn height(&self) -> usize {
+        (self.end.0 - self.start.0 + 1) as usize
     }
 
     /// Get size
     pub fn get_size(&self) -> (usize, usize) {
-        self.size
+        (self.height(), self.width())
+    }
+
+    /// Is range empty
+    pub fn is_empty(&self) -> bool {
+        self.start.0 > self.end.0 || self.start.1 > self.end.1
     }
 
     /// Set inner value
@@ -333,15 +349,44 @@ impl Range {
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
     /// assert_eq!(range.get_value(2, 1), &DataType::Empty);
-    /// range.set_value((2, 1), DataType::Float(1.0));
+    /// range.set_value((2, 1), DataType::Float(1.0)).expect("Could not set value");
     /// assert_eq!(range.get_value(2, 1), &DataType::Float(1.0));
     /// ```
     pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
-        let idx = (pos.0 - self.position.0) * self.size.1 as u32 + pos.1 - self.position.1;
-        let idx = idx as usize;
-        if idx >= self.inner.len() {
-            return Err("range dimension and cell position are incompatible".into());
+        if self.start > pos {
+            return Err(format!("invalid position, range start {:?} > position {:?}", 
+                               self.start, pos).into());
         }
+
+        // check if we need to change range dimension (strangely happens sometimes ...)
+        match (self.end.0 < pos.0 , self.end.1 < pos.1) {
+            (false, false) => (), // regular case, position within bounds
+            (true, false) => {
+                let len = (pos.0 - self.end.0 + 1) as usize * self.width();
+                self.inner.extend_from_slice(&vec![DataType::Empty; len]);
+                self.end.0 = pos.0;
+            }, // missing some rows
+            (e, true) => {
+                let height = if e { 
+                    (pos.0 - self.start.0 + 1) as usize 
+                } else {
+                    self.height() 
+                };
+                let width = (pos.1 - self.start.1 + 1) as usize;
+                let old_width = self.width();
+                let mut data = Vec::with_capacity(width * height);
+                for sce in self.inner.chunks(old_width) {
+                    data.extend_from_slice(sce);
+                    data.extend_from_slice(&vec![DataType::Empty; width - old_width]);
+                }
+                data.extend_from_slice(&vec![DataType::Empty; width * (height - self.height())]);
+                if e { self.end = pos } else { self.end.1 = pos.1 }
+                self.inner = data;
+            }, // missing some columns
+        }
+
+        let pos = (pos.0 - self.start.0, pos.1 - self.start.1);
+        let idx = pos.0 as usize * self.width() + pos.1 as usize;
         self.inner[idx] = value;
         Ok(())
     }
@@ -349,9 +394,9 @@ impl Range {
     /// Get cell value
     ///
     /// Panics if indexes are out of range bounds
-    pub fn get_value(&self, i: usize, j: usize) -> &DataType {
-        assert!((i, j) < self.size);
-        let idx = i * self.size.1 + j;
+    pub fn get_value(&self, i: u32, j: u32) -> &DataType {
+        assert!((i, j) < self.end);
+        let idx = i as usize * self.width() + j as usize;
         &self.inner[idx]
     }
 
@@ -359,17 +404,17 @@ impl Range {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::Range;
     ///
     /// let range = Range::new((0, 0), (5, 2));
     /// // with rows item row: &[DataType]
-    /// assert_eq!(range.rows().flat_map(|row| row).count(), 10);
+    /// assert_eq!(range.rows().flat_map(|row| row).count(), 18);
     /// ```
     pub fn rows(&self) -> Rows {
         if self.inner.is_empty() {
             Rows { inner: None }
         } else {
-            let width = self.size.1;
+            let width = self.width();
             Rows { inner: Some(self.inner.chunks(width)) }
         }
     }
@@ -391,11 +436,4 @@ fn test_parse_error() {
     assert_eq!(CellErrorType::from_str("#NUM!").unwrap(), CellErrorType::Num);
     assert_eq!(CellErrorType::from_str("#REF!").unwrap(), CellErrorType::Ref);
     assert_eq!(CellErrorType::from_str("#VALUE!").unwrap(), CellErrorType::Value);
-}
-
-#[test]
-fn test_dimensions() {
-    assert_eq!(utils::get_row_column(b"A1").unwrap(), (1, 1));
-    assert_eq!(utils::get_row_column(b"C107").unwrap(), (107, 3));
-    assert_eq!(utils::get_dimension(b"C2:D35").unwrap(), ((2, 3), (34, 2)));
 }
