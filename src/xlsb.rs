@@ -12,7 +12,7 @@ use encoding::all::UTF_16LE;
 
 use {DataType, ExcelReader, Range, CellErrorType};
 use vba::VbaProject;
-use utils::{self, read_u32, read_usize, read_slice};
+use utils::{read_u32, read_usize, read_slice};
 use errors::*;
  
 pub struct Xlsb {
@@ -166,18 +166,15 @@ impl ExcelReader for Xlsb {
 
         // Initialization: first BrtRowHdr
         let mut typ: u16;
-        let mut len: usize;
-        let mut iter_pos = Vec::new().into_iter();
-        let mut pos = None;
+        let mut row = 0u32;
 
         // loop until end of sheet
         loop { 
-
             typ = try!(iter.read_type());
-            len = try!(iter.fill_buffer(&mut buf));
+            let _ = try!(iter.fill_buffer(&mut buf));
 
             let value = match typ {
-                0x0001 => DataType::Empty, // BrtCellBlank
+                0x0001 => continue, // DataType::Empty, // BrtCellBlank
                 0x0002 => { // BrtCellRk MS-XLSB 2.5.122
                     let d100 = (buf[8] & 1) != 0;
                     let is_int = (buf[8] & 2) != 0;
@@ -212,32 +209,21 @@ impl ExcelReader for Xlsb {
                     let isst = read_usize(&buf[8..12]);
                     DataType::String(strings[isst].clone())
                 },
-                0x0000 => {
-                    // BrtRowHdr: parse columns and reset indexes
-                    iter_pos = try!(positions_from_spans(&buf[..len])).into_iter();
-                    pos = iter_pos.next();
+                0x0000 => { // BrtRowHdr
+                    row = read_u32(&buf);
+                    if row > 0x00100000 {
+                        return Ok(range); // invalid row
+                    }
                     continue;
                 },
                 0x0092 => return Ok(range),  // BrtEndSheetData
                 _ => continue,  // anything else, ignore and try next, without changing idx
             };
 
-            if let Some(p) = pos {
-                try!(range.set_value(p, value));
-            }
-            pos = iter_pos.next();
+            let col = read_u32(&buf);
+            try!(range.set_value((row, col), value));
         }
     }
-}
-
-fn positions_from_spans(buf: &[u8]) -> Result<Vec<(u32, u32)>> {
-    let row = read_u32(&buf);
-    let len = read_usize(&buf[13..]);
-    if len >= 16 {
-        return Err("Cannot have more than 16 col spans".into());
-    }
-    let spans = utils::to_u32(&buf[17..17 + len * 8]);
-    Ok(spans.chunks(2).flat_map(|c| c[0]..(c[1] + 1)).map(|col| (row, col)).collect())
 }
 
 struct RecordIter<'a> {
