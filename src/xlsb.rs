@@ -149,10 +149,11 @@ impl ExcelReader for Xlsb {
                                            (0x0081, None), // BrtBeginSheet
                                            (0x0093, None), // BrtWsProp
                                            ], &mut buf)); 
-        let (position, size) = unchecked_rfx(&buf[..16]);
+        let (start, end) = parse_dimensions(&buf[..16]);
+        let mut range = Range::new(start, end);
 
-        if size.0 == 0 || size.1 == 0 {
-            return Ok(Range::default());
+        if range.is_empty() {
+            return Ok(range);
         }
 
         // BrtBeginSheetData
@@ -168,7 +169,6 @@ impl ExcelReader for Xlsb {
         let mut len: usize;
         let mut iter_pos = Vec::new().into_iter();
         let mut pos = None;
-        let mut range = Range::new(position, size);
 
         // loop until end of sheet
         loop { 
@@ -307,10 +307,7 @@ fn wide_str(buf: &[u8]) -> Result<String> {
     UTF_16LE.decode(s, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
 }
 
-fn unchecked_rfx(buf: &[u8]) -> ((u32, u32), (usize, usize)) {
-    let s = utils::to_u32(&buf[..16]);
-    let (rw_first, rw_last, col_first, col_last) = (s[0], s[1], s[2], s[3]);
-
-    ((rw_first, col_first), 
-     ((rw_last - rw_first + 1) as usize, (col_last - col_first + 1) as usize))
+fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
+    ((read_u32(&buf[0..4]), read_u32(&buf[8..12])),
+     (read_u32(&buf[4..8]), read_u32(&buf[12..16])))
 }
