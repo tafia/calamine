@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## master
+- fix: [xlsb] simplify setting values and early exit when stepping into an invalid BrtRowHdr
+
 ## 0.2.0
 - fix: [all] allow range to resize when we try to set a value out of bounds
 - docs: less `unwrap`s, no unused imports

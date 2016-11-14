@@ -92,13 +92,11 @@ impl ExcelReader for Xlsb {
         let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
-        let mut typ = 0;
-        while len > strings.len() && typ != 0x00A0 {
-            typ = try!(iter.read_type());
-            let _ = try!(iter.fill_buffer(&mut buf));
-            if typ == 0x0013 {
-                strings.push(try!(wide_str(&buf[1..])));
-            }
+        for _ in 0..len { 
+            let _ = try!(iter.next_skip_blocks(0x0013, &[ 
+                                               (0x0023, Some(0x0024)) // future 
+                                               ], &mut buf)); // BrtSSTItem 
+            strings.push(try!(wide_str(&buf[1..])));
         }
         Ok(strings)
     }
