@@ -10,6 +10,7 @@
 
 ## master
 - fix: [xlsb] simplify setting values and early exit when stepping into an invalid BrtRowHdr
+- fix: [xlsb] fix record length calculation
 
 ## 0.2.0
 - fix: [all] allow range to resize when we try to set a value out of bounds
