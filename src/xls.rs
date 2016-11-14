@@ -32,7 +32,8 @@ impl ExcelReader for Xls {
         let len = try!(r.metadata()).len() as usize;
         let mut r = BufReader::new(r);
         let mut cfb = try!(Cfb::new(&mut r, len ));
-        let wb = try!(cfb.get_stream("Workbook", &mut r));
+        let wb = try!(cfb.get_stream("Workbook", &mut r)
+                      .or_else(|_| cfb.get_stream("Book", &mut r)));
 
         let mut xls = Xls { 
             codepage: 1200,
