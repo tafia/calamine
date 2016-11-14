@@ -8,6 +8,12 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.2.0
+- fix: [all] allow range to resize when we try to set a value out of bounds
+- docs: less `unwrap`s, no unused imports
+- refactor: range bounds is not (`start`, `end`) instead of (`position`, `size`)
+- feat: add new methods for `Range`: `width`, `height`, `is_empty`
+
 ## 0.1.3
 - fix: [xls] better management of continue record for rich_extended_strings
 
