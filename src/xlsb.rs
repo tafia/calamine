@@ -92,11 +92,13 @@ impl ExcelReader for Xlsb {
         let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
-        for _ in 0..len {
-            let _ = try!(iter.next_skip_blocks(0x0013, &[
-                                               (0x0023, Some(0x0024)) // future
-                                               ], &mut buf)); // BrtSSTItem
-            strings.push(try!(wide_str(&buf[1..])));
+        let mut typ = 0;
+        while len > strings.len() && typ != 0x00A0 {
+            typ = try!(iter.read_type());
+            let _ = try!(iter.fill_buffer(&mut buf));
+            if typ == 0x0013 {
+                strings.push(try!(wide_str(&buf[1..])));
+            }
         }
         Ok(strings)
     }
@@ -250,11 +252,11 @@ impl<'a> RecordIter<'a> {
 
     fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
         let mut b = try!(self.read_u8());
-        let mut len = b as usize;
-        for i in 0..3 {
+        let mut len = (b & 0x7F) as usize;
+        for i in 1..4 {
             if (b & 0x80) == 0 { break; }
             b = try!(self.read_u8());
-            len += (b as usize) << (7 * i);
+            len += ((b & 0x7F) as usize) << (7 * i);
         } 
         if buf.len() < len { *buf = vec![0; len]; }
 
@@ -288,7 +290,11 @@ impl<'a> RecordIter<'a> {
 }
 
 fn wide_str(buf: &[u8]) -> Result<String> {
-    let len = read_usize(buf);
+    let len = read_u32(buf) as usize;
+    if buf.len() < 4 + len * 2 {
+        return Err(format!("Wide string length ({}) exceeds buffer length ({})", 
+                           4 + len * 2, buf.len()).into());
+    }
     let s = &buf[4..4 + len * 2];
     UTF_16LE.decode(s, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
 }
