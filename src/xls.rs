@@ -137,7 +137,10 @@ impl Xls {
                 let r = try!(record);
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0010 { continue 'sh; }, // BOF, worksheet
-                    0x0200 => range = try!(parse_dimensions(&r.data)), // Dimensions
+                    0x0200 => {
+                        range = try!(parse_dimensions(&r.data));
+                        if range.get_size().0 == 0 || range.get_size().1 == 0 { continue 'sh; }
+                    }, // Dimensions
                     0x0203 => try!(parse_number(&r.data, &mut range)), // Number 
                     0x0205 => try!(parse_bool_err(&r.data, &mut range)), // BoolErr
                     0x027E => try!(parse_rk(&r.data, &mut range)), // RK
@@ -243,18 +246,19 @@ fn parse_label_sst(r: &[u8], strings: &[String], range: &mut Range) -> Result<()
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Range> {
-    if r.len() != 14 {
-        return Err("Invalid dimensions lengths".into());
-    }
-    let rw_first = read_u32(&r[0..4]);
-    let rw_last = read_u32(&r[4..8]);
-    let col_first = read_u16(&r[8..10]);
-    let col_last = read_u16(&r[10..12]);
+    let (rf, rl, cf, cl) = match r.len() {
+        10 => (read_u16(&r[0..2]) as u32,
+               read_u16(&r[2..4]) as u32,
+               read_u16(&r[4..6]) as u32,
+               read_u16(&r[6..8]) as u32),
+        14 => (read_u32(&r[0..4]),
+               read_u32(&r[4..8]),
+               read_u16(&r[8..10]) as u32,
+               read_u16(&r[10..12]) as u32),
+        _ => return Err("Invalid dimensions lengths".into()),
+    };
 
-    let start = (rw_first, col_first as u32);
-    let size = ((rw_last - rw_first) as usize, (col_last - col_first) as usize);
-
-    Ok(Range::new(start, size))
+    Ok(Range::new((rf, cf), ((rl - rf) as usize, (cl - cf) as usize)))
 }
 
 fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {
