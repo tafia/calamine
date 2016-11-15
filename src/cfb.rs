@@ -57,7 +57,7 @@ impl Cfb {
         let dirs: Vec<_> = try!(dirs.chunks(128)
                                 .map(|c| Directory::from_slice(c, h.sector_size)).collect());
 
-        if dirs.is_empty() || dirs[0].start == ENDOFCHAIN {
+        if dirs.is_empty() || (h.version != 3 && dirs[0].start == ENDOFCHAIN) {
             return Err("Unexpected empty root directory".into());
         }
         debug!("{:?}", dirs);
@@ -100,6 +100,7 @@ impl Cfb {
 /// A hidden struct which defines cfb files structure
 #[derive(Debug)]
 struct Header {
+    version: u16,
     sector_size: usize,
     dir_len: usize,
     dir_start: u32,
@@ -115,9 +116,11 @@ impl Header {
         try!(f.read_exact(&mut buf));
 
         // check ole signature
-        if &buf[..8] != [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] {
+        if read_slice::<u64>(buf.as_ref()) != 0xE11AB1A1E011CFD0 {
             return Err("invalid OLE signature (not an office document?)".into());
         }
+
+        let version = read_u16(&buf[26..28]);
 
         let sector_size = match read_u16(&buf[30..32]) {
             0x0009 => 512,
@@ -148,6 +151,7 @@ impl Header {
         difat.extend_from_slice(to_u32(&buf[76..512]));
 
         Ok((Header {
+            version: version,
             sector_size: sector_size,
             dir_len: dir_len,
             fat_len: fat_len,
@@ -365,5 +369,3 @@ impl XlsEncoding {
         Ok(s)
     }
 }
-
-

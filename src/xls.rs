@@ -89,7 +89,6 @@ impl ExcelReader for Xls {
 
 impl Xls {
     fn parse_workbook(&mut self, stream: &[u8]) -> Result<()> {
-
         let mut sheets = Vec::new(); 
         {
             let mut wb = stream;
