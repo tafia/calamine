@@ -4,42 +4,15 @@ use std::io::BufReader;
 use std::borrow::Cow;
 use std::cmp::min;
 
-use encoding::{DecoderTrap, EncodingRef, StringWriter};
-use encoding::label::encoding_from_windows_code_page;
-
 use errors::*;
 use {ExcelReader, Range, DataType, CellErrorType};
 use vba::VbaProject;
-use cfb::Cfb;
+use cfb::{Cfb, XlsEncoding};
 use utils::{read_u16, read_u32, read_slice};
 
 enum CfbWrap {
     Wb(Cfb, BufReader<File>),
     Vba(VbaProject),
-}
-
-struct XlsEncoding {
-    encoding: EncodingRef,
-    high_byte: Option<bool>, // None if single byte encoding
-}
-
-impl XlsEncoding {
-    fn set_codepage(&mut self, codepage: u16) {
-        encoding_from_windows_code_page(codepage as usize)
-            .map(|e| {
-                self.high_byte = match codepage {
-                    20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 
-                    874 | 1250...1258 | 28591...28605 => None, // SingleByte encodings
-                    _ => Some(false),
-                };
-                self.encoding = e;
-            });
-    }
-
-    fn decode_to(&self, bytes: &[u8], s: &mut StringWriter) -> Result<()> {
-        self.encoding.decode_to(&bytes, DecoderTrap::Ignore, s)
-                     .map_err(|e| e.to_string().into())
-    }
 }
 
 /// A struct representing an old xls format file (CFB)
@@ -120,11 +93,7 @@ impl Xls {
         let mut sheets = Vec::new(); 
         {
             let mut wb = stream;
-            let mut encoding = XlsEncoding {
-                encoding: encoding_from_windows_code_page(1200)
-                              .expect("Cannot find 1200 codepage"),
-                high_byte: Some(false),
-            };
+            let mut encoding = try!(XlsEncoding::from_codepage(1200));
             let records = RecordIter { stream: &mut wb };
             for record in records {
                 let mut r = try!(record);
@@ -135,7 +104,7 @@ impl Xls {
                     0x0012 => if read_u16(r.data) != 0 {
                         return Err("Workbook is password protected".into());
                     },
-                    0x0042 => encoding.set_codepage(read_u16(r.data)), // CodePage
+                    0x0042 => encoding = try!(XlsEncoding::from_codepage(read_u16(r.data))), // CodePage
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheets.reserve(sheet_len);
@@ -340,34 +309,8 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
 {
     let mut s = String::with_capacity(len);
     while len > 0 {
-        let (l, bytes) = match encoding.high_byte {
-            None => {
-                let l = min(r.data.len(), len);
-                let (data, next) = r.data.split_at(l);
-                r.data = next;
-                (l, Cow::Borrowed(data))
-            },
-            Some(false) => {
-                let l = min(r.data.len(), len);
-                let (data, next) = r.data.split_at(l);
-                r.data = next;
-
-                // add 0x00 high bytes to unicodes
-                let mut bytes = vec![0; l * 2];
-                for (i, sce) in data.iter().enumerate() {
-                    bytes[2 * i] = *sce;
-                }
-                (l, Cow::Owned(bytes))
-            },
-            Some(true) => {
-                let l = min(r.data.len() / 2, len);
-                let (data, next) = r.data.split_at(2 * l);
-                r.data = next;
-                (l, Cow::Borrowed(data))
-            }
-        };
-        
-        let _ = try!(encoding.decode_to(&bytes, &mut s));
+        let (l, at) = try!(encoding.decode_to(r.data, len, &mut s));
+        r.data = &r.data[at..];
         len -= l;
         if len > 0 {
            if r.continue_record() {
