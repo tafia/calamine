@@ -24,6 +24,18 @@ struct XlsEncoding {
 }
 
 impl XlsEncoding {
+    fn set_codepage(&mut self, codepage: u16) {
+        encoding_from_windows_code_page(codepage as usize)
+            .map(|e| {
+                self.high_byte = match codepage {
+                    20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 
+                    874 | 1250...1258 | 28591...28605 => None, // SingleByte encodings
+                    _ => Some(false),
+                };
+                self.encoding = e;
+            });
+    }
+
     fn decode_to(&self, bytes: &[u8], s: &mut StringWriter) -> Result<()> {
         self.encoding.decode_to(&bytes, DecoderTrap::Ignore, s)
                      .map_err(|e| e.to_string().into())
@@ -123,20 +135,7 @@ impl Xls {
                     0x0012 => if read_u16(r.data) != 0 {
                         return Err("Workbook is password protected".into());
                     },
-                    0x0042 => {
-                        let codepage = read_u16(&r.data);
-                        println!("codepage: {}", codepage);
-                        encoding_from_windows_code_page(codepage as usize)
-                            .map(|e| {
-                                encoding.high_byte = match codepage {
-                                    20127 | 65000 | 65001 | 20866 | 
-                                    21866 | 10000 | 10007 | 874 |
-                                    1250...1258 | 28591...28605 => None, // SingleByte encodings
-                                    _ => Some(false),
-                                };
-                                encoding.encoding = e;
-                            });
-                    }, // CodePage (defines encoding)
+                    0x0042 => encoding.set_codepage(read_u16(r.data)), // CodePage
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheets.reserve(sheet_len);
@@ -369,8 +368,6 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
         };
         
         let _ = try!(encoding.decode_to(&bytes, &mut s));
-        println!("{}", s);
-
         len -= l;
         if len > 0 {
            if r.continue_record() {
