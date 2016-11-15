@@ -9,6 +9,8 @@
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
 ## master
+
+## 0.2.1
 - fix: [xls] allow directory start to empty sector if version = 3
 - fix: [vba] support all project codepage encodings
 - feat: [xls] early exit if workbook is password protected
