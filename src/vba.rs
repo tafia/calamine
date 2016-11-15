@@ -11,7 +11,8 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use log::LogLevel;
 
 use errors::*;
-use cfb::Cfb;
+use cfb::{Cfb, XlsEncoding};
+use utils::read_u16;
 
 /// A struct for managing VBA reading
 #[allow(dead_code)]
@@ -20,6 +21,7 @@ pub struct VbaProject {
     cfb: Cfb,
     references: Vec<Reference>,
     modules: HashMap<String, Vec<u8>>,
+    encoding: XlsEncoding,
 }
 
 impl VbaProject {
@@ -34,7 +36,7 @@ impl VbaProject {
 
     /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
     pub fn from_cfb<R: Read>(r: &mut R, mut cfb: Cfb) -> Result<VbaProject> {
-        let (refs, mods) = try!(read_vba(&mut cfb, r));
+        let (refs, mods, encoding) = try!(read_vba(&mut cfb, r));
 
         // read all modules
         let modules = try!(mods.into_iter()
@@ -47,6 +49,7 @@ impl VbaProject {
             cfb: cfb,
             references: refs,
             modules: modules,
+            encoding: encoding,
         })
     }
 
@@ -82,21 +85,19 @@ impl VbaProject {
     ///                       .expect(&format!("cannot read {:?} module", m)));
     /// }
     /// ```
-    pub fn get_module(&mut self, name: &str) -> Result<String> {
+    pub fn get_module(&self, name: &str) -> Result<String> {
         debug!("read module {}", name);
         let data = try!(self.get_module_raw(name));
-        let data = try!(::std::str::from_utf8(data)).to_string();
-        Ok(data)
+        self.encoding.decode_all(data)
     }
 
     /// Reads module content (MBSC encoded) and output it as-is (binary output)
-    pub fn get_module_raw(&mut self, name: &str) -> Result<&[u8]> {
+    pub fn get_module_raw(&self, name: &str) -> Result<&[u8]> {
         match self.modules.get(name) {
             Some(m) => Ok(&**m),
             None => return Err(format!("Cannot find module {}", name).into()),
         }
     }
-
 }
 
 /// A vba reference
@@ -126,7 +127,9 @@ struct Module {
     text_offset: usize,
 }
 
-fn read_vba<R: Read>(cfb: &mut Cfb, r: &mut R) -> Result<(Vec<Reference>, Vec<Module>)> {
+fn read_vba<R: Read>(cfb: &mut Cfb, r: &mut R) 
+    -> Result<(Vec<Reference>, Vec<Module>, XlsEncoding)>
+{
     debug!("read vba");
     
     // dir stream
@@ -135,21 +138,25 @@ fn read_vba<R: Read>(cfb: &mut Cfb, r: &mut R) -> Result<(Vec<Reference>, Vec<Mo
     let stream = &mut &*stream;
 
     // read dir information record (not used)
-    try!(read_dir_information(stream));
+    let encoding = try!(read_dir_information(stream));
 
     // array of REFERENCE records
-    let references = try!(read_references(stream));
+    let references = try!(read_references(stream, &encoding));
 
     // modules
-    let modules = try!(read_modules(stream));
-    Ok((references, modules))
+    let modules = try!(read_modules(stream, &encoding));
+    Ok((references, modules, encoding))
 }
 
-fn read_dir_information(stream: &mut &[u8]) -> Result<()> {
+fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding> {
     debug!("read dir header");
 
     // PROJECTSYSKIND, PROJECTLCID and PROJECTLCIDINVOKE Records
-    *stream = &stream[38..];
+    *stream = &stream[30..];
+
+    // PROJECT Codepage
+    let encoding = try!(XlsEncoding::from_codepage(read_u16(&stream[6..8])));
+    *stream = &stream[8..];
     
     // PROJECTNAME Record
     try!(check_variable_record(0x0004, stream));
@@ -169,10 +176,10 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<()> {
     try!(check_variable_record(0x000C, stream));
     try!(check_variable_record(0x003C, stream)); // unicode
 
-    Ok(())
+    Ok(encoding)
 }
 
-fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
+fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Reference>> {
     debug!("read all references metadata");
 
     let mut references = Vec::new();
@@ -183,10 +190,10 @@ fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
         path: "/".into() 
     };
 
-    fn set_module_from_libid(reference: &mut Reference, libid: &[u8]) 
+    fn set_module_from_libid(reference: &mut Reference, libid: &[u8], encoding: &XlsEncoding) 
         -> Result<()> 
     {
-        let libid = try!(::std::str::from_utf8(libid));
+        let libid = try!(encoding.decode_all(libid));
         let mut parts = libid.split('#').rev();
         parts.next().map(|p| reference.description = p.to_string());
         parts.next().map(|p| reference.path = p.into());
@@ -206,7 +213,7 @@ fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
                 if !reference.name.is_empty() { references.push(reference); }
 
                 let name = try!(read_variable_record(stream, 1));
-                let name = try!(::std::string::String::from_utf8(name.to_vec()));
+                let name = try!(encoding.decode_all(name));
                 reference = Reference {
                     name: name.clone(),
                     description: name.clone(),
@@ -224,7 +231,7 @@ fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
                 *stream = &stream[4..]; // len of total ref control
 
                 let libid = try!(read_variable_record(stream, 1)); //libid twiddled
-                try!(set_module_from_libid(&mut reference, libid));
+                try!(set_module_from_libid(&mut reference, libid, encoding));
 
                 *stream = &stream[6..];
 
@@ -246,7 +253,7 @@ fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
                 *stream = &stream[4..];
 
                 let libid = try!(read_variable_record(stream, 1)); // libid registered
-                try!(set_module_from_libid(&mut reference, libid));
+                try!(set_module_from_libid(&mut reference, libid, encoding));
 
                 *stream = &stream[6..];
             },
@@ -255,7 +262,7 @@ fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
                 *stream = &stream[4..];
                 let absolute = try!(read_variable_record(stream, 1)); // project libid absolute
                 {
-                    let absolute = try!(::std::str::from_utf8(absolute));
+                    let absolute = try!(encoding.decode_all(absolute));
                     reference.path = if absolute.starts_with("*\\C") { 
                         absolute[3..].into()
                     } else {
@@ -272,7 +279,7 @@ fn read_references(stream: &mut &[u8]) -> Result<Vec<Reference>> {
     Ok(references)
 }
 
-fn read_modules(stream: &mut &[u8]) -> Result<Vec<Module>> {
+fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module>> {
     debug!("read all modules metadata");
     *stream = &stream[4..];
     
@@ -285,12 +292,12 @@ fn read_modules(stream: &mut &[u8]) -> Result<Vec<Module>> {
 
         // name
         let name = try!(check_variable_record(0x0019, stream));
-        let name = try!(::std::string::String::from_utf8(name.to_vec()));
+        let name = try!(encoding.decode_all(name));
 
         try!(check_variable_record(0x0047, stream));      // unicode
 
         let stream_name = try!(check_variable_record(0x001A, stream)); // stream name
-        let stream_name = try!(::std::string::String::from_utf8(stream_name.to_vec())); 
+        let stream_name = try!(encoding.decode_all(stream_name)); 
 
         try!(check_variable_record(0x0032, stream));      // stream name unicode
         try!(check_variable_record(0x001C, stream));      // doc string

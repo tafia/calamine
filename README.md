@@ -76,7 +76,6 @@ Many (most) part of the specifications are not implemented, the focus has been p
 The main unsupported items are:
 - no support for writing excel files, this is a read-only libray
 - no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
-- no support for decoding MBSC vba code, only tries to decode as normal utf8, which is ok most of the time but not accurate
 
 ## Credits
 

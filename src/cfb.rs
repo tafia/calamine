@@ -1,9 +1,14 @@
 //! Coumpound File Binary format MS-CFB
 
+use std::borrow::Cow;
+use std::cmp::min;
 use std::io::Read;
 
-use encoding::{Encoding, DecoderTrap};
+use encoding::{Encoding};
 use encoding::all::UTF_16LE;
+
+use encoding::{DecoderTrap, EncodingRef, StringWriter};
+use encoding::label::encoding_from_windows_code_page;
 
 use errors::*;
 use utils::*;
@@ -303,3 +308,62 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
     }
     Ok(res)
 }
+
+#[derive(Clone)]
+pub struct XlsEncoding {
+    encoding: EncodingRef,
+    pub high_byte: Option<bool>, // None if single byte encoding
+}
+
+impl XlsEncoding {
+    pub fn from_codepage(codepage: u16) -> Result<XlsEncoding> {
+        let e = match encoding_from_windows_code_page(codepage as usize) {
+            Some(e) => e,
+            None => return Err(format!("Cannot find {} codepage", codepage).into()),
+        };
+        let high_byte = match codepage {
+            20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 
+            874 | 1250...1258 | 28591...28605 => None, // SingleByte encodings
+            _ => Some(false),
+        };
+
+        Ok(XlsEncoding { encoding: e, high_byte: high_byte })
+    }
+
+    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut StringWriter) 
+        -> Result<(usize, usize)> 
+    {
+        let (l, ub, bytes) = match self.high_byte {
+            None => {
+                let l = min(stream.len(), len);
+                (l, l, Cow::Borrowed(&stream[..l]))
+            },
+            Some(false) => {
+                let l = min(stream.len(), len);
+
+                // add 0x00 high bytes to unicodes
+                let mut bytes = vec![0; l * 2];
+                for (i, sce) in stream.iter().take(l).enumerate() {
+                    bytes[2 * i] = *sce;
+                }
+                (l, l, Cow::Owned(bytes))
+            },
+            Some(true) => {
+                let l = min(stream.len() / 2, len);
+                (l, 2*l, Cow::Borrowed(&stream[..2*l]))
+            }
+        };
+        
+        self.encoding.decode_to(&bytes, DecoderTrap::Ignore, s)
+            .map_err(|e| e.to_string().into())
+            .map(|_| (l, ub))
+    }
+
+    pub fn decode_all(&self, stream: &[u8]) -> Result<String> {
+        let mut s = String::with_capacity(stream.len());
+        let _ = try!(self.decode_to(stream, stream.len(), &mut s));
+        Ok(s)
+    }
+}
+
+
