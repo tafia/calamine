@@ -10,6 +10,11 @@
 
 ## master
 
+## 0.3.0
+- feat: [all] better `Range` initialization via `Range::from_sparse`
+- feat: [all] several new fn in `Range` (`used_cells`, `start`, `end` ...)
+- refactor: adds a `range_eq!` macro in tests
+
 ## 0.2.1
 - fix: [xls] allow directory start to empty sector if version = 3
 - fix: [vba] support all project codepage encodings
