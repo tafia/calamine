@@ -18,7 +18,6 @@ use utils::read_u16;
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct VbaProject {
-    cfb: Cfb,
     references: Vec<Reference>,
     modules: HashMap<String, Vec<u8>>,
     encoding: XlsEncoding,
@@ -30,13 +29,26 @@ impl VbaProject {
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
     pub fn new<R: Read>(r: &mut R, len: usize) -> Result<VbaProject> {
-        let cfb = try!(Cfb::new(r, len));
-        VbaProject::from_cfb(r, cfb)
+        let mut cfb = try!(Cfb::new(r, len));
+        VbaProject::from_cfb(r, &mut cfb)
     }
 
     /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
-    pub fn from_cfb<R: Read>(r: &mut R, mut cfb: Cfb) -> Result<VbaProject> {
-        let (refs, mods, encoding) = try!(read_vba(&mut cfb, r));
+    pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject> {
+
+        // dir stream
+        let stream = try!(cfb.get_stream("dir", r));
+        let stream = try!(::cfb::decompress_stream(&*stream));
+        let stream = &mut &*stream;
+
+        // read dir information record (not used)
+        let encoding = try!(read_dir_information(stream));
+
+        // array of REFERENCE records
+        let refs = try!(read_references(stream, &encoding));
+
+        // modules
+        let mods = try!(read_modules(stream, &encoding));
 
         // read all modules
         let modules = try!(mods.into_iter()
@@ -46,7 +58,6 @@ impl VbaProject {
                            .collect());
 
         Ok(VbaProject {
-            cfb: cfb,
             references: refs,
             modules: modules,
             encoding: encoding,
@@ -125,27 +136,6 @@ struct Module {
     name: String,
     stream_name: String,
     text_offset: usize,
-}
-
-fn read_vba<R: Read>(cfb: &mut Cfb, r: &mut R) 
-    -> Result<(Vec<Reference>, Vec<Module>, XlsEncoding)>
-{
-    debug!("read vba");
-    
-    // dir stream
-    let stream = try!(cfb.get_stream("dir", r));
-    let stream = try!(::cfb::decompress_stream(&*stream));
-    let stream = &mut &*stream;
-
-    // read dir information record (not used)
-    let encoding = try!(read_dir_information(stream));
-
-    // array of REFERENCE records
-    let references = try!(read_references(stream, &encoding));
-
-    // modules
-    let modules = try!(read_modules(stream, &encoding));
-    Ok((references, modules, encoding))
 }
 
 fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding> {
