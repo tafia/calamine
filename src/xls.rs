@@ -10,88 +10,92 @@ use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{read_u16, read_u32, read_slice};
 
-enum CfbWrap {
-    Wb(Cfb, BufReader<File>),
-    Vba(VbaProject),
+enum SheetsState {
+    NotParsed(BufReader<File>, Cfb),
+    Parsed(HashMap<String, Range>),
 }
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls {
-    sheets: HashMap<String, Range>,
-    strings: Vec<String>,
-    cfb: Option<CfbWrap>,
+    sheets: SheetsState,
+    vba: Option<VbaProject>,
 }
 
 impl ExcelReader for Xls {
 
     fn new(r: File) -> Result<Self> {
+
         let len = try!(r.metadata()).len() as usize;
         let mut r = BufReader::new(r);
         let mut cfb = try!(Cfb::new(&mut r, len ));
-        let wb = try!(cfb.get_stream("Workbook", &mut r)
-                      .or_else(|_| cfb.get_stream("Book", &mut r)));
 
-        let mut xls = Xls { 
-            sheets: HashMap::new(), 
-            strings: Vec::new(), 
-            cfb: Some(CfbWrap::Wb(cfb, r)),
+        // Reads vba once for all (better than reading all worksheets once for all)
+        let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
+            Some(try!(VbaProject::from_cfb(&mut r, &mut cfb)))
+        } else {
+            None
         };
-        try!(xls.parse_workbook(&wb));
-        Ok(xls)
+
+        Ok(Xls { 
+            sheets: SheetsState::NotParsed(r, cfb),
+            vba: vba,
+        })
     }
 
     fn has_vba(&mut self) -> bool {
-        match self.cfb {
-            Some(CfbWrap::Wb(ref cfb, _)) => cfb.has_directory("_VBA_PROJECT_CUR"),
-            Some(CfbWrap::Vba(_)) => true,
-            None => unreachable!(), // option is used to transfer ownership only
-        }
+        self.vba.is_some()
     }
 
     fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        if let Some(CfbWrap::Wb(..)) = self.cfb {
-            match self.cfb.take() {
-                Some(CfbWrap::Wb(cfb, mut r)) => {
-                    let vba = try!(VbaProject::from_cfb(&mut r, cfb));
-                    self.cfb = Some(CfbWrap::Vba(vba));
-                },
-                _ => unreachable!(),
-            }
-        }
-
-        match self.cfb {
-            Some(CfbWrap::Vba(ref v)) => Ok(Cow::Borrowed(v)),
-            _ => unreachable!(),
-        }
+        self.vba.as_ref().map(|vba| Cow::Borrowed(vba)).ok_or("No vba project".into())
     }
 
     /// Parses Workbook stream, no need for the relationships variable
     fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) 
-        -> Result<HashMap<String, String>> {
-        Ok(self.sheets.keys().map(|k| (k.to_string(), k.to_string())).collect())
+        -> Result<HashMap<String, String>>
+    {
+        let _ = try!(self.parse_workbook());
+        match self.sheets {
+            SheetsState::NotParsed(_, _) => unreachable!(),
+            SheetsState::Parsed(ref shs) => Ok(shs.keys().map(|k| (k.to_string(), k.to_string())).collect())
+        }
     }
 
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        Ok(self.strings.clone())
+        Ok(Vec::new()) // we don't really care as everything is done internally
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
-        Ok(HashMap::new())
+        Ok(HashMap::new()) // we don't really care as everything is done internally
     }
 
     fn read_worksheet_range(&mut self, name: &str, _: &[String]) -> Result<Range> {
-        match self.sheets.get(name) {
-            None => Err(format!("Sheet '{}' does not exist", name).into()),
-            Some(r) => Ok(r.clone()),
+        let _ = try!(self.parse_workbook());
+        match self.sheets {
+            SheetsState::NotParsed(_, _) => unreachable!(),
+            SheetsState::Parsed(ref shs) => shs.get(name)
+                .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
+                .map(|r| r.clone())
         }
     }
 }
 
 impl Xls {
-    fn parse_workbook(&mut self, stream: &[u8]) -> Result<()> {
-        let mut sheets = Vec::new(); 
+    fn parse_workbook(&mut self) -> Result<()> {
+
+        // gets workbook and worksheets stream, or early exit
+        let stream = match self.sheets {
+            SheetsState::NotParsed(ref mut reader, ref mut cfb) => {
+                try!(cfb.get_stream("Workbook", reader)
+                     .or_else(|_| cfb.get_stream("Book", reader)))
+            },
+            SheetsState::Parsed(_) => return Ok(()),
+        };
+
+        let mut sheet_names = Vec::new(); 
+        let mut strings = Vec::new();
         {
-            let mut wb = stream;
+            let mut wb = &stream;
             let mut encoding = try!(XlsEncoding::from_codepage(1200));
             let records = RecordIter { stream: &mut wb };
             for record in records {
@@ -106,17 +110,18 @@ impl Xls {
                     0x0042 => encoding = try!(XlsEncoding::from_codepage(read_u16(r.data))), // CodePage
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
-                        sheets.reserve(sheet_len);
+                        sheet_names.reserve(sheet_len);
                     }, // RRTabId
-                    0x0085 => sheets.push(try!(parse_sheet_name(&mut r, &mut encoding))), // BoundSheet8
-                    0x00FC => self.strings = try!(parse_sst(&mut r, &mut encoding)), // SST
+                    0x0085 => sheet_names.push(try!(parse_sheet_name(&mut r, &mut encoding))), // BoundSheet8
+                    0x00FC => strings = try!(parse_sst(&mut r, &mut encoding)), // SST
                     0x000A => break, // EOF,
                     _ => (),
                 }
             }
         }
 
-        'sh: for (pos, name) in sheets.into_iter() {
+        let mut sheets = HashMap::with_capacity(sheet_names.len());
+        'sh: for (pos, name) in sheet_names.into_iter() {
             let mut sh = &stream[pos..];
             let records = RecordIter { stream: &mut sh };
             let mut cells = Vec::new();
@@ -131,14 +136,17 @@ impl Xls {
                     0x0203 => cells.push(try!(parse_number(&r.data))), // Number 
                     0x0205 => cells.push(try!(parse_bool_err(&r.data))), // BoolErr
                     0x027E => cells.push(try!(parse_rk(&r.data))), // RK
-                    0x00FD => cells.push(try!(parse_label_sst(&r.data, &self.strings))), // LabelSst
+                    0x00FD => cells.push(try!(parse_label_sst(&r.data, &strings))), // LabelSst
                     0x000A => break, // EOF,
                     _ => (),
                 }
             }
             let range = Range::from_sparse(cells);
-            self.sheets.insert(name, range);
+            sheets.insert(name, range);
         }
+
+        self.sheets = SheetsState::Parsed(sheets);
+
         Ok(())
     }
 }
