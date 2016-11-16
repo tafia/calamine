@@ -1,8 +1,19 @@
 extern crate calamine;
 
 use calamine::Excel;
-use calamine::DataType::{self, String, Float, Bool, Error, Empty};
+use calamine::DataType::{String, Float, Bool, Error};
 use calamine::CellErrorType::*;
+
+macro_rules! range_eq {
+    ($range:expr, $right:expr) => {
+        assert_eq!($range.get_size(), ($right.len(), $right[0].len()), "Size mismatch");
+        for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
+            for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
+                assert_eq!(cl, cr, "Mismatch at position ({}, {})", i, j);
+            }
+        }
+    };
+}
 
 #[test]
 fn issue_2() {
@@ -10,11 +21,9 @@ fn issue_2() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Float(1.), String("a".to_string())],
+                      [Float(2.), String("b".to_string())],
+                      [Float(3.), String("c".to_string())]]);
 }
 
 #[test]
@@ -24,9 +33,7 @@ fn issue_3() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Sheet1").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Float(1.), String("a".to_string())]]);
 }
 
 #[test]
@@ -36,9 +43,7 @@ fn issue_4() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue5").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Float(0.5)] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Float(0.5)]]);
 }
 
 #[test]
@@ -48,14 +53,10 @@ fn issue_6() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue6").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Float(1.)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(2.)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("ab".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Bool(false)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Float(1.)], 
+                      [Float(2.)],
+                      [String("ab".to_string())], 
+                      [Bool(false)]]);
 }
 
 #[test]
@@ -64,28 +65,13 @@ fn error_file() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Feuil1").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Error(Div0)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Error(Name)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Error(Value)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Error(Null)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Error(Ref)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Error(Num)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Error(NA)] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Empty] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Error(Div0)],
+                      [Error(Name)], 
+                      [Error(Value)], 
+                      [Error(Null)], 
+                      [Error(Ref)], 
+                      [Error(Num)], 
+                      [Error(NA)]]);
 }
 
 #[test]
@@ -94,12 +80,10 @@ fn issue_9() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Feuil1").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[String("test1".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("test2 other".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("test3 aaa".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("test4".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[String("test1".to_string())],
+                      [String("test2 other".to_string())],
+                      [String("test3 aaa".to_string())], 
+                      [String("test4".to_string())]]);
 }
 
 #[test]
@@ -121,11 +105,9 @@ fn xlsb() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Float(1.), String("a".to_string())],
+                      [Float(2.), String("b".to_string())], 
+                      [Float(3.), String("c".to_string())]]);
 }
 
 #[test]
@@ -134,11 +116,9 @@ fn xls() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[Float(1.), String("a".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(2.), String("b".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[Float(3.), String("c".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[Float(1.), String("a".to_string())],
+                      [Float(2.), String("b".to_string())],
+                      [Float(3.), String("c".to_string())]]);
 }
 
 #[test]
@@ -147,16 +127,15 @@ fn special_chrs_xlsx() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[String("&".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("<".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String(">".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("aaa ' aaa".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("\"".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("☺".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("֍".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("àâéêèçöïî«»".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[String("&".to_string())],
+                      [String("<".to_string())],
+                      [String(">".to_string())],
+                      [String("aaa ' aaa".to_string())],
+                      [String("\"".to_string())],
+                      [String("☺".to_string())],
+                      [String("֍".to_string())],
+                      [String("àâéêèçöïî«»".to_string())],
+                      ]);
 }
 
 #[test]
@@ -165,14 +144,12 @@ fn special_chrs_xlsb() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
-    let mut r = range.rows();
-    assert_eq!(r.next(), Some(&[String("&".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("<".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String(">".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("aaa ' aaa".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("\"".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("☺".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("֍".to_string())] as &[DataType]));
-    assert_eq!(r.next(), Some(&[String("àâéêèçöïî«»".to_string())] as &[DataType]));
-    assert_eq!(r.next(), None);
+    range_eq!(range, [[String("&".to_string())],
+                      [String("<".to_string())],
+                      [String(">".to_string())],
+                      [String("aaa ' aaa".to_string())],
+                      [String("\"".to_string())],
+                      [String("☺".to_string())],
+                      [String("֍".to_string())],
+                      [String("àâéêèçöïî«»".to_string())]]);
 }

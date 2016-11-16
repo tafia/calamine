@@ -2,6 +2,9 @@ extern crate calamine;
 extern crate glob;
 
 use std::env;
+use std::io::{BufWriter, Write};
+use std::fs::File;
+
 use glob::{glob, GlobError};
 use calamine::{Excel, DataType, Error};
 
@@ -12,7 +15,6 @@ enum FileStatus {
     ExcelError(Error),
     VbaError(Error),
     RangeError(Error),
-    Valid(MissingReference, usize),
     Glob(GlobError),
 }
 
@@ -20,8 +22,19 @@ fn main() {
     
     // Search recursively for all excel files matching argument pattern
     // Output statistics: nb broken references, nb broken cells etc...
-    let pattern = format!("{}/**/*.xl*", env::args().skip(1).next().unwrap_or(".".to_string()));
+    let folder = env::args().skip(1).next().unwrap_or(".".to_string());
+    let pattern = format!("{}/**/*.xl*", folder);
     let mut filecount = 0;
+
+    let mut output = pattern.chars().take_while(|c| *c != '*').filter_map(|c| {
+        match c {
+            ':' => None,
+            '/' | '\\' | ' ' => Some('_'),
+            c => Some(c),
+        }
+    }).collect::<String>();
+    output.push_str("_errors.csv");
+    let mut output = BufWriter::new(File::create(output).unwrap());
 
     for f in glob(&pattern).expect("Failed to read excel glob, the first \
                                     argument must correspond to a directory") {
@@ -35,7 +48,6 @@ fn main() {
             }
         };
         println!("Analysing {:?}", f.display());
-
         match Excel::open(&f) {
             Ok(mut xl) => {
                 let mut missing = None;
@@ -69,11 +81,14 @@ fn main() {
                     Err(e) => status.push(FileStatus::ExcelError(e)),
                 }
 
-                status.push(FileStatus::Valid(missing, cell_errors));
+                writeln!(output, "{:?}~{:?}~{}", f.display(), missing, cell_errors)
+                    .unwrap_or_else(|e| println!("{:?}", e));
             },
             Err(e) => status.push(FileStatus::ExcelError(e)),
         }
-        println!("{:#?}\r\n", status);
+        if !status.is_empty() {
+            writeln!(output, "{:?}~{:?}", f.display(), status).unwrap_or_else(|e| println!("{:?}", e));
+        }
     }
 
     println!("Found {} excel files", filecount);

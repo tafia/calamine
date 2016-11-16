@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 
 use errors::*;
-use {ExcelReader, Range, DataType, CellErrorType};
+use {ExcelReader, Range, Cell, DataType, CellErrorType};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{read_u16, read_u32, read_slice};
@@ -119,23 +119,24 @@ impl Xls {
         'sh: for (pos, name) in sheets.into_iter() {
             let mut sh = &stream[pos..];
             let records = RecordIter { stream: &mut sh };
-            let mut range = Range::default();
+            let mut cells = Vec::new();
             for record in records {
                 let r = try!(record);
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0010 { continue 'sh; }, // BOF, worksheet
                     0x0200 => {
-                        range = try!(parse_dimensions(&r.data));
-                        if range.get_size().0 == 0 || range.get_size().1 == 0 { continue 'sh; }
+                        let (start, end) = try!(parse_dimensions(&r.data));
+                        cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
                     }, // Dimensions
-                    0x0203 => try!(parse_number(&r.data, &mut range)), // Number 
-                    0x0205 => try!(parse_bool_err(&r.data, &mut range)), // BoolErr
-                    0x027E => try!(parse_rk(&r.data, &mut range)), // RK
-                    0x00FD => try!(parse_label_sst(&r.data, &self.strings, &mut range)), // LabelSst
+                    0x0203 => cells.push(try!(parse_number(&r.data))), // Number 
+                    0x0205 => cells.push(try!(parse_bool_err(&r.data))), // BoolErr
+                    0x027E => cells.push(try!(parse_rk(&r.data))), // RK
+                    0x00FD => cells.push(try!(parse_label_sst(&r.data, &self.strings))), // LabelSst
                     0x000A => break, // EOF,
                     _ => (),
                 }
             }
+            let range = Range::from_sparse(cells);
             self.sheets.insert(name, range);
         }
         Ok(())
@@ -149,17 +150,17 @@ fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize
     Ok((pos, sheet))
 }
 
-fn parse_number(r: &[u8], range: &mut Range) -> Result<()> {
+fn parse_number(r: &[u8]) -> Result<Cell> {
     if r.len() < 14 {
         return Err("Invalid number length".into());
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let v = read_slice::<f64>(&r[6..]);
-    range.set_value((row as u32, col as u32), DataType::Float(v))
+    Ok(Cell::new((row as u32, col as u32), DataType::Float(v)))
 }
 
-fn parse_bool_err(r: &[u8], range: &mut Range) -> Result<()> {
+fn parse_bool_err(r: &[u8]) -> Result<Cell> {
     if r.len() < 8 {
         return Err("Invalid BoolErr length".into());
     }
@@ -180,10 +181,10 @@ fn parse_bool_err(r: &[u8], range: &mut Range) -> Result<()> {
         },
         e => return Err(format!("Unrecognized fError {:x}", e).into()),
     };
-    range.set_value((row as u32, col as u32), v)
+    Ok(Cell::new((row as u32, col as u32), v))
 }
  
-fn parse_rk(r: &[u8], range: &mut Range) -> Result<()> {
+fn parse_rk(r: &[u8]) -> Result<Cell> {
     if r.len() < 10 {
         return Err("Invalid rk length".into());
     }
@@ -203,8 +204,7 @@ fn parse_rk(r: &[u8], range: &mut Range) -> Result<()> {
         let v = read_slice(&v);
         DataType::Float( if d100 { v/100.0 } else { v })
     };
-
-    range.set_value((row as u32, col as u32), v)
+    Ok(Cell::new((row as u32, col as u32), v))
 }
 
 fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
@@ -219,17 +219,17 @@ fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Stri
     read_dbcs(encoding, len, r)
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String], range: &mut Range) -> Result<()> {
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell> {
     if r.len() < 10 {
         return Err("Invalid short string length".into());
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
-    range.set_value((row as u32, col as u32), DataType::String(strings[i].clone()))
+    Ok(Cell::new((row as u32, col as u32), DataType::String(strings[i].clone())))
 }
 
-fn parse_dimensions(r: &[u8]) -> Result<Range> {
+fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
     let (rf, rl, cf, cl) = match r.len() {
         10 => (read_u16(&r[0..2]) as u32,
                read_u16(&r[2..4]) as u32,
@@ -241,12 +241,7 @@ fn parse_dimensions(r: &[u8]) -> Result<Range> {
                read_u16(&r[10..12]) as u32),
         _ => return Err("Invalid dimensions lengths".into()),
     };
-
-    if rl == 0 || cl == 0 {
-        Ok(Range::new((0, 0), (0, 0)))
-    } else {
-        Ok(Range::new((rf, cf), (rl - 1, cl - 1)))
-    }
+    Ok(((rf, cf), (rl - 1, cl - 1)))
 }
 
 fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {

@@ -10,7 +10,7 @@ use quick_xml::{XmlReader, Event, AsStr};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
 
-use {DataType, ExcelReader, Range, CellErrorType};
+use {DataType, ExcelReader, Cell, Range, CellErrorType};
 use vba::VbaProject;
 use utils::{read_u32, read_usize, read_slice};
 use errors::*;
@@ -150,11 +150,7 @@ impl ExcelReader for Xlsb {
                                            (0x0093, None), // BrtWsProp
                                            ], &mut buf)); 
         let (start, end) = parse_dimensions(&buf[..16]);
-        let mut range = Range::new(start, end);
-
-        if range.is_empty() {
-            return Ok(range);
-        }
+        let mut cells = Vec::with_capacity((((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize));
 
         // BrtBeginSheetData
         let _ = try!(iter.next_skip_blocks(0x0091, &[
@@ -212,16 +208,16 @@ impl ExcelReader for Xlsb {
                 0x0000 => { // BrtRowHdr
                     row = read_u32(&buf);
                     if row > 0x00100000 {
-                        return Ok(range); // invalid row
+                        return Ok(Range::from_sparse(cells)); // invalid row
                     }
                     continue;
                 },
-                0x0092 => return Ok(range),  // BrtEndSheetData
+                0x0092 => return Ok(Range::from_sparse(cells)),  // BrtEndSheetData
                 _ => continue,  // anything else, ignore and try next, without changing idx
             };
 
             let col = read_u32(&buf);
-            try!(range.set_value((row, col), value));
+            cells.push(Cell::new((row, col), value));
         }
     }
 }

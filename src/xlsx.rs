@@ -7,7 +7,7 @@ use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
 use quick_xml::{XmlReader, Event, AsStr};
 
-use {DataType, ExcelReader, Range};
+use {DataType, ExcelReader, Range, Cell};
 use vba::VbaProject;
 use errors::*;
 
@@ -143,7 +143,7 @@ impl ExcelReader for Xlsx {
             None => return Err(format!("Cannot find {} path", path).into()),
             Some(x) => try!(x),
         };
-        let mut data = Range::default();
+        let mut cells = Vec::new();
         'xml: while let Some(res_event) = xml.next() {
             match res_event {
                 Err(e) => return Err(e.into()),
@@ -153,27 +153,27 @@ impl ExcelReader for Xlsx {
                             for a in e.attributes() {
                                 if let (b"ref", rdim) = try!(a) {
                                     let (start, end) = try!(get_dimension(rdim));
-                                    data = Range::new(start, end);
+                                    cells.reserve(((end.0 - start.0 + 1) 
+                                                   * (end.1 - start.1 + 1)) as usize);
                                     continue 'xml;
                                 }
                             }
                             return Err(format!("Expecting dimension, got {:?}", e).into());
                         },
-                        b"sheetData" => try!(read_sheet_data(&mut xml, strings, &mut data)),
+                        b"sheetData" => try!(read_sheet_data(&mut xml, strings, &mut cells)),
                         _ => (),
                     }
                 },
                 _ => (),
             }
         }
-        data.inner.shrink_to_fit();
-        Ok(data)
+        Ok(Range::from_sparse(cells))
     }
 }
 
 /// read sheetData node
 fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>, 
-                   strings: &[String], range: &mut Range) -> Result<()> {
+                   strings: &[String], cells: &mut Vec<Cell>) -> Result<()> {
     while let Some(res_event) = xml.next() {
         match res_event {
             Err(e) => return Err(e.into()),
@@ -215,7 +215,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                                         },
                                         _ => try!(v.parse().map(DataType::Float)),
                                     };
-                                try!(range.set_value(pos, value));
+                                cells.push(Cell::new(pos, value));
                                 break;
                             },
                             b"f" => (), // formula, ignore
