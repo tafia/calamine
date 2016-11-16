@@ -9,6 +9,8 @@
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
 ## master
+- perf: [xls] preload vba only instead of sheets only
+- refactor: [vba] consume cfb in constructor and do not store cfb
 
 ## 0.3.0
 - feat: [all] better `Range` initialization via `Range::from_sparse`
