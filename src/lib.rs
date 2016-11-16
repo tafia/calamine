@@ -12,16 +12,17 @@
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Excel::open(path).unwrap();
+//! let mut workbook = Excel::open(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
-//!     let non_empty_cells: usize = range.rows().map(|r| {
-//!         r.iter().filter(|cell| cell != &&DataType::Empty).count()
-//!     }).sum();
+//!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
 //!              total_cells, non_empty_cells);
+//!     // alternatively, we can manually filter rows
+//!     assert_eq!(non_empty_cells, range.rows()
+//!         .flat_map(|r| r.iter().filter(|&c| c != &DataType::Empty)).count());
 //! }
 //!
 //! // Check if the workbook has a vba project
@@ -38,8 +39,7 @@
 //!     }
 //! }
 //! ```
-//!
-//!
+
 #![deny(missing_docs)]
 
 extern crate zip;
@@ -63,7 +63,6 @@ pub mod vba;
 use std::path::Path;
 use std::collections::HashMap;
 use std::fs::File;
-use std::slice::Chunks;
 use std::str::FromStr;
 use std::borrow::Cow;
 
@@ -290,6 +289,36 @@ pub trait ExcelReader: Sized {
     fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range>;
 }
 
+/// A struct to hold cell position and value
+#[derive(Debug, Clone)]
+pub struct Cell {
+    /// Position for the cell (row, column)
+    pos: (u32, u32),
+    /// Value for the cell
+    val: DataType,
+}
+
+impl Cell {
+
+    /// Creates a new `Cell`
+    pub fn new(position: (u32, u32), value: DataType) -> Cell {
+        Cell {
+            pos: position,
+            val: value,
+        }
+    }
+
+    /// Gets `Cell` position
+    pub fn get_position(&self) -> (u32, u32) {
+        self.pos
+    }
+
+    /// Gets `Cell` value
+    pub fn get_value(&self) -> &DataType {
+        &self.val
+    }
+}
+
 /// A struct which represents a squared selection of cells 
 #[derive(Debug, Default, Clone)]
 pub struct Range {
@@ -298,25 +327,80 @@ pub struct Range {
     inner: Vec<DataType>,
 }
 
-/// An iterator to read `Range` struct row by row
-pub struct Rows<'a> {
-    inner: Option<Chunks<'a, DataType>>,
-}
-
 impl Range {
 
-    /// Creates a new range
+    /// Creates a new `Range`
+    ///
+    /// When possible, prefer the more efficient `Range::from_sparse`
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Range {
         Range {
             start: start,
             end: end,
-            inner: vec![DataType::Empty; ((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize],
+            inner: vec![DataType::Empty; ((end.0 - start.0 + 1) 
+                                          * (end.1 - start.1 + 1)) as usize],
+        }
+    }
+
+    /// Creates a `Range` from a coo sparse vector of `Cell`s.
+    ///
+    /// Coordinate list (COO) is the natural way cells are stored in excel files 
+    /// Inner size is defined only by non empty.
+    ///
+    /// cells: `Vec` of non empty `Cell`s, sorted by row
+    /// 
+    /// # Panics
+    ///
+    /// panics when a `Cell` row is lower than the first `Cell` row or 
+    /// bigger than the last `Cell` row.
+    ///
+    /// # Examples
+    /// 
+    /// ```
+    /// use calamine::{Range, DataType, Cell};
+    /// 
+    /// let v = vec![Cell::new((1, 200), DataType::Float(1.)),
+    ///              Cell::new((55, 2),  DataType::String("a".to_string()))];
+    /// let range = Range::from_sparse(v);
+    /// 
+    /// assert_eq!(range.get_size(), (55, 199));
+    /// ```
+    pub fn from_sparse(cells: Vec<Cell>) -> Range {
+        if cells.is_empty() {
+            Range { start: (0, 0), end: (0, 0), inner: Vec::new() }
+        } else {
+            // search bounds
+            let row_start = cells.first().unwrap().pos.0;
+            let row_end = cells.last().unwrap().pos.0;
+            let mut col_start = ::std::u32::MAX;
+            let mut col_end = 0;
+            for c in cells.iter().map(|c| c.pos.1) {
+                if c < col_start {
+                    col_start = c;
+                }
+                if c > col_end {
+                    col_end = c
+                }
+            }
+            let width = col_end - col_start + 1;
+            let len = ((row_end - row_start + 1) * width) as usize;
+            let mut v = vec![DataType::Empty; len];
+            v.shrink_to_fit();
+            for c in cells {
+                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
+                v[idx] = c.val;
+            }
+            Range { start: (row_start, col_start), end: (row_end, col_end), inner: v }
         }
     }
 
     /// Get top left cell position (row, column)
-    pub fn get_position(&self) -> (u32, u32) {
+    pub fn start(&self) -> (u32, u32) {
         self.start
+    }
+
+    /// Get bottom right cell position (row, column)
+    pub fn end(&self) -> (u32, u32) {
+        self.end
     }
 
     /// Get column width
@@ -341,16 +425,20 @@ impl Range {
 
     /// Set inner value
     ///
-    /// Panics if indexes are out of range bounds
+    /// Will try to resize inner structure if the value is out of bounds.
+    ///
+    /// Try to avoid this method as much as possible and prefer initializing
+    /// the `Range` with `from_sparce` constructor.
     ///
     /// # Examples
     /// ```
     /// use calamine::{Range, DataType};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
-    /// assert_eq!(range.get_value(2, 1), &DataType::Empty);
-    /// range.set_value((2, 1), DataType::Float(1.0)).expect("Could not set value");
-    /// assert_eq!(range.get_value(2, 1), &DataType::Float(1.0));
+    /// assert_eq!(range.get_value((2, 1)), &DataType::Empty);
+    /// range.set_value((2, 1), DataType::Float(1.0))
+    ///     .expect("Cannot set value at position (2, 1)");
+    /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
     pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
         if self.start > pos {
@@ -394,9 +482,9 @@ impl Range {
     /// Get cell value
     ///
     /// Panics if indexes are out of range bounds
-    pub fn get_value(&self, i: u32, j: u32) -> &DataType {
-        assert!((i, j) < self.end);
-        let idx = i as usize * self.width() + j as usize;
+    pub fn get_value(&self, pos: (u32, u32)) -> &DataType {
+        assert!(pos <= self.end);
+        let idx = (pos.0 - self.start.0) as usize * self.width() + (pos.1 - self.start.1) as usize;
         &self.inner[idx]
     }
 
@@ -408,7 +496,7 @@ impl Range {
     ///
     /// let range = Range::new((0, 0), (5, 2));
     /// // with rows item row: &[DataType]
-    /// assert_eq!(range.rows().flat_map(|row| row).count(), 18);
+    /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
     /// ```
     pub fn rows(&self) -> Rows {
         if self.inner.is_empty() {
@@ -418,11 +506,44 @@ impl Range {
             Rows { inner: Some(self.inner.chunks(width)) }
         }
     }
+
+    /// Get an iterator over used cells only
+    ///
+    /// This can be much faster than iterating rows as `Range` is saved as a sparce matrix
+    pub fn used_cells(&self) -> UsedCells {
+        UsedCells { width: self.width(), inner: self.inner.iter().enumerate() }
+    }
+
+}
+
+/// A struct to iterate over used cells
+#[derive(Debug)]
+pub struct UsedCells<'a> {
+    width: usize,
+    inner: ::std::iter::Enumerate<::std::slice::Iter<'a, DataType>>,
+}
+
+impl<'a> Iterator for UsedCells<'a> {
+    type Item = (usize, usize, &'a DataType);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.by_ref().find(|&(_, v)| v != &DataType::Empty)
+            .map(|(i, v)| {
+                let row = i / self.width;
+                let col = i % self.width;
+                (row, col, v)
+            })
+    }
+}
+
+/// An iterator to read `Range` struct row by row
+#[derive(Debug)]
+pub struct Rows<'a> {
+    inner: Option<::std::slice::Chunks<'a, DataType>>
 }
 
 impl<'a> Iterator for Rows<'a> {
-    type Item = &'a [DataType];
-    fn next(&mut self) -> Option<&'a [DataType]> {
+    type Item = &'a[DataType];
+    fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
     }
 }
