@@ -9,6 +9,8 @@
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
 ## master
+
+## 0.3.1
 - perf: [xls] preload vba only instead of sheets only
 - refactor: [vba] consume cfb in constructor and do not store cfb
 
