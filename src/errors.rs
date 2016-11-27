@@ -9,7 +9,7 @@ use quick_xml::error::Error as XmlError;
 
 error_chain! {
     types {
-        Error, ErrorKind, ChainErr, Result;
+        Error, ErrorKind, Result;
     }
 
 //     links {
