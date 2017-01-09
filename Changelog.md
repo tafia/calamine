@@ -10,6 +10,9 @@
 
 ## master
 
+## 0.3.3
+- refactor: update dependencies (error-chain and byteorder)
+
 ## 0.3.2
 - refactor: update dependencies
 
