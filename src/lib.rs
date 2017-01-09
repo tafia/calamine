@@ -173,11 +173,11 @@ impl Excel {
     /// assert!(Excel::open(path).is_ok());
     /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
-        let f = try!(File::open(&path));
+        let f = File::open(&path)?;
         let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
-            Some("xls") | Some("xla") => FileType::Xls(try!(xls::Xls::new(f))),
-            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(try!(xlsx::Xlsx::new(f))),
-            Some("xlsb") => FileType::Xlsb(try!(xlsb::Xlsb::new(f))),
+            Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
+            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
+            Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
             Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
             None => return Err("expecting a file with an extension".into()),
         };
@@ -202,17 +202,17 @@ impl Excel {
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         if self.strings.is_empty() {
-            let strings = try!(inner!(self, read_shared_strings()));
+            let strings = inner!(self, read_shared_strings())?;
             self.strings = strings;
         }
 
         if self.relationships.is_empty() {
-            let rels = try!(inner!(self, read_relationships()));
+            let rels = inner!(self, read_relationships())?;
             self.relationships = rels;
         }
 
         if self.sheets.is_empty() {
-            let sheets = try!(inner!(self, read_sheets_names(&self.relationships)));
+            let sheets = inner!(self, read_sheets_names(&self.relationships))?;
             self.sheets = sheets;
         }
 
@@ -258,12 +258,12 @@ impl Excel {
     pub fn sheet_names(&mut self) -> Result<Vec<String>> {
 
         if self.relationships.is_empty() {
-            let rels = try!(inner!(self, read_relationships()));
+            let rels = inner!(self, read_relationships())?;
             self.relationships = rels;
         }
 
         if self.sheets.is_empty() {
-            let sheets = try!(inner!(self, read_sheets_names(&self.relationships)));
+            let sheets = inner!(self, read_sheets_names(&self.relationships))?;
             self.sheets = sheets;
         }
 

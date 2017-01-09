@@ -32,7 +32,7 @@ impl Xlsb {
 impl ExcelReader for Xlsb {
 
     fn new(f: File) -> Result<Self> {
-        Ok(Xlsb { zip: try!(ZipArchive::new(f)) })
+        Ok(Xlsb { zip: ZipArchive::new(f)? })
     }
 
     fn has_vba(&mut self) -> bool {
@@ -40,7 +40,7 @@ impl ExcelReader for Xlsb {
     }
 
     fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
+        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
         let len = f.size() as usize;
         VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
     }
@@ -60,9 +60,9 @@ impl ExcelReader for Xlsb {
                             let mut id = Vec::new();
                             let mut target = String::new();
                             for a in e.attributes() {
-                                match try!(a) {
+                                match a? {
                                     (b"Id", v) => id.extend_from_slice(v),
-                                    (b"Target", v) => target = try!(v.as_str()).to_string(),
+                                    (b"Target", v) => target = v.as_str()?.to_string(),
                                     _ => (),
                                 }
                             }
@@ -87,16 +87,16 @@ impl ExcelReader for Xlsb {
         };
         let mut buf = vec![0; 1024];
 
-        let _ = try!(iter.next_skip_blocks(0x009F, &[], &mut buf)); // BrtBeginSst
+        let _ = iter.next_skip_blocks(0x009F, &[], &mut buf)?; // BrtBeginSst
         let len = read_usize(&buf[4..8]);
         let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
         for _ in 0..len { 
-            let _ = try!(iter.next_skip_blocks(0x0013, &[ 
+            let _ = iter.next_skip_blocks(0x0013, &[ 
                                                (0x0023, Some(0x0024)) // future 
-                                               ], &mut buf)); // BrtSSTItem 
-            strings.push(try!(wide_str(&buf[1..])));
+                                               ], &mut buf)?; // BrtSSTItem 
+            strings.push(wide_str(&buf[1..])?);
         }
         Ok(strings)
     }
@@ -105,11 +105,11 @@ impl ExcelReader for Xlsb {
     fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) 
         -> Result<Vec<(String, String)>>
     {
-        let mut iter = try!(self.iter("xl/workbook.bin"));
+        let mut iter = self.iter("xl/workbook.bin")?;
         let mut buf = vec![0; 1024];
 
         // BrtBeginBundleShs
-        let _ = try!(iter.next_skip_blocks(0x008F, &[
+        let _ = iter.next_skip_blocks(0x008F, &[
                                           (0x0083, None),         // BrtBeginBook
                                           (0x0080, None),         // BrtFileVersion
                                           (0x0099, None),         // BrtWbProp
@@ -117,23 +117,23 @@ impl ExcelReader for Xlsb {
                                           (0x0025, Some(0x0026)), // AC blocks
                                           (0x02A5, Some(0x0216)), // Book protection(iso)
                                           (0x0087, Some(0x0088)), // BOOKVIEWS
-                                          ], &mut buf)); 
+                                          ], &mut buf)?; 
         let mut sheets = Vec::new();
         loop {
-            match try!(iter.read_type()) {
+            match iter.read_type()? {
                 0x0090 => return Ok(sheets), // BrtEndBundleShs
                 0x009C => (), // BrtBundleSh
                 typ => return Err(format!("Expecting end of sheet, got {:x}", typ).into()),
             }
-            let len = try!(iter.fill_buffer(&mut buf));
+            let len = iter.fill_buffer(&mut buf)?;
             let rel_len = read_u32(&buf[8..len]);
             if rel_len != 0xFFFFFFFF {
                 let rel_len = rel_len as usize * 2;
                 let relid = &buf[12..12 + rel_len];
                 // converts utf16le to utf8 for HashMap search
-                let relid = try!(UTF_16LE.decode(relid, DecoderTrap::Ignore).map_err(|e| e.to_string()));
+                let relid = UTF_16LE.decode(relid, DecoderTrap::Ignore).map_err(|e| e.to_string())?;
                 let path = format!("xl/{}", relationships[relid.as_bytes()]);
-                let name = try!(wide_str(&buf[12 + rel_len..len]));
+                let name = wide_str(&buf[12 + rel_len..len])?;
                 sheets.push((name, path));
             }
         }
@@ -141,24 +141,24 @@ impl ExcelReader for Xlsb {
 
     /// MS-XLSB 2.1.7.62
     fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range> {
-        let mut iter = try!(self.iter(path));
+        let mut iter = self.iter(path)?;
         let mut buf = vec![0; 1024];
 
         // BrtWsDim
-        let _ = try!(iter.next_skip_blocks(0x0094, &[
+        let _ = iter.next_skip_blocks(0x0094, &[
                                            (0x0081, None), // BrtBeginSheet
                                            (0x0093, None), // BrtWsProp
-                                           ], &mut buf)); 
+                                           ], &mut buf)?; 
         let (start, end) = parse_dimensions(&buf[..16]);
         let mut cells = Vec::with_capacity((((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize));
 
         // BrtBeginSheetData
-        let _ = try!(iter.next_skip_blocks(0x0091, &[
+        let _ = iter.next_skip_blocks(0x0091, &[
                                           (0x0085, Some(0x0086)), // Views
                                           (0x0025, Some(0x0026)), // AC blocks
                                           (0x01E5, None),         // BrtWsFmtInfo
                                           (0x0186, Some(0x0187)), // Col Infos
-                                          ], &mut buf)); 
+                                          ], &mut buf)?; 
 
         // Initialization: first BrtRowHdr
         let mut typ: u16;
@@ -166,8 +166,8 @@ impl ExcelReader for Xlsb {
 
         // loop until end of sheet
         loop { 
-            typ = try!(iter.read_type());
-            let _ = try!(iter.fill_buffer(&mut buf));
+            typ = iter.read_type()?;
+            let _ = iter.fill_buffer(&mut buf)?;
 
             let value = match typ {
                 0x0001 => continue, // DataType::Empty, // BrtCellBlank
@@ -200,7 +200,7 @@ impl ExcelReader for Xlsb {
                 },
                 0x0004 => DataType::Bool(buf[8] != 0), // BrtCellBool 
                 0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal 
-                0x0006 => DataType::String(try!(wide_str(&buf[8..]))), // BrtCellSt 
+                0x0006 => DataType::String(wide_str(&buf[8..])?), // BrtCellSt 
                 0x0007 => { // BrtCellIsst
                     let isst = read_usize(&buf[8..12]);
                     DataType::String(strings[isst].clone())
@@ -230,14 +230,14 @@ struct RecordIter<'a> {
 impl<'a> RecordIter<'a> {
 
     fn read_u8(&mut self) -> Result<u8> {
-        try!(self.r.read_exact(&mut self.b));
+        self.r.read_exact(&mut self.b)?;
         Ok(self.b[0])
     }
 
     fn read_type(&mut self) -> Result<u16> {
-        let b = try!(self.read_u8());
+        let b = self.read_u8()?;
         let typ = if (b & 0x80) == 0x80 {
-            (b & 0x7F) as u16 + (((try!(self.read_u8()) & 0x7F) as u16)<<7)
+            (b & 0x7F) as u16 + (((self.read_u8()? & 0x7F) as u16)<<7)
         } else {
             b as u16
         };
@@ -245,16 +245,16 @@ impl<'a> RecordIter<'a> {
     }
 
     fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
-        let mut b = try!(self.read_u8());
+        let mut b = self.read_u8()?;
         let mut len = (b & 0x7F) as usize;
         for i in 1..4 {
             if (b & 0x80) == 0 { break; }
-            b = try!(self.read_u8());
+            b = self.read_u8()?;
             len += ((b & 0x7F) as usize) << (7 * i);
         } 
         if buf.len() < len { *buf = vec![0; len]; }
 
-        let _ = try!(self.r.read_exact(&mut buf[..len]));
+        let _ = self.r.read_exact(&mut buf[..len])?;
         Ok(len)
     }
 
@@ -264,7 +264,7 @@ impl<'a> RecordIter<'a> {
     {
         let mut end = None;
         loop {
-            let typ = try!(self.read_type());
+            let typ = self.read_type()?;
             match end {
                 Some(e) if e == typ        => end = None,
                 Some(_)                    => (),
@@ -277,7 +277,7 @@ impl<'a> RecordIter<'a> {
                     }
                 },
             }
-            let _ = try!(self.fill_buffer(buf));
+            let _ = self.fill_buffer(buf)?;
         }
     }
 
