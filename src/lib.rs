@@ -178,8 +178,8 @@ impl Excel {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
             Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
-            Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
-            None => return Err("expecting a file with an extension".into()),
+            Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
+            None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
         Ok(Excel { 
             file: file, 
@@ -201,25 +201,41 @@ impl Excel {
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
+        self.initialize()?;
+        let &(_, ref p) = self.sheets.iter().find(|&&(ref n, _)| n == name)
+            .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
+        inner!(self, read_worksheet_range(p, &self.strings))
+    }
+
+
+    /// Get all data from `Worksheet` at index `idx` (0 based)
+    ///
+    /// # Examples
+    /// ```
+    /// use calamine::Excel;
+    ///
+    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
+    /// println!("Used range size: {:?}", range.get_size());
+    /// ```
+    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range> {
+        self.initialize()?;
+        let &(_, ref p) = self.sheets.get(idx).ok_or(ErrorKind::WorksheetIndex(idx))?;
+        inner!(self, read_worksheet_range(p, &self.strings))
+    }
+
+    fn initialize(&mut self) -> Result<()> {
         if self.strings.is_empty() {
-            let strings = inner!(self, read_shared_strings())?;
-            self.strings = strings;
+            self.strings = inner!(self, read_shared_strings())?;
         }
-
         if self.relationships.is_empty() {
-            let rels = inner!(self, read_relationships())?;
-            self.relationships = rels;
+            self.relationships = inner!(self, read_relationships())?;
         }
-
         if self.sheets.is_empty() {
-            let sheets = inner!(self, read_sheets_names(&self.relationships))?;
-            self.sheets = sheets;
+            self.sheets = inner!(self, read_sheets_names(&self.relationships))?;
         }
-
-        match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref p)) => inner!(self, read_worksheet_range(p, &self.strings)), 
-            None => Err(format!("Sheet '{}' does not exist", name).into()),
-        }
+        Ok(())
     }
 
     /// Does the workbook contain a vba project
@@ -255,19 +271,9 @@ impl Excel {
     /// let mut workbook = Excel::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<String>> {
-
-        if self.relationships.is_empty() {
-            let rels = inner!(self, read_relationships())?;
-            self.relationships = rels;
-        }
-
-        if self.sheets.is_empty() {
-            let sheets = inner!(self, read_sheets_names(&self.relationships))?;
-            self.sheets = sheets;
-        }
-
-        Ok(self.sheets.iter().map(|&(ref k, _)| k.to_string()).collect())
+    pub fn sheet_names(&mut self) -> Result<Vec<&str>> {
+        self.initialize()?;
+        Ok(self.sheets.iter().map(|&(ref k, _)| &**k).collect())
     }
 }
 
@@ -442,8 +448,7 @@ impl Range {
     /// ```
     pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
         if self.start > pos {
-            return Err(format!("invalid position, range start {:?} > position {:?}", 
-                               self.start, pos).into());
+            return Err(ErrorKind::CellOutOfRange(pos, self.start).into());
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
