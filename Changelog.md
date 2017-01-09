@@ -10,6 +10,12 @@
 
 ## master
 
+## 0.4.0
+- refactor: replace `try!` with `?` operator
+- feat: adds a new `worksheet_range_by_index` function.
+- feat: adds new `ErrorKind`s
+- refactor: simplify `search_error` example by using a `run()` function
+
 ## 0.3.3
 - refactor: update dependencies (error-chain and byteorder)
 
