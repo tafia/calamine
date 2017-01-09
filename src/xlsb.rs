@@ -103,7 +103,7 @@ impl ExcelReader for Xlsb {
 
     /// MS-XLSB 2.1.7.61
     fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) 
-        -> Result<HashMap<String, String>>
+        -> Result<Vec<(String, String)>>
     {
         let mut iter = try!(self.iter("xl/workbook.bin"));
         let mut buf = vec![0; 1024];
@@ -118,7 +118,7 @@ impl ExcelReader for Xlsb {
                                           (0x02A5, Some(0x0216)), // Book protection(iso)
                                           (0x0087, Some(0x0088)), // BOOKVIEWS
                                           ], &mut buf)); 
-        let mut sheets = HashMap::new();
+        let mut sheets = Vec::new();
         loop {
             match try!(iter.read_type()) {
                 0x0090 => return Ok(sheets), // BrtEndBundleShs
@@ -134,7 +134,7 @@ impl ExcelReader for Xlsb {
                 let relid = try!(UTF_16LE.decode(relid, DecoderTrap::Ignore).map_err(|e| e.to_string()));
                 let path = format!("xl/{}", relationships[relid.as_bytes()]);
                 let name = try!(wide_str(&buf[12 + rel_len..len]));
-                sheets.insert(name, path);
+                sheets.push((name, path));
             }
         }
     }

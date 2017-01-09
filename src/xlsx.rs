@@ -83,13 +83,13 @@ impl ExcelReader for Xlsx {
     }
 
     fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) 
-        -> Result<HashMap<String, String>>
+        -> Result<Vec<(String, String)>>
     {
         let xml = match self.xml_reader("xl/workbook.xml") {
-            None => return Ok(HashMap::new()),
+            None => return Ok(Vec::new()),
             Some(x) => try!(x),
         };
-        let mut sheets = HashMap::new();
+        let mut sheets = Vec::new();
         for res_event in xml {
             match res_event {
                 Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
@@ -102,7 +102,7 @@ impl ExcelReader for Xlsx {
                             _ => (),
                         }
                     }
-                    sheets.insert(name, path);
+                    sheets.push((name, path));
                 }
                 Err(e) => return Err(e.into()),
                 _ => (),

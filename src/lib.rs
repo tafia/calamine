@@ -142,7 +142,7 @@ pub struct Excel {
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
     /// Map of sheet names/sheet path within zip archive
-    sheets: HashMap<String, String>,
+    sheets: Vec<(String, String)>,
 }
 
 macro_rules! inner {
@@ -185,7 +185,7 @@ impl Excel {
             file: file, 
             strings: vec![], 
             relationships: HashMap::new(),
-            sheets: HashMap::new(),
+            sheets: Vec::new(),
         })
     }
 
@@ -216,8 +216,8 @@ impl Excel {
             self.sheets = sheets;
         }
 
-        match self.sheets.get(name) {
-            Some(ref p) => inner!(self, read_worksheet_range(p, &self.strings)), 
+        match self.sheets.iter().find(|&&(ref n, _)| n == name) {
+            Some(&(_, ref p)) => inner!(self, read_worksheet_range(p, &self.strings)), 
             None => Err(format!("Sheet '{}' does not exist", name).into()),
         }
     }
@@ -267,7 +267,7 @@ impl Excel {
             self.sheets = sheets;
         }
 
-        Ok(self.sheets.keys().map(|k| k.to_string()).collect())
+        Ok(self.sheets.iter().map(|&(ref k, _)| k.to_string()).collect())
     }
 }
 
@@ -282,7 +282,7 @@ pub trait ExcelReader: Sized {
     /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<HashMap<String, String>>;
+    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>>;
     /// Read workbook relationships
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
     /// Read worksheet data in corresponding worksheet path

@@ -52,7 +52,7 @@ impl ExcelReader for Xls {
 
     /// Parses Workbook stream, no need for the relationships variable
     fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) 
-        -> Result<HashMap<String, String>>
+        -> Result<Vec<(String, String)>>
     {
         let _ = try!(self.parse_workbook());
         match self.sheets {
