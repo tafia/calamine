@@ -29,7 +29,7 @@ impl VbaProject {
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
     pub fn new<R: Read>(r: &mut R, len: usize) -> Result<VbaProject> {
-        let mut cfb = try!(Cfb::new(r, len));
+        let mut cfb = Cfb::new(r, len)?;
         VbaProject::from_cfb(r, &mut cfb)
     }
 
@@ -37,25 +37,25 @@ impl VbaProject {
     pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject> {
 
         // dir stream
-        let stream = try!(cfb.get_stream("dir", r));
-        let stream = try!(::cfb::decompress_stream(&*stream));
+        let stream = cfb.get_stream("dir", r)?;
+        let stream = ::cfb::decompress_stream(&*stream)?;
         let stream = &mut &*stream;
 
         // read dir information record (not used)
-        let encoding = try!(read_dir_information(stream));
+        let encoding = read_dir_information(stream)?;
 
         // array of REFERENCE records
-        let refs = try!(read_references(stream, &encoding));
+        let refs = read_references(stream, &encoding)?;
 
         // modules
-        let mods = try!(read_modules(stream, &encoding));
+        let mods: Vec<Module> = read_modules(stream, &encoding)?;
 
         // read all modules
-        let modules = try!(mods.into_iter()
-                           .map(|m| cfb.get_stream(&m.stream_name, r)
-                                .and_then(|s| ::cfb::decompress_stream(&s[m.text_offset..])
-                                          .map(move |s| (m.name, s))))
-                           .collect());
+        let modules: HashMap<String, Vec<u8>> = mods.into_iter()
+            .map(|m| cfb.get_stream(&m.stream_name, r)
+                 .and_then(|s| ::cfb::decompress_stream(&s[m.text_offset..])
+                           .map(move |s| (m.name, s))))
+            .collect::<Result<HashMap<_, _>>>()?;
 
         Ok(VbaProject {
             references: refs,
@@ -98,7 +98,7 @@ impl VbaProject {
     /// ```
     pub fn get_module(&self, name: &str) -> Result<String> {
         debug!("read module {}", name);
-        let data = try!(self.get_module_raw(name));
+        let data = self.get_module_raw(name)?;
         self.encoding.decode_all(data)
     }
 
@@ -145,26 +145,26 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding> {
     *stream = &stream[30..];
 
     // PROJECT Codepage
-    let encoding = try!(XlsEncoding::from_codepage(read_u16(&stream[6..8])));
+    let encoding = XlsEncoding::from_codepage(read_u16(&stream[6..8]))?;
     *stream = &stream[8..];
     
     // PROJECTNAME Record
-    try!(check_variable_record(0x0004, stream));
+    check_variable_record(0x0004, stream)?;
 
     // PROJECTDOCSTRING Record
-    try!(check_variable_record(0x0005, stream));
-    try!(check_variable_record(0x0040, stream)); // unicode
+    check_variable_record(0x0005, stream)?;
+    check_variable_record(0x0040, stream)?; // unicode
 
     // PROJECTHELPFILEPATH Record - MS-OVBA 2.3.4.2.1.7
-    try!(check_variable_record(0x0006, stream));
-    try!(check_variable_record(0x003D, stream));
+    check_variable_record(0x0006, stream)?;
+    check_variable_record(0x003D, stream)?;
 
     // PROJECTHELPCONTEXT PROJECTLIBFLAGS and PROJECTVERSION Records
     *stream = &stream[32..];
 
     // PROJECTCONSTANTS Record
-    try!(check_variable_record(0x000C, stream));
-    try!(check_variable_record(0x003C, stream)); // unicode
+    check_variable_record(0x000C, stream)?;
+    check_variable_record(0x003C, stream)?; // unicode
 
     Ok(encoding)
 }
@@ -183,7 +183,7 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
     fn set_module_from_libid(reference: &mut Reference, libid: &[u8], encoding: &XlsEncoding) 
         -> Result<()> 
     {
-        let libid = try!(encoding.decode_all(libid));
+        let libid = encoding.decode_all(libid)?;
         let mut parts = libid.split('#').rev();
         parts.next().map(|p| reference.description = p.to_string());
         parts.next().map(|p| reference.path = p.into());
@@ -193,7 +193,7 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
     loop {
 
         let check = stream.read_u16::<LittleEndian>();
-        match try!(check) {
+        match check? {
             0x000F => { // termination of references array
                 if !reference.name.is_empty() { references.push(reference); }
                 break;
@@ -202,64 +202,64 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
             0x0016 => { // REFERENCENAME
                 if !reference.name.is_empty() { references.push(reference); }
 
-                let name = try!(read_variable_record(stream, 1));
-                let name = try!(encoding.decode_all(name));
+                let name = read_variable_record(stream, 1)?;
+                let name = encoding.decode_all(name)?;
                 reference = Reference {
                     name: name.clone(),
                     description: name.clone(),
                     path: "/".into(),
                 };
 
-                try!(check_variable_record(0x003E, stream)); // unicode
+                check_variable_record(0x003E, stream)?; // unicode
             },
 
             0x0033 => { // REFERENCEORIGINAL (followed by REFERENCECONTROL)
-                try!(read_variable_record(stream, 1));
+                read_variable_record(stream, 1)?;
             },
 
             0x002F => { // REFERENCECONTROL
                 *stream = &stream[4..]; // len of total ref control
 
-                let libid = try!(read_variable_record(stream, 1)); //libid twiddled
-                try!(set_module_from_libid(&mut reference, libid, encoding));
+                let libid = read_variable_record(stream, 1)?; //libid twiddled
+                set_module_from_libid(&mut reference, libid, encoding)?;
 
                 *stream = &stream[6..];
 
-                match try!(stream.read_u16::<LittleEndian>()) {
+                match stream.read_u16::<LittleEndian>()? {
                     0x0016 => { // optional name record extended
-                        try!(read_variable_record(stream, 1)); // name extended
-                        try!(check_variable_record(0x003E, stream)); // name extended unicode
-                        try!(check_record(0x0030, stream));
+                        read_variable_record(stream, 1)?; // name extended
+                        check_variable_record(0x003E, stream)?; // name extended unicode
+                        check_record(0x0030, stream)?;
                     },
                     0x0030 => (),
                     e => return Err(format!( "unexpected token in reference control {:x}", e).into()),
                 } 
                 *stream = &stream[4..];
-                try!(read_variable_record(stream, 1)); // libid extended
+                read_variable_record(stream, 1)?; // libid extended
                 *stream = &stream[26..];
             },
 
             0x000D => { // REFERENCEREGISTERED
                 *stream = &stream[4..];
 
-                let libid = try!(read_variable_record(stream, 1)); // libid registered
-                try!(set_module_from_libid(&mut reference, libid, encoding));
+                let libid = read_variable_record(stream, 1)?; // libid registered
+                set_module_from_libid(&mut reference, libid, encoding)?;
 
                 *stream = &stream[6..];
             },
 
             0x000E => { // REFERENCEPROJECT
                 *stream = &stream[4..];
-                let absolute = try!(read_variable_record(stream, 1)); // project libid absolute
+                let absolute = read_variable_record(stream, 1)?; // project libid absolute
                 {
-                    let absolute = try!(encoding.decode_all(absolute));
+                    let absolute = encoding.decode_all(absolute)?;
                     reference.path = if absolute.starts_with("*\\C") { 
                         absolute[3..].into()
                     } else {
                         absolute.into()
                     };
                 }
-                try!(read_variable_record(stream, 1)); // project libid relative
+                read_variable_record(stream, 1)?; // project libid relative
                 *stream = &stream[6..];
             },
             c => return Err(format!("invalid of unknown check Id {}", c).into()),
@@ -273,7 +273,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
     debug!("read all modules metadata");
     *stream = &stream[4..];
     
-    let module_len = try!(stream.read_u16::<LittleEndian>()) as usize;
+    let module_len = stream.read_u16::<LittleEndian>()? as usize;
 
     *stream = &stream[8..]; // PROJECTCOOKIE record
     let mut modules = Vec::with_capacity(module_len);
@@ -281,32 +281,32 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
     for _ in 0..module_len {
 
         // name
-        let name = try!(check_variable_record(0x0019, stream));
-        let name = try!(encoding.decode_all(name));
+        let name = check_variable_record(0x0019, stream)?;
+        let name = encoding.decode_all(name)?;
 
-        try!(check_variable_record(0x0047, stream));      // unicode
+        check_variable_record(0x0047, stream)?;      // unicode
 
-        let stream_name = try!(check_variable_record(0x001A, stream)); // stream name
-        let stream_name = try!(encoding.decode_all(stream_name)); 
+        let stream_name = check_variable_record(0x001A, stream)?; // stream name
+        let stream_name = encoding.decode_all(stream_name)?; 
 
-        try!(check_variable_record(0x0032, stream));      // stream name unicode
-        try!(check_variable_record(0x001C, stream));      // doc string
-        try!(check_variable_record(0x0048, stream));      // doc string unicode
+        check_variable_record(0x0032, stream)?;      // stream name unicode
+        check_variable_record(0x001C, stream)?;      // doc string
+        check_variable_record(0x0048, stream)?;      // doc string unicode
 
         // offset
-        try!(check_record(0x0031, stream));
+        check_record(0x0031, stream)?;
         *stream = &stream[4..];
-        let offset = try!(stream.read_u32::<LittleEndian>()) as usize;
+        let offset = stream.read_u32::<LittleEndian>()? as usize;
 
         // help context
-        try!(check_record(0x001E, stream));
+        check_record(0x001E, stream)?;
         *stream = &stream[8..];
 
         // cookie
-        try!(check_record(0x002C, stream));
+        check_record(0x002C, stream)?;
         *stream = &stream[6..];
 
-        match try!(stream.read_u16::<LittleEndian>()) {
+        match stream.read_u16::<LittleEndian>()? {
             0x0021 /* procedural module */ |
             0x0022 /* document, class or designer module */ => (),
             e => return Err(format!("unknown module type {}", e).into()),
@@ -337,7 +337,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
 /// 
 /// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
 fn read_variable_record<'a>(r: &mut &'a[u8], mult: usize) -> Result<&'a[u8]> {
-    let len = try!(r.read_u32::<LittleEndian>()) as usize * mult;
+    let len = r.read_u32::<LittleEndian>()? as usize * mult;
     let (read, next) = r.split_at(len);
     *r = next;
     Ok(read)
@@ -345,8 +345,8 @@ fn read_variable_record<'a>(r: &mut &'a[u8], mult: usize) -> Result<&'a[u8]> {
 
 /// Check that next record matches `id` and returns a variable length record
 fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
-    try!(check_record(id, r));
-    let record = try!(read_variable_record(r, 1));
+    check_record(id, r)?;
+    let record = read_variable_record(r, 1)?;
     if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
         warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
               id, record.len(), record.len() as u32);
@@ -357,7 +357,7 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
 /// Check that next record matches `id`
 fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
     debug!("check record {:x}", id);
-    let record_id = try!(r.read_u16::<LittleEndian>());
+    let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
         Err(format!("invalid record id, found {:x}, expecting {:x}", record_id, id).into())
     } else {

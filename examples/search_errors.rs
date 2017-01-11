@@ -4,8 +4,9 @@ extern crate glob;
 use std::env;
 use std::io::{BufWriter, Write};
 use std::fs::File;
+use std::path::PathBuf;
 
-use glob::{glob, GlobError};
+use glob::{glob, GlobError, GlobResult};
 use calamine::{Excel, DataType, Error};
 
 type MissingReference = Option<usize>;
@@ -39,57 +40,41 @@ fn main() {
     for f in glob(&pattern).expect("Failed to read excel glob, the first \
                                     argument must correspond to a directory") {
         filecount += 1;
-        let mut status = Vec::new();
-        let f = match f {
-            Ok(f) => f,
-            Err(e) => {
-                status.push(FileStatus::Glob(e));
-                continue;
-            }
-        };
-        println!("Analysing {:?}", f.display());
-        match Excel::open(&f) {
-            Ok(mut xl) => {
-                let mut missing = None;
-                let mut cell_errors = 0;
-                if xl.has_vba() {
-                    match xl.vba_project() {
-                        Ok(ref mut vba) => {
-                            let refs = vba.get_references();
-                            missing = Some(refs.into_iter()
-                                .filter(|r| r.is_missing()).count());
-                        },
-                        Err(e) => status.push(FileStatus::VbaError(e)),
-                    }
-                }
-
-                match xl.sheet_names() {
-                    Ok(sheets) => {
-                        for s in sheets {
-                            match xl.worksheet_range(&s) {
-                                Ok(range) => {
-                                    cell_errors += range.rows()
-                                        .map(|r| r.iter()
-                                             .map(|c| if let &DataType::Error(_) = c { 1usize } else { 0 })
-                                             .sum::<usize>())
-                                        .sum::<usize>();
-                                },
-                                Err(e) => status.push(FileStatus::RangeError(e)),
-                            }
-                        }
-                    },
-                    Err(e) => status.push(FileStatus::ExcelError(e)),
-                }
-
-                writeln!(output, "{:?}~{:?}~{}", f.display(), missing, cell_errors)
-                    .unwrap_or_else(|e| println!("{:?}", e));
-            },
-            Err(e) => status.push(FileStatus::ExcelError(e)),
-        }
-        if !status.is_empty() {
-            writeln!(output, "{:?}~{:?}", f.display(), status).unwrap_or_else(|e| println!("{:?}", e));
-        }
+        let _ = match run(f) {
+            Ok((f, missing, cell_errors)) => writeln!(output, "{:?}~{:?}~{}", f, missing, cell_errors),
+            Err(e) => writeln!(output, "{:?}", e),
+        }.unwrap_or_else(|e| println!("{:?}", e));
     }
 
     println!("Found {} excel files", filecount);
+}
+
+fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
+
+    let f = f.map_err(FileStatus::Glob)?;
+
+    println!("Analysing {:?}", f.display());
+    let mut xl = Excel::open(&f).map_err(FileStatus::ExcelError)?;
+
+    let mut missing = None;
+    let mut cell_errors = 0;
+
+    if xl.has_vba() {
+        let vba = xl.vba_project().map_err(FileStatus::VbaError)?;
+        missing = Some(vba.get_references().iter().filter(|r| r.is_missing()).count());
+    }
+
+    // get owned sheet names
+    let sheets = xl.sheet_names().map_err(FileStatus::ExcelError)?
+        .into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+    for s in sheets {
+        let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
+        cell_errors += range.rows().flat_map(|r| r.iter().filter(|c| {
+            if let &&DataType::Error(_) = c { true } else { false }
+        })).count();
+    }
+
+    Ok((f, missing, cell_errors))
+
 }

@@ -33,7 +33,7 @@ impl Xlsx {
 impl ExcelReader for Xlsx {
 
     fn new(f: File) -> Result<Self> {
-        Ok(Xlsx { zip: try!(ZipArchive::new(f)) })
+        Ok(Xlsx { zip: ZipArchive::new(f)? })
     }
 
     fn has_vba(&mut self) -> bool {
@@ -41,7 +41,7 @@ impl ExcelReader for Xlsx {
     }
 
     fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        let mut f = try!(self.zip.by_name("xl/vbaProject.bin"));
+        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
         let len = f.size() as usize;
         VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
     }
@@ -49,7 +49,7 @@ impl ExcelReader for Xlsx {
     fn read_shared_strings(&mut self) -> Result<Vec<String>> {
         let mut xml = match self.xml_reader("xl/sharedStrings.xml") {
             None => return Ok(Vec::new()),
-            Some(x) => try!(x),
+            Some(x) => x?,
         };
         let mut strings = Vec::new();
         let mut rich_buffer: Option<String> = None;
@@ -68,7 +68,7 @@ impl ExcelReader for Xlsx {
                     }
                 },
                 Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                    let value = try!(xml.read_text_unescaped(b"t"));
+                    let value = xml.read_text_unescaped(b"t")?;
                     if let Some(ref mut s) = rich_buffer {
                         s.push_str(&value);
                     } else {
@@ -83,26 +83,26 @@ impl ExcelReader for Xlsx {
     }
 
     fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) 
-        -> Result<HashMap<String, String>>
+        -> Result<Vec<(String, String)>>
     {
         let xml = match self.xml_reader("xl/workbook.xml") {
-            None => return Ok(HashMap::new()),
-            Some(x) => try!(x),
+            None => return Ok(Vec::new()),
+            Some(x) => x?,
         };
-        let mut sheets = HashMap::new();
+        let mut sheets = Vec::new();
         for res_event in xml {
             match res_event {
                 Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
                     let mut name = String::new();
                     let mut path = String::new();
                     for a in e.unescaped_attributes() {
-                        match try!(a) {
-                            (b"name", v) => name = try!(v.as_str()).to_string(),
+                        match a? {
+                            (b"name", v) => name = v.as_str()?.to_string(),
                             (b"r:id", v) => path = format!("xl/{}", relationships[&*v]),
                             _ => (),
                         }
                     }
-                    sheets.insert(name, path);
+                    sheets.push((name, path));
                 }
                 Err(e) => return Err(e.into()),
                 _ => (),
@@ -114,7 +114,7 @@ impl ExcelReader for Xlsx {
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
         let xml = match self.xml_reader("xl/_rels/workbook.xml.rels") {
             None => return Err("Cannot find relationships file".into()),
-            Some(x) => try!(x),
+            Some(x) => x?,
         };
         let mut relationships = HashMap::new();
         for res_event in xml {
@@ -123,9 +123,9 @@ impl ExcelReader for Xlsx {
                     let mut id = Vec::new();
                     let mut target = String::new();
                     for a in e.attributes() {
-                        match try!(a) {
+                        match a? {
                             (b"Id", v) => id.extend_from_slice(v),
-                            (b"Target", v) => target = try!(v.as_str()).to_string(),
+                            (b"Target", v) => target = v.as_str()?.to_string(),
                             _ => (),
                         }
                     }
@@ -141,7 +141,7 @@ impl ExcelReader for Xlsx {
     fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range> {
         let mut xml = match self.xml_reader(path) {
             None => return Err(format!("Cannot find {} path", path).into()),
-            Some(x) => try!(x),
+            Some(x) => x?,
         };
         let mut cells = Vec::new();
         'xml: while let Some(res_event) = xml.next() {
@@ -151,8 +151,8 @@ impl ExcelReader for Xlsx {
                     match e.name() {
                         b"dimension" => {
                             for a in e.attributes() {
-                                if let (b"ref", rdim) = try!(a) {
-                                    let (start, end) = try!(get_dimension(rdim));
+                                if let (b"ref", rdim) = a? {
+                                    let (start, end) = get_dimension(rdim)?;
                                     cells.reserve(((end.0 - start.0 + 1) 
                                                    * (end.1 - start.1 + 1)) as usize);
                                     continue 'xml;
@@ -160,7 +160,7 @@ impl ExcelReader for Xlsx {
                             }
                             return Err(format!("Expecting dimension, got {:?}", e).into());
                         },
-                        b"sheetData" => try!(read_sheet_data(&mut xml, strings, &mut cells)),
+                        b"sheetData" => read_sheet_data(&mut xml, strings, &mut cells)?,
                         _ => (),
                     }
                 },
@@ -183,7 +183,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                     Ok((b"r", v)) => Some(get_row_column(v)),
                     _ => None,
                 }).next() {
-                    Some(v) => try!(v),
+                    Some(v) => v?,
                     None => return Err("Cell without a 'r' reference tag".into()),
                 };
                 loop {
@@ -192,13 +192,13 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                         Some(Ok(Event::Start(ref e))) => match e.name() {
                             b"v" => {
                                 // value
-                                let v = try!(xml.read_text_unescaped(b"v"));
+                                let v = xml.read_text_unescaped(b"v")?;
                                 let value = match c_element.attributes()
                                     .filter_map(|a| a.ok())
                                     .find(|&(k, _)| k == b"t") {
                                         Some((_, b"s")) => {
                                             // shared string
-                                            let idx: usize = try!(v.parse());
+                                            let idx: usize = v.parse()?;
                                             DataType::String(strings[idx].clone())
                                         },
                                         Some((_, b"str")) => {
@@ -211,9 +211,9 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                                         },
                                         Some((_, b"e")) => {
                                             // error
-                                            DataType::Error(try!(v.parse()))
+                                            DataType::Error(v.parse()?)
                                         },
-                                        _ => try!(v.parse().map(DataType::Float)),
+                                        _ => v.parse().map(DataType::Float)?,
                                     };
                                 cells.push(Cell::new(pos, value));
                                 break;
@@ -238,9 +238,9 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
 /// - top left (row, column), 
 /// - bottom right (row, column)
 fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
-    let parts: Vec<_> = try!(dimension.split(|c| *c == b':')
+    let parts: Vec<_> = dimension.split(|c| *c == b':')
         .map(|s| get_row_column(s))
-        .collect::<Result<Vec<_>>>());
+        .collect::<Result<Vec<_>>>()?;
 
     match parts.len() {
         0 => Err("dimension cannot be empty".into()),

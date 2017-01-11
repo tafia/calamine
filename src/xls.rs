@@ -25,13 +25,13 @@ impl ExcelReader for Xls {
 
     fn new(r: File) -> Result<Self> {
 
-        let len = try!(r.metadata()).len() as usize;
+        let len = r.metadata()?.len() as usize;
         let mut r = BufReader::new(r);
-        let mut cfb = try!(Cfb::new(&mut r, len ));
+        let mut cfb = Cfb::new(&mut r, len )?;
 
         // Reads vba once for all (better than reading all worksheets once for all)
         let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            Some(try!(VbaProject::from_cfb(&mut r, &mut cfb)))
+            Some(VbaProject::from_cfb(&mut r, &mut cfb)?)
         } else {
             None
         };
@@ -52,9 +52,9 @@ impl ExcelReader for Xls {
 
     /// Parses Workbook stream, no need for the relationships variable
     fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) 
-        -> Result<HashMap<String, String>>
+        -> Result<Vec<(String, String)>>
     {
-        let _ = try!(self.parse_workbook());
+        let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => Ok(shs.keys().map(|k| (k.to_string(), k.to_string())).collect())
@@ -70,7 +70,7 @@ impl ExcelReader for Xls {
     }
 
     fn read_worksheet_range(&mut self, name: &str, _: &[String]) -> Result<Range> {
-        let _ = try!(self.parse_workbook());
+        let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => shs.get(name)
@@ -86,8 +86,8 @@ impl Xls {
         // gets workbook and worksheets stream, or early exit
         let stream = match self.sheets {
             SheetsState::NotParsed(ref mut reader, ref mut cfb) => {
-                try!(cfb.get_stream("Workbook", reader)
-                     .or_else(|_| cfb.get_stream("Book", reader)))
+                cfb.get_stream("Workbook", reader)
+                     .or_else(|_| cfb.get_stream("Book", reader))?
             },
             SheetsState::Parsed(_) => return Ok(()),
         };
@@ -96,10 +96,10 @@ impl Xls {
         let mut strings = Vec::new();
         {
             let mut wb = &stream;
-            let mut encoding = try!(XlsEncoding::from_codepage(1200));
+            let mut encoding = XlsEncoding::from_codepage(1200)?;
             let records = RecordIter { stream: &mut wb };
             for record in records {
-                let mut r = try!(record);
+                let mut r = record?;
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
                         return Err("Expecting Workbook BOF".into());
@@ -107,13 +107,13 @@ impl Xls {
                     0x0012 => if read_u16(r.data) != 0 {
                         return Err("Workbook is password protected".into());
                     },
-                    0x0042 => encoding = try!(XlsEncoding::from_codepage(read_u16(r.data))), // CodePage
+                    0x0042 => encoding = XlsEncoding::from_codepage(read_u16(r.data))?, // CodePage
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
                     }, // RRTabId
-                    0x0085 => sheet_names.push(try!(parse_sheet_name(&mut r, &mut encoding))), // BoundSheet8
-                    0x00FC => strings = try!(parse_sst(&mut r, &mut encoding)), // SST
+                    0x0085 => sheet_names.push(parse_sheet_name(&mut r, &mut encoding)?), // BoundSheet8
+                    0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     0x000A => break, // EOF,
                     _ => (),
                 }
@@ -126,17 +126,17 @@ impl Xls {
             let records = RecordIter { stream: &mut sh };
             let mut cells = Vec::new();
             for record in records {
-                let r = try!(record);
+                let r = record?;
                 match r.typ {
                     0x0009 => if read_u16(&r.data[2..]) != 0x0010 { continue 'sh; }, // BOF, worksheet
                     0x0200 => {
-                        let (start, end) = try!(parse_dimensions(&r.data));
+                        let (start, end) = parse_dimensions(&r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
                     }, // Dimensions
-                    0x0203 => cells.push(try!(parse_number(&r.data))), // Number 
-                    0x0205 => cells.push(try!(parse_bool_err(&r.data))), // BoolErr
-                    0x027E => cells.push(try!(parse_rk(&r.data))), // RK
-                    0x00FD => cells.push(try!(parse_label_sst(&r.data, &strings))), // LabelSst
+                    0x0203 => cells.push(parse_number(&r.data)?), // Number 
+                    0x0205 => cells.push(parse_bool_err(&r.data)?), // BoolErr
+                    0x027E => cells.push(parse_rk(&r.data)?), // RK
+                    0x00FD => cells.push(parse_label_sst(&r.data, &strings)?), // LabelSst
                     0x000A => break, // EOF,
                     _ => (),
                 }
@@ -154,7 +154,7 @@ impl Xls {
 fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize, String)> {
     let pos = read_u32(r.data) as usize;
     r.data = &r.data[6..];
-    let sheet = try!(parse_short_string(r, encoding));
+    let sheet = parse_short_string(r, encoding)?;
     Ok((pos, sheet))
 }
 
@@ -260,7 +260,7 @@ fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> 
     let mut sst = Vec::with_capacity(len);
     r.data = &r.data[8..];
     for _ in 0..len {
-        sst.push(try!(read_rich_extended_string(r, encoding)));
+        sst.push(read_rich_extended_string(r, encoding)?);
     }
     Ok(sst)
 }
@@ -292,7 +292,7 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
         r.data = &r.data[4..];
     };
 
-    let s = try!(read_dbcs(encoding, str_len, r));
+    let s = read_dbcs(encoding, str_len, r)?;
 
     while unused_len > 0 {
         if r.data.is_empty() && !r.continue_record() {
@@ -311,7 +311,7 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
 {
     let mut s = String::with_capacity(len);
     while len > 0 {
-        let (l, at) = try!(encoding.decode_to(r.data, len, &mut s));
+        let (l, at) = encoding.decode_to(r.data, len, &mut s)?;
         r.data = &r.data[at..];
         len -= l;
         if len > 0 {

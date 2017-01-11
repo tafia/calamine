@@ -33,19 +33,19 @@ fn write_range<W: Write>(dest: &mut W, range: Range) -> Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {
-            let _ = try!(match *c {
+            let _ = match *c {
                 DataType::Empty => Ok(()),
                 DataType::String(ref s) => write!(dest, "{}", s),
                 DataType::Float(ref f) => write!(dest, "{}", f),
                 DataType::Int(ref i) => write!(dest, "{}", i),
                 DataType::Error(ref e) => write!(dest, "{:?}", e),
                 DataType::Bool(ref b) => write!(dest, "{}", b),
-            });
+            }?;
             if i != n {
-                let _ = try!(write!(dest, ";"));
+                let _ = write!(dest, ";")?;
             }
         }
-        let _ = try!(write!(dest, "\r\n"));
+        let _ = write!(dest, "\r\n")?;
     }
     Ok(())
 }

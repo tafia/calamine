@@ -33,14 +33,14 @@ impl Cfb {
     pub fn new<R: Read>(mut f: &mut R, len: usize) -> Result<Cfb> {
 
         // load header
-        let (h, mut difat) = try!(Header::from_reader(&mut f));
+        let (h, mut difat) = Header::from_reader(&mut f)?;
         let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
 
         // load fat and dif sectors
         debug!("load difat");
         let mut sector_id = h.difat_start;
         while sector_id != FREESECT && sector_id != ENDOFCHAIN {
-            difat.extend_from_slice(to_u32(try!(sectors.get(sector_id, f))));
+            difat.extend_from_slice(to_u32(sectors.get(sector_id, f)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }
 
@@ -48,14 +48,14 @@ impl Cfb {
         debug!("load fat");
         let mut fats = Vec::with_capacity(h.fat_len);
         for id in difat.into_iter().filter(|id| *id != FREESECT) {
-            fats.extend_from_slice(to_u32(try!(sectors.get(id, f))));
+            fats.extend_from_slice(to_u32(sectors.get(id, f)?));
         }
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = try!(sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size));
-        let dirs: Vec<_> = try!(dirs.chunks(128)
-                                .map(|c| Directory::from_slice(c, h.sector_size)).collect());
+        let dirs = sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
+        let dirs = dirs.chunks(128).map(|c| Directory::from_slice(c, h.sector_size))
+            .collect::<Result<Vec<_>>>()?;
 
         if dirs.is_empty() || (h.version != 3 && dirs[0].start == ENDOFCHAIN) {
             return Err("Unexpected empty root directory".into());
@@ -64,8 +64,8 @@ impl Cfb {
 
         // load the mini streams
         debug!("load minis");
-        let ministream = try!(sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len));
-        let minifat = try!(sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size));
+        let ministream = sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len)?;
+        let minifat = sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
             directories: dirs,
@@ -113,7 +113,7 @@ struct Header {
 impl Header {
     fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>)> {
         let mut buf = [0u8; 512];
-        try!(f.read_exact(&mut buf));
+        f.read_exact(&mut buf)?;
 
         // check ole signature
         if read_slice::<u64>(buf.as_ref()) != 0xE11AB1A1E011CFD0 {
@@ -128,7 +128,7 @@ impl Header {
                 // sector size is 4096 bytes, but header is 512 bytes,
                 // so the remaining sector bytes have to be read
                 let mut buf_end = [0u8; 3584];
-                try!(f.read_exact(&mut buf_end));
+                f.read_exact(&mut buf_end)?;
                 4096
             },
             s => return Err(format!("Invalid sector shift, expecting 0x09 \
@@ -187,7 +187,7 @@ impl Sectors {
         if end > self.data.len() {
             let len = self.data.len();
             unsafe { self.data.set_len(end); }
-            try!(r.read_exact(&mut self.data[len..end]));
+            r.read_exact(&mut self.data[len..end])?;
         }
         Ok(&self.data[start..end])
     }
@@ -196,7 +196,7 @@ impl Sectors {
                           r: &mut R, len: usize) -> Result<Vec<u8>> {
         let mut chain = if len > 0 { Vec::with_capacity(len) } else { Vec::new() };
         while sector_id != ENDOFCHAIN {
-            chain.extend_from_slice(try!(self.get(sector_id, r)));
+            chain.extend_from_slice(self.get(sector_id, r)?);
             sector_id = fats[sector_id as usize];
         }
         if len > 0 { chain.truncate(len); }
@@ -215,8 +215,8 @@ struct Directory {
 
 impl Directory {
     fn from_slice(buf: &[u8], sector_size: usize) -> Result<Directory> {
-        let mut name = try!(UTF_16LE.decode(&buf[..64], DecoderTrap::Ignore)
-                            .map_err(|e| e.to_string()));
+        let mut name = UTF_16LE.decode(&buf[..64], DecoderTrap::Ignore)
+                            .map_err(|e| e.to_string())?;
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
@@ -365,7 +365,7 @@ impl XlsEncoding {
 
     pub fn decode_all(&self, stream: &[u8]) -> Result<String> {
         let mut s = String::with_capacity(stream.len());
-        let _ = try!(self.decode_to(stream, stream.len(), &mut s));
+        let _ = self.decode_to(stream, stream.len(), &mut s)?;
         Ok(s)
     }
 }

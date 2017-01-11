@@ -142,7 +142,7 @@ pub struct Excel {
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
     /// Map of sheet names/sheet path within zip archive
-    sheets: HashMap<String, String>,
+    sheets: Vec<(String, String)>,
 }
 
 macro_rules! inner {
@@ -173,19 +173,19 @@ impl Excel {
     /// assert!(Excel::open(path).is_ok());
     /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
-        let f = try!(File::open(&path));
+        let f = File::open(&path)?;
         let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
-            Some("xls") | Some("xla") => FileType::Xls(try!(xls::Xls::new(f))),
-            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(try!(xlsx::Xlsx::new(f))),
-            Some("xlsb") => FileType::Xlsb(try!(xlsb::Xlsb::new(f))),
-            Some(e) => return Err(format!("unrecognized extension: {:?}", e).into()),
-            None => return Err("expecting a file with an extension".into()),
+            Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
+            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
+            Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
+            Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
+            None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
         Ok(Excel { 
             file: file, 
             strings: vec![], 
             relationships: HashMap::new(),
-            sheets: HashMap::new(),
+            sheets: Vec::new(),
         })
     }
 
@@ -201,25 +201,41 @@ impl Excel {
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
+        self.initialize()?;
+        let &(_, ref p) = self.sheets.iter().find(|&&(ref n, _)| n == name)
+            .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
+        inner!(self, read_worksheet_range(p, &self.strings))
+    }
+
+
+    /// Get all data from `Worksheet` at index `idx` (0 based)
+    ///
+    /// # Examples
+    /// ```
+    /// use calamine::Excel;
+    ///
+    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
+    /// println!("Used range size: {:?}", range.get_size());
+    /// ```
+    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range> {
+        self.initialize()?;
+        let &(_, ref p) = self.sheets.get(idx).ok_or(ErrorKind::WorksheetIndex(idx))?;
+        inner!(self, read_worksheet_range(p, &self.strings))
+    }
+
+    fn initialize(&mut self) -> Result<()> {
         if self.strings.is_empty() {
-            let strings = try!(inner!(self, read_shared_strings()));
-            self.strings = strings;
+            self.strings = inner!(self, read_shared_strings())?;
         }
-
         if self.relationships.is_empty() {
-            let rels = try!(inner!(self, read_relationships()));
-            self.relationships = rels;
+            self.relationships = inner!(self, read_relationships())?;
         }
-
         if self.sheets.is_empty() {
-            let sheets = try!(inner!(self, read_sheets_names(&self.relationships)));
-            self.sheets = sheets;
+            self.sheets = inner!(self, read_sheets_names(&self.relationships))?;
         }
-
-        match self.sheets.get(name) {
-            Some(ref p) => inner!(self, read_worksheet_range(p, &self.strings)), 
-            None => Err(format!("Sheet '{}' does not exist", name).into()),
-        }
+        Ok(())
     }
 
     /// Does the workbook contain a vba project
@@ -255,19 +271,9 @@ impl Excel {
     /// let mut workbook = Excel::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<String>> {
-
-        if self.relationships.is_empty() {
-            let rels = try!(inner!(self, read_relationships()));
-            self.relationships = rels;
-        }
-
-        if self.sheets.is_empty() {
-            let sheets = try!(inner!(self, read_sheets_names(&self.relationships)));
-            self.sheets = sheets;
-        }
-
-        Ok(self.sheets.keys().map(|k| k.to_string()).collect())
+    pub fn sheet_names(&mut self) -> Result<Vec<&str>> {
+        self.initialize()?;
+        Ok(self.sheets.iter().map(|&(ref k, _)| &**k).collect())
     }
 }
 
@@ -282,7 +288,7 @@ pub trait ExcelReader: Sized {
     /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<HashMap<String, String>>;
+    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>>;
     /// Read workbook relationships
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
     /// Read worksheet data in corresponding worksheet path
@@ -442,8 +448,7 @@ impl Range {
     /// ```
     pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
         if self.start > pos {
-            return Err(format!("invalid position, range start {:?} > position {:?}", 
-                               self.start, pos).into());
+            return Err(ErrorKind::CellOutOfRange(pos, self.start).into());
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
