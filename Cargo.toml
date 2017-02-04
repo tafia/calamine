@@ -15,7 +15,7 @@ quick-xml = "0.4.2"
 log = "0.3.6"
 encoding = "0.2.33"
 byteorder = "1.0.0"
-error-chain = "0.7.2"
+error-chain = "0.8.1"
 
 [dev-dependencies]
 glob = "0.2.11"
