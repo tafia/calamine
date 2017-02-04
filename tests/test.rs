@@ -21,9 +21,10 @@ fn issue_2() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
-    range_eq!(range, [[Float(1.), String("a".to_string())],
-                      [Float(2.), String("b".to_string())],
-                      [Float(3.), String("c".to_string())]]);
+    range_eq!(range,
+              [[Float(1.), String("a".to_string())],
+               [Float(2.), String("b".to_string())],
+               [Float(3.), String("c".to_string())]]);
 }
 
 #[test]
@@ -53,10 +54,8 @@ fn issue_6() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue6").unwrap();
-    range_eq!(range, [[Float(1.)], 
-                      [Float(2.)],
-                      [String("ab".to_string())], 
-                      [Bool(false)]]);
+    range_eq!(range,
+              [[Float(1.)], [Float(2.)], [String("ab".to_string())], [Bool(false)]]);
 }
 
 #[test]
@@ -65,13 +64,14 @@ fn error_file() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Feuil1").unwrap();
-    range_eq!(range, [[Error(Div0)],
-                      [Error(Name)], 
-                      [Error(Value)], 
-                      [Error(Null)], 
-                      [Error(Ref)], 
-                      [Error(Num)], 
-                      [Error(NA)]]);
+    range_eq!(range,
+              [[Error(Div0)],
+               [Error(Name)],
+               [Error(Value)],
+               [Error(Null)],
+               [Error(Ref)],
+               [Error(Num)],
+               [Error(NA)]]);
 }
 
 #[test]
@@ -80,10 +80,11 @@ fn issue_9() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Feuil1").unwrap();
-    range_eq!(range, [[String("test1".to_string())],
-                      [String("test2 other".to_string())],
-                      [String("test3 aaa".to_string())], 
-                      [String("test4".to_string())]]);
+    range_eq!(range,
+              [[String("test1".to_string())],
+               [String("test2 other".to_string())],
+               [String("test3 aaa".to_string())],
+               [String("test4".to_string())]]);
 }
 
 #[test]
@@ -92,11 +93,9 @@ fn vba() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let mut vba = excel.vba_project().unwrap();
-    assert_eq!(vba.to_mut().get_module("testVBA").unwrap(), "Attribute VB_Name = \"testVBA\"\
-    \r\nPublic Sub test()\
-    \r\n    MsgBox \"Hello from vba!\"\
-    \r\nEnd Sub\
-    \r\n");
+    assert_eq!(vba.to_mut().get_module("testVBA").unwrap(),
+               "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
+                vba!\"\r\nEnd Sub\r\n");
 }
 
 #[test]
@@ -105,9 +104,10 @@ fn xlsb() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
-    range_eq!(range, [[Float(1.), String("a".to_string())],
-                      [Float(2.), String("b".to_string())], 
-                      [Float(3.), String("c".to_string())]]);
+    range_eq!(range,
+              [[Float(1.), String("a".to_string())],
+               [Float(2.), String("b".to_string())],
+               [Float(3.), String("c".to_string())]]);
 }
 
 #[test]
@@ -116,9 +116,10 @@ fn xls() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
-    range_eq!(range, [[Float(1.), String("a".to_string())],
-                      [Float(2.), String("b".to_string())],
-                      [Float(3.), String("c".to_string())]]);
+    range_eq!(range,
+              [[Float(1.), String("a".to_string())],
+               [Float(2.), String("b".to_string())],
+               [Float(3.), String("c".to_string())]]);
 }
 
 #[test]
@@ -127,15 +128,15 @@ fn special_chrs_xlsx() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
-    range_eq!(range, [[String("&".to_string())],
-                      [String("<".to_string())],
-                      [String(">".to_string())],
-                      [String("aaa ' aaa".to_string())],
-                      [String("\"".to_string())],
-                      [String("☺".to_string())],
-                      [String("֍".to_string())],
-                      [String("àâéêèçöïî«»".to_string())],
-                      ]);
+    range_eq!(range,
+              [[String("&".to_string())],
+               [String("<".to_string())],
+               [String(">".to_string())],
+               [String("aaa ' aaa".to_string())],
+               [String("\"".to_string())],
+               [String("☺".to_string())],
+               [String("֍".to_string())],
+               [String("àâéêèçöïî«»".to_string())]]);
 }
 
 #[test]
@@ -144,12 +145,13 @@ fn special_chrs_xlsb() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
-    range_eq!(range, [[String("&".to_string())],
-                      [String("<".to_string())],
-                      [String(">".to_string())],
-                      [String("aaa ' aaa".to_string())],
-                      [String("\"".to_string())],
-                      [String("☺".to_string())],
-                      [String("֍".to_string())],
-                      [String("àâéêèçöïî«»".to_string())]]);
+    range_eq!(range,
+              [[String("&".to_string())],
+               [String("<".to_string())],
+               [String(">".to_string())],
+               [String("aaa ' aaa".to_string())],
+               [String("\"".to_string())],
+               [String("☺".to_string())],
+               [String("֍".to_string())],
+               [String("àâéêèçöïî«»".to_string())]]);
 }

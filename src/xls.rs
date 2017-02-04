@@ -22,12 +22,11 @@ pub struct Xls {
 }
 
 impl ExcelReader for Xls {
-
     fn new(r: File) -> Result<Self> {
 
         let len = r.metadata()?.len() as usize;
         let mut r = BufReader::new(r);
-        let mut cfb = Cfb::new(&mut r, len )?;
+        let mut cfb = Cfb::new(&mut r, len)?;
 
         // Reads vba once for all (better than reading all worksheets once for all)
         let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
@@ -36,7 +35,7 @@ impl ExcelReader for Xls {
             None
         };
 
-        Ok(Xls { 
+        Ok(Xls {
             sheets: SheetsState::NotParsed(r, cfb),
             vba: vba,
         })
@@ -51,13 +50,13 @@ impl ExcelReader for Xls {
     }
 
     /// Parses Workbook stream, no need for the relationships variable
-    fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) 
-        -> Result<Vec<(String, String)>>
-    {
+    fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => Ok(shs.keys().map(|k| (k.to_string(), k.to_string())).collect())
+            SheetsState::Parsed(ref shs) => {
+                Ok(shs.keys().map(|k| (k.to_string(), k.to_string())).collect())
+            }
         }
     }
 
@@ -73,9 +72,11 @@ impl ExcelReader for Xls {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => shs.get(name)
-                .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
-                .map(|r| r.clone())
+            SheetsState::Parsed(ref shs) => {
+                shs.get(name)
+                    .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
+                    .map(|r| r.clone())
+            }
         }
     }
 }
@@ -87,12 +88,12 @@ impl Xls {
         let stream = match self.sheets {
             SheetsState::NotParsed(ref mut reader, ref mut cfb) => {
                 cfb.get_stream("Workbook", reader)
-                     .or_else(|_| cfb.get_stream("Book", reader))?
-            },
+                    .or_else(|_| cfb.get_stream("Book", reader))?
+            }
             SheetsState::Parsed(_) => return Ok(()),
         };
 
-        let mut sheet_names = Vec::new(); 
+        let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
         {
             let mut wb = &stream;
@@ -101,17 +102,21 @@ impl Xls {
             for record in records {
                 let mut r = record?;
                 match r.typ {
-                    0x0009 => if read_u16(&r.data[2..]) != 0x0005 {
-                        return Err("Expecting Workbook BOF".into());
-                    }, // BOF,
-                    0x0012 => if read_u16(r.data) != 0 {
-                        return Err("Workbook is password protected".into());
-                    },
+                    0x0009 => {
+                        if read_u16(&r.data[2..]) != 0x0005 {
+                            return Err("Expecting Workbook BOF".into());
+                        }
+                    } // BOF,
+                    0x0012 => {
+                        if read_u16(r.data) != 0 {
+                            return Err("Workbook is password protected".into());
+                        }
+                    }
                     0x0042 => encoding = XlsEncoding::from_codepage(read_u16(r.data))?, // CodePage
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
-                    }, // RRTabId
+                    } // RRTabId
                     0x0085 => sheet_names.push(parse_sheet_name(&mut r, &mut encoding)?), // BoundSheet8
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     0x000A => break, // EOF,
@@ -128,11 +133,15 @@ impl Xls {
             for record in records {
                 let r = record?;
                 match r.typ {
-                    0x0009 => if read_u16(&r.data[2..]) != 0x0010 { continue 'sh; }, // BOF, worksheet
+                    0x0009 => {
+                        if read_u16(&r.data[2..]) != 0x0010 {
+                            continue 'sh;
+                        }
+                    } // BOF, worksheet
                     0x0200 => {
                         let (start, end) = parse_dimensions(&r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
-                    }, // Dimensions
+                    } // Dimensions
                     0x0203 => cells.push(parse_number(&r.data)?), // Number 
                     0x0205 => cells.push(parse_bool_err(&r.data)?), // BoolErr
                     0x027E => cells.push(parse_rk(&r.data)?), // RK
@@ -176,22 +185,24 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell> {
     let col = read_u16(&r[2..]);
     let v = match r[7] {
         0x00 => DataType::Bool(r[6] != 0),
-        0x01 => match r[6] {
-            0x00 => DataType::Error(CellErrorType::Null),
-            0x07 => DataType::Error(CellErrorType::Div0),
-            0x0F => DataType::Error(CellErrorType::Value),
-            0x17 => DataType::Error(CellErrorType::Ref),
-            0x1D => DataType::Error(CellErrorType::Name),
-            0x24 => DataType::Error(CellErrorType::Num),
-            0x2A => DataType::Error(CellErrorType::NA),
-            0x2B => DataType::Error(CellErrorType::GettingData),
-            e => return Err(format!("Unrecognized error {:x}", e).into()),
-        },
+        0x01 => {
+            match r[6] {
+                0x00 => DataType::Error(CellErrorType::Null),
+                0x07 => DataType::Error(CellErrorType::Div0),
+                0x0F => DataType::Error(CellErrorType::Value),
+                0x17 => DataType::Error(CellErrorType::Ref),
+                0x1D => DataType::Error(CellErrorType::Name),
+                0x24 => DataType::Error(CellErrorType::Num),
+                0x2A => DataType::Error(CellErrorType::NA),
+                0x2B => DataType::Error(CellErrorType::GettingData),
+                e => return Err(format!("Unrecognized error {:x}", e).into()),
+            }
+        }
         e => return Err(format!("Unrecognized fError {:x}", e).into()),
     };
     Ok(Cell::new((row as u32, col as u32), v))
 }
- 
+
 fn parse_rk(r: &[u8]) -> Result<Cell> {
     if r.len() < 10 {
         return Err("Invalid rk length".into());
@@ -205,12 +216,12 @@ fn parse_rk(r: &[u8]) -> Result<Cell> {
     let mut v = [0u8; 8];
     v[4..].copy_from_slice(&r[6..10]);
     v[0] &= 0xFC;
-    let v = if is_int { 
+    let v = if is_int {
         let v = (read_slice::<i32>(&v[4..]) >> 2) as i64;
-        DataType::Int( if d100 { v/100 } else { v })
+        DataType::Int(if d100 { v / 100 } else { v })
     } else {
         let v = read_slice(&v);
-        DataType::Float( if d100 { v/100.0 } else { v })
+        DataType::Float(if d100 { v / 100.0 } else { v })
     };
     Ok(Cell::new((row as u32, col as u32), v))
 }
@@ -234,19 +245,24 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell> {
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
-    Ok(Cell::new((row as u32, col as u32), DataType::String(strings[i].clone())))
+    Ok(Cell::new((row as u32, col as u32),
+                 DataType::String(strings[i].clone())))
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
     let (rf, rl, cf, cl) = match r.len() {
-        10 => (read_u16(&r[0..2]) as u32,
-               read_u16(&r[2..4]) as u32,
-               read_u16(&r[4..6]) as u32,
-               read_u16(&r[6..8]) as u32),
-        14 => (read_u32(&r[0..4]),
-               read_u32(&r[4..8]),
-               read_u16(&r[8..10]) as u32,
-               read_u16(&r[10..12]) as u32),
+        10 => {
+            (read_u16(&r[0..2]) as u32,
+             read_u16(&r[2..4]) as u32,
+             read_u16(&r[4..6]) as u32,
+             read_u16(&r[6..8]) as u32)
+        }
+        14 => {
+            (read_u32(&r[0..4]),
+             read_u32(&r[4..8]),
+             read_u16(&r[8..10]) as u32,
+             read_u16(&r[10..12]) as u32)
+        }
         _ => return Err("Invalid dimensions lengths".into()),
     };
     Ok(((rf, cf), (rl - 1, cl - 1)))
@@ -280,14 +296,14 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
         *b = flags & 0x1 != 0;
     }
 
-    let mut unused_len = if rich_st != 0 { 
+    let mut unused_len = if rich_st != 0 {
         let l = 4 * read_u16(&r.data) as usize;
         r.data = &r.data[2..];
         l
     } else {
         0
     };
-    if ext_st != 0 { 
+    if ext_st != 0 {
         unused_len += read_slice::<i32>(&r.data) as usize;
         r.data = &r.data[4..];
     };
@@ -307,22 +323,21 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
     Ok(s)
 }
 
-fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String>
-{
+fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String> {
     let mut s = String::with_capacity(len);
     while len > 0 {
         let (l, at) = encoding.decode_to(r.data, len, &mut s)?;
         r.data = &r.data[at..];
         len -= l;
         if len > 0 {
-           if r.continue_record() {
-               if let Some(ref mut b) = encoding.high_byte {
-                   *b = r.data[0] & 0x1 != 0;
-                   r.data = &r.data[1..];
-               }
-           } else {
-               return Err("Cannot decode entire dbcs stream".into());
-           }
+            if r.continue_record() {
+                if let Some(ref mut b) = encoding.high_byte {
+                    *b = r.data[0] & 0x1 != 0;
+                    r.data = &r.data[1..];
+                }
+            } else {
+                return Err("Cannot decode entire dbcs stream".into());
+            }
         }
     }
     Ok(s)
@@ -330,8 +345,8 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
 
 struct Record<'a> {
     typ: u16,
-    data: &'a[u8],
-    cont: Option<Vec<&'a[u8]>>,
+    data: &'a [u8],
+    cont: Option<Vec<&'a [u8]>>,
 }
 
 impl<'a> Record<'a> {
@@ -351,18 +366,18 @@ impl<'a> Record<'a> {
 }
 
 struct RecordIter<'a> {
-    stream: &'a[u8],
+    stream: &'a [u8],
 }
 
 impl<'a> Iterator for RecordIter<'a> {
-    type Item=Result<Record<'a>>;
+    type Item = Result<Record<'a>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.stream.len() < 4 {
             return if self.stream.is_empty() {
                 None
             } else {
                 Some(Err("Expecting record type and length, found end of stream".into()))
-            }
+            };
         }
         let t = read_u16(self.stream);
         let mut len = read_u16(&self.stream[2..]) as usize;
@@ -379,7 +394,8 @@ impl<'a> Iterator for RecordIter<'a> {
             while self.stream.len() > 4 && read_u16(self.stream) == 0x003C {
                 len = read_u16(&self.stream[2..]) as usize;
                 if self.stream.len() < len + 4 {
-                    return Some(Err("Expecting continue record length, found end of stream".into()));
+                    return Some(Err("Expecting continue record length, found end of stream"
+                        .into()));
                 }
                 let sp = self.stream.split_at(len + 4);
                 cont.push(&sp.0[4..]);
@@ -390,6 +406,10 @@ impl<'a> Iterator for RecordIter<'a> {
             None
         };
 
-        Some(Ok(Record { typ: t, data: d, cont: cont }))
+        Some(Ok(Record {
+            typ: t,
+            data: d,
+            cont: cont,
+        }))
     }
 }

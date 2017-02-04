@@ -2,8 +2,8 @@
 //!
 //! # Status
 //!
-//! **calamine** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
-//! 
+//! **calamine** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`).
+//!
 //! Read both cell values and vba project.
 //!
 //! # Examples
@@ -108,7 +108,7 @@ impl FromStr for CellErrorType {
     }
 }
 
-/// An enum to represent all different excel data types that can appear as 
+/// An enum to represent all different excel data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
@@ -181,9 +181,9 @@ impl Excel {
             Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
             None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
-        Ok(Excel { 
-            file: file, 
-            strings: vec![], 
+        Ok(Excel {
+            file: file,
+            strings: vec![],
             relationships: HashMap::new(),
             sheets: Vec::new(),
         })
@@ -202,7 +202,9 @@ impl Excel {
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         self.initialize()?;
-        let &(_, ref p) = self.sheets.iter().find(|&&(ref n, _)| n == name)
+        let &(_, ref p) = self.sheets
+            .iter()
+            .find(|&&(ref n, _)| n == name)
             .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
         inner!(self, read_worksheet_range(p, &self.strings))
     }
@@ -288,7 +290,9 @@ pub trait ExcelReader: Sized {
     /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>>;
+    fn read_sheets_names(&mut self,
+                         relationships: &HashMap<Vec<u8>, String>)
+                         -> Result<Vec<(String, String)>>;
     /// Read workbook relationships
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
     /// Read worksheet data in corresponding worksheet path
@@ -305,7 +309,6 @@ pub struct Cell {
 }
 
 impl Cell {
-
     /// Creates a new `Cell`
     pub fn new(position: (u32, u32), value: DataType) -> Cell {
         Cell {
@@ -325,7 +328,7 @@ impl Cell {
     }
 }
 
-/// A struct which represents a squared selection of cells 
+/// A struct which represents a squared selection of cells
 #[derive(Debug, Default, Clone)]
 pub struct Range {
     start: (u32, u32),
@@ -334,7 +337,6 @@ pub struct Range {
 }
 
 impl Range {
-
     /// Creates a new `Range`
     ///
     /// When possible, prefer the more efficient `Range::from_sparse`
@@ -349,30 +351,34 @@ impl Range {
 
     /// Creates a `Range` from a coo sparse vector of `Cell`s.
     ///
-    /// Coordinate list (COO) is the natural way cells are stored in excel files 
+    /// Coordinate list (COO) is the natural way cells are stored in excel files
     /// Inner size is defined only by non empty.
     ///
     /// cells: `Vec` of non empty `Cell`s, sorted by row
-    /// 
+    ///
     /// # Panics
     ///
-    /// panics when a `Cell` row is lower than the first `Cell` row or 
+    /// panics when a `Cell` row is lower than the first `Cell` row or
     /// bigger than the last `Cell` row.
     ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use calamine::{Range, DataType, Cell};
-    /// 
+    ///
     /// let v = vec![Cell::new((1, 200), DataType::Float(1.)),
     ///              Cell::new((55, 2),  DataType::String("a".to_string()))];
     /// let range = Range::from_sparse(v);
-    /// 
+    ///
     /// assert_eq!(range.get_size(), (55, 199));
     /// ```
     pub fn from_sparse(cells: Vec<Cell>) -> Range {
         if cells.is_empty() {
-            Range { start: (0, 0), end: (0, 0), inner: Vec::new() }
+            Range {
+                start: (0, 0),
+                end: (0, 0),
+                inner: Vec::new(),
+            }
         } else {
             // search bounds
             let row_start = cells.first().unwrap().pos.0;
@@ -395,7 +401,11 @@ impl Range {
                 let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
                 v[idx] = c.val;
             }
-            Range { start: (row_start, col_start), end: (row_end, col_end), inner: v }
+            Range {
+                start: (row_start, col_start),
+                end: (row_end, col_end),
+                inner: v,
+            }
         }
     }
 
@@ -452,18 +462,18 @@ impl Range {
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
-        match (self.end.0 < pos.0 , self.end.1 < pos.1) {
+        match (self.end.0 < pos.0, self.end.1 < pos.1) {
             (false, false) => (), // regular case, position within bounds
             (true, false) => {
                 let len = (pos.0 - self.end.0 + 1) as usize * self.width();
                 self.inner.extend_from_slice(&vec![DataType::Empty; len]);
                 self.end.0 = pos.0;
-            }, // missing some rows
+            } // missing some rows
             (e, true) => {
-                let height = if e { 
-                    (pos.0 - self.start.0 + 1) as usize 
+                let height = if e {
+                    (pos.0 - self.start.0 + 1) as usize
                 } else {
-                    self.height() 
+                    self.height()
                 };
                 let width = (pos.1 - self.start.1 + 1) as usize;
                 let old_width = self.width();
@@ -473,9 +483,13 @@ impl Range {
                     data.extend_from_slice(&vec![DataType::Empty; width - old_width]);
                 }
                 data.extend_from_slice(&vec![DataType::Empty; width * (height - self.height())]);
-                if e { self.end = pos } else { self.end.1 = pos.1 }
+                if e {
+                    self.end = pos
+                } else {
+                    self.end.1 = pos.1
+                }
                 self.inner = data;
-            }, // missing some columns
+            } // missing some columns
         }
 
         let pos = (pos.0 - self.start.0, pos.1 - self.start.1);
@@ -516,9 +530,11 @@ impl Range {
     ///
     /// This can be much faster than iterating rows as `Range` is saved as a sparce matrix
     pub fn used_cells(&self) -> UsedCells {
-        UsedCells { width: self.width(), inner: self.inner.iter().enumerate() }
+        UsedCells {
+            width: self.width(),
+            inner: self.inner.iter().enumerate(),
+        }
     }
-
 }
 
 /// A struct to iterate over used cells
@@ -531,7 +547,9 @@ pub struct UsedCells<'a> {
 impl<'a> Iterator for UsedCells<'a> {
     type Item = (usize, usize, &'a DataType);
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.by_ref().find(|&(_, v)| v != &DataType::Empty)
+        self.inner
+            .by_ref()
+            .find(|&(_, v)| v != &DataType::Empty)
             .map(|(i, v)| {
                 let row = i / self.width;
                 let col = i % self.width;
@@ -543,11 +561,11 @@ impl<'a> Iterator for UsedCells<'a> {
 /// An iterator to read `Range` struct row by row
 #[derive(Debug)]
 pub struct Rows<'a> {
-    inner: Option<::std::slice::Chunks<'a, DataType>>
+    inner: Option<::std::slice::Chunks<'a, DataType>>,
 }
 
 impl<'a> Iterator for Rows<'a> {
-    type Item = &'a[DataType];
+    type Item = &'a [DataType];
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
     }
@@ -555,11 +573,17 @@ impl<'a> Iterator for Rows<'a> {
 
 #[test]
 fn test_parse_error() {
-    assert_eq!(CellErrorType::from_str("#DIV/0!").unwrap(), CellErrorType::Div0);
+    assert_eq!(CellErrorType::from_str("#DIV/0!").unwrap(),
+               CellErrorType::Div0);
     assert_eq!(CellErrorType::from_str("#N/A").unwrap(), CellErrorType::NA);
-    assert_eq!(CellErrorType::from_str("#NAME?").unwrap(), CellErrorType::Name);
-    assert_eq!(CellErrorType::from_str("#NULL!").unwrap(), CellErrorType::Null);
-    assert_eq!(CellErrorType::from_str("#NUM!").unwrap(), CellErrorType::Num);
-    assert_eq!(CellErrorType::from_str("#REF!").unwrap(), CellErrorType::Ref);
-    assert_eq!(CellErrorType::from_str("#VALUE!").unwrap(), CellErrorType::Value);
+    assert_eq!(CellErrorType::from_str("#NAME?").unwrap(),
+               CellErrorType::Name);
+    assert_eq!(CellErrorType::from_str("#NULL!").unwrap(),
+               CellErrorType::Null);
+    assert_eq!(CellErrorType::from_str("#NUM!").unwrap(),
+               CellErrorType::Num);
+    assert_eq!(CellErrorType::from_str("#REF!").unwrap(),
+               CellErrorType::Ref);
+    assert_eq!(CellErrorType::from_str("#VALUE!").unwrap(),
+               CellErrorType::Value);
 }

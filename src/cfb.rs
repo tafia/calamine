@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Read;
 
-use encoding::{Encoding};
+use encoding::Encoding;
 use encoding::all::UTF_16LE;
 
 use encoding::{DecoderTrap, EncodingRef, StringWriter};
@@ -54,7 +54,8 @@ impl Cfb {
         // get the list of directory sectors
         debug!("load directories");
         let dirs = sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
-        let dirs = dirs.chunks(128).map(|c| Directory::from_slice(c, h.sector_size))
+        let dirs = dirs.chunks(128)
+            .map(|c| Directory::from_slice(c, h.sector_size))
             .collect::<Result<Vec<_>>>()?;
 
         if dirs.is_empty() || (h.version != 3 && dirs[0].start == ENDOFCHAIN) {
@@ -65,7 +66,8 @@ impl Cfb {
         // load the mini streams
         debug!("load minis");
         let ministream = sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len)?;
-        let minifat = sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
+        let minifat =
+            sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
             directories: dirs,
@@ -130,9 +132,11 @@ impl Header {
                 let mut buf_end = [0u8; 3584];
                 f.read_exact(&mut buf_end)?;
                 4096
-            },
-            s => return Err(format!("Invalid sector shift, expecting 0x09 \
-                                     or 0x0C, got {:x}", s).into()),
+            }
+            s => {
+                return Err(format!("Invalid sector shift, expecting 0x09 or 0x0C, got {:x}", s)
+                    .into())
+            }
         };
 
         if read_u16(&buf[32..34]) != 0x0006 {
@@ -151,15 +155,16 @@ impl Header {
         difat.extend_from_slice(to_u32(&buf[76..512]));
 
         Ok((Header {
-            version: version,
-            sector_size: sector_size,
-            dir_len: dir_len,
-            fat_len: fat_len,
-            dir_start: dir_start,
-            mini_fat_len: mini_fat_len,
-            mini_fat_start: mini_fat_start,
-            difat_start: difat_start,
-        }, difat))
+                version: version,
+                sector_size: sector_size,
+                dir_len: dir_len,
+                fat_len: fat_len,
+                dir_start: dir_start,
+                mini_fat_len: mini_fat_len,
+                mini_fat_start: mini_fat_start,
+                difat_start: difat_start,
+            },
+            difat))
     }
 }
 
@@ -173,7 +178,6 @@ struct Sectors {
 }
 
 impl Sectors {
-
     fn new(size: usize, data: Vec<u8>) -> Sectors {
         Sectors {
             data: data,
@@ -186,23 +190,34 @@ impl Sectors {
         let end = start + self.size;
         if end > self.data.len() {
             let len = self.data.len();
-            unsafe { self.data.set_len(end); }
+            unsafe {
+                self.data.set_len(end);
+            }
             r.read_exact(&mut self.data[len..end])?;
         }
         Ok(&self.data[start..end])
     }
 
-    fn get_chain<R: Read>(&mut self, mut sector_id: u32, fats: &[u32], 
-                          r: &mut R, len: usize) -> Result<Vec<u8>> {
-        let mut chain = if len > 0 { Vec::with_capacity(len) } else { Vec::new() };
+    fn get_chain<R: Read>(&mut self,
+                          mut sector_id: u32,
+                          fats: &[u32],
+                          r: &mut R,
+                          len: usize)
+                          -> Result<Vec<u8>> {
+        let mut chain = if len > 0 {
+            Vec::with_capacity(len)
+        } else {
+            Vec::new()
+        };
         while sector_id != ENDOFCHAIN {
             chain.extend_from_slice(self.get(sector_id, r)?);
             sector_id = fats[sector_id as usize];
         }
-        if len > 0 { chain.truncate(len); }
+        if len > 0 {
+            chain.truncate(len);
+        }
         Ok(chain)
     }
-
 }
 
 /// A struct representing sector organizations, behaves similarly to a tree
@@ -216,7 +231,7 @@ struct Directory {
 impl Directory {
     fn from_slice(buf: &[u8], sector_size: usize) -> Result<Directory> {
         let mut name = UTF_16LE.decode(&buf[..64], DecoderTrap::Ignore)
-                            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
@@ -238,8 +253,9 @@ impl Directory {
 /// Decompresses stream
 pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
 
-    const POWER_2: [usize; 16] = [1   , 1<<1, 1<<2,  1<<3,  1<<4,  1<<5,  1<<6,  1<<7, 
-                                  1<<8, 1<<9, 1<<10, 1<<11, 1<<12, 1<<13, 1<<14, 1<<15];
+    const POWER_2: [usize; 16] = [1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6, 1 << 7,
+                                  1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14,
+                                  1 << 15];
 
     debug!("decompress stream");
     let mut res = Vec::new();
@@ -264,7 +280,8 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
 
         assert_eq!(chunk_signature, 0b011, "i={}, len={}", i, s.len());
 
-        if chunk_flag == 0 { // uncompressed
+        if chunk_flag == 0 {
+            // uncompressed
             res.extend_from_slice(&s[i..i + 4096]);
             i += 4096;
         } else {
@@ -279,7 +296,9 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
 
                 for bit_index in 0..8 {
 
-                    if chunk_len > chunk_size { break 'chunk; }
+                    if chunk_len > chunk_size {
+                        break 'chunk;
+                    }
 
                     if (bit_flags & (1 << bit_index)) == 0 {
                         // literal token
@@ -303,7 +322,8 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
                             res.extend_from_slice(&buf[..offset]);
                             len -= offset;
                         }
-                        buf[..len].copy_from_slice(&res[res.len() - offset..res.len() - offset + len]);
+                        buf[..len]
+                            .copy_from_slice(&res[res.len() - offset..res.len() - offset + len]);
                         res.extend_from_slice(&buf[..len]);
                     }
                 }
@@ -326,22 +346,27 @@ impl XlsEncoding {
             None => return Err(format!("Cannot find {} codepage", codepage).into()),
         };
         let high_byte = match codepage {
-            20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 
-            874 | 1250...1258 | 28591...28605 => None, // SingleByte encodings
+            20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 874 | 1250...1258 |
+            28591...28605 => None, // SingleByte encodings
             _ => Some(false),
         };
 
-        Ok(XlsEncoding { encoding: e, high_byte: high_byte })
+        Ok(XlsEncoding {
+            encoding: e,
+            high_byte: high_byte,
+        })
     }
 
-    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut StringWriter) 
-        -> Result<(usize, usize)> 
-    {
+    pub fn decode_to(&self,
+                     stream: &[u8],
+                     len: usize,
+                     s: &mut StringWriter)
+                     -> Result<(usize, usize)> {
         let (l, ub, bytes) = match self.high_byte {
             None => {
                 let l = min(stream.len(), len);
                 (l, l, Cow::Borrowed(&stream[..l]))
-            },
+            }
             Some(false) => {
                 let l = min(stream.len(), len);
 
@@ -351,14 +376,15 @@ impl XlsEncoding {
                     bytes[2 * i] = *sce;
                 }
                 (l, l, Cow::Owned(bytes))
-            },
+            }
             Some(true) => {
                 let l = min(stream.len() / 2, len);
-                (l, 2*l, Cow::Borrowed(&stream[..2*l]))
+                (l, 2 * l, Cow::Borrowed(&stream[..2 * l]))
             }
         };
-        
-        self.encoding.decode_to(&bytes, DecoderTrap::Ignore, s)
+
+        self.encoding
+            .decode_to(&bytes, DecoderTrap::Ignore, s)
             .map_err(|e| e.to_string().into())
             .map(|_| (l, ub))
     }

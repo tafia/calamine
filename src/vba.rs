@@ -1,6 +1,6 @@
 //! Parse vbaProject.bin file
 //!
-//! Retranscription from: 
+//! Retranscription from:
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::io::Read;
@@ -24,7 +24,6 @@ pub struct VbaProject {
 }
 
 impl VbaProject {
-
     /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile` or xls file
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
@@ -52,9 +51,12 @@ impl VbaProject {
 
         // read all modules
         let modules: HashMap<String, Vec<u8>> = mods.into_iter()
-            .map(|m| cfb.get_stream(&m.stream_name, r)
-                 .and_then(|s| ::cfb::decompress_stream(&s[m.text_offset..])
-                           .map(move |s| (m.name, s))))
+            .map(|m| {
+                cfb.get_stream(&m.stream_name, r)
+                    .and_then(|s| {
+                        ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
+                    })
+            })
             .collect::<Result<HashMap<_, _>>>()?;
 
         Ok(VbaProject {
@@ -77,7 +79,7 @@ impl VbaProject {
     /// Reads module content and tries to convert to utf8
     ///
     /// While it works most of the time, the modules are MBSC encoding and the conversion
-    /// may fail. If this is the case you should revert to `read_module_raw` as there is 
+    /// may fail. If this is the case you should revert to `read_module_raw` as there is
     /// no built in decoding provided in this crate
     ///
     /// # Examples
@@ -147,7 +149,7 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding> {
     // PROJECT Codepage
     let encoding = XlsEncoding::from_codepage(read_u16(&stream[6..8]))?;
     *stream = &stream[8..];
-    
+
     // PROJECTNAME Record
     check_variable_record(0x0004, stream)?;
 
@@ -174,15 +176,16 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
 
     let mut references = Vec::new();
 
-    let mut reference = Reference { 
-        name: "".to_string(), 
-        description: "".to_string(), 
-        path: "/".into() 
+    let mut reference = Reference {
+        name: "".to_string(),
+        description: "".to_string(),
+        path: "/".into(),
     };
 
-    fn set_module_from_libid(reference: &mut Reference, libid: &[u8], encoding: &XlsEncoding) 
-        -> Result<()> 
-    {
+    fn set_module_from_libid(reference: &mut Reference,
+                             libid: &[u8],
+                             encoding: &XlsEncoding)
+                             -> Result<()> {
         let libid = encoding.decode_all(libid)?;
         let mut parts = libid.split('#').rev();
         parts.next().map(|p| reference.description = p.to_string());
@@ -194,13 +197,19 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
 
         let check = stream.read_u16::<LittleEndian>();
         match check? {
-            0x000F => { // termination of references array
-                if !reference.name.is_empty() { references.push(reference); }
+            0x000F => {
+                // termination of references array
+                if !reference.name.is_empty() {
+                    references.push(reference);
+                }
                 break;
-            },
+            }
 
-            0x0016 => { // REFERENCENAME
-                if !reference.name.is_empty() { references.push(reference); }
+            0x0016 => {
+                // REFERENCENAME
+                if !reference.name.is_empty() {
+                    references.push(reference);
+                }
 
                 let name = read_variable_record(stream, 1)?;
                 let name = encoding.decode_all(name)?;
@@ -211,13 +220,15 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
                 };
 
                 check_variable_record(0x003E, stream)?; // unicode
-            },
+            }
 
-            0x0033 => { // REFERENCEORIGINAL (followed by REFERENCECONTROL)
+            0x0033 => {
+                // REFERENCEORIGINAL (followed by REFERENCECONTROL)
                 read_variable_record(stream, 1)?;
-            },
+            }
 
-            0x002F => { // REFERENCECONTROL
+            0x002F => {
+                // REFERENCECONTROL
                 *stream = &stream[4..]; // len of total ref control
 
                 let libid = read_variable_record(stream, 1)?; //libid twiddled
@@ -226,34 +237,39 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
                 *stream = &stream[6..];
 
                 match stream.read_u16::<LittleEndian>()? {
-                    0x0016 => { // optional name record extended
+                    0x0016 => {
+                        // optional name record extended
                         read_variable_record(stream, 1)?; // name extended
                         check_variable_record(0x003E, stream)?; // name extended unicode
                         check_record(0x0030, stream)?;
-                    },
+                    }
                     0x0030 => (),
-                    e => return Err(format!( "unexpected token in reference control {:x}", e).into()),
-                } 
+                    e => {
+                        return Err(format!("unexpected token in reference control {:x}", e).into())
+                    }
+                }
                 *stream = &stream[4..];
                 read_variable_record(stream, 1)?; // libid extended
                 *stream = &stream[26..];
-            },
+            }
 
-            0x000D => { // REFERENCEREGISTERED
+            0x000D => {
+                // REFERENCEREGISTERED
                 *stream = &stream[4..];
 
                 let libid = read_variable_record(stream, 1)?; // libid registered
                 set_module_from_libid(&mut reference, libid, encoding)?;
 
                 *stream = &stream[6..];
-            },
+            }
 
-            0x000E => { // REFERENCEPROJECT
+            0x000E => {
+                // REFERENCEPROJECT
                 *stream = &stream[4..];
                 let absolute = read_variable_record(stream, 1)?; // project libid absolute
                 {
                     let absolute = encoding.decode_all(absolute)?;
-                    reference.path = if absolute.starts_with("*\\C") { 
+                    reference.path = if absolute.starts_with("*\\C") {
                         absolute[3..].into()
                     } else {
                         absolute.into()
@@ -261,7 +277,7 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
                 }
                 read_variable_record(stream, 1)?; // project libid relative
                 *stream = &stream[6..];
-            },
+            }
             c => return Err(format!("invalid of unknown check Id {}", c).into()),
         }
     }
@@ -272,7 +288,7 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
 fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module>> {
     debug!("read all modules metadata");
     *stream = &stream[4..];
-    
+
     let module_len = stream.read_u16::<LittleEndian>()? as usize;
 
     *stream = &stream[8..]; // PROJECTCOOKIE record
@@ -284,14 +300,14 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         let name = check_variable_record(0x0019, stream)?;
         let name = encoding.decode_all(name)?;
 
-        check_variable_record(0x0047, stream)?;      // unicode
+        check_variable_record(0x0047, stream)?; // unicode
 
         let stream_name = check_variable_record(0x001A, stream)?; // stream name
-        let stream_name = encoding.decode_all(stream_name)?; 
+        let stream_name = encoding.decode_all(stream_name)?;
 
-        check_variable_record(0x0032, stream)?;      // stream name unicode
-        check_variable_record(0x001C, stream)?;      // doc string
-        check_variable_record(0x0048, stream)?;      // doc string unicode
+        check_variable_record(0x0032, stream)?; // stream name unicode
+        check_variable_record(0x001C, stream)?; // doc string
+        check_variable_record(0x0048, stream)?; // doc string unicode
 
         // offset
         check_record(0x0031, stream)?;
@@ -334,9 +350,9 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
 }
 
 /// Reads a variable length record
-/// 
+///
 /// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
-fn read_variable_record<'a>(r: &mut &'a[u8], mult: usize) -> Result<&'a[u8]> {
+fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8]> {
     let len = r.read_u32::<LittleEndian>()? as usize * mult;
     let (read, next) = r.split_at(len);
     *r = next;
@@ -344,12 +360,14 @@ fn read_variable_record<'a>(r: &mut &'a[u8], mult: usize) -> Result<&'a[u8]> {
 }
 
 /// Check that next record matches `id` and returns a variable length record
-fn check_variable_record<'a>(id: u16, r: &mut &'a[u8]) -> Result<&'a[u8]> {
+fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8]> {
     check_record(id, r)?;
     let record = read_variable_record(r, 1)?;
     if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
-        warn!("record id {} as a suspicious huge length of {} (hex: {:x})", 
-              id, record.len(), record.len() as u32);
+        warn!("record id {} as a suspicious huge length of {} (hex: {:x})",
+              id,
+              record.len(),
+              record.len() as u32);
     }
     Ok(record)
 }
@@ -359,7 +377,10 @@ fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
     debug!("check record {:x}", id);
     let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
-        Err(format!("invalid record id, found {:x}, expecting {:x}", record_id, id).into())
+        Err(format!("invalid record id, found {:x}, expecting {:x}",
+                    record_id,
+                    id)
+            .into())
     } else {
         Ok(())
     }
