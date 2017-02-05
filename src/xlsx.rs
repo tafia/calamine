@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use quick_xml::{XmlReader, Event, AsStr};
+use quick_xml::{XmlReader, Event, AsStr, Element};
 
 use {DataType, ExcelReader, Range, Cell};
 use vba::VbaProject;
@@ -190,58 +190,113 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                    strings: &[String],
                    cells: &mut Vec<Cell>)
                    -> Result<()> {
+    /// read the contents of an <is> cell
+    fn read_inline_str(xml: &mut XmlReader<BufReader<ZipFile>>) -> Result<DataType> {
+        while let Some(is_evt) = xml.next() {
+            match is_evt {
+                Err(e) => return Err(e.into()),
+                Ok(Event::Start(ref t)) if t.name() == b"t" => {
+                    return Ok(DataType::String(xml.read_text_unescaped(b"t")?));
+                }
+                _ => {}
+            }
+        }
+        Err("unable to read inlineStr".into())
+    }
+    /// read the contents of a <v> cell
+    fn read_value(xml: &mut XmlReader<BufReader<ZipFile>>,
+                  strings: &[String],
+                  c_element: &Element)
+                  -> Result<DataType> {
+        let v = xml.read_text_unescaped(b"v")?;
+        match get_attribute(c_element, b"t")? {
+            Some(b"s") => {
+                // shared string
+                let idx: usize = v.parse()?;
+                Ok(DataType::String(strings[idx].clone()))
+            }
+            Some(b"b") => {
+                // boolean
+                Ok(DataType::Bool(v != "0"))
+            }
+            Some(b"e") => {
+                // error
+                Ok(DataType::Error(v.parse()?))
+            }
+            Some(b"d") => {
+                // date
+                // TODO: create a DataType::Date
+                // currently just return as string (ISO 8601)
+                Ok(DataType::String(v))
+            }
+            Some(b"str") => {
+                // see http://officeopenxml.com/SScontentOverview.php
+                // str - refers to formula cells
+                // * <c .. t='v' .. > indicates calculated value (this case)
+                // * <c .. t='f' .. > to the formula string (ignored case
+                // TODO: Fully support a DataType::Formula representing both Formula string &
+                // last calculated value?
+                v.parse()
+                    .map(DataType::Float)
+                    .map_err(Error::from)
+            }
+            Some(b"n") => {
+                // n - number
+                v.parse().map(DataType::Float).map_err(Error::from)
+            }
+            None => {
+                v.parse()
+                    .map(DataType::Float)
+                    .map_err(Error::from)
+            }
+            Some(b"is") => {
+                // this case should be handled in outer loop over cell elements, in which
+                // case read_inline_str is called instead. Case included here for completeness.
+                return Err("called read_value on a cell of type inlineStr".into());
+            }
+            Some(t) => return Err(format!("unknown cell 't' attribute={:?}", t).into()),
+        }
+    }
+    /// search through an Element's attributes for the named one
+    fn get_attribute<'a>(e: &'a Element, n: &'a [u8]) -> Result<Option<&'a [u8]>> {
+        for a in e.attributes() {
+            match a {
+                Ok((k, v)) if k == n => return Ok(Some(v)),
+                Ok(_) => {} // ignore other attributes
+                Err(qe) => return Err(qe.into()),
+            }
+        }
+
+        Ok(None)
+    }
     while let Some(res_event) = xml.next() {
         match res_event {
             Err(e) => return Err(e.into()),
             Ok(Event::Start(ref c_element)) if c_element.name() == b"c" => {
-                let pos = match c_element.attributes()
-                    .filter_map(|a| match a {
-                        Err(e) => Some(Err(e.into())),
-                        Ok((b"r", v)) => Some(get_row_column(v)),
-                        _ => None,
-                    })
-                    .next() {
-                    Some(v) => v?,
-                    None => return Err("Cell without a 'r' reference tag".into()),
-                };
+                let pos = get_attribute(c_element, b"r")
+                    .and_then(|o| o.ok_or_else(|| "Cell missing 'r' attribute tag".into()))
+                    .and_then(get_row_column)?;
+
                 loop {
                     match xml.next() {
                         Some(Err(e)) => return Err(e.into()),
                         Some(Ok(Event::Start(ref e))) => {
                             match e.name() {
-                                b"v" => {
-                                    // value
-                                    let v = xml.read_text_unescaped(b"v")?;
-                                    let value = match c_element.attributes()
-                                        .filter_map(|a| a.ok())
-                                        .find(|&(k, _)| k == b"t") {
-                                        Some((_, b"s")) => {
-                                            // shared string
-                                            let idx: usize = v.parse()?;
-                                            DataType::String(strings[idx].clone())
-                                        }
-                                        Some((_, b"str")) => {
-                                            // regular string
-                                            DataType::String(v)
-                                        }
-                                        Some((_, b"b")) => {
-                                            // boolean
-                                            DataType::Bool(v != "0")
-                                        }
-                                        Some((_, b"e")) => {
-                                            // error
-                                            DataType::Error(v.parse()?)
-                                        }
-                                        _ => v.parse().map(DataType::Float)?,
-                                    };
-                                    cells.push(Cell::new(pos, value));
+                                b"is" => {
+                                    cells.push(Cell::new(pos, read_inline_str(xml)?));
                                     break;
                                 }
-                                b"f" => (), // formula, ignore
-                                _name => return Err("not v or f node".into()),
+                                b"v" => {
+                                    cells.push(Cell::new(pos, read_value(xml, strings, c_element)?));
+                                    break;
+                                }
+                                b"f" => {} // ignore f nodes
+                                n => return Err(format!("not a v, f, or is node: {:?}", n).into()),
                             }
                         }
-                        Some(Ok(Event::End(ref e))) if e.name() == b"c" => break,
+                        Some(Ok(Event::End(ref e))) if e.name() == b"c" => {
+                            break;
+                        }
                         None => return Err("End of xml".into()),
                         _ => (),
                     }
