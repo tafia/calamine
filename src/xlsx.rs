@@ -100,7 +100,19 @@ impl ExcelReader for Xlsx {
                     for a in e.unescaped_attributes() {
                         match a? {
                             (b"name", v) => name = v.as_str()?.to_string(),
-                            (b"r:id", v) => path = format!("xl/{}", relationships[&*v]),
+                            (b"r:id", v) => {
+                                let r = &relationships[&*v][..];
+                                // target may have pre-prended "/xl/" or "xl/" path;
+                                // strip if present
+                                let r = if r.starts_with("/xl/") {
+                                    &r[4..]
+                                } else if r.starts_with("xl/") {
+                                    &r[3..]
+                                } else {
+                                    r
+                                };
+                                path = format!("xl/{}", r);
+                            }
                             _ => (),
                         }
                     }
