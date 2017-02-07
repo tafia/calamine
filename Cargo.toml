@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 zip = { version = "0.2.0", default-features = false }
-quick-xml = "0.4.2"
+quick-xml = "0.5.0"
 log = "0.3.6"
 encoding = "0.2.33"
 byteorder = "1.0.0"

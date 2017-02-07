@@ -9,8 +9,6 @@ use std::path::PathBuf;
 use glob::{glob, GlobError, GlobResult};
 use calamine::{Excel, DataType, Error};
 
-type MissingReference = Option<usize>;
-
 #[derive(Debug)]
 enum FileStatus {
     ExcelError(Error),
