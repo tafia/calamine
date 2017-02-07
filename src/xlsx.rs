@@ -193,6 +193,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
     /// read the contents of an <is> cell
     fn read_inline_str(xml: &mut XmlReader<BufReader<ZipFile>>) -> Result<DataType> {
         while let Some(is_evt) = xml.next() {
+            debug!("is_evt: {:?}", is_evt);
             match is_evt {
                 Err(e) => return Err(e.into()),
                 Ok(Event::Start(ref t)) if t.name() == b"t" => {
@@ -278,6 +279,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
         Ok(None)
     }
     while let Some(res_event) = xml.next() {
+        debug!("res_event: {:?}", res_event);
         match res_event {
             Err(e) => return Err(e.into()),
             Ok(Event::Start(ref c_element)) if c_element.name() == b"c" => {
@@ -289,6 +291,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                     match xml.next() {
                         Some(Err(e)) => return Err(e.into()),
                         Some(Ok(Event::Start(ref e))) => {
+                            debug!("e: {:?}", e);
                             match e.name() {
                                 b"is" => {
                                     cells.push(Cell::new(pos, read_inline_str(xml)?));
@@ -303,10 +306,11 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                             }
                         }
                         Some(Ok(Event::End(ref e))) if e.name() == b"c" => {
+                            debug!("</c>");
                             break;
                         }
                         None => return Err("End of xml".into()),
-                        _ => (),
+                        o => debug!("ignored Event: {:?}", o),
                     }
                 }
             }
