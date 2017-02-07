@@ -10,9 +10,13 @@ fn main() {
     // converts first argument into a csv (same name, silently overrides
     // if the file already exists
 
-    let file = env::args().skip(1).next()
+    let file = env::args()
+        .skip(1)
+        .next()
         .expect("Please provide an excel file to convert");
-    let sheet = env::args().skip(2).next()
+    let sheet = env::args()
+        .skip(2)
+        .next()
         .expect("Expecting a sheet name as second argument");
 
     let sce = PathBuf::from(file);

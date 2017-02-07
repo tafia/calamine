@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use quick_xml::{XmlReader, Event, AsStr};
+use quick_xml::{XmlReader, Event, AsStr, Element};
 
 use {DataType, ExcelReader, Range, Cell};
 use vba::VbaProject;
@@ -18,12 +18,15 @@ pub struct Xlsx {
 }
 
 impl Xlsx {
-    fn xml_reader<'a>(&'a mut self, path: &str) 
-        -> Option<Result<XmlReader<BufReader<ZipFile<'a>>>>> 
-    {
+    fn xml_reader<'a>(&'a mut self,
+                      path: &str)
+                      -> Option<Result<XmlReader<BufReader<ZipFile<'a>>>>> {
         match self.zip.by_name(path) {
-            Ok(f) => Some(Ok(XmlReader::from_reader(BufReader::new(f))
-                             .with_check(false).trim_text(false))),
+            Ok(f) => {
+                Some(Ok(XmlReader::from_reader(BufReader::new(f))
+                    .with_check(false)
+                    .trim_text(false)))
+            }
             Err(ZipError::FileNotFound) => None,
             Err(e) => return Some(Err(e.into())),
         }
@@ -31,7 +34,6 @@ impl Xlsx {
 }
 
 impl ExcelReader for Xlsx {
-
     fn new(f: File) -> Result<Self> {
         Ok(Xlsx { zip: ZipArchive::new(f)? })
     }
@@ -60,13 +62,13 @@ impl ExcelReader for Xlsx {
                         // use a buffer since richtext has multiples <r> and <t> for the same cell
                         rich_buffer = Some(String::new());
                     }
-                },
+                }
                 Ok(Event::End(ref e)) if e.name() == b"si" => {
                     if let Some(s) = rich_buffer {
                         strings.push(s);
                         rich_buffer = None;
                     }
-                },
+                }
                 Ok(Event::Start(ref e)) if e.name() == b"t" => {
                     let value = xml.read_text_unescaped(b"t")?;
                     if let Some(ref mut s) = rich_buffer {
@@ -82,9 +84,9 @@ impl ExcelReader for Xlsx {
         Ok(strings)
     }
 
-    fn read_sheets_names(&mut self, relationships: &HashMap<Vec<u8>, String>) 
-        -> Result<Vec<(String, String)>>
-    {
+    fn read_sheets_names(&mut self,
+                         relationships: &HashMap<Vec<u8>, String>)
+                         -> Result<Vec<(String, String)>> {
         let xml = match self.xml_reader("xl/workbook.xml") {
             None => return Ok(Vec::new()),
             Some(x) => x?,
@@ -98,7 +100,18 @@ impl ExcelReader for Xlsx {
                     for a in e.unescaped_attributes() {
                         match a? {
                             (b"name", v) => name = v.as_str()?.to_string(),
-                            (b"r:id", v) => path = format!("xl/{}", relationships[&*v]),
+                            (b"r:id", v) => {
+                                let r = &relationships[&*v][..];
+                                // target may have pre-prended "/xl/" or "xl/" path;
+                                // strip if present
+                                path = if r.starts_with("/xl/") {
+                                    r[1..].to_string()
+                                } else if r.starts_with("xl/") {
+                                    r.to_string()
+                                } else {
+                                    format!("xl/{}", r)
+                                };
+                            }
                             _ => (),
                         }
                     }
@@ -153,17 +166,17 @@ impl ExcelReader for Xlsx {
                             for a in e.attributes() {
                                 if let (b"ref", rdim) = a? {
                                     let (start, end) = get_dimension(rdim)?;
-                                    cells.reserve(((end.0 - start.0 + 1) 
-                                                   * (end.1 - start.1 + 1)) as usize);
+                                    cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
+                                                 usize);
                                     continue 'xml;
                                 }
                             }
                             return Err(format!("Expecting dimension, got {:?}", e).into());
-                        },
+                        }
                         b"sheetData" => read_sheet_data(&mut xml, strings, &mut cells)?,
                         _ => (),
                     }
-                },
+                }
                 _ => (),
             }
         }
@@ -172,61 +185,137 @@ impl ExcelReader for Xlsx {
 }
 
 /// read sheetData node
-fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>, 
-                   strings: &[String], cells: &mut Vec<Cell>) -> Result<()> {
+fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
+                   strings: &[String],
+                   cells: &mut Vec<Cell>)
+                   -> Result<()> {
+    /// read the contents of an <is> cell
+    fn read_inline_str(xml: &mut XmlReader<BufReader<ZipFile>>) -> Result<DataType> {
+        while let Some(is_evt) = xml.next() {
+            debug!("is_evt: {:?}", is_evt);
+            match is_evt {
+                Err(e) => return Err(e.into()),
+                Ok(Event::Start(ref t)) if t.name() == b"t" => {
+                    return Ok(DataType::String(xml.read_text_unescaped(b"t")?));
+                }
+                _ => {}
+            }
+        }
+        Err("unable to read inlineStr".into())
+    }
+    /// read the contents of a <v> cell
+    fn read_value(xml: &mut XmlReader<BufReader<ZipFile>>,
+                  strings: &[String],
+                  c_element: &Element)
+                  -> Result<DataType> {
+        let v = xml.read_text_unescaped(b"v")?;
+        match get_attribute(c_element, b"t")? {
+            Some(b"s") => {
+                // shared string
+                let idx: usize = v.parse()?;
+                Ok(DataType::String(strings[idx].clone()))
+            }
+            Some(b"b") => {
+                // boolean
+                Ok(DataType::Bool(v != "0"))
+            }
+            Some(b"e") => {
+                // error
+                Ok(DataType::Error(v.parse()?))
+            }
+            Some(b"d") => {
+                // date
+                // TODO: create a DataType::Date
+                // currently just return as string (ISO 8601)
+                Ok(DataType::String(v))
+            }
+            Some(b"str") => {
+                // see http://officeopenxml.com/SScontentOverview.php
+                // str - refers to formula cells
+                // * <c .. t='v' .. > indicates calculated value (this case)
+                // * <c .. t='f' .. > to the formula string (ignored case
+                // TODO: Fully support a DataType::Formula representing both Formula string &
+                // last calculated value?
+                //
+                // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
+                // We do try an initial parse as Float for utility, but fall back to a string
+                // representation if that fails
+                v.parse()
+                    .map(DataType::Float)
+                    .map_err(Error::from)
+                    .or_else::<Error, _>(|_| Ok(DataType::String(v)))
+            }
+            Some(b"n") => {
+                // n - number
+                v.parse().map(DataType::Float).map_err(Error::from)
+            }
+            None => {
+                // If type is not known, we try to parse as Float for utility, but fall back to
+                // String if this fails.
+                v.parse()
+                    .map(DataType::Float)
+                    .map_err(Error::from)
+                    .or_else::<Error, _>(|_| Ok(DataType::String(v)))
+            }
+            Some(b"is") => {
+                // this case should be handled in outer loop over cell elements, in which
+                // case read_inline_str is called instead. Case included here for completeness.
+                return Err("called read_value on a cell of type inlineStr".into());
+            }
+            Some(t) => return Err(format!("unknown cell 't' attribute={:?}", t).into()),
+        }
+    }
+    /// search through an Element's attributes for the named one
+    fn get_attribute<'a>(e: &'a Element, n: &'a [u8]) -> Result<Option<&'a [u8]>> {
+        for a in e.attributes() {
+            match a {
+                Ok((k, v)) if k == n => return Ok(Some(v)),
+                Ok(_) => {} // ignore other attributes
+                Err(qe) => return Err(qe.into()),
+            }
+        }
+
+        Ok(None)
+    }
     while let Some(res_event) = xml.next() {
+        debug!("res_event: {:?}", res_event);
         match res_event {
             Err(e) => return Err(e.into()),
             Ok(Event::Start(ref c_element)) if c_element.name() == b"c" => {
-                let pos = match c_element.attributes().filter_map(|a| match a {
-                    Err(e) => Some(Err(e.into())),
-                    Ok((b"r", v)) => Some(get_row_column(v)),
-                    _ => None,
-                }).next() {
-                    Some(v) => v?,
-                    None => return Err("Cell without a 'r' reference tag".into()),
-                };
+                let pos = get_attribute(c_element, b"r")
+                    .and_then(|o| o.ok_or_else(|| "Cell missing 'r' attribute tag".into()))
+                    .and_then(get_row_column)?;
+
                 loop {
                     match xml.next() {
                         Some(Err(e)) => return Err(e.into()),
-                        Some(Ok(Event::Start(ref e))) => match e.name() {
-                            b"v" => {
-                                // value
-                                let v = xml.read_text_unescaped(b"v")?;
-                                let value = match c_element.attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|&(k, _)| k == b"t") {
-                                        Some((_, b"s")) => {
-                                            // shared string
-                                            let idx: usize = v.parse()?;
-                                            DataType::String(strings[idx].clone())
-                                        },
-                                        Some((_, b"str")) => {
-                                            // regular string
-                                            DataType::String(v)
-                                        },
-                                        Some((_, b"b")) => {
-                                            // boolean
-                                            DataType::Bool(v != "0")
-                                        },
-                                        Some((_, b"e")) => {
-                                            // error
-                                            DataType::Error(v.parse()?)
-                                        },
-                                        _ => v.parse().map(DataType::Float)?,
-                                    };
-                                cells.push(Cell::new(pos, value));
-                                break;
-                            },
-                            b"f" => (), // formula, ignore
-                            _name => return Err("not v or f node".into()),
-                        },
-                        Some(Ok(Event::End(ref e))) if e.name() == b"c" => break,
+                        Some(Ok(Event::Start(ref e))) => {
+                            debug!("e: {:?}", e);
+                            match e.name() {
+                                b"is" => {
+                                    cells.push(Cell::new(pos, read_inline_str(xml)?));
+                                    break;
+                                }
+                                b"v" => {
+                                    cells.push(Cell::new(pos, read_value(xml, strings, c_element)?));
+                                    break;
+                                }
+                                b"f" => {} // ignore f nodes
+                                n => {
+                                    return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n)
+                                        .into())
+                                }
+                            }
+                        }
+                        Some(Ok(Event::End(ref e))) if e.name() == b"c" => {
+                            debug!("</c>");
+                            break;
+                        }
                         None => return Err("End of xml".into()),
-                        _ => (),
+                        o => debug!("ignored Event: {:?}", o),
                     }
                 }
-            },
+            }
             Ok(Event::End(ref e)) if e.name() == b"sheetData" => return Ok(()),
             _ => (),
         }
@@ -235,7 +324,7 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
-/// - top left (row, column), 
+/// - top left (row, column),
 /// - bottom right (row, column)
 fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
     let parts: Vec<_> = dimension.split(|c| *c == b':')
@@ -263,25 +352,27 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
                     pow *= 10;
                 } else {
                     return Err(format!("Numeric character are only allowed \
-                        at the end of the range: {:x}", c).into());
+                        at the end of the range: {:x}",
+                                       c)
+                        .into());
                 }
             }
             c @ b'A'...b'Z' => {
-                if readrow { 
+                if readrow {
                     pow = 1;
                     readrow = false;
                 }
                 col += ((c - b'A') as u32 + 1) * pow;
                 pow *= 26;
-            },
+            }
             c @ b'a'...b'z' => {
-                if readrow { 
+                if readrow {
                     pow = 1;
                     readrow = false;
                 }
                 col += ((c - b'a') as u32 + 1) * pow;
                 pow *= 26;
-            },
+            }
             _ => return Err(format!("Expecting alphanumeric character, got {:x}", c).into()),
         }
     }
