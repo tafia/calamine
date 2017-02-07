@@ -10,6 +10,12 @@
 
 ## master
 
+## 0.5.0
+- style: rustfmt the code
+- feat: xlsx - support 'inlineStr' elements (`<is>` nodes)
+- fix: xlsx - support sheetnames prefixed with 'xl/' or '/xl/'
+- chore: bump deps (error-chain 0.8.1, quick-xml 0.5.0)
+
 ## 0.4.0
 - refactor: replace `try!` with `?` operator
 - feat: adds a new `worksheet_range_by_index` function.
