@@ -104,14 +104,13 @@ impl ExcelReader for Xlsx {
                                 let r = &relationships[&*v][..];
                                 // target may have pre-prended "/xl/" or "xl/" path;
                                 // strip if present
-                                let r = if r.starts_with("/xl/") {
-                                    &r[4..]
+                                path = if r.starts_with("/xl/") {
+                                    r[1..].to_string()
                                 } else if r.starts_with("xl/") {
-                                    &r[3..]
+                                    r.to_string()
                                 } else {
-                                    r
+                                    format!("xl/{}", r)
                                 };
-                                path = format!("xl/{}", r);
                             }
                             _ => (),
                         }
