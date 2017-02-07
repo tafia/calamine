@@ -301,7 +301,10 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                                     break;
                                 }
                                 b"f" => {} // ignore f nodes
-                                n => return Err(format!("not a v, f, or is node: {:?}", n).into()),
+                                n => {
+                                    return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n)
+                                        .into())
+                                }
                             }
                         }
                         Some(Ok(Event::End(ref e))) if e.name() == b"c" => {
