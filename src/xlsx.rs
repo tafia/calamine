@@ -236,18 +236,26 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                 // * <c .. t='f' .. > to the formula string (ignored case
                 // TODO: Fully support a DataType::Formula representing both Formula string &
                 // last calculated value?
+                //
+                // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
+                // We do try an initial parse as Float for utility, but fall back to a string
+                // representation if that fails
                 v.parse()
                     .map(DataType::Float)
                     .map_err(Error::from)
+                    .or_else::<Error, _>(|_| Ok(DataType::String(v)))
             }
             Some(b"n") => {
                 // n - number
                 v.parse().map(DataType::Float).map_err(Error::from)
             }
             None => {
+                // If type is not known, we try to parse as Float for utility, but fall back to
+                // String if this fails.
                 v.parse()
                     .map(DataType::Float)
                     .map_err(Error::from)
+                    .or_else::<Error, _>(|_| Ok(DataType::String(v)))
             }
             Some(b"is") => {
                 // this case should be handled in outer loop over cell elements, in which
