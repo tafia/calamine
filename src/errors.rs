@@ -5,7 +5,7 @@
 
 #![allow(missing_docs)]
 
-use quick_xml::error::Error as XmlError;
+use quick_xml::errors::Error as XmlError;
 
 error_chain! {
     foreign_links {

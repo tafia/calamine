@@ -6,7 +6,9 @@ use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use quick_xml::{XmlReader, Event, AsStr};
+use quick_xml::reader::Reader;
+use quick_xml::events::Event;
+use quick_xml::events::attributes::Attribute;
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_16LE;
 
@@ -54,27 +56,38 @@ impl ExcelReader for Xlsb {
         let mut relationships = HashMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
-                let xml = XmlReader::from_reader(BufReader::new(f))
-                    .with_check(false)
-                    .trim_text(false);
+                let mut xml = Reader::from_reader(BufReader::new(f));
+                xml.check_end_names(false)
+                    .trim_text(false)
+                    .check_comments(false)
+                    .expand_empty_elements(true);
+                let mut buf = Vec::new();
 
-                for res_event in xml {
-                    match res_event {
+                loop {
+                    match xml.read_event(&mut buf) {
                         Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
-                            let mut id = Vec::new();
-                            let mut target = String::new();
+                            let mut id = None;
+                            let mut target = None;
                             for a in e.attributes() {
                                 match a? {
-                                    (b"Id", v) => id.extend_from_slice(v),
-                                    (b"Target", v) => target = v.as_str()?.to_string(),
+                                    Attribute { key: b"Id", value: v } => {
+                                        id = Some(v.to_vec());
+                                    },
+                                    Attribute { key: b"Target", value: v } => {
+                                        target = Some(xml.decode(v).into_owned());
+                                    },
                                     _ => (),
                                 }
                             }
-                            relationships.insert(id, target);
+                            if let (Some(id), Some(target)) = (id, target) {
+                                relationships.insert(id, target);
+                            }
                         }
+                        Ok(Event::Eof) => break,
                         Err(e) => return Err(e.into()),
                         _ => (),
                     }
+                    buf.clear();
                 }
             }
             Err(ZipError::FileNotFound) => (),
@@ -98,10 +111,10 @@ impl ExcelReader for Xlsb {
         // BrtSSTItems
         for _ in 0..len {
             let _ = iter.next_skip_blocks(0x0013,
-                                  &[ 
-                                               (0x0023, Some(0x0024)) // future 
-                                               ],
-                                  &mut buf)?; // BrtSSTItem
+                                          &[ 
+                                           (0x0023, Some(0x0024)) // future 
+                                           ],
+                                          &mut buf)?; // BrtSSTItem
             strings.push(wide_str(&buf[1..])?);
         }
         Ok(strings)
