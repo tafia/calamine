@@ -8,7 +8,12 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
-## master
+## 0.6.0
+- refactor: bump dependencies
+- refactor: move from rust-encoding to encoding_rs (faster), loses some decoders ...
+
+## 0.5.1
+- refactor: bump to quick-xml 0.6.0 (supposedly faster)
 
 ## 0.5.0
 - style: rustfmt the code

@@ -9,8 +9,7 @@ use zip::result::ZipError;
 use quick_xml::reader::Reader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attribute;
-use encoding::{Encoding, DecoderTrap};
-use encoding::all::UTF_16LE;
+use encoding_rs::UTF_16LE;
 
 use {DataType, ExcelReader, Cell, Range, CellErrorType};
 use vba::VbaProject;
@@ -115,7 +114,7 @@ impl ExcelReader for Xlsb {
                                            (0x0023, Some(0x0024)) // future 
                                            ],
                                           &mut buf)?; // BrtSSTItem
-            strings.push(wide_str(&buf[1..])?);
+            strings.push(wide_str(&buf[1..])?.into_owned());
         }
         Ok(strings)
     }
@@ -152,10 +151,10 @@ impl ExcelReader for Xlsb {
                 let rel_len = rel_len as usize * 2;
                 let relid = &buf[12..12 + rel_len];
                 // converts utf16le to utf8 for HashMap search
-                let relid = UTF_16LE.decode(relid, DecoderTrap::Ignore).map_err(|e| e.to_string())?;
+                let relid = UTF_16LE.decode(relid).0;
                 let path = format!("xl/{}", relationships[relid.as_bytes()]);
                 let name = wide_str(&buf[12 + rel_len..len])?;
-                sheets.push((name, path));
+                sheets.push((name.into_owned(), path));
             }
         }
     }
@@ -228,7 +227,7 @@ impl ExcelReader for Xlsb {
                 }
                 0x0004 => DataType::Bool(buf[8] != 0), // BrtCellBool 
                 0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal 
-                0x0006 => DataType::String(wide_str(&buf[8..])?), // BrtCellSt 
+                0x0006 => DataType::String(wide_str(&buf[8..])?.into_owned()), // BrtCellSt 
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&buf[8..12]);
@@ -322,7 +321,7 @@ impl<'a> RecordIter<'a> {
     }
 }
 
-fn wide_str(buf: &[u8]) -> Result<String> {
+fn wide_str(buf: &[u8]) -> Result<Cow<str>> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
         return Err(format!("Wide string length ({}) exceeds buffer length ({})",
@@ -331,7 +330,7 @@ fn wide_str(buf: &[u8]) -> Result<String> {
             .into());
     }
     let s = &buf[4..4 + len * 2];
-    UTF_16LE.decode(s, DecoderTrap::Ignore).map_err(|e| e.to_string().into())
+    Ok(UTF_16LE.decode(s).0)
 }
 
 fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {

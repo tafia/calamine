@@ -44,7 +44,7 @@
 
 extern crate zip;
 extern crate quick_xml;
-extern crate encoding;
+extern crate encoding_rs;
 extern crate byteorder;
 #[macro_use]
 extern crate error_chain;
