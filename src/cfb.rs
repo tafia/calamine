@@ -4,11 +4,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Read;
 
-use encoding::Encoding;
-use encoding::all::UTF_16LE;
-
-use encoding::{DecoderTrap, EncodingRef, StringWriter};
-use encoding::label::encoding_from_windows_code_page;
+use encoding_rs::{Encoding, UTF_16LE};
 
 use errors::*;
 use utils::*;
@@ -230,8 +226,7 @@ struct Directory {
 
 impl Directory {
     fn from_slice(buf: &[u8], sector_size: usize) -> Result<Directory> {
-        let mut name = UTF_16LE.decode(&buf[..64], DecoderTrap::Ignore)
-            .map_err(|e| e.to_string())?;
+        let mut name = UTF_16LE.decode(&buf[..64]).0.into_owned();
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
@@ -335,7 +330,7 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
 
 #[derive(Clone)]
 pub struct XlsEncoding {
-    encoding: EncodingRef,
+    encoding: &'static Encoding,
     pub high_byte: Option<bool>, // None if single byte encoding
 }
 
@@ -360,7 +355,7 @@ impl XlsEncoding {
     pub fn decode_to(&self,
                      stream: &[u8],
                      len: usize,
-                     s: &mut StringWriter)
+                     s: &mut String)
                      -> Result<(usize, usize)> {
         let (l, ub, bytes) = match self.high_byte {
             None => {
@@ -383,10 +378,8 @@ impl XlsEncoding {
             }
         };
 
-        self.encoding
-            .decode_to(&bytes, DecoderTrap::Ignore, s)
-            .map_err(|e| e.to_string().into())
-            .map(|_| (l, ub))
+        s.push_str(&self.encoding.decode(&bytes).0);
+        Ok((l, ub))
     }
 
     pub fn decode_all(&self, stream: &[u8]) -> Result<String> {
