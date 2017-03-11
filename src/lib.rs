@@ -273,9 +273,9 @@ impl Excel {
     /// let mut workbook = Excel::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<&str>> {
+    pub fn sheet_names(&mut self) -> Result<Vec<String>> {
         self.initialize()?;
-        Ok(self.sheets.iter().map(|&(ref k, _)| &**k).collect())
+        Ok(self.sheets.iter().map(|&(ref k, _)| k.to_string()).collect())
     }
 }
 
