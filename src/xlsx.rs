@@ -20,9 +20,7 @@ pub struct Xlsx {
 }
 
 impl Xlsx {
-    fn xml_reader<'a>(&'a mut self,
-                      path: &str)
-                      -> Option<Result<Reader<BufReader<ZipFile<'a>>>>> {
+    fn xml_reader<'a>(&'a mut self, path: &str) -> Option<Result<Reader<BufReader<ZipFile<'a>>>>> {
         match self.zip.by_name(path) {
             Ok(f) => {
                 let mut r = Reader::from_reader(BufReader::new(f));
@@ -111,7 +109,7 @@ impl ExcelReader for Xlsx {
                         match a {
                             Attribute { key: b"name", .. } => {
                                 name = a.unescape_and_decode_value(&xml)?;
-                            },
+                            }
                             Attribute { key: b"r:id", value: v } => {
                                 let r = &relationships[&*v][..];
                                 // target may have pre-prended "/xl/" or "xl/" path;
@@ -153,7 +151,9 @@ impl ExcelReader for Xlsx {
                     for a in e.attributes() {
                         match a? {
                             Attribute { key: b"Id", value: v } => id.extend_from_slice(v),
-                            Attribute { key: b"Target", value: v } => target = xml.decode(v).into_owned(),
+                            Attribute { key: b"Target", value: v } => {
+                                target = xml.decode(v).into_owned()
+                            }
                             _ => (),
                         }
                     }
@@ -182,7 +182,7 @@ impl ExcelReader for Xlsx {
                     match e.name() {
                         b"dimension" => {
                             for a in e.attributes() {
-                                if let Attribute { key:b"ref", value: rdim } = a? {
+                                if let Attribute { key: b"ref", value: rdim } = a? {
                                     let (start, end) = get_dimension(rdim)?;
                                     cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
                                                  usize);
@@ -210,7 +210,9 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                    cells: &mut Vec<Cell>)
                    -> Result<()> {
     /// read the contents of an <is> cell
-    fn read_inline_str(xml: &mut Reader<BufReader<ZipFile>>, buf: &mut Vec<u8>) -> Result<DataType> {
+    fn read_inline_str(xml: &mut Reader<BufReader<ZipFile>>,
+                       buf: &mut Vec<u8>)
+                       -> Result<DataType> {
         loop {
             match xml.read_event(buf) {
                 Err(e) => return Err(e.into()),
@@ -226,10 +228,11 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
     }
 
     /// read the contents of a <v> cell
-    fn read_value<'a>(xml: &mut Reader<BufReader<ZipFile>>, strings: &[String], 
-                      atts: Attributes<'a>, buf: &mut Vec<u8>)
-                  -> Result<DataType> 
-    {
+    fn read_value<'a>(xml: &mut Reader<BufReader<ZipFile>>,
+                      strings: &[String],
+                      atts: Attributes<'a>,
+                      buf: &mut Vec<u8>)
+                      -> Result<DataType> {
         let v = xml.read_text(b"v", buf)?;
         match get_attribute(atts, b"t")? {
             Some(b"s") => {
@@ -319,19 +322,22 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                             debug!("e: {:?}", e);
                             match e.name() {
                                 b"is" => {
-                                    cells.push(Cell::new(pos, read_inline_str(xml, &mut Vec::new())?));
+                                    cells.push(Cell::new(pos,
+                                                         read_inline_str(xml, &mut Vec::new())?));
                                     break;
                                 }
                                 b"v" => {
-                                    cells.push(Cell::new(pos, read_value(xml, 
-                                                                         strings, 
-                                                                         c_element.attributes(), 
-                                                                         &mut Vec::new())?));
+                                    cells.push(Cell::new(pos,
+                                                         read_value(xml,
+                                                                    strings,
+                                                                    c_element.attributes(),
+                                                                    &mut Vec::new())?));
                                     break;
                                 }
                                 b"f" => {} // ignore f nodes
                                 n => {
-                                    return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n).into())
+                                    return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n)
+                                        .into())
                                 }
                             }
                         }
