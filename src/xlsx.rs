@@ -19,40 +19,6 @@ pub struct Xlsx {
     zip: ZipArchive<File>,
 }
 
-trait LocalName {
-    fn local_name(&self) -> &[u8];
-}
-
-impl<'a> LocalName for ::quick_xml::events::BytesStart<'a> {
-    #[inline]
-    fn local_name(&self) -> &[u8] {
-        if let Some(i) = self.name().iter().position(|b| *b == b':') {
-            if i + 1 < self.name().len() {
-                &self.name()[i + 1..]
-            } else {
-                self.name()
-            }
-        } else {
-            self.name()
-        }
-    }
-}
-
-impl<'a> LocalName for ::quick_xml::events::BytesEnd<'a> {
-    #[inline]
-    fn local_name(&self) -> &[u8] {
-        if let Some(i) = self.name().iter().position(|b| *b == b':') {
-            if i + 1 < self.name().len() {
-                &self.name()[i + 1..]
-            } else {
-                self.name()
-            }
-        } else {
-            self.name()
-        }
-    }
-}
-
 impl Xlsx {
     fn xml_reader<'a>(&'a mut self, path: &str) -> Option<Result<Reader<BufReader<ZipFile<'a>>>>> {
         match self.zip.by_name(path) {
@@ -412,10 +378,7 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
 }
 
 /// attempts to read either a simple or richtext string
-fn read_string<C: AsRef<[u8]>>(xml: &mut Reader<BufReader<ZipFile>>,
-                               closing: C)
-                               -> Result<Option<String>> {
-    let closing = closing.as_ref();
+fn read_string(xml: &mut Reader<BufReader<ZipFile>>, closing: &[u8]) -> Result<Option<String>> {
     let mut buf = Vec::new();
     let mut rich_buffer: Option<String> = None;
     loop {
