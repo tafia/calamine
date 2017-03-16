@@ -68,6 +68,7 @@ impl ExcelReader for Xlsx {
                 Ok(Event::End(ref e)) if e.name() == b"sst" => break,
                 _ => (),
             }
+            buf.clear();
         }
         Ok(strings)
     }
@@ -285,12 +286,14 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                             debug!("e: {:?}", e);
                             match e.name() {
                                 b"is" => {
+                                    // inlineStr
                                     if let Some(s) = read_string(xml, b"is")? {
                                         cells.push(Cell::new(pos, DataType::String(s)));
                                     }
                                     break;
                                 }
                                 b"v" => {
+                                    // value
                                     cells.push(Cell::new(pos,
                                                          read_value(xml,
                                                                     strings,
@@ -399,6 +402,8 @@ fn read_string(xml: &mut Reader<BufReader<ZipFile>>, closing: &[u8]) -> Result<O
                 if let Some(ref mut s) = rich_buffer {
                     s.push_str(&value);
                 } else {
+                    // consume any remaining events up to expected closing tag
+                    xml.read_to_end(closing, &mut Vec::new())?;
                     return Ok(Some(value));
                 }
             }
