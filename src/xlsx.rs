@@ -145,7 +145,8 @@ impl ExcelReader for Xlsx {
                     }
                     sheets.push((name, path));
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"workbook" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
                 Err(e) => return Err(e.into()),
                 _ => (),
             }
@@ -177,7 +178,8 @@ impl ExcelReader for Xlsx {
                     }
                     relationships.insert(id, target);
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"Relationships" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </Relationships>)".into()),
                 Err(e) => return Err(e.into()),
                 _ => (),
             }
@@ -213,7 +215,8 @@ impl ExcelReader for Xlsx {
                         _ => (),
                     }
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"worksheet" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </worksheet>)".into()),
                 _ => (),
             }
             buf.clear();
