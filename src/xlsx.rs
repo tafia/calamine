@@ -57,8 +57,17 @@ impl ExcelReader for Xlsx {
             Some(x) => x?,
         };
         let mut strings = Vec::new();
-        while let Some(s) = read_string(&mut xml, b"si")? {
-            strings.push(s);
+        let mut buf = Vec::new();
+        loop {
+            match xml.read_event(&mut buf) {
+                Ok(Event::Start(ref e)) if e.name() == b"si" => {
+                    if let Some(s) = read_string(&mut xml, b"si")? {
+                        strings.push(s);
+                    }
+                }
+                Ok(Event::End(ref e)) if e.name() == b"sst" => break,
+                _ => (),
+            }
         }
         Ok(strings)
     }
@@ -393,7 +402,7 @@ fn read_string(xml: &mut Reader<BufReader<ZipFile>>, closing: &[u8]) -> Result<O
                     return Ok(Some(value));
                 }
             }
-            Ok(Event::Eof) => return Ok(rich_buffer),
+            Ok(Event::Eof) => return Err("unexpected end of xml".into()),
             Err(e) => return Err(e.into()),
             _ => (),
         }
