@@ -20,9 +20,7 @@ pub struct Xlsx {
 }
 
 impl Xlsx {
-    fn xml_reader<'a>(&'a mut self,
-                      path: &str)
-                      -> Option<Result<Reader<BufReader<ZipFile<'a>>>>> {
+    fn xml_reader<'a>(&'a mut self, path: &str) -> Option<Result<Reader<BufReader<ZipFile<'a>>>>> {
         match self.zip.by_name(path) {
             Ok(f) => {
                 let mut r = Reader::from_reader(BufReader::new(f));
@@ -60,31 +58,14 @@ impl ExcelReader for Xlsx {
         };
         let mut strings = Vec::new();
         let mut buf = Vec::new();
-        let mut rich_buffer: Option<String> = None;
         loop {
             match xml.read_event(&mut buf) {
-                Ok(Event::Start(ref e)) if e.name() == b"r" => {
-                    if rich_buffer.is_none() {
-                        // use a buffer since richtext has multiples <r> and <t> for the same cell
-                        rich_buffer = Some(String::new());
-                    }
-                }
-                Ok(Event::End(ref e)) if e.name() == b"si" => {
-                    if let Some(s) = rich_buffer {
+                Ok(Event::Start(ref e)) if e.name() == b"si" => {
+                    if let Some(s) = read_string(&mut xml, b"si")? {
                         strings.push(s);
-                        rich_buffer = None;
                     }
                 }
-                Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                    let value = xml.read_text(b"t", &mut Vec::new())?;
-                    if let Some(ref mut s) = rich_buffer {
-                        s.push_str(&value);
-                    } else {
-                        strings.push(value);
-                    }
-                }
-                Ok(Event::Eof) => break,
-                Err(e) => return Err(e.into()),
+                Ok(Event::End(ref e)) if e.name() == b"sst" => break,
                 _ => (),
             }
             buf.clear();
@@ -111,7 +92,7 @@ impl ExcelReader for Xlsx {
                         match a {
                             Attribute { key: b"name", .. } => {
                                 name = a.unescape_and_decode_value(&xml)?;
-                            },
+                            }
                             Attribute { key: b"r:id", value: v } => {
                                 let r = &relationships[&*v][..];
                                 // target may have pre-prended "/xl/" or "xl/" path;
@@ -153,7 +134,9 @@ impl ExcelReader for Xlsx {
                     for a in e.attributes() {
                         match a? {
                             Attribute { key: b"Id", value: v } => id.extend_from_slice(v),
-                            Attribute { key: b"Target", value: v } => target = xml.decode(v).into_owned(),
+                            Attribute { key: b"Target", value: v } => {
+                                target = xml.decode(v).into_owned()
+                            }
                             _ => (),
                         }
                     }
@@ -182,7 +165,7 @@ impl ExcelReader for Xlsx {
                     match e.name() {
                         b"dimension" => {
                             for a in e.attributes() {
-                                if let Attribute { key:b"ref", value: rdim } = a? {
+                                if let Attribute { key: b"ref", value: rdim } = a? {
                                     let (start, end) = get_dimension(rdim)?;
                                     cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
                                                  usize);
@@ -209,27 +192,12 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                    strings: &[String],
                    cells: &mut Vec<Cell>)
                    -> Result<()> {
-    /// read the contents of an <is> cell
-    fn read_inline_str(xml: &mut Reader<BufReader<ZipFile>>, buf: &mut Vec<u8>) -> Result<DataType> {
-        loop {
-            match xml.read_event(buf) {
-                Err(e) => return Err(e.into()),
-                Ok(Event::Eof) => break,
-                Ok(Event::Start(ref t)) if t.name() == b"t" => {
-                    return Ok(DataType::String(xml.read_text(b"t", &mut Vec::new())?));
-                }
-                _ => {}
-            }
-            buf.clear();
-        }
-        Err("unable to read inlineStr".into())
-    }
-
     /// read the contents of a <v> cell
-    fn read_value<'a>(xml: &mut Reader<BufReader<ZipFile>>, strings: &[String], 
-                      atts: Attributes<'a>, buf: &mut Vec<u8>)
-                  -> Result<DataType> 
-    {
+    fn read_value<'a>(xml: &mut Reader<BufReader<ZipFile>>,
+                      strings: &[String],
+                      atts: Attributes<'a>,
+                      buf: &mut Vec<u8>)
+                      -> Result<DataType> {
         let v = xml.read_text(b"v", buf)?;
         match get_attribute(atts, b"t")? {
             Some(b"s") => {
@@ -301,7 +269,6 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
     }
 
     let mut buf = Vec::new();
-
     /// main content of read_sheet_data
     loop {
         match xml.read_event(&mut buf) {
@@ -319,19 +286,25 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                             debug!("e: {:?}", e);
                             match e.name() {
                                 b"is" => {
-                                    cells.push(Cell::new(pos, read_inline_str(xml, &mut Vec::new())?));
+                                    // inlineStr
+                                    if let Some(s) = read_string(xml, b"is")? {
+                                        cells.push(Cell::new(pos, DataType::String(s)));
+                                    }
                                     break;
                                 }
                                 b"v" => {
-                                    cells.push(Cell::new(pos, read_value(xml, 
-                                                                         strings, 
-                                                                         c_element.attributes(), 
-                                                                         &mut Vec::new())?));
+                                    // value
+                                    cells.push(Cell::new(pos,
+                                                         read_value(xml,
+                                                                    strings,
+                                                                    c_element.attributes(),
+                                                                    &mut Vec::new())?));
                                     break;
                                 }
                                 b"f" => {} // ignore f nodes
                                 n => {
-                                    return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n).into())
+                                    return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n)
+                                        .into())
                                 }
                             }
                         }
@@ -407,6 +380,39 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
         }
     }
     Ok((row - 1, col - 1))
+}
+
+/// attempts to read either a simple or richtext string
+fn read_string(xml: &mut Reader<BufReader<ZipFile>>, closing: &[u8]) -> Result<Option<String>> {
+    let mut buf = Vec::new();
+    let mut rich_buffer: Option<String> = None;
+    loop {
+        match xml.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == b"r" => {
+                if rich_buffer.is_none() {
+                    // use a buffer since richtext has multiples <r> and <t> for the same cell
+                    rich_buffer = Some(String::new());
+                }
+            }
+            Ok(Event::End(ref e)) if e.name() == closing => {
+                return Ok(rich_buffer);
+            }
+            Ok(Event::Start(ref e)) if e.name() == b"t" => {
+                let value = xml.read_text(b"t", &mut Vec::new())?;
+                if let Some(ref mut s) = rich_buffer {
+                    s.push_str(&value);
+                } else {
+                    // consume any remaining events up to expected closing tag
+                    xml.read_to_end(closing, &mut Vec::new())?;
+                    return Ok(Some(value));
+                }
+            }
+            Ok(Event::Eof) => return Err("unexpected end of xml".into()),
+            Err(e) => return Err(e.into()),
+            _ => (),
+        }
+        buf.clear();
+    }
 }
 
 #[test]
