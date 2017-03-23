@@ -8,12 +8,13 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
-## master
+## 0.7.0
 - fix: extend appveyor paths to be able to use curl
 - refactor: update deps
 - fix: extract richtext reading from `read_shared_strings` to `read_string`,
 and use for inlineStr instead of `read_inline_str`
 - style: rustfmt
+- fix: enable namespaced xmls when parsing xlsx files
 
 ## 0.6.0
 - refactor: bump dependencies
