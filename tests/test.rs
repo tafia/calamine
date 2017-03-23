@@ -1,7 +1,7 @@
 extern crate calamine;
 
 use calamine::Excel;
-use calamine::DataType::{String, Float, Bool, Error};
+use calamine::DataType::{String, Empty, Float, Bool, Error};
 use calamine::CellErrorType::*;
 
 macro_rules! range_eq {
@@ -154,4 +154,22 @@ fn special_chrs_xlsb() {
                [String("☺".to_string())],
                [String("֍".to_string())],
                [String("àâéêèçöïî«»".to_string())]]);
+}
+
+#[test]
+fn richtext_namespaced() {
+    let path = format!("{}/tests/richtext-namespaced.xlsx",
+                       env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(range,
+              [[String("inline string\r\nLine 2\r\nLine 3".to_string()),
+                Empty,
+                Empty,
+                Empty,
+                Empty,
+                Empty,
+                Empty,
+                String("shared string\r\nLine 2\r\nLine 3".to_string())]]);
 }

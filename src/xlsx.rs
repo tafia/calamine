@@ -60,12 +60,13 @@ impl ExcelReader for Xlsx {
         let mut buf = Vec::new();
         loop {
             match xml.read_event(&mut buf) {
-                Ok(Event::Start(ref e)) if e.name() == b"si" => {
-                    if let Some(s) = read_string(&mut xml, b"si")? {
+                Ok(Event::Start(ref e)) if e.local_name() == b"si" => {
+                    if let Some(s) = read_string(&mut xml, e.name())? {
                         strings.push(s);
                     }
                 }
-                Ok(Event::End(ref e)) if e.name() == b"sst" => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"sst" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </sst>)".into()),
                 _ => (),
             }
             buf.clear();
@@ -84,7 +85,7 @@ impl ExcelReader for Xlsx {
         let mut buf = Vec::new();
         loop {
             match xml.read_event(&mut buf) {
-                Ok(Event::Start(ref e)) if e.name() == b"sheet" => {
+                Ok(Event::Start(ref e)) if e.local_name() == b"sheet" => {
                     let mut name = String::new();
                     let mut path = String::new();
                     for a in e.attributes() {
@@ -110,7 +111,8 @@ impl ExcelReader for Xlsx {
                     }
                     sheets.push((name, path));
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"workbook" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
                 Err(e) => return Err(e.into()),
                 _ => (),
             }
@@ -128,7 +130,7 @@ impl ExcelReader for Xlsx {
         let mut buf = Vec::new();
         loop {
             match xml.read_event(&mut buf) {
-                Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
+                Ok(Event::Start(ref e)) if e.local_name() == b"Relationship" => {
                     let mut id = Vec::new();
                     let mut target = String::new();
                     for a in e.attributes() {
@@ -142,7 +144,8 @@ impl ExcelReader for Xlsx {
                     }
                     relationships.insert(id, target);
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"Relationships" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </Relationships>)".into()),
                 Err(e) => return Err(e.into()),
                 _ => (),
             }
@@ -162,7 +165,7 @@ impl ExcelReader for Xlsx {
             match xml.read_event(&mut buf) {
                 Err(e) => return Err(e.into()),
                 Ok(Event::Start(ref e)) => {
-                    match e.name() {
+                    match e.local_name() {
                         b"dimension" => {
                             for a in e.attributes() {
                                 if let Attribute { key: b"ref", value: rdim } = a? {
@@ -178,7 +181,8 @@ impl ExcelReader for Xlsx {
                         _ => (),
                     }
                 }
-                Ok(Event::Eof) => break,
+                Ok(Event::End(ref e)) if e.local_name() == b"worksheet" => break,
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </worksheet>)".into()),
                 _ => (),
             }
             buf.clear();
@@ -193,12 +197,7 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                    cells: &mut Vec<Cell>)
                    -> Result<()> {
     /// read the contents of a <v> cell
-    fn read_value<'a>(xml: &mut Reader<BufReader<ZipFile>>,
-                      strings: &[String],
-                      atts: Attributes<'a>,
-                      buf: &mut Vec<u8>)
-                      -> Result<DataType> {
-        let v = xml.read_text(b"v", buf)?;
+    fn read_value<'a>(v: String, strings: &[String], atts: Attributes<'a>) -> Result<DataType> {
         match get_attribute(atts, b"t")? {
             Some(b"s") => {
                 // shared string
@@ -273,7 +272,7 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
     loop {
         match xml.read_event(&mut buf) {
             Err(e) => return Err(e.into()),
-            Ok(Event::Start(ref c_element)) if c_element.name() == b"c" => {
+            Ok(Event::Start(ref c_element)) if c_element.local_name() == b"c" => {
                 let pos = get_attribute(c_element.attributes(), b"r")
                     .and_then(|o| o.ok_or_else(|| "Cell missing 'r' attribute tag".into()))
                     .and_then(get_row_column)?;
@@ -284,21 +283,21 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                         Err(e) => return Err(e.into()),
                         Ok(Event::Start(ref e)) => {
                             debug!("e: {:?}", e);
-                            match e.name() {
+                            match e.local_name() {
                                 b"is" => {
                                     // inlineStr
-                                    if let Some(s) = read_string(xml, b"is")? {
+                                    if let Some(s) = read_string(xml, e.name())? {
                                         cells.push(Cell::new(pos, DataType::String(s)));
                                     }
                                     break;
                                 }
                                 b"v" => {
                                     // value
+                                    let v = xml.read_text(e.name(), &mut Vec::new())?;
                                     cells.push(Cell::new(pos,
-                                                         read_value(xml,
+                                                         read_value(v,
                                                                     strings,
-                                                                    c_element.attributes(),
-                                                                    &mut Vec::new())?));
+                                                                    c_element.attributes())?));
                                     break;
                                 }
                                 b"f" => {} // ignore f nodes
@@ -308,22 +307,18 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                                 }
                             }
                         }
-                        Ok(Event::End(ref e)) if e.name() == b"c" => {
-                            debug!("</c>");
-                            break;
-                        }
-                        Ok(Event::Eof) => return Err("End of xml".into()),
+                        Ok(Event::End(ref e)) if e.local_name() == b"c" => break,
+                        Ok(Event::Eof) => return Err("unexpected end of xml (no </c>)".into()),
                         o => debug!("ignored Event: {:?}", o),
                     }
                 }
             }
-            Ok(Event::End(ref e)) if e.name() == b"sheetData" => return Ok(()),
-            Ok(Event::Eof) => break,
+            Ok(Event::End(ref e)) if e.local_name() == b"sheetData" => return Ok(()),
+            Ok(Event::Eof) => return Err("unexpected end of xml (no </sheetData>)".into()),
             _ => (),
         }
         buf.clear();
     }
-    Err("Could not find </sheetData>".into())
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
@@ -388,17 +383,17 @@ fn read_string(xml: &mut Reader<BufReader<ZipFile>>, closing: &[u8]) -> Result<O
     let mut rich_buffer: Option<String> = None;
     loop {
         match xml.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"r" => {
+            Ok(Event::Start(ref e)) if e.local_name() == b"r" => {
                 if rich_buffer.is_none() {
                     // use a buffer since richtext has multiples <r> and <t> for the same cell
                     rich_buffer = Some(String::new());
                 }
             }
-            Ok(Event::End(ref e)) if e.name() == closing => {
+            Ok(Event::End(ref e)) if e.local_name() == closing => {
                 return Ok(rich_buffer);
             }
-            Ok(Event::Start(ref e)) if e.name() == b"t" => {
-                let value = xml.read_text(b"t", &mut Vec::new())?;
+            Ok(Event::Start(ref e)) if e.local_name() == b"t" => {
+                let value = xml.read_text(e.name(), &mut Vec::new())?;
                 if let Some(ref mut s) = rich_buffer {
                     s.push_str(&value);
                 } else {
