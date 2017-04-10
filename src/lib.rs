@@ -58,6 +58,7 @@ mod xlsb;
 mod xlsx;
 mod xls;
 mod cfb;
+mod ods;
 pub mod vba;
 
 use std::path::Path;
@@ -134,6 +135,8 @@ enum FileType {
     Xlsx(xlsx::Xlsx),
     /// Binary zipped file (xlsb)
     Xlsb(xlsb::Xlsb),
+    /// OpenDocument Spreadsheet Document
+    Ods(ods::Ods),
 }
 
 /// A wrapper struct over the Excel file
@@ -151,6 +154,7 @@ macro_rules! inner {
             FileType::Xls(ref mut f) => f.$func(),
             FileType::Xlsx(ref mut f) => f.$func(),
             FileType::Xlsb(ref mut f) => f.$func(),
+            FileType::Ods(ref mut f) => f.$func(),
         }
     }};
     ($s:expr, $func:ident($first_arg:expr $(, $args:expr)*)) => {{
@@ -158,6 +162,7 @@ macro_rules! inner {
             FileType::Xls(ref mut f) => f.$func($first_arg $(, $args)*),
             FileType::Xlsx(ref mut f) => f.$func($first_arg $(, $args)*),
             FileType::Xlsb(ref mut f) => f.$func($first_arg $(, $args)*),
+            FileType::Ods(ref mut f) => f.$func($first_arg $(, $args)*),
         }
     }};
 }
@@ -178,6 +183,7 @@ impl Excel {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
             Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
+            Some("ods") => FileType::Ods(ods::Ods::new(f)?),
             Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
             None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
@@ -208,7 +214,6 @@ impl Excel {
             .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
         inner!(self, read_worksheet_range(p, &self.strings))
     }
-
 
     /// Get all data from `Worksheet` at index `idx` (0 based)
     ///

@@ -123,6 +123,18 @@ fn xls() {
 }
 
 #[test]
+fn ods() {
+    let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("issue2").unwrap();
+    range_eq!(range,
+              [[Float(1.), String("a".to_string())],
+               [Float(2.), String("b".to_string())],
+               [Float(3.), String("c".to_string())]]);
+}
+
+#[test]
 fn special_chrs_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Excel::open(&path).expect("cannot open excel file");
