@@ -9,6 +9,7 @@ use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
 use quick_xml::reader::Reader;
 use quick_xml::events::{Event, BytesText};
+use quick_xml::events::attributes::Attributes;
 
 use {DataType, ExcelReader, Range};
 use vba::VbaProject;
@@ -235,18 +236,24 @@ fn read_row(reader: &mut OdsReader,
         row_buf.clear();
         match reader.read_event(row_buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" => {
+                close_cell = true;
                 if let Some(a) = e.attributes().filter_map(|a| a.ok())
                     .find(|ref a| a.key == b"office:value-type") {
                     cell_buf.clear();
                     match reader.read_event(cell_buf) {
                         Ok(Event::Start(ref c)) if c.name() == b"text:p" => (),
+                        Ok(Event::End(ref end)) if end.name() == b"table:table-cell" => {
+                            close_cell = false;
+                            cells.push(attributes_to_datatype(reader, e.attributes())?);
+
+                        },
                         Err(e) => bail!(e),
                         Ok(e) => bail!("Expecting 'text:p' event, found {:?}", e),
                     }
                     cell_buf.clear();
                     match reader.read_event(cell_buf) {
                         Ok(Event::Text(ref c)) => {
-                            cells.push(cell_to_datatype(reader, a.value, c)?);
+                            cells.push(cell_value_to_datatype(reader, a.value, c)?);
                         },
                         Err(e) => bail!(e),
                         Ok(e) => bail!("Expecting Text event, found {:?}", e),
@@ -259,7 +266,6 @@ fn read_row(reader: &mut OdsReader,
                 } else {
                     cells.push(DataType::Empty);
                 }
-                close_cell = true;
             }
             Ok(Event::End(ref e)) if close_cell && e.name() == b"table:table-cell" => close_cell = false,
             Ok(Event::End(ref e)) if e.name() == b"table:table-row" => break,
@@ -270,16 +276,43 @@ fn read_row(reader: &mut OdsReader,
     Ok(())
 }
 
-fn cell_to_datatype(reader: &OdsReader,
-                    cell_type: &[u8],
-                    cell_value: &BytesText) -> Result<DataType> {
+fn cell_value_to_datatype(reader: &OdsReader,
+                          cell_type: &[u8],
+                          cell_value: &BytesText) -> Result<DataType> {
     match cell_type {
         b"boolean" => Ok(DataType::Bool(&**cell_value == b"TRUE")),
-        b"string" | b"date" => Ok(DataType::String(cell_value.unescape_and_decode(reader)?)),
-        b"float" => {
+        b"string" | b"date" | b"time" => {
+            Ok(DataType::String(cell_value.unescape_and_decode(reader)?))
+        }
+        b"float" | b"percentage" => {
             let v = reader.decode(cell_value);
             v.parse().map(DataType::Float).map_err(|e| e.into())
         },
+        b"void" => Ok(DataType::Empty),
+        b"currency" => {
+            let v = reader.decode(cell_value);
+            v.parse()
+                .map(DataType::Float)
+                .or_else(|_| Ok(DataType::String(v.to_string())))
+        }
         t => bail!("Unrecognized cell type: {:?}", t),
     }
+}
+
+fn attributes_to_datatype(reader: &OdsReader, atts: Attributes) -> Result<DataType> {
+    for a in atts {
+        let a = a?;
+        match a.key {
+            b"office:boolean-value" => return Ok(DataType::Bool(a.value == b"TRUE")),
+            b"office:value" => {
+                let v = reader.decode(a.value);
+                return v.parse().map(DataType::Float).map_err(|e| e.into());
+            },
+            b"office:string-value" | b"office:date-value" | b"office:time-value" => {
+                return Ok(DataType::String(a.unescape_and_decode_value(reader)?));
+            }
+            _ => (),
+        }
+    }
+    Ok(DataType::Empty)
 }
