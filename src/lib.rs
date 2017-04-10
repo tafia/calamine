@@ -1,8 +1,8 @@
-//! Rust Excel reader
+//! Rust Excel/OpenDocument reader
 //!
 //! # Status
 //!
-//! **calamine** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`).
+//! **calamine** is a pure Rust library to read any excel/opendocument file (`xls`, `xlsx`, `xlsm`, `xlsb`).
 //!
 //! Read both cell values and vba project.
 //!

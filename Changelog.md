@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.8.0
+- feat: add basic support for opendocument spreadsheets
+
 ## 0.7.0
 - fix: extend appveyor paths to be able to use curl
 - refactor: update deps
