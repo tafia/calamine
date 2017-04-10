@@ -245,23 +245,24 @@ fn read_row(reader: &mut OdsReader,
                         Ok(Event::End(ref end)) if end.name() == b"table:table-cell" => {
                             close_cell = false;
                             cells.push(attributes_to_datatype(reader, e.attributes())?);
-
                         },
                         Err(e) => bail!(e),
                         Ok(e) => bail!("Expecting 'text:p' event, found {:?}", e),
                     }
+                    if close_cell {
                     cell_buf.clear();
-                    match reader.read_event(cell_buf) {
-                        Ok(Event::Text(ref c)) => {
-                            cells.push(cell_value_to_datatype(reader, a.value, c)?);
-                        },
-                        Err(e) => bail!(e),
-                        Ok(e) => bail!("Expecting Text event, found {:?}", e),
-                    }
-                    match reader.read_event(cell_buf) {
-                        Ok(Event::End(ref c)) if c.name() == b"text:p" => (),
-                        Err(e) => bail!(e),
-                        Ok(e) => bail!("Expecting 'text:p' event, found {:?}", e),
+                        match reader.read_event(cell_buf) {
+                            Ok(Event::Text(ref c)) => {
+                                cells.push(cell_value_to_datatype(reader, a.value, c)?);
+                            },
+                            Err(e) => bail!(e),
+                            Ok(e) => bail!("Expecting Text event, found {:?}", e),
+                        }
+                        match reader.read_event(cell_buf) {
+                            Ok(Event::End(ref c)) if c.name() == b"text:p" => (),
+                            Err(e) => bail!(e),
+                            Ok(e) => bail!("Expecting 'text:p' event, found {:?}", e),
+                        }
                     }
                 } else {
                     cells.push(DataType::Empty);
