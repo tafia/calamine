@@ -101,7 +101,18 @@ impl Ods {
     /// Parses content.xml and store the result in `self.content`
     fn parse_content(&mut self) -> Result<()> {
         let sheets = if let Content::Zip(ref mut zip) = self.content {
-            let mut reader = get_zip_reader(zip, "content.xml")?;
+            let mut reader = match zip.by_name("content.xml") {
+                Ok(f) => {
+                    let mut r = Reader::from_reader(BufReader::new(f));
+                    r.check_end_names(false)
+                        .trim_text(true)
+                        .check_comments(false)
+                        .expand_empty_elements(true);
+                    r
+                }
+                Err(ZipError::FileNotFound) => bail!("Cannot find 'content.xml' file"),
+                Err(e) => bail!(e),
+            };
             let mut buf = Vec::new();
             let mut sheets = HashMap::new();
             loop {
@@ -124,27 +135,10 @@ impl Ods {
         } else {
             None
         };
-
         if let Some(sheets) = sheets {
             self.content = Content::Sheets(sheets);
         }
-
         Ok(())
-    }
-}
-
-fn get_zip_reader<'a, 'b>(zip: &'a mut ZipArchive<File>, path: &'b str) -> Result<OdsReader<'a>> {
-    match zip.by_name(path) {
-        Ok(f) => {
-            let mut r = Reader::from_reader(BufReader::new(f));
-            r.check_end_names(false)
-                .trim_text(true)
-                .check_comments(false)
-                .expand_empty_elements(true);
-            Ok(r)
-        }
-        Err(ZipError::FileNotFound) => bail!("Cannot find '{}' file", path),
-        Err(e) => bail!(e),
     }
 }
 
