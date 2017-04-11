@@ -1,4 +1,8 @@
 //! A module to parse Open Document Spreasheets
+//!
+//! # Reference
+//! OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
+//! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -25,6 +29,10 @@ enum Content {
 }
 
 /// An OpenDocument Spreadsheet document parser
+///
+/// # Reference
+/// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
+/// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 pub struct Ods {
     /// A zip package or an already parsed xml content
     content: Content,
@@ -126,18 +134,16 @@ impl Ods {
                         }
                     },
                     Ok(Event::Eof) => break,
-                    Ok(_) => (),
                     Err(e) => bail!(e),
+                    _ => (),
                 }
                 buf.clear();
             }
-            Some(sheets)
+            sheets
         } else {
-            None
+            return Ok(());
         };
-        if let Some(sheets) = sheets {
-            self.content = Content::Sheets(sheets);
-        }
+        self.content = Content::Sheets(sheets);
         Ok(())
     }
 }
@@ -172,18 +178,12 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| not_empty(c)) {
-                if p < col_min {
-                    col_min = p;
-                }
-                if row_min.is_none() {
-                    row_min = Some(i);
-                }
+                if p < col_min { col_min = p; }
+                if row_min.is_none() { row_min = Some(i); }
                 row_max = i;
             }
             if let Some(p) = row.iter().rposition(|c| not_empty(c)) {
-                if p > col_max {
-                    col_max = p;
-                }
+                if p > col_max { col_max = p; }
             }
         }
     }
@@ -207,18 +207,13 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
                 new_cells.extend_from_slice(&row[col_min..col_max + 1]);
             }
         }
-        Ok(Range {
-            start: (row_min as u32, col_min as u32),
-            end: (row_max as u32, col_max as u32),
-            inner: new_cells,
-        })
-    } else {
-        Ok(Range {
-            start: (row_min as u32, col_min as u32),
-            end: (row_max as u32, col_max as u32),
-            inner: cells,
-        })
+        cells = new_cells;
     }
+    Ok(Range {
+        start: (row_min as u32, col_min as u32),
+        end: (row_max as u32, col_max as u32),
+        inner: cells,
+    })
 }
 
 fn read_row(reader: &mut OdsReader,
@@ -245,6 +240,9 @@ fn read_row(reader: &mut OdsReader,
     Ok(())
 }
 
+/// Converts table-cell element into a DataType
+///
+/// ODF 1.2-19.385
 fn attributes_to_datatype(reader: &mut OdsReader,
                           atts: Attributes,
                           buf: &mut Vec<u8>) -> Result<(DataType, bool)> {
