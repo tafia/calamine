@@ -1,4 +1,4 @@
-//! A module to parse Open Document Spreasheets
+//! A module to parse Open Document Spreadsheets
 //!
 //! # Reference
 //! OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
@@ -167,8 +167,12 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
         }
         buf.clear();
     }
+    Ok(get_range(cells, &cols))
+}
 
-    // prune cells so it doesn't necessarily starts at 'A1'
+fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
+
+    // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
     let mut col_min = ::std::usize::MAX;
@@ -178,29 +182,30 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| not_empty(c)) {
-                if p < col_min { col_min = p; }
                 if row_min.is_none() { row_min = Some(i); }
                 row_max = i;
-            }
-            if let Some(p) = row.iter().rposition(|c| not_empty(c)) {
-                if p > col_max { col_max = p; }
+                if p < col_min { col_min = p; }
+                if let Some(p) = row.iter().rposition(|c| not_empty(c)) {
+                    if p > col_max { col_max = p; }
+                }
             }
         }
     }
     let row_min = match row_min {
         Some(min) => min,
-        _ => return Ok(Range::default()),
+        _ => return Range::default(),
     };
 
-    // rebuild cells to it is rectangular
+    // rebuild cells into its smallest non empty area
     let cells_len = (row_max + 1 - row_min) * (col_max + 1 - col_min);
     if cells.len() != cells_len {
         let mut new_cells = Vec::with_capacity(cells_len);
+        let empty_cells = vec![DataType::Empty; col_max + 1];
         for w in cols.windows(2).skip(row_min).take(row_max + 1) {
             let row = &cells[w[0]..w[1]];
             if row.len() < col_max + 1 {
                 new_cells.extend_from_slice(&row[col_min..]);
-                new_cells.extend(::std::iter::repeat(DataType::Empty).take(col_max + 1 - row.len()));
+                new_cells.extend_from_slice(&empty_cells[row.len()..]);
             } else if row.len() == col_max + 1 {
                 new_cells.extend_from_slice(&row[col_min..]);
             } else {
@@ -209,11 +214,11 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
         }
         cells = new_cells;
     }
-    Ok(Range {
+    Range {
         start: (row_min as u32, col_min as u32),
         end: (row_max as u32, col_max as u32),
         inner: cells,
-    })
+    }
 }
 
 fn read_row(reader: &mut OdsReader,
@@ -224,11 +229,9 @@ fn read_row(reader: &mut OdsReader,
         row_buf.clear();
         match reader.read_event(row_buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" => {
-                let (cell_value, cell_closed) = attributes_to_datatype(reader, 
-                                                                       e.attributes(),
-                                                                       cell_buf)?;
-                cells.push(cell_value);
-                if !cell_closed {
+                let (value, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
+                cells.push(value);
+                if !is_closed {
                     reader.read_to_end(b"table:table-cell", cell_buf)?;
                 }
             }
@@ -243,9 +246,9 @@ fn read_row(reader: &mut OdsReader,
 /// Converts table-cell element into a DataType
 ///
 /// ODF 1.2-19.385
-fn attributes_to_datatype(reader: &mut OdsReader,
-                          atts: Attributes,
-                          buf: &mut Vec<u8>) -> Result<(DataType, bool)> {
+fn get_datatype(reader: &mut OdsReader, 
+                atts: Attributes,
+                buf: &mut Vec<u8>) -> Result<(DataType, bool)> {
     let mut is_string = false;
     for a in atts {
         let a = a?;
