@@ -10,6 +10,7 @@
 
 ## 0.9.0
 - refactor: rename `Excel` in `Sheets` to accomodate OpenDocuments
+- feat: add Index/IndexMut for Range
 
 ## 0.8.0
 - feat: add basic support for opendocument spreadsheets

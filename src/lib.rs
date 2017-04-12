@@ -61,11 +61,12 @@ mod cfb;
 mod ods;
 pub mod vba;
 
-use std::path::Path;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
+use std::ops::{Index, IndexMut};
+use std::path::Path;
 use std::str::FromStr;
-use std::borrow::Cow;
 
 pub use errors::*;
 use vba::VbaProject;
@@ -370,19 +371,7 @@ impl Range {
     ///
     /// panics when a `Cell` row is lower than the first `Cell` row or
     /// bigger than the last `Cell` row.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use calamine::{Range, DataType, Cell};
-    ///
-    /// let v = vec![Cell::new((1, 200), DataType::Float(1.)),
-    ///              Cell::new((55, 2),  DataType::String("a".to_string()))];
-    /// let range = Range::from_sparse(v);
-    ///
-    /// assert_eq!(range.get_size(), (55, 199));
-    /// ```
-    pub fn from_sparse(cells: Vec<Cell>) -> Range {
+    fn from_sparse(cells: Vec<Cell>) -> Range {
         if cells.is_empty() {
             Range {
                 start: (0, 0),
@@ -466,43 +455,44 @@ impl Range {
     ///     .expect("Cannot set value at position (2, 1)");
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
-        if self.start > pos {
-            return Err(ErrorKind::CellOutOfRange(pos, self.start).into());
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: DataType) -> Result<()> {
+        if self.start > absolute_position {
+            return Err(ErrorKind::CellOutOfRange(absolute_position, self.start).into());
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
-        match (self.end.0 < pos.0, self.end.1 < pos.1) {
+        match (self.end.0 < absolute_position.0, self.end.1 < absolute_position.1) {
             (false, false) => (), // regular case, position within bounds
             (true, false) => {
-                let len = (pos.0 - self.end.0 + 1) as usize * self.width();
+                let len = (absolute_position.0 - self.end.0 + 1) as usize * self.width();
                 self.inner.extend_from_slice(&vec![DataType::Empty; len]);
-                self.end.0 = pos.0;
+                self.end.0 = absolute_position.0;
             } // missing some rows
             (e, true) => {
                 let height = if e {
-                    (pos.0 - self.start.0 + 1) as usize
+                    (absolute_position.0 - self.start.0 + 1) as usize
                 } else {
                     self.height()
                 };
-                let width = (pos.1 - self.start.1 + 1) as usize;
+                let width = (absolute_position.1 - self.start.1 + 1) as usize;
                 let old_width = self.width();
                 let mut data = Vec::with_capacity(width * height);
+                let empty = vec![DataType::Empty; width - old_width];
                 for sce in self.inner.chunks(old_width) {
                     data.extend_from_slice(sce);
-                    data.extend_from_slice(&vec![DataType::Empty; width - old_width]);
+                    data.extend_from_slice(&empty);
                 }
                 data.extend_from_slice(&vec![DataType::Empty; width * (height - self.height())]);
                 if e {
-                    self.end = pos
+                    self.end = absolute_position
                 } else {
-                    self.end.1 = pos.1
+                    self.end.1 = absolute_position.1
                 }
                 self.inner = data;
             } // missing some columns
         }
 
-        let pos = (pos.0 - self.start.0, pos.1 - self.start.1);
+        let pos = (absolute_position.0 - self.start.0, absolute_position.1 - self.start.1);
         let idx = pos.0 as usize * self.width() + pos.1 as usize;
         self.inner[idx] = value;
         Ok(())
@@ -511,9 +501,10 @@ impl Range {
     /// Get cell value
     ///
     /// Panics if indexes are out of range bounds
-    pub fn get_value(&self, pos: (u32, u32)) -> &DataType {
-        assert!(pos <= self.end);
-        let idx = (pos.0 - self.start.0) as usize * self.width() + (pos.1 - self.start.1) as usize;
+    pub fn get_value(&self, absolute_position: (u32, u32)) -> &DataType {
+        assert!(absolute_position <= self.end);
+        let idx = (absolute_position.0 - self.start.0) as usize * self.width() +
+                  (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]
     }
 
@@ -537,13 +528,41 @@ impl Range {
     }
 
     /// Get an iterator over used cells only
-    ///
-    /// This can be much faster than iterating rows as `Range` is saved as a sparce matrix
     pub fn used_cells(&self) -> UsedCells {
         UsedCells {
             width: self.width(),
             inner: self.inner.iter().enumerate(),
         }
+    }
+}
+
+impl Index<usize> for Range {
+    type Output = [DataType];
+    fn index(&self, index: usize) -> &[DataType] {
+        let width = self.width();
+        &self.inner[index * width..(index + 1) * width]
+    }
+}
+
+impl Index<(usize, usize)> for Range {
+    type Output = DataType;
+    fn index(&self, index: (usize, usize)) -> &DataType {
+        let width = self.width();
+        &self.inner[index.0 * width + index.1]
+    }
+}
+
+impl IndexMut<usize> for Range {
+    fn index_mut(&mut self, index: usize) -> &mut [DataType] {
+        let width = self.width();
+        &mut self.inner[index * width..(index + 1) * width]
+    }
+}
+
+impl IndexMut<(usize, usize)> for Range {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut DataType {
+        let width = self.width();
+        &mut self.inner[index.0 * width + index.1]
     }
 }
 
