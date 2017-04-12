@@ -8,11 +8,11 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Excel, DataType};
+//! use calamine::{Sheets, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Excel::open(path).expect("Cannot open file");
+//! let mut workbook = Sheets::open(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
@@ -71,7 +71,7 @@ pub use errors::*;
 use vba::VbaProject;
 
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
-/// An enum to represent all different excel errors that can appear as
+/// An enum to represent all different errors that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellErrorType {
@@ -104,12 +104,12 @@ impl FromStr for CellErrorType {
             "#NUM!" => Ok(CellErrorType::Num),
             "#REF!" => Ok(CellErrorType::Ref),
             "#VALUE!" => Ok(CellErrorType::Value),
-            _ => Err(format!("{} is not an excel error", s).into()),
+            _ => Err(format!("Unsupported error '{}'", s).into()),
         }
     }
 }
 
-/// An enum to represent all different excel data types that can appear as
+/// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
@@ -127,7 +127,7 @@ pub enum DataType {
     Empty,
 }
 
-/// Excel file types
+/// File types
 enum FileType {
     /// Compound File Binary Format [MS-CFB] (xls, xla)
     Xls(xls::Xls),
@@ -139,8 +139,8 @@ enum FileType {
     Ods(ods::Ods),
 }
 
-/// A wrapper struct over the Excel file
-pub struct Excel {
+/// A wrapper struct over the spreadsheet file
+pub struct Sheets {
     file: FileType,
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
@@ -167,17 +167,17 @@ macro_rules! inner {
     }};
 }
 
-impl Excel {
+impl Sheets {
     /// Opens a new workbook
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    /// assert!(Excel::open(path).is_ok());
+    /// assert!(Sheets::open(path).is_ok());
     /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets> {
         let f = File::open(&path)?;
         let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
@@ -187,7 +187,7 @@ impl Excel {
             Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
             None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
-        Ok(Excel {
+        Ok(Sheets {
                file: file,
                strings: vec![],
                relationships: HashMap::new(),
@@ -199,10 +199,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -219,10 +219,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -256,10 +256,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).unwrap();
+    /// let mut workbook = Sheets::open(path).unwrap();
     /// if workbook.has_vba() {
     ///     let vba = workbook.vba_project().expect("Cannot find vba project");
     ///     println!("References: {:?}", vba.get_references());
@@ -274,10 +274,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).unwrap();
+    /// let mut workbook = Sheets::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
     pub fn sheet_names(&mut self) -> Result<Vec<String>> {
@@ -289,8 +289,8 @@ impl Excel {
     }
 }
 
-/// A trait to share excel reader functions accross different `FileType`s
-pub trait ExcelReader: Sized {
+/// A trait to share spreadsheets reader functions accross different `FileType`s
+pub trait Reader: Sized {
     /// Creates a new instance based on the actual file
     fn new(f: File) -> Result<Self>;
     /// Does the workbook contain a vba project
@@ -361,7 +361,7 @@ impl Range {
 
     /// Creates a `Range` from a coo sparse vector of `Cell`s.
     ///
-    /// Coordinate list (COO) is the natural way cells are stored in excel files
+    /// Coordinate list (COO) is the natural way cells are stored
     /// Inner size is defined only by non empty.
     ///
     /// cells: `Vec` of non empty `Cell`s, sorted by row

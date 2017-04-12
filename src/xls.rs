@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 
 use errors::*;
-use {ExcelReader, Range, Cell, DataType, CellErrorType};
+use {Reader, Range, Cell, DataType, CellErrorType};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{read_u16, read_u32, read_slice};
@@ -21,7 +21,7 @@ pub struct Xls {
     vba: Option<VbaProject>,
 }
 
-impl ExcelReader for Xls {
+impl Reader for Xls {
     fn new(r: File) -> Result<Self> {
 
         let len = r.metadata()?.len() as usize;

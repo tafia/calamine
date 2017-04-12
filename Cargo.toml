@@ -1,13 +1,13 @@
 [package]
 name = "calamine"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/calamine"
-description = "Excel reader in pure rust"
+description = "Excel/OpenDocument Spreadsheets parser in pure rust"
 license = "MIT"
 readme = "README.md"
-keywords = ["excel", "xls", "vba", "xml", "office"]
+keywords = ["excel", "xls", "vba", "office", "ods"]
 categories = ["encoding", "parsing", "text-processing"]
 
 [badges]

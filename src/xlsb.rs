@@ -6,12 +6,12 @@ use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use quick_xml::reader::Reader;
+use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attribute;
 use encoding_rs::UTF_16LE;
 
-use {DataType, ExcelReader, Cell, Range, CellErrorType};
+use {DataType, Reader, Cell, Range, CellErrorType};
 use vba::VbaProject;
 use utils::{read_u32, read_usize, read_slice};
 use errors::*;
@@ -35,7 +35,7 @@ impl Xlsb {
     }
 }
 
-impl ExcelReader for Xlsb {
+impl Reader for Xlsb {
     fn new(f: File) -> Result<Self> {
         Ok(Xlsb { zip: ZipArchive::new(f)? })
     }
@@ -55,7 +55,7 @@ impl ExcelReader for Xlsb {
         let mut relationships = HashMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
-                let mut xml = Reader::from_reader(BufReader::new(f));
+                let mut xml = XmlReader::from_reader(BufReader::new(f));
                 xml.check_end_names(false)
                     .trim_text(false)
                     .check_comments(false)
