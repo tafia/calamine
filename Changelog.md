@@ -11,6 +11,7 @@
 ## 0.8.0
 - feat: add basic support for opendocument spreadsheets
 - style: apply rustfmt
+- feat: force rustfmt on travis checks
 
 ## 0.7.0
 - fix: extend appveyor paths to be able to use curl
