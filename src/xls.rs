@@ -36,9 +36,9 @@ impl ExcelReader for Xls {
         };
 
         Ok(Xls {
-            sheets: SheetsState::NotParsed(r, cfb),
-            vba: vba,
-        })
+               sheets: SheetsState::NotParsed(r, cfb),
+               vba: vba,
+           })
     }
 
     fn has_vba(&mut self) -> bool {
@@ -46,7 +46,10 @@ impl ExcelReader for Xls {
     }
 
     fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        self.vba.as_ref().map(|vba| Cow::Borrowed(vba)).ok_or("No vba project".into())
+        self.vba
+            .as_ref()
+            .map(|vba| Cow::Borrowed(vba))
+            .ok_or("No vba project".into())
     }
 
     /// Parses Workbook stream, no need for the relationships variable
@@ -55,7 +58,9 @@ impl ExcelReader for Xls {
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => {
-                Ok(shs.keys().map(|k| (k.to_string(), k.to_string())).collect())
+                Ok(shs.keys()
+                       .map(|k| (k.to_string(), k.to_string()))
+                       .collect())
             }
         }
     }
@@ -117,7 +122,10 @@ impl Xls {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
                     } // RRTabId
-                    0x0085 => sheet_names.push(parse_sheet_name(&mut r, &mut encoding)?), // BoundSheet8
+                    0x0085 => {
+                        let name = parse_sheet_name(&mut r, &mut encoding)?;
+                        sheet_names.push(name); // BoundSheet8
+                    }
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     0x000A => break, // EOF,
                     _ => (),
@@ -142,7 +150,7 @@ impl Xls {
                         let (start, end) = parse_dimensions(&r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
                     } // Dimensions
-                    0x0203 => cells.push(parse_number(&r.data)?), // Number 
+                    0x0203 => cells.push(parse_number(&r.data)?), // Number
                     0x0205 => cells.push(parse_bool_err(&r.data)?), // BoolErr
                     0x027E => cells.push(parse_rk(&r.data)?), // RK
                     0x00FD => cells.push(parse_label_sst(&r.data, &strings)?), // LabelSst
@@ -374,10 +382,10 @@ impl<'a> Iterator for RecordIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.stream.len() < 4 {
             return if self.stream.is_empty() {
-                None
-            } else {
-                Some(Err("Expecting record type and length, found end of stream".into()))
-            };
+                       None
+                   } else {
+                       Some(Err("Expecting record type and length, found end of stream".into()))
+                   };
         }
         let t = read_u16(self.stream);
         let mut len = read_u16(&self.stream[2..]) as usize;
@@ -395,7 +403,7 @@ impl<'a> Iterator for RecordIter<'a> {
                 len = read_u16(&self.stream[2..]) as usize;
                 if self.stream.len() < len + 4 {
                     return Some(Err("Expecting continue record length, found end of stream"
-                        .into()));
+                                        .into()));
                 }
                 let sp = self.stream.split_at(len + 4);
                 cont.push(&sp.0[4..]);
@@ -407,9 +415,9 @@ impl<'a> Iterator for RecordIter<'a> {
         };
 
         Some(Ok(Record {
-            typ: t,
-            data: d,
-            cont: cont,
-        }))
+                    typ: t,
+                    data: d,
+                    cont: cont,
+                }))
     }
 }

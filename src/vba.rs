@@ -52,18 +52,19 @@ impl VbaProject {
         // read all modules
         let modules: HashMap<String, Vec<u8>> = mods.into_iter()
             .map(|m| {
-                cfb.get_stream(&m.stream_name, r)
-                    .and_then(|s| {
-                        ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
-                    })
-            })
+                     cfb.get_stream(&m.stream_name, r)
+                         .and_then(|s| {
+                                       ::cfb::decompress_stream(&s[m.text_offset..])
+                                           .map(move |s| (m.name, s))
+                                   })
+                 })
             .collect::<Result<HashMap<_, _>>>()?;
 
         Ok(VbaProject {
-            references: refs,
-            modules: modules,
-            encoding: encoding,
-        })
+               references: refs,
+               modules: modules,
+               encoding: encoding,
+           })
     }
 
     /// Gets the list of `Reference`s
@@ -188,7 +189,9 @@ fn read_references(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Ref
                              -> Result<()> {
         let libid = encoding.decode_all(libid)?;
         let mut parts = libid.split('#').rev();
-        parts.next().map(|p| reference.description = p.to_string());
+        parts
+            .next()
+            .map(|p| reference.description = p.to_string());
         parts.next().map(|p| reference.path = p.into());
         Ok(())
     }
@@ -340,10 +343,10 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         *stream = &stream[4..]; // reserved
 
         modules.push(Module {
-            name: name,
-            stream_name: stream_name,
-            text_offset: offset,
-        });
+                         name: name,
+                         stream_name: stream_name,
+                         text_offset: offset,
+                     });
     }
 
     Ok(modules)
@@ -380,7 +383,7 @@ fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
         Err(format!("invalid record id, found {:x}, expecting {:x}",
                     record_id,
                     id)
-            .into())
+                    .into())
     } else {
         Ok(())
     }

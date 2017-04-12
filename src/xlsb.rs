@@ -25,9 +25,9 @@ impl Xlsb {
         match self.zip.by_name(path) {
             Ok(f) => {
                 Ok(RecordIter {
-                    r: BufReader::new(f),
-                    b: [0],
-                })
+                       r: BufReader::new(f),
+                       b: [0],
+                   })
             }
             Err(ZipError::FileNotFound) => Err(format!("file {} does not exist", path).into()),
             Err(e) => Err(e.into()),
@@ -69,12 +69,18 @@ impl ExcelReader for Xlsb {
                             let mut target = None;
                             for a in e.attributes() {
                                 match a? {
-                                    Attribute { key: b"Id", value: v } => {
+                                    Attribute {
+                                        key: b"Id",
+                                        value: v,
+                                    } => {
                                         id = Some(v.to_vec());
-                                    },
-                                    Attribute { key: b"Target", value: v } => {
+                                    }
+                                    Attribute {
+                                        key: b"Target",
+                                        value: v,
+                                    } => {
                                         target = Some(xml.decode(v).into_owned());
-                                    },
+                                    }
                                     _ => (),
                                 }
                             }
@@ -110,8 +116,8 @@ impl ExcelReader for Xlsb {
         // BrtSSTItems
         for _ in 0..len {
             let _ = iter.next_skip_blocks(0x0013,
-                                          &[ 
-                                           (0x0023, Some(0x0024)) // future 
+                                          &[
+                                           (0x0023, Some(0x0024)) // future
                                            ],
                                           &mut buf)?; // BrtSSTItem
             strings.push(wide_str(&buf[1..])?.into_owned());
@@ -128,7 +134,7 @@ impl ExcelReader for Xlsb {
 
         // BrtBeginBundleShs
         let _ = iter.next_skip_blocks(0x008F,
-                              &[
+                                      &[
                                           (0x0083, None),         // BrtBeginBook
                                           (0x0080, None),         // BrtFileVersion
                                           (0x0099, None),         // BrtWbProp
@@ -137,7 +143,7 @@ impl ExcelReader for Xlsb {
                                           (0x02A5, Some(0x0216)), // Book protection(iso)
                                           (0x0087, Some(0x0088)), // BOOKVIEWS
                                           ],
-                              &mut buf)?;
+                                      &mut buf)?;
         let mut sheets = Vec::new();
         loop {
             match iter.read_type()? {
@@ -166,24 +172,24 @@ impl ExcelReader for Xlsb {
 
         // BrtWsDim
         let _ = iter.next_skip_blocks(0x0094,
-                              &[
+                                      &[
                                            (0x0081, None), // BrtBeginSheet
                                            (0x0093, None), // BrtWsProp
                                            ],
-                              &mut buf)?;
+                                      &mut buf)?;
         let (start, end) = parse_dimensions(&buf[..16]);
         let mut cells = Vec::with_capacity((((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
                                             usize));
 
         // BrtBeginSheetData
         let _ = iter.next_skip_blocks(0x0091,
-                              &[
+                                      &[
                                           (0x0085, Some(0x0086)), // Views
                                           (0x0025, Some(0x0026)), // AC blocks
                                           (0x01E5, None),         // BrtWsFmtInfo
                                           (0x0186, Some(0x0187)), // Col Infos
                                           ],
-                              &mut buf)?;
+                                      &mut buf)?;
 
         // Initialization: first BrtRowHdr
         let mut typ: u16;
@@ -212,8 +218,7 @@ impl ExcelReader for Xlsb {
                     }
                 }
                 0x0003 => {
-                    // BrtCellError
-                    DataType::Error(match buf[8] {
+                    let error = match buf[8] {
                         0x00 => CellErrorType::Null,
                         0x07 => CellErrorType::Div0,
                         0x0F => CellErrorType::Value,
@@ -223,11 +228,13 @@ impl ExcelReader for Xlsb {
                         0x2A => CellErrorType::NA,
                         0x2B => CellErrorType::GettingData,
                         c => return Err(format!("Unrecognised cell error code 0x{:x}", c).into()),
-                    })
+                    };
+                    // BrtCellError
+                    DataType::Error(error)
                 }
-                0x0004 => DataType::Bool(buf[8] != 0), // BrtCellBool 
-                0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal 
-                0x0006 => DataType::String(wide_str(&buf[8..])?.into_owned()), // BrtCellSt 
+                0x0004 => DataType::Bool(buf[8] != 0),                         // BrtCellBool
+                0x0005 => DataType::Float(read_slice(&buf[8..16])),            // BrtCellReal
+                0x0006 => DataType::String(wide_str(&buf[8..])?.into_owned()), // BrtCellSt
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&buf[8..12]);
@@ -311,7 +318,7 @@ impl<'a> RecordIter<'a> {
                                                 found 0x{:x}",
                                                record_type,
                                                typ)
-                                .into())
+                                               .into())
                         }
                     }
                 }
@@ -327,7 +334,7 @@ fn wide_str(buf: &[u8]) -> Result<Cow<str>> {
         return Err(format!("Wide string length ({}) exceeds buffer length ({})",
                            4 + len * 2,
                            buf.len())
-            .into());
+                           .into());
     }
     let s = &buf[4..4 + len * 2];
     Ok(UTF_16LE.decode(s).0)

@@ -25,13 +25,14 @@ fn main() {
     let pattern = format!("{}/**/*.xl*", folder);
     let mut filecount = 0;
 
-    let mut output = pattern.chars()
+    let mut output = pattern
+        .chars()
         .take_while(|c| *c != '*')
         .filter_map(|c| match c {
-            ':' => None,
-            '/' | '\\' | ' ' => Some('_'),
-            c => Some(c),
-        })
+                        ':' => None,
+                        '/' | '\\' | ' ' => Some('_'),
+                        c => Some(c),
+                    })
         .collect::<String>();
     output.push_str("_errors.csv");
     let mut output = BufWriter::new(File::create(output).unwrap());
@@ -63,7 +64,10 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
 
     if xl.has_vba() {
         let vba = xl.vba_project().map_err(FileStatus::VbaError)?;
-        missing = Some(vba.get_references().iter().filter(|r| r.is_missing()).count());
+        missing = Some(vba.get_references()
+                           .iter()
+                           .filter(|r| r.is_missing())
+                           .count());
     }
 
     // get owned sheet names
@@ -75,14 +79,16 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
 
     for s in sheets {
         let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
-        cell_errors += range.rows()
+        cell_errors += range
+            .rows()
             .flat_map(|r| {
-                r.iter().filter(|c| if let &&DataType::Error(_) = c {
-                    true
-                } else {
-                    false
-                })
-            })
+                          r.iter()
+                              .filter(|c| if let &&DataType::Error(_) = c {
+                                          true
+                                      } else {
+                                          false
+                                      })
+                      })
             .count();
     }
 

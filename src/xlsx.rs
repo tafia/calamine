@@ -94,7 +94,10 @@ impl ExcelReader for Xlsx {
                             Attribute { key: b"name", .. } => {
                                 name = a.unescape_and_decode_value(&xml)?;
                             }
-                            Attribute { key: b"r:id", value: v } => {
+                            Attribute {
+                                key: b"r:id",
+                                value: v,
+                            } => {
                                 let r = &relationships[&*v][..];
                                 // target may have pre-prended "/xl/" or "xl/" path;
                                 // strip if present
@@ -135,10 +138,14 @@ impl ExcelReader for Xlsx {
                     let mut target = String::new();
                     for a in e.attributes() {
                         match a? {
-                            Attribute { key: b"Id", value: v } => id.extend_from_slice(v),
-                            Attribute { key: b"Target", value: v } => {
-                                target = xml.decode(v).into_owned()
-                            }
+                            Attribute {
+                                key: b"Id",
+                                value: v,
+                            } => id.extend_from_slice(v),
+                            Attribute {
+                                key: b"Target",
+                                value: v,
+                            } => target = xml.decode(v).into_owned(),
                             _ => (),
                         }
                     }
@@ -168,10 +175,13 @@ impl ExcelReader for Xlsx {
                     match e.local_name() {
                         b"dimension" => {
                             for a in e.attributes() {
-                                if let Attribute { key: b"ref", value: rdim } = a? {
+                                if let Attribute {
+                                           key: b"ref",
+                                           value: rdim,
+                                       } = a? {
                                     let (start, end) = get_dimension(rdim)?;
                                     cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
-                                                 usize);
+                                                  usize);
                                     continue 'xml;
                                 }
                             }
@@ -303,7 +313,7 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
                                 b"f" => {} // ignore f nodes
                                 n => {
                                     return Err(format!("not a 'v', 'f', or 'is' node: {:?}", n)
-                                        .into())
+                                                   .into())
                                 }
                             }
                         }
@@ -325,7 +335,8 @@ fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
 /// - top left (row, column),
 /// - bottom right (row, column)
 fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
-    let parts: Vec<_> = dimension.split(|c| *c == b':')
+    let parts: Vec<_> = dimension
+        .split(|c| *c == b':')
         .map(|s| get_row_column(s))
         .collect::<Result<Vec<_>>>()?;
 
@@ -352,7 +363,7 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
                     return Err(format!("Numeric character are only allowed \
                         at the end of the range: {:x}",
                                        c)
-                        .into());
+                                       .into());
                 }
             }
             c @ b'A'...b'Z' => {

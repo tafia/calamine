@@ -49,7 +49,8 @@ impl Cfb {
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
+        let dirs = sectors
+            .get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
         let dirs = dirs.chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
             .collect::<Result<Vec<_>>>()?;
@@ -62,16 +63,16 @@ impl Cfb {
         // load the mini streams
         debug!("load minis");
         let ministream = sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len)?;
-        let minifat =
-            sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
+        let minifat = sectors
+            .get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
-            directories: dirs,
-            sectors: sectors,
-            fats: fats,
-            mini_sectors: Sectors::new(64, ministream),
-            mini_fats: minifat,
-        })
+               directories: dirs,
+               sectors: sectors,
+               fats: fats,
+               mini_sectors: Sectors::new(64, ministream),
+               mini_fats: minifat,
+           })
     }
 
     /// Checks if directory exists
@@ -86,7 +87,8 @@ impl Cfb {
             Some(d) => {
                 if d.len < 4096 {
                     // TODO: Study the possibility to return a `VecArray` (stack allocated)
-                    self.mini_sectors.get_chain(d.start, &self.mini_fats, r, d.len)
+                    self.mini_sectors
+                        .get_chain(d.start, &self.mini_fats, r, d.len)
                 } else {
                     self.sectors.get_chain(d.start, &self.fats, r, d.len)
                 }
@@ -131,7 +133,7 @@ impl Header {
             }
             s => {
                 return Err(format!("Invalid sector shift, expecting 0x09 or 0x0C, got {:x}", s)
-                    .into())
+                               .into())
             }
         };
 
@@ -238,10 +240,10 @@ impl Directory {
         };
 
         Ok(Directory {
-            start: start,
-            len: len,
-            name: name,
-        })
+               start: start,
+               len: len,
+               name: name,
+           })
     }
 }
 
@@ -317,8 +319,8 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
                             res.extend_from_slice(&buf[..offset]);
                             len -= offset;
                         }
-                        buf[..len]
-                            .copy_from_slice(&res[res.len() - offset..res.len() - offset + len]);
+                        buf[..len].copy_from_slice(&res[res.len() - offset..
+                                                    res.len() - offset + len]);
                         res.extend_from_slice(&buf[..len]);
                     }
                 }
@@ -347,16 +349,12 @@ impl XlsEncoding {
         };
 
         Ok(XlsEncoding {
-            encoding: e,
-            high_byte: high_byte,
-        })
+               encoding: e,
+               high_byte: high_byte,
+           })
     }
 
-    pub fn decode_to(&self,
-                     stream: &[u8],
-                     len: usize,
-                     s: &mut String)
-                     -> Result<(usize, usize)> {
+    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut String) -> Result<(usize, usize)> {
         let (l, ub, bytes) = match self.high_byte {
             None => {
                 let l = min(stream.len(), len);

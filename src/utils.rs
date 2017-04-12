@@ -69,6 +69,6 @@ pub fn encoding_from_windows_code_page(cp: usize) -> Option<&'static Encoding> {
         //52936 => Some(encoding_rs::HZ),
         // not supported?
         //949 => Some(encoding_rs::WINDOWS_949),
-        _ => None
+        _ => None,
     }
 }

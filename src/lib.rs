@@ -2,7 +2,7 @@
 //!
 //! # Status
 //!
-//! **calamine** is a pure Rust library to read any excel/opendocument file (`xls`, `xlsx`, `xlsm`, `xlsb`).
+//! **calamine** is a pure Rust library to read Excel and OpenDocument Spreasheet files.
 //!
 //! Read both cell values and vba project.
 //!
@@ -188,11 +188,11 @@ impl Excel {
             None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
         Ok(Excel {
-            file: file,
-            strings: vec![],
-            relationships: HashMap::new(),
-            sheets: Vec::new(),
-        })
+               file: file,
+               strings: vec![],
+               relationships: HashMap::new(),
+               sheets: Vec::new(),
+           })
     }
 
     /// Get all data from `Worksheet`
@@ -228,7 +228,9 @@ impl Excel {
     /// ```
     pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range> {
         self.initialize()?;
-        let &(_, ref p) = self.sheets.get(idx).ok_or(ErrorKind::WorksheetIndex(idx))?;
+        let &(_, ref p) = self.sheets
+            .get(idx)
+            .ok_or(ErrorKind::WorksheetIndex(idx))?;
         inner!(self, read_worksheet_range(p, &self.strings))
     }
 
@@ -280,7 +282,10 @@ impl Excel {
     /// ```
     pub fn sheet_names(&mut self) -> Result<Vec<String>> {
         self.initialize()?;
-        Ok(self.sheets.iter().map(|&(ref k, _)| k.to_string()).collect())
+        Ok(self.sheets
+               .iter()
+               .map(|&(ref k, _)| k.to_string())
+               .collect())
     }
 }
 
@@ -349,7 +354,7 @@ impl Range {
         Range {
             start: start,
             end: end,
-            inner: vec![DataType::Empty; ((end.0 - start.0 + 1) 
+            inner: vec![DataType::Empty; ((end.0 - start.0 + 1)
                                           * (end.1 - start.1 + 1)) as usize],
         }
     }
@@ -556,10 +561,10 @@ impl<'a> Iterator for UsedCells<'a> {
             .by_ref()
             .find(|&(_, v)| v != &DataType::Empty)
             .map(|(i, v)| {
-                let row = i / self.width;
-                let col = i % self.width;
-                (row, col, v)
-            })
+                     let row = i / self.width;
+                     let col = i % self.width;
+                     (row, col, v)
+                 })
     }
 }
 

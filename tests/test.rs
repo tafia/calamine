@@ -55,7 +55,10 @@ fn issue_6() {
 
     let range = excel.worksheet_range("issue6").unwrap();
     range_eq!(range,
-              [[Float(1.)], [Float(2.)], [String("ab".to_string())], [Bool(false)]]);
+              [[Float(1.)],
+               [Float(2.)],
+               [String("ab".to_string())],
+               [Bool(false)]]);
 }
 
 #[test]
@@ -128,12 +131,13 @@ fn ods() {
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("datatypes").unwrap();
-    range_eq!(range, [[Float(1.)],
-                      [Float(1.5)],
-                      [String("ab".to_string())],
-                      [Bool(false)],
-                      [String("test".to_string())],
-                      [String("2016-10-20T00:00:00".to_string())]]);
+    range_eq!(range,
+              [[Float(1.)],
+               [Float(1.5)],
+               [String("ab".to_string())],
+               [Bool(false)],
+               [String("test".to_string())],
+               [String("2016-10-20T00:00:00".to_string())]]);
 
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(range,

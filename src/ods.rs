@@ -50,7 +50,8 @@ impl ExcelReader for Ods {
                 f.read_exact(&mut buf)?;
                 if &buf[..] != MIMETYPE {
                     bail!("Invalid mimetype, expecting {:?}, found {:?}",
-                          MIMETYPE, &buf[..]);
+                          MIMETYPE,
+                          &buf[..]);
                 }
             }
             Err(ZipError::FileNotFound) => bail!("Cannot find 'mimetype' file"),
@@ -67,29 +68,29 @@ impl ExcelReader for Ods {
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>>{
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
         unimplemented!();
     }
 
     /// Gets vba references
-    fn read_shared_strings(&mut self) -> Result<Vec<String>>{
+    fn read_shared_strings(&mut self) -> Result<Vec<String>> {
         Ok(Vec::new())
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self,
-                         _: &HashMap<Vec<u8>, String>)
-                         -> Result<Vec<(String, String)>> {
+    fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>> {
         self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
-            Ok(s.keys().map(|k| (k.to_string(), k.to_string())).collect())
+            Ok(s.keys()
+                   .map(|k| (k.to_string(), k.to_string()))
+                   .collect())
         } else {
             Ok(Vec::new())
         }
     }
 
     /// Read workbook relationships
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>{
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
         Ok(HashMap::new())
     }
 
@@ -126,13 +127,14 @@ impl Ods {
             loop {
                 match reader.read_event(&mut buf) {
                     Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
-                        if let Some(ref a) = e.attributes().filter_map(|a| a.ok())
-                            .find(|ref a| a.key == b"table:name") {
+                        if let Some(ref a) = e.attributes()
+                               .filter_map(|a| a.ok())
+                               .find(|ref a| a.key == b"table:name") {
                             let name = a.unescape_and_decode_value(&mut reader)?;
                             let range = read_table(&mut reader)?;
                             sheets.insert(name, range);
                         }
-                    },
+                    }
                     Ok(Event::Eof) => break,
                     Err(e) => bail!(e),
                     _ => (),
@@ -178,15 +180,25 @@ fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
     let mut col_min = ::std::usize::MAX;
     let mut col_max = 0;
     {
-        let not_empty = |c| if let &DataType::Empty = c { false } else { true };
+        let not_empty = |c| if let &DataType::Empty = c {
+            false
+        } else {
+            true
+        };
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| not_empty(c)) {
-                if row_min.is_none() { row_min = Some(i); }
+                if row_min.is_none() {
+                    row_min = Some(i);
+                }
                 row_max = i;
-                if p < col_min { col_min = p; }
+                if p < col_min {
+                    col_min = p;
+                }
                 if let Some(p) = row.iter().rposition(|c| not_empty(c)) {
-                    if p > col_max { col_max = p; }
+                    if p > col_max {
+                        col_max = p;
+                    }
                 }
             }
         }
@@ -224,7 +236,8 @@ fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
 fn read_row(reader: &mut OdsReader,
             row_buf: &mut Vec<u8>,
             cell_buf: &mut Vec<u8>,
-            cells: &mut Vec<DataType>) -> Result<()> {
+            cells: &mut Vec<DataType>)
+            -> Result<()> {
     loop {
         row_buf.clear();
         match reader.read_event(row_buf) {
@@ -246,9 +259,10 @@ fn read_row(reader: &mut OdsReader,
 /// Converts table-cell element into a DataType
 ///
 /// ODF 1.2-19.385
-fn get_datatype(reader: &mut OdsReader, 
+fn get_datatype(reader: &mut OdsReader,
                 atts: Attributes,
-                buf: &mut Vec<u8>) -> Result<(DataType, bool)> {
+                buf: &mut Vec<u8>)
+                -> Result<(DataType, bool)> {
     let mut is_string = false;
     for a in atts {
         let a = a?;
@@ -256,10 +270,12 @@ fn get_datatype(reader: &mut OdsReader,
             b"office:value" => {
                 let v = reader.decode(a.value);
                 return v.parse()
-                    .map(|f| (DataType::Float(f), false))
-                    .map_err(|e| e.into());
-            },
-            b"office:string-value" | b"office:date-value" | b"office:time-value" => {
+                           .map(|f| (DataType::Float(f), false))
+                           .map_err(|e| e.into());
+            }
+            b"office:string-value" |
+            b"office:date-value" |
+            b"office:time-value" => {
                 return Ok((DataType::String(a.unescape_and_decode_value(reader)?), false));
             }
             b"office:boolean-value" => return Ok((DataType::Bool(a.value == b"TRUE"), false)),
@@ -268,17 +284,17 @@ fn get_datatype(reader: &mut OdsReader,
         }
     }
     if is_string {
-        // If the value type is string and the office:string-value attribute 
+        // If the value type is string and the office:string-value attribute
         // is not present, the element content defines the value.
         loop {
             buf.clear();
             match reader.read_event(buf) {
                 Ok(Event::Text(ref e)) => {
                     return Ok((DataType::String(e.unescape_and_decode(reader)?), false));
-                },
+                }
                 Ok(Event::End(ref e)) if e.name() == b"table:table-cell" => {
                     return Ok((DataType::String("".to_string()), true));
-                },
+                }
                 Err(e) => bail!(e),
                 Ok(Event::Eof) => bail!("Expecting 'table:table-cell' end element, found EOF"),
                 _ => (),
