@@ -1,6 +1,6 @@
 # calamine
 
-A Excel/OpenDocument file reader, in pure Rust.
+A Excel/OpenDocument Spreadsheets file reader, in pure Rust.
 
 [![Build Status](https://travis-ci.org/tafia/calamine.svg?branch=master)](https://travis-ci.org/tafia/calamine)
 [![Build status](https://ci.appveyor.com/api/projects/status/njpnhq54h5hxsgel/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/calamine/branch/master)
@@ -20,7 +20,7 @@ For anything else, please file an issue with a failing test or send a pull reque
 
 ### Simple
 ```rust
-let mut excel = Excel::open("file.xlsx").unwrap();
+let mut excel = Sheets::open("file.xlsx").unwrap();
 let r = excel.worksheet_range("Sheet1").unwrap();
 for row in r.rows() {
     println!("row={:?}, row[0]={:?}", row, row[0]);
@@ -30,11 +30,11 @@ for row in r.rows() {
 ### More complex
 
 ```rust
-use calamine::{Excel, Range, DataType};
+use calamine::{Sheets, Range, DataType};
 
 // opens a new workbook
 let path = "/path/to/my/excel/file.xlsm";
-let mut workbook = Excel::open(path).unwrap();
+let mut workbook = Sheets::open(path).unwrap();
 
 // Read whole worksheet data and provide some statistics
 if let Ok(range) = workbook.worksheet_range("Sheet1") {

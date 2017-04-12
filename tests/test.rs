@@ -1,6 +1,6 @@
 extern crate calamine;
 
-use calamine::Excel;
+use calamine::Sheets;
 use calamine::DataType::{String, Empty, Float, Bool, Error};
 use calamine::CellErrorType::*;
 
@@ -18,7 +18,7 @@ macro_rules! range_eq {
 #[test]
 fn issue_2() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(range,
@@ -31,7 +31,7 @@ fn issue_2() {
 fn issue_3() {
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(range, [[Float(1.), String("a".to_string())]]);
@@ -41,7 +41,7 @@ fn issue_3() {
 fn issue_4() {
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue5").unwrap();
     range_eq!(range, [[Float(0.5)]]);
@@ -51,7 +51,7 @@ fn issue_4() {
 fn issue_6() {
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue6").unwrap();
     range_eq!(range,
@@ -64,7 +64,7 @@ fn issue_6() {
 #[test]
 fn error_file() {
     let path = format!("{}/tests/errors.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Feuil1").unwrap();
     range_eq!(range,
@@ -80,7 +80,7 @@ fn error_file() {
 #[test]
 fn issue_9() {
     let path = format!("{}/tests/issue9.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Feuil1").unwrap();
     range_eq!(range,
@@ -93,7 +93,7 @@ fn issue_9() {
 #[test]
 fn vba() {
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let mut vba = excel.vba_project().unwrap();
     assert_eq!(vba.to_mut().get_module("testVBA").unwrap(),
@@ -104,7 +104,7 @@ fn vba() {
 #[test]
 fn xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(range,
@@ -116,7 +116,7 @@ fn xlsb() {
 #[test]
 fn xls() {
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(range,
@@ -128,7 +128,7 @@ fn xls() {
 #[test]
 fn ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("datatypes").unwrap();
     range_eq!(range,
@@ -152,7 +152,7 @@ fn ods() {
 #[test]
 fn special_chrs_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(range,
@@ -169,7 +169,7 @@ fn special_chrs_xlsx() {
 #[test]
 fn special_chrs_xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(range,
@@ -186,7 +186,7 @@ fn special_chrs_xlsb() {
 #[test]
 fn special_chrs_ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(range,
@@ -204,7 +204,7 @@ fn special_chrs_ods() {
 fn richtext_namespaced() {
     let path = format!("{}/tests/richtext-namespaced.xlsx",
                        env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Excel::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(range,

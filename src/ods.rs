@@ -11,17 +11,17 @@ use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use quick_xml::reader::Reader;
+use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attributes;
 
-use {DataType, ExcelReader, Range};
+use {DataType, Reader, Range};
 use vba::VbaProject;
 use errors::*;
 
 const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
-type OdsReader<'a> = Reader<BufReader<ZipFile<'a>>>;
+type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
 enum Content {
     Zip(ZipArchive<File>),
@@ -38,7 +38,7 @@ pub struct Ods {
     content: Content,
 }
 
-impl ExcelReader for Ods {
+impl Reader for Ods {
     /// Creates a new instance based on the actual file
     fn new(f: File) -> Result<Self> {
         let mut zip = ZipArchive::new(f)?;
@@ -112,7 +112,7 @@ impl Ods {
         let sheets = if let Content::Zip(ref mut zip) = self.content {
             let mut reader = match zip.by_name("content.xml") {
                 Ok(f) => {
-                    let mut r = Reader::from_reader(BufReader::new(f));
+                    let mut r = XmlReader::from_reader(BufReader::new(f));
                     r.check_end_names(false)
                         .trim_text(true)
                         .check_comments(false)

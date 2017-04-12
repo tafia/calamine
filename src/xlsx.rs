@@ -5,11 +5,11 @@ use std::borrow::Cow;
 
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
-use quick_xml::reader::Reader;
+use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::{Attribute, Attributes};
 
-use {DataType, ExcelReader, Range, Cell};
+use {DataType, Reader, Range, Cell};
 use vba::VbaProject;
 use errors::*;
 
@@ -20,10 +20,12 @@ pub struct Xlsx {
 }
 
 impl Xlsx {
-    fn xml_reader<'a>(&'a mut self, path: &str) -> Option<Result<Reader<BufReader<ZipFile<'a>>>>> {
+    fn xml_reader<'a>(&'a mut self,
+                      path: &str)
+                      -> Option<Result<XmlReader<BufReader<ZipFile<'a>>>>> {
         match self.zip.by_name(path) {
             Ok(f) => {
-                let mut r = Reader::from_reader(BufReader::new(f));
+                let mut r = XmlReader::from_reader(BufReader::new(f));
                 r.check_end_names(false)
                     .trim_text(false)
                     .check_comments(false)
@@ -36,7 +38,7 @@ impl Xlsx {
     }
 }
 
-impl ExcelReader for Xlsx {
+impl Reader for Xlsx {
     fn new(f: File) -> Result<Self> {
         Ok(Xlsx { zip: ZipArchive::new(f)? })
     }
@@ -202,7 +204,7 @@ impl ExcelReader for Xlsx {
 }
 
 /// read sheetData node
-fn read_sheet_data(xml: &mut Reader<BufReader<ZipFile>>,
+fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                    strings: &[String],
                    cells: &mut Vec<Cell>)
                    -> Result<()> {
@@ -389,7 +391,7 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
 }
 
 /// attempts to read either a simple or richtext string
-fn read_string(xml: &mut Reader<BufReader<ZipFile>>, closing: &[u8]) -> Result<Option<String>> {
+fn read_string(xml: &mut XmlReader<BufReader<ZipFile>>, closing: &[u8]) -> Result<Option<String>> {
     let mut buf = Vec::new();
     let mut rich_buffer: Option<String> = None;
     loop {

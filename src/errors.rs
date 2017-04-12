@@ -1,7 +1,7 @@
-//! `ExcelError` management module
+//! `Error` management module
 //!
 //! Provides all excel error conversion and description
-//! Also provides `Result` as a alias of `Result<_, ExcelError>
+//! Also provides `Result` as a alias of `Result<_, Error>
 
 #![allow(missing_docs)]
 

@@ -8,11 +8,11 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Excel, DataType};
+//! use calamine::{Sheets, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Excel::open(path).expect("Cannot open file");
+//! let mut workbook = Sheets::open(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
@@ -61,17 +61,18 @@ mod cfb;
 mod ods;
 pub mod vba;
 
-use std::path::Path;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
+use std::ops::{Index, IndexMut};
+use std::path::Path;
 use std::str::FromStr;
-use std::borrow::Cow;
 
 pub use errors::*;
 use vba::VbaProject;
 
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
-/// An enum to represent all different excel errors that can appear as
+/// An enum to represent all different errors that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellErrorType {
@@ -104,12 +105,12 @@ impl FromStr for CellErrorType {
             "#NUM!" => Ok(CellErrorType::Num),
             "#REF!" => Ok(CellErrorType::Ref),
             "#VALUE!" => Ok(CellErrorType::Value),
-            _ => Err(format!("{} is not an excel error", s).into()),
+            _ => Err(format!("Unsupported error '{}'", s).into()),
         }
     }
 }
 
-/// An enum to represent all different excel data types that can appear as
+/// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
@@ -127,7 +128,7 @@ pub enum DataType {
     Empty,
 }
 
-/// Excel file types
+/// File types
 enum FileType {
     /// Compound File Binary Format [MS-CFB] (xls, xla)
     Xls(xls::Xls),
@@ -139,8 +140,8 @@ enum FileType {
     Ods(ods::Ods),
 }
 
-/// A wrapper struct over the Excel file
-pub struct Excel {
+/// A wrapper struct over the spreadsheet file
+pub struct Sheets {
     file: FileType,
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
@@ -167,17 +168,17 @@ macro_rules! inner {
     }};
 }
 
-impl Excel {
+impl Sheets {
     /// Opens a new workbook
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    /// assert!(Excel::open(path).is_ok());
+    /// assert!(Sheets::open(path).is_ok());
     /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Excel> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets> {
         let f = File::open(&path)?;
         let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
@@ -187,7 +188,7 @@ impl Excel {
             Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
             None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
         };
-        Ok(Excel {
+        Ok(Sheets {
                file: file,
                strings: vec![],
                relationships: HashMap::new(),
@@ -199,10 +200,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -219,10 +220,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -256,10 +257,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).unwrap();
+    /// let mut workbook = Sheets::open(path).unwrap();
     /// if workbook.has_vba() {
     ///     let vba = workbook.vba_project().expect("Cannot find vba project");
     ///     println!("References: {:?}", vba.get_references());
@@ -274,10 +275,10 @@ impl Excel {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Excel;
+    /// use calamine::Sheets;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Excel::open(path).unwrap();
+    /// let mut workbook = Sheets::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
     pub fn sheet_names(&mut self) -> Result<Vec<String>> {
@@ -289,8 +290,8 @@ impl Excel {
     }
 }
 
-/// A trait to share excel reader functions accross different `FileType`s
-pub trait ExcelReader: Sized {
+/// A trait to share spreadsheets reader functions accross different `FileType`s
+pub trait Reader: Sized {
     /// Creates a new instance based on the actual file
     fn new(f: File) -> Result<Self>;
     /// Does the workbook contain a vba project
@@ -361,7 +362,7 @@ impl Range {
 
     /// Creates a `Range` from a coo sparse vector of `Cell`s.
     ///
-    /// Coordinate list (COO) is the natural way cells are stored in excel files
+    /// Coordinate list (COO) is the natural way cells are stored
     /// Inner size is defined only by non empty.
     ///
     /// cells: `Vec` of non empty `Cell`s, sorted by row
@@ -370,19 +371,7 @@ impl Range {
     ///
     /// panics when a `Cell` row is lower than the first `Cell` row or
     /// bigger than the last `Cell` row.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use calamine::{Range, DataType, Cell};
-    ///
-    /// let v = vec![Cell::new((1, 200), DataType::Float(1.)),
-    ///              Cell::new((55, 2),  DataType::String("a".to_string()))];
-    /// let range = Range::from_sparse(v);
-    ///
-    /// assert_eq!(range.get_size(), (55, 199));
-    /// ```
-    pub fn from_sparse(cells: Vec<Cell>) -> Range {
+    fn from_sparse(cells: Vec<Cell>) -> Range {
         if cells.is_empty() {
             Range {
                 start: (0, 0),
@@ -449,9 +438,10 @@ impl Range {
         self.start.0 > self.end.0 || self.start.1 > self.end.1
     }
 
-    /// Set inner value
+    /// Set inner value from absolute position
     ///
     /// Will try to resize inner structure if the value is out of bounds.
+    /// For relative positions, use Index trait
     ///
     /// Try to avoid this method as much as possible and prefer initializing
     /// the `Range` with `from_sparce` constructor.
@@ -466,54 +456,58 @@ impl Range {
     ///     .expect("Cannot set value at position (2, 1)");
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, pos: (u32, u32), value: DataType) -> Result<()> {
-        if self.start > pos {
-            return Err(ErrorKind::CellOutOfRange(pos, self.start).into());
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: DataType) -> Result<()> {
+        if self.start > absolute_position {
+            return Err(ErrorKind::CellOutOfRange(absolute_position, self.start).into());
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
-        match (self.end.0 < pos.0, self.end.1 < pos.1) {
+        match (self.end.0 < absolute_position.0, self.end.1 < absolute_position.1) {
             (false, false) => (), // regular case, position within bounds
             (true, false) => {
-                let len = (pos.0 - self.end.0 + 1) as usize * self.width();
+                let len = (absolute_position.0 - self.end.0 + 1) as usize * self.width();
                 self.inner.extend_from_slice(&vec![DataType::Empty; len]);
-                self.end.0 = pos.0;
+                self.end.0 = absolute_position.0;
             } // missing some rows
             (e, true) => {
                 let height = if e {
-                    (pos.0 - self.start.0 + 1) as usize
+                    (absolute_position.0 - self.start.0 + 1) as usize
                 } else {
                     self.height()
                 };
-                let width = (pos.1 - self.start.1 + 1) as usize;
+                let width = (absolute_position.1 - self.start.1 + 1) as usize;
                 let old_width = self.width();
                 let mut data = Vec::with_capacity(width * height);
+                let empty = vec![DataType::Empty; width - old_width];
                 for sce in self.inner.chunks(old_width) {
                     data.extend_from_slice(sce);
-                    data.extend_from_slice(&vec![DataType::Empty; width - old_width]);
+                    data.extend_from_slice(&empty);
                 }
                 data.extend_from_slice(&vec![DataType::Empty; width * (height - self.height())]);
                 if e {
-                    self.end = pos
+                    self.end = absolute_position
                 } else {
-                    self.end.1 = pos.1
+                    self.end.1 = absolute_position.1
                 }
                 self.inner = data;
             } // missing some columns
         }
 
-        let pos = (pos.0 - self.start.0, pos.1 - self.start.1);
+        let pos = (absolute_position.0 - self.start.0, absolute_position.1 - self.start.1);
         let idx = pos.0 as usize * self.width() + pos.1 as usize;
         self.inner[idx] = value;
         Ok(())
     }
 
-    /// Get cell value
+    /// Get cell value from absolute position
+    ///
+    /// For relative positions, use Index trait
     ///
     /// Panics if indexes are out of range bounds
-    pub fn get_value(&self, pos: (u32, u32)) -> &DataType {
-        assert!(pos <= self.end);
-        let idx = (pos.0 - self.start.0) as usize * self.width() + (pos.1 - self.start.1) as usize;
+    pub fn get_value(&self, absolute_position: (u32, u32)) -> &DataType {
+        assert!(absolute_position <= self.end);
+        let idx = (absolute_position.0 - self.start.0) as usize * self.width() +
+                  (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]
     }
 
@@ -537,13 +531,41 @@ impl Range {
     }
 
     /// Get an iterator over used cells only
-    ///
-    /// This can be much faster than iterating rows as `Range` is saved as a sparce matrix
     pub fn used_cells(&self) -> UsedCells {
         UsedCells {
             width: self.width(),
             inner: self.inner.iter().enumerate(),
         }
+    }
+}
+
+impl Index<usize> for Range {
+    type Output = [DataType];
+    fn index(&self, index: usize) -> &[DataType] {
+        let width = self.width();
+        &self.inner[index * width..(index + 1) * width]
+    }
+}
+
+impl Index<(usize, usize)> for Range {
+    type Output = DataType;
+    fn index(&self, index: (usize, usize)) -> &DataType {
+        let width = self.width();
+        &self.inner[index.0 * width + index.1]
+    }
+}
+
+impl IndexMut<usize> for Range {
+    fn index_mut(&mut self, index: usize) -> &mut [DataType] {
+        let width = self.width();
+        &mut self.inner[index * width..(index + 1) * width]
+    }
+}
+
+impl IndexMut<(usize, usize)> for Range {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut DataType {
+        let width = self.width();
+        &mut self.inner[index.0 * width + index.1]
     }
 }
 

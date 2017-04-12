@@ -7,11 +7,11 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
-use calamine::{Excel, DataType, Error};
+use calamine::{Sheets, DataType, Error};
 
 #[derive(Debug)]
 enum FileStatus {
-    ExcelError(Error),
+    SheetsError(Error),
     VbaError(Error),
     RangeError(Error),
     Glob(GlobError),
@@ -57,7 +57,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let f = f.map_err(FileStatus::Glob)?;
 
     println!("Analysing {:?}", f.display());
-    let mut xl = Excel::open(&f).map_err(FileStatus::ExcelError)?;
+    let mut xl = Sheets::open(&f).map_err(FileStatus::SheetsError)?;
 
     let mut missing = None;
     let mut cell_errors = 0;
@@ -72,7 +72,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
 
     // get owned sheet names
     let sheets = xl.sheet_names()
-        .map_err(FileStatus::ExcelError)?
+        .map_err(FileStatus::SheetsError)?
         .into_iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
