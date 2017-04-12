@@ -123,6 +123,29 @@ fn xls() {
 }
 
 #[test]
+fn ods() {
+    let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("datatypes").unwrap();
+    range_eq!(range, [[Float(1.)],
+                      [Float(1.5)],
+                      [String("ab".to_string())],
+                      [Bool(false)],
+                      [String("test".to_string())],
+                      [String("2016-10-20T00:00:00".to_string())]]);
+
+    let range = excel.worksheet_range("issue2").unwrap();
+    range_eq!(range,
+              [[Float(1.), String("a".to_string())],
+               [Float(2.), String("b".to_string())],
+               [Float(3.), String("c".to_string())]]);
+
+    let range = excel.worksheet_range("issue5").unwrap();
+    range_eq!(range, [[Float(0.5)]]);
+}
+
+#[test]
 fn special_chrs_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Excel::open(&path).expect("cannot open excel file");
@@ -142,6 +165,23 @@ fn special_chrs_xlsx() {
 #[test]
 fn special_chrs_xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Excel::open(&path).expect("cannot open excel file");
+
+    let range = excel.worksheet_range("spc_chrs").unwrap();
+    range_eq!(range,
+              [[String("&".to_string())],
+               [String("<".to_string())],
+               [String(">".to_string())],
+               [String("aaa ' aaa".to_string())],
+               [String("\"".to_string())],
+               [String("☺".to_string())],
+               [String("֍".to_string())],
+               [String("àâéêèçöïî«»".to_string())]]);
+}
+
+#[test]
+fn special_chrs_ods() {
+    let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Excel::open(&path).expect("cannot open excel file");
 
     let range = excel.worksheet_range("spc_chrs").unwrap();

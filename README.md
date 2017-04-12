@@ -1,6 +1,6 @@
 # calamine
 
-A Excel file reader, in pure Rust.
+A Excel/OpenDocument file reader, in pure Rust.
 
 [![Build Status](https://travis-ci.org/tafia/calamine.svg?branch=master)](https://travis-ci.org/tafia/calamine)
 [![Build status](https://ci.appveyor.com/api/projects/status/njpnhq54h5hxsgel/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/calamine/branch/master)
@@ -9,7 +9,9 @@ A Excel file reader, in pure Rust.
 
 ## Description
 
-**calamine** is a pure Rust library to read any excel file (`xls`, `xlsx`, `xlsm`, `xlsb`). 
+**calamine** is a pure Rust library to read any spreadsheet file:
+- excel like (`xls`, `xlsx`, `xlsm`, `xlsb`, `xla`, `xlam`)
+- opendocument spreadsheets (`ods`)
 
 As long as your files are *simple enough*, this library should just work.
 For anything else, please file an issue with a failing test or send a pull request!
@@ -76,6 +78,7 @@ Many (most) part of the specifications are not implemented, the focus has been p
 The main unsupported items are:
 - no support for writing excel files, this is a read-only libray
 - no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
+- no support for reading VB for opendocuments
 
 ## Credits
 
