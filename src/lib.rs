@@ -438,9 +438,10 @@ impl Range {
         self.start.0 > self.end.0 || self.start.1 > self.end.1
     }
 
-    /// Set inner value
+    /// Set inner value from absolute position
     ///
     /// Will try to resize inner structure if the value is out of bounds.
+    /// For relative positions, use Index trait
     ///
     /// Try to avoid this method as much as possible and prefer initializing
     /// the `Range` with `from_sparce` constructor.
@@ -498,7 +499,9 @@ impl Range {
         Ok(())
     }
 
-    /// Get cell value
+    /// Get cell value from absolute position
+    ///
+    /// For relative positions, use Index trait
     ///
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &DataType {
