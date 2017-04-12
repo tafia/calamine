@@ -1,11 +1,14 @@
 language: rust
+cache: cargo
 
 rust:
   - stable
 sudo: false
 before_script:
   - pip install 'travis-cargo<0.2' --user && export PATH=$HOME/.local/bin:$PATH
+  - which rustfmt || cargo install rustfmt
 script:
+  - cargo fmt -- --write-mode=diff
   - cargo build
   - cargo test
   - cargo doc --no-deps
