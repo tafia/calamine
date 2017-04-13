@@ -118,7 +118,9 @@ impl Reader for Xlsx {
                 }
                 Ok(Event::End(ref e)) => {
                     let name = e.local_name();
-                    if name == b"sheets" || name == b"workbook"  { break; }
+                    if name == b"sheets" || name == b"workbook" {
+                        break;
+                    }
                 }
                 Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
                 Err(e) => return Err(e.into()),
@@ -229,7 +231,9 @@ impl Reader for Xlsx {
                 }
                 Ok(Event::End(ref e)) => {
                     let name = e.local_name();
-                    if name == b"definedNames" || name == b"workbook"  { break; }
+                    if name == b"definedNames" || name == b"workbook" {
+                        break;
+                    }
                 }
                 Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
                 Err(e) => return Err(e.into()),

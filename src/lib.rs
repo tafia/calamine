@@ -296,7 +296,7 @@ impl Sheets {
         if self.defined_names.is_empty() {
             self.initialize()?;
             self.defined_names = inner!(self, read_defined_names())?;
-        } 
+        }
         Ok(&self.defined_names)
     }
 }
