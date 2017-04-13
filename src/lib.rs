@@ -145,6 +145,7 @@ pub struct Sheets {
     file: FileType,
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
+    defined_names: HashMap<String, String>,
     /// Map of sheet names/sheet path within zip archive
     sheets: Vec<(String, String)>,
 }
@@ -193,6 +194,7 @@ impl Sheets {
                strings: vec![],
                relationships: HashMap::new(),
                sheets: Vec::new(),
+               defined_names: HashMap::new(),
            })
     }
 
@@ -288,6 +290,15 @@ impl Sheets {
                .map(|&(ref k, _)| k.to_string())
                .collect())
     }
+
+    /// Get all defined names (Ranges names etc)
+    pub fn defined_names(&mut self) -> Result<&HashMap<String, String>> {
+        if self.defined_names.is_empty() {
+            self.initialize()?;
+            self.defined_names = inner!(self, read_defined_names())?;
+        } 
+        Ok(&self.defined_names)
+    }
 }
 
 /// A trait to share spreadsheets reader functions accross different `FileType`s
@@ -300,6 +311,10 @@ pub trait Reader: Sized {
     fn vba_project(&mut self) -> Result<Cow<VbaProject>>;
     /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
+    /// Gets defined names
+    fn read_defined_names(&mut self) -> Result<HashMap<String, String>> {
+        Ok(HashMap::new())
+    }
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn read_sheets_names(&mut self,
                          relationships: &HashMap<Vec<u8>, String>)

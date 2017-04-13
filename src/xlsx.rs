@@ -116,7 +116,10 @@ impl Reader for Xlsx {
                     }
                     sheets.push((name, path));
                 }
-                Ok(Event::End(ref e)) if e.local_name() == b"workbook" => break,
+                Ok(Event::End(ref e)) => {
+                    let name = e.local_name();
+                    if name == b"sheets" || name == b"workbook"  { break; }
+                }
                 Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
                 Err(e) => return Err(e.into()),
                 _ => (),
@@ -200,6 +203,41 @@ impl Reader for Xlsx {
             buf.clear();
         }
         Ok(Range::from_sparse(cells))
+    }
+
+    fn read_defined_names(&mut self) -> Result<HashMap<String, String>> {
+
+        let mut defined_names = HashMap::new();
+
+        let mut xml = match self.xml_reader("xl/workbook.xml") {
+            None => return Ok(defined_names),
+            Some(x) => x?,
+        };
+        let mut buf = Vec::new();
+        let mut val_buf = Vec::new();
+        loop {
+            match xml.read_event(&mut buf) {
+                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => {
+                    if let Some(a) = e.attributes()
+                           .filter_map(|a| a.ok())
+                           .find(|a| a.key == b"name") {
+                        let name = a.unescape_and_decode_value(&xml)?;
+                        val_buf.clear();
+                        let value = xml.read_text(b"definedName", &mut val_buf)?;
+                        defined_names.insert(name, value);
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    let name = e.local_name();
+                    if name == b"definedNames" || name == b"workbook"  { break; }
+                }
+                Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
+                Err(e) => return Err(e.into()),
+                _ => (),
+            }
+            buf.clear();
+        }
+        Ok(defined_names)
     }
 }
 
