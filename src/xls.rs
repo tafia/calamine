@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 
 use errors::*;
-use {Reader, Range, Cell, DataType, CellErrorType};
+use {Metadata, Reader, Range, Cell, DataType, CellErrorType};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{read_u16, read_u32, read_slice};
@@ -53,27 +53,19 @@ impl Reader for Xls {
     }
 
     /// Parses Workbook stream, no need for the relationships variable
-    fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>> {
+    fn initialize(&mut self) -> Result<Metadata> {
         let _ = self.parse_workbook()?;
-        match self.sheets {
+        let sheets = match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => {
-                Ok(shs.keys()
-                       .map(|k| (k.to_string(), k.to_string()))
-                       .collect())
-            }
-        }
+            SheetsState::Parsed(ref shs) => shs.keys().map(|k| k.to_string()).collect(),
+        };
+        Ok(Metadata {
+               sheets: sheets,
+               defined_names: Vec::new(),
+           })
     }
 
-    fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        Ok(Vec::new()) // we don't really care as everything is done internally
-    }
-
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
-        Ok(HashMap::new()) // we don't really care as everything is done internally
-    }
-
-    fn read_worksheet_range(&mut self, name: &str, _: &[String]) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),

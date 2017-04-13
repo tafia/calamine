@@ -62,7 +62,6 @@ mod ods;
 pub mod vba;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fs::File;
 use std::ops::{Index, IndexMut};
 use std::path::Path;
@@ -140,14 +139,21 @@ enum FileType {
     Ods(ods::Ods),
 }
 
+/// Common file metadata
+///
+/// Depending on file type, some extra information may be stored
+/// in the Reader implementations
+#[derive(Debug, Default)]
+struct Metadata {
+    sheets: Vec<String>,
+    /// Map of sheet names/sheet path within zip archive
+    defined_names: Vec<(String, String)>,
+}
+
 /// A wrapper struct over the spreadsheet file
 pub struct Sheets {
     file: FileType,
-    strings: Vec<String>,
-    relationships: HashMap<Vec<u8>, String>,
-    defined_names: Vec<(String, String)>,
-    /// Map of sheet names/sheet path within zip archive
-    sheets: Vec<(String, String)>,
+    metadata: Metadata,
 }
 
 macro_rules! inner {
@@ -191,10 +197,7 @@ impl Sheets {
         };
         Ok(Sheets {
                file: file,
-               strings: vec![],
-               relationships: HashMap::new(),
-               sheets: Vec::new(),
-               defined_names: Vec::new(),
+               metadata: Metadata::default(),
            })
     }
 
@@ -211,11 +214,7 @@ impl Sheets {
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
         self.initialize()?;
-        let &(_, ref p) = self.sheets
-            .iter()
-            .find(|&&(ref n, _)| n == name)
-            .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
-        inner!(self, read_worksheet_range(p, &self.strings))
+        inner!(self, read_worksheet_range(name))
     }
 
     /// Get all data from `Worksheet` at index `idx` (0 based)
@@ -231,21 +230,16 @@ impl Sheets {
     /// ```
     pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range> {
         self.initialize()?;
-        let &(_, ref p) = self.sheets
+        let name = self.metadata
+            .sheets
             .get(idx)
             .ok_or(ErrorKind::WorksheetIndex(idx))?;
-        inner!(self, read_worksheet_range(p, &self.strings))
+        inner!(self, read_worksheet_range(name))
     }
 
     fn initialize(&mut self) -> Result<()> {
-        if self.strings.is_empty() {
-            self.strings = inner!(self, read_shared_strings())?;
-        }
-        if self.relationships.is_empty() {
-            self.relationships = inner!(self, read_relationships())?;
-        }
-        if self.sheets.is_empty() {
-            self.sheets = inner!(self, read_sheets_names(&self.relationships))?;
+        if self.metadata.sheets.is_empty() {
+            self.metadata = inner!(self, initialize())?;
         }
         Ok(())
     }
@@ -285,44 +279,28 @@ impl Sheets {
     /// ```
     pub fn sheet_names(&mut self) -> Result<Vec<String>> {
         self.initialize()?;
-        Ok(self.sheets
-               .iter()
-               .map(|&(ref k, _)| k.to_string())
-               .collect())
+        Ok(self.metadata.sheets.clone())
     }
 
     /// Get all defined names (Ranges names etc)
     pub fn defined_names(&mut self) -> Result<&[(String, String)]> {
-        if self.defined_names.is_empty() {
-            self.initialize()?;
-            self.defined_names = inner!(self, read_defined_names())?;
-        }
-        Ok(&self.defined_names)
+        self.initialize()?;
+        Ok(&self.metadata.defined_names)
     }
 }
 
 /// A trait to share spreadsheets reader functions accross different `FileType`s
-pub trait Reader: Sized {
+trait Reader: Sized {
     /// Creates a new instance based on the actual file
     fn new(f: File) -> Result<Self>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Result<Cow<VbaProject>>;
-    /// Gets vba references
-    fn read_shared_strings(&mut self) -> Result<Vec<String>>;
-    /// Gets defined names
-    fn read_defined_names(&mut self) -> Result<Vec<(String, String)>> {
-        Ok(Vec::new())
-    }
-    /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self,
-                         relationships: &HashMap<Vec<u8>, String>)
-                         -> Result<Vec<(String, String)>>;
-    /// Read workbook relationships
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>>;
+    /// Initialize
+    fn initialize(&mut self) -> Result<Metadata>;
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range>;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range>;
 }
 
 /// A struct to hold cell position and value

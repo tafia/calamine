@@ -15,7 +15,7 @@ use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attributes;
 
-use {DataType, Reader, Range};
+use {Metadata, DataType, Reader, Range};
 use vba::VbaProject;
 use errors::*;
 
@@ -72,37 +72,29 @@ impl Reader for Ods {
         unimplemented!();
     }
 
-    /// Gets vba references
-    fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        Ok(Vec::new())
-    }
-
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>> {
+    fn initialize(&mut self) -> Result<Metadata> {
         self.parse_content()?;
-        if let Content::Sheets(ref s) = self.content {
-            Ok(s.keys()
-                   .map(|k| (k.to_string(), k.to_string()))
-                   .collect())
+        let sheets = if let Content::Sheets(ref s) = self.content {
+            s.keys().map(|k| k.to_string()).collect()
         } else {
-            Ok(Vec::new())
-        }
-    }
-
-    /// Read workbook relationships
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
-        Ok(HashMap::new())
+            Vec::new()
+        };
+        Ok(Metadata {
+               sheets: sheets,
+               defined_names: Vec::new(),
+           })
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, path: &str, _: &[String]) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
         self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
-            if let Some(r) = s.get(path) {
+            if let Some(r) = s.get(name) {
                 return Ok(r.to_owned());
             }
         }
-        bail!("Cannot find '{}' sheet", path);
+        bail!("Cannot find '{}' sheet", name);
     }
 }
 

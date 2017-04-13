@@ -11,45 +11,18 @@ use quick_xml::events::Event;
 use quick_xml::events::attributes::Attribute;
 use encoding_rs::UTF_16LE;
 
-use {DataType, Reader, Cell, Range, CellErrorType};
+use {Metadata, DataType, Reader, Cell, Range, CellErrorType};
 use vba::VbaProject;
 use utils::{read_u32, read_usize, read_slice};
 use errors::*;
 
 pub struct Xlsb {
     zip: ZipArchive<File>,
+    sheets: Vec<(String, String)>,
+    strings: Vec<String>,
 }
 
 impl Xlsb {
-    fn iter<'a>(&'a mut self, path: &str) -> Result<RecordIter<'a>> {
-        match self.zip.by_name(path) {
-            Ok(f) => {
-                Ok(RecordIter {
-                       r: BufReader::new(f),
-                       b: [0],
-                   })
-            }
-            Err(ZipError::FileNotFound) => Err(format!("file {} does not exist", path).into()),
-            Err(e) => Err(e.into()),
-        }
-    }
-}
-
-impl Reader for Xlsb {
-    fn new(f: File) -> Result<Self> {
-        Ok(Xlsb { zip: ZipArchive::new(f)? })
-    }
-
-    fn has_vba(&mut self) -> bool {
-        self.zip.by_name("xl/vbaProject.bin").is_ok()
-    }
-
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
-        let len = f.size() as usize;
-        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
-    }
-
     /// MS-XLSB
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
         let mut relationships = HashMap::new();
@@ -102,16 +75,15 @@ impl Reader for Xlsb {
     }
 
     /// MS-XLSB 2.1.7.45
-    fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        let mut iter = match self.iter("xl/sharedStrings.bin") {
+    fn read_shared_strings(&mut self) -> Result<()> {
+        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/sharedStrings.bin") {
             Ok(iter) => iter,
-            Err(_) => return Ok(Vec::new()), // it is fine if path does not exists
+            Err(_) => return Ok(()), // it is fine if path does not exists
         };
         let mut buf = vec![0; 1024];
 
         let _ = iter.next_skip_blocks(0x009F, &[], &mut buf)?; // BrtBeginSst
         let len = read_usize(&buf[4..8]);
-        let mut strings = Vec::with_capacity(len);
 
         // BrtSSTItems
         for _ in 0..len {
@@ -120,16 +92,16 @@ impl Reader for Xlsb {
                                            (0x0023, Some(0x0024)) // future
                                            ],
                                           &mut buf)?; // BrtSSTItem
-            strings.push(wide_str(&buf[1..])?.into_owned());
+            self.strings.push(wide_str(&buf[1..])?.into_owned());
         }
-        Ok(strings)
+        Ok(())
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_sheets_names(&mut self,
-                         relationships: &HashMap<Vec<u8>, String>)
-                         -> Result<Vec<(String, String)>> {
-        let mut iter = self.iter("xl/workbook.bin")?;
+    fn read_workbook(&mut self,
+                     relationships: &HashMap<Vec<u8>, String>)
+                     -> Result<Vec<(String, String)>> {
+        let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
         let mut buf = vec![0; 1024];
 
         // BrtBeginBundleShs
@@ -144,10 +116,9 @@ impl Reader for Xlsb {
                                           (0x0087, Some(0x0088)), // BOOKVIEWS
                                           ],
                                       &mut buf)?;
-        let mut sheets = Vec::new();
         loop {
             match iter.read_type()? {
-                0x0090 => return Ok(sheets), // BrtEndBundleShs
+                0x0090 => return Ok(Vec::new()), // BrtEndBundleShs
                 0x009C => (), // BrtBundleSh
                 typ => return Err(format!("Expecting end of sheet, got {:x}", typ).into()),
             }
@@ -160,14 +131,56 @@ impl Reader for Xlsb {
                 let relid = UTF_16LE.decode(relid).0;
                 let path = format!("xl/{}", relationships[relid.as_bytes()]);
                 let name = wide_str(&buf[12 + rel_len..len])?;
-                sheets.push((name.into_owned(), path));
+                self.sheets.push((name.into_owned(), path));
             }
         }
     }
+}
+
+impl Reader for Xlsb {
+    fn new(f: File) -> Result<Self> {
+        Ok(Xlsb {
+               zip: ZipArchive::new(f)?,
+               sheets: Vec::new(),
+               strings: Vec::new(),
+           })
+    }
+
+    fn has_vba(&mut self) -> bool {
+        self.zip.by_name("xl/vbaProject.bin").is_ok()
+    }
+
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
+        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
+        let len = f.size() as usize;
+        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
+    }
+
+    fn initialize(&mut self) -> Result<Metadata> {
+        self.read_shared_strings()?;
+        let relationships = self.read_relationships()?;
+        let defined_names = self.read_workbook(&relationships)?;
+        Ok(Metadata {
+               sheets: self.sheets
+                   .iter()
+                   .map(|&(ref s, _)| s.clone())
+                   .collect(),
+               defined_names: defined_names,
+           })
+    }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range> {
-        let mut iter = self.iter(path)?;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+
+        let path = {
+            let &(_, ref path) = self.sheets
+                .iter()
+                .find(|&&(ref n, _)| n == name)
+                .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
+            path.clone()
+        };
+
+        let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
         let mut buf = vec![0; 1024];
 
         // BrtWsDim
@@ -238,7 +251,7 @@ impl Reader for Xlsb {
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&buf[8..12]);
-                    DataType::String(strings[isst].clone())
+                    DataType::String(self.strings[isst].clone())
                 }
                 0x0000 => {
                     // BrtRowHdr
@@ -264,6 +277,19 @@ struct RecordIter<'a> {
 }
 
 impl<'a> RecordIter<'a> {
+    fn from_zip(zip: &'a mut ZipArchive<File>, path: &str) -> Result<RecordIter<'a>> {
+        match zip.by_name(path) {
+            Ok(f) => {
+                Ok(RecordIter {
+                       r: BufReader::new(f),
+                       b: [0],
+                   })
+            }
+            Err(ZipError::FileNotFound) => Err(format!("file {} does not exist", path).into()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     fn read_u8(&mut self) -> Result<u8> {
         self.r.read_exact(&mut self.b)?;
         Ok(self.b[0])
