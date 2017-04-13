@@ -223,11 +223,14 @@ fn xlsx_defined_names() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Sheets::open(&path).expect("cannot open excel file");
 
-    let defined_names = excel.defined_names().unwrap();
-    assert_eq!(defined_names
-                   .iter()
-                   .map(|(k, v)| (&**k, &**v))
-                   .collect::<Vec<_>>(),
+    let mut defined_names = excel
+        .defined_names()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (&**k, &**v))
+        .collect::<Vec<_>>();
+    defined_names.sort();
+    assert_eq!(defined_names,
                vec![("MyBrokenRange", "Sheet1!#REF!"),
                     ("MyDataTypes", "datatypes!$A$1:$A$6")]);
 }
