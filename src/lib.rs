@@ -145,7 +145,7 @@ pub struct Sheets {
     file: FileType,
     strings: Vec<String>,
     relationships: HashMap<Vec<u8>, String>,
-    defined_names: HashMap<String, String>,
+    defined_names: Vec<(String, String)>,
     /// Map of sheet names/sheet path within zip archive
     sheets: Vec<(String, String)>,
 }
@@ -194,7 +194,7 @@ impl Sheets {
                strings: vec![],
                relationships: HashMap::new(),
                sheets: Vec::new(),
-               defined_names: HashMap::new(),
+               defined_names: Vec::new(),
            })
     }
 
@@ -292,7 +292,7 @@ impl Sheets {
     }
 
     /// Get all defined names (Ranges names etc)
-    pub fn defined_names(&mut self) -> Result<&HashMap<String, String>> {
+    pub fn defined_names(&mut self) -> Result<&[(String, String)]> {
         if self.defined_names.is_empty() {
             self.initialize()?;
             self.defined_names = inner!(self, read_defined_names())?;
@@ -312,8 +312,8 @@ pub trait Reader: Sized {
     /// Gets vba references
     fn read_shared_strings(&mut self) -> Result<Vec<String>>;
     /// Gets defined names
-    fn read_defined_names(&mut self) -> Result<HashMap<String, String>> {
-        Ok(HashMap::new())
+    fn read_defined_names(&mut self) -> Result<Vec<(String, String)>> {
+        Ok(Vec::new())
     }
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn read_sheets_names(&mut self,

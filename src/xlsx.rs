@@ -207,9 +207,9 @@ impl Reader for Xlsx {
         Ok(Range::from_sparse(cells))
     }
 
-    fn read_defined_names(&mut self) -> Result<HashMap<String, String>> {
+    fn read_defined_names(&mut self) -> Result<Vec<(String, String)>> {
 
-        let mut defined_names = HashMap::new();
+        let mut defined_names = Vec::new();
 
         let mut xml = match self.xml_reader("xl/workbook.xml") {
             None => return Ok(defined_names),
@@ -226,7 +226,7 @@ impl Reader for Xlsx {
                         let name = a.unescape_and_decode_value(&xml)?;
                         val_buf.clear();
                         let value = xml.read_text(b"definedName", &mut val_buf)?;
-                        defined_names.insert(name, value);
+                        defined_names.push((name, value));
                     }
                 }
                 Ok(Event::End(ref e)) => {
