@@ -406,40 +406,55 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 
 /// Formula parsing
 ///
-/// Does not implement ALL possibilities, only Area are parsed
+/// Does not implement ALL possibilities, only PtgRef3d and PtgArea3d are parsed
 ///
 /// [MS-XLSB 2.2.2]
 /// [MS-XLSB 2.5.97.88]
 fn parse_formula(rgce: &[u8], sheets: &[&str]) -> Result<String> {
     let ptg = rgce[0];
-    Ok(match ptg {
-           0x3b | 0x5b | 0x7b => {
-        // PtgArea3d
-        let ixti = read_u16(&rgce[1..3]);
-        let mut f = String::new();
-        f.push_str(sheets[ixti as usize]);
-        f.push('!');
-        // TODO: check with relative columns
-        f.push('$');
-        push_column(read_u16(&rgce[11..13]) as u32, &mut f);
-        f.push('$');
-        f.push_str(&format!("{}", read_u32(&rgce[3..7]) + 1));
-        f.push(':');
-        f.push('$');
-        push_column(read_u16(&rgce[13..15]) as u32, &mut f);
-        f.push('$');
-        f.push_str(&format!("{}", read_u32(&rgce[7..11]) + 1));
-        f
-    }
-           0x3d | 0x5d | 0x7d => {
-        // PtgArea3dErr
-        let ixti = read_u16(&rgce[1..3]);
-        let mut f = String::new();
-        f.push_str(sheets[ixti as usize]);
-        f.push('!');
-        f.push_str("#REF!");
-        f
-    }
-           _ => format!("Unsupported ptg: {:x}", ptg),
-       })
+    let f = match ptg {
+        0x3a | 0x5a | 0x7a => {
+            // PtgRef3d
+            let ixti = read_u16(&rgce[1..3]);
+            let mut f = String::new();
+            f.push_str(sheets[ixti as usize]);
+            f.push('!');
+            // TODO: check with relative columns
+            f.push('$');
+            push_column(read_u16(&rgce[7..9]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u32(&rgce[3..7]) + 1));
+            f
+        }
+        0x3b | 0x5b | 0x7b => {
+            // PtgArea3d
+            let ixti = read_u16(&rgce[1..3]);
+            let mut f = String::new();
+            f.push_str(sheets[ixti as usize]);
+            f.push('!');
+            // TODO: check with relative columns
+            f.push('$');
+            push_column(read_u16(&rgce[11..13]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u32(&rgce[3..7]) + 1));
+            f.push(':');
+            f.push('$');
+            push_column(read_u16(&rgce[13..15]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u32(&rgce[7..11]) + 1));
+            f
+        }
+        0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
+            // PtgAreaErr3d or PtfRefErr3d
+            let ixti = read_u16(&rgce[1..3]);
+            let mut f = String::new();
+            f.push_str(sheets[ixti as usize]);
+            f.push('!');
+            f.push_str("#REF!");
+            f
+        }
+
+        _ => format!("Unsupported ptg: {:x}", ptg),
+    };
+    Ok(f)
 }

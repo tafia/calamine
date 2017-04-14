@@ -469,28 +469,40 @@ impl<'a> Iterator for RecordIter<'a> {
 /// Does not implement ALL possibilities, only Area are parsed
 fn parse_formula(rgce: &[u8]) -> Result<(Option<usize>, String)> {
     let ptg = rgce[0];
-    Ok(match ptg {
-           0x3b | 0x5b | 0x7b => {
-        // PtgArea3d
-        let ixti = read_u16(&rgce[1..3]) as usize;
-        let mut f = String::new();
-        // TODO: check with relative columns
-        f.push('$');
-        push_column(read_u16(&rgce[7..9]) as u32, &mut f);
-        f.push('$');
-        f.push_str(&format!("{}", read_u16(&rgce[3..5]) + 1));
-        f.push(':');
-        f.push('$');
-        push_column(read_u16(&rgce[9..11]) as u32, &mut f);
-        f.push('$');
-        f.push_str(&format!("{}", read_u16(&rgce[5..7]) + 1));
-        (Some(ixti), f)
-    }
-           0x3d | 0x5d | 0x7d => {
-        // PtgArea3dErr
-        let ixti = read_u16(&rgce[1..3]) as usize;
-        (Some(ixti), "#REF!".to_string())
-    }
-           _ => (None, format!("Unsupported ptg: {:x}", ptg)),
-       })
+    let res = match ptg {
+        0x3a | 0x5a | 0x7a => {
+            // PtgRef3d
+            let ixti = read_u16(&rgce[1..3]) as usize;
+            let mut f = String::new();
+            // TODO: check with relative columns
+            f.push('$');
+            push_column(read_u16(&rgce[5..7]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u16(&rgce[3..5]) + 1));
+            (Some(ixti), f)
+        }
+        0x3b | 0x5b | 0x7b => {
+            // PtgArea3d
+            let ixti = read_u16(&rgce[1..3]) as usize;
+            let mut f = String::new();
+            // TODO: check with relative columns
+            f.push('$');
+            push_column(read_u16(&rgce[7..9]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u16(&rgce[3..5]) + 1));
+            f.push(':');
+            f.push('$');
+            push_column(read_u16(&rgce[9..11]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u16(&rgce[5..7]) + 1));
+            (Some(ixti), f)
+        }
+        0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
+            // PtgAreaErr3d or PtfRefErr3d
+            let ixti = read_u16(&rgce[1..3]) as usize;
+            (Some(ixti), "#REF!".to_string())
+        }
+        _ => (None, format!("Unsupported ptg: {:x}", ptg)),
+    };
+    Ok(res)
 }

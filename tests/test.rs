@@ -227,7 +227,8 @@ fn defined_names_xlsx() {
     defined_names.sort();
     assert_eq!(defined_names,
                vec![("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
-                    ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string())]);
+                    ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
+                    ("OneRange".to_string(), "Sheet1!$A$1".to_string())]);
 }
 
 #[test]
@@ -239,7 +240,8 @@ fn defined_names_xlsb() {
     defined_names.sort();
     assert_eq!(defined_names,
                vec![("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
-                    ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string())]);
+                    ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
+                    ("OneRange".to_string(), "Sheet1!$A$1".to_string())]);
 }
 
 #[test]
@@ -251,5 +253,6 @@ fn defined_names_xls() {
     defined_names.sort();
     assert_eq!(defined_names,
                vec![("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
-                    ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string())]);
+                    ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
+                    ("OneRange".to_string(), "Sheet1!$A$1".to_string())]);
 }
