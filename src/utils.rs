@@ -23,7 +23,6 @@ pub fn read_usize(s: &[u8]) -> usize {
     read_u32(s) as usize
 }
 
-
 /// Returns an encoding from Windows code page number.
 /// http://msdn.microsoft.com/en-us/library/windows/desktop/dd317756%28v=vs.85%29.aspx
 /// Sometimes it can return a *superset* of the requested encoding, e.g. for several CJK encodings.
@@ -70,5 +69,21 @@ pub fn encoding_from_windows_code_page(cp: usize) -> Option<&'static Encoding> {
         // not supported?
         //949 => Some(encoding_rs::WINDOWS_949),
         _ => None,
+    }
+}
+
+/// Push literal column into a String buffer
+pub fn push_column(mut col: u32, buf: &mut String) {
+    if col < 26 {
+        buf.push((b'A' + col as u8) as char);
+    } else {
+        let mut rev = String::new();
+        while col >= 26 {
+            let c = col % 26;
+            rev.push((b'A' + c as u8) as char);
+            col -= c;
+            col /= 26;
+        }
+        buf.extend(rev.chars().rev());
     }
 }

@@ -8,7 +8,7 @@ use errors::*;
 use {Metadata, Reader, Range, Cell, DataType, CellErrorType};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
-use utils::{read_u16, read_u32, read_slice};
+use utils::{read_u16, read_u32, read_slice, push_column};
 
 enum SheetsState {
     NotParsed(BufReader<File>, Cfb),
@@ -54,14 +54,14 @@ impl Reader for Xls {
 
     /// Parses Workbook stream, no need for the relationships variable
     fn initialize(&mut self) -> Result<Metadata> {
-        let _ = self.parse_workbook()?;
+        let defined_names = self.parse_workbook()?;
         let sheets = match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => shs.keys().map(|k| k.to_string()).collect(),
         };
         Ok(Metadata {
                sheets: sheets,
-               defined_names: Vec::new(),
+               defined_names: defined_names,
            })
     }
 
@@ -79,7 +79,7 @@ impl Reader for Xls {
 }
 
 impl Xls {
-    fn parse_workbook(&mut self) -> Result<()> {
+    fn parse_workbook(&mut self) -> Result<Vec<(String, String)>> {
 
         // gets workbook and worksheets stream, or early exit
         let stream = match self.sheets {
@@ -87,11 +87,13 @@ impl Xls {
                 cfb.get_stream("Workbook", reader)
                     .or_else(|_| cfb.get_stream("Book", reader))?
             }
-            SheetsState::Parsed(_) => return Ok(()),
+            SheetsState::Parsed(_) => return Ok(Vec::new()),
         };
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
+        let mut defined_names = Vec::new();
+        let mut xtis = Vec::new();
         {
             let mut wb = &stream;
             let mut encoding = XlsEncoding::from_codepage(1200)?;
@@ -118,12 +120,41 @@ impl Xls {
                         let name = parse_sheet_name(&mut r, &mut encoding)?;
                         sheet_names.push(name); // BoundSheet8
                     }
+                    0x0018 => {
+                        // Lbl for defined_names
+                        let cch = r.data[3] as usize;
+                        let cce = read_u16(&r.data[4..]) as usize;
+                        let name = read_unicode_string_no_cch(&mut encoding, &r.data[14..], cch)?;
+                        let rgce = &r.data[r.data.len() - cce..];
+                        let formula = parse_formula(rgce)?;
+                        defined_names.push((name, formula));
+                    }
+                    0x0017 => {
+                        // ExternSheet
+                        let len = read_u16(r.data) as usize;
+                        xtis.reserve(len);
+                        let mut start = 4;
+                        for _ in 0..len {
+                            let i = read_u16(&r.data[start..]) as usize;
+                            xtis.push(i);
+                            start += 6;
+                        }
+                    }
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     0x000A => break, // EOF,
                     _ => (),
                 }
             }
         }
+
+        let defined_names = defined_names
+            .into_iter()
+            .map(|(name, (i, f))| if let Some(i) = i {
+                     (name, format!("{}!{}", sheet_names[xtis[i]].1, f))
+                 } else {
+                     (name, f)
+                 })
+            .collect();
 
         let mut sheets = HashMap::with_capacity(sheet_names.len());
         'sh: for (pos, name) in sheet_names.into_iter() {
@@ -156,7 +187,7 @@ impl Xls {
 
         self.sheets = SheetsState::Parsed(sheets);
 
-        Ok(())
+        Ok(defined_names)
     }
 }
 
@@ -265,7 +296,11 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
         }
         _ => return Err("Invalid dimensions lengths".into()),
     };
-    Ok(((rf, cf), (rl - 1, cl - 1)))
+    if (1, 1) <= (rl, cl) {
+        Ok(((rf, cf), (rl - 1, cl - 1)))
+    } else {
+        Ok(((rf, cf), (rf, cf)))
+    }
 }
 
 fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {
@@ -343,6 +378,21 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
     Ok(s)
 }
 
+fn read_unicode_string_no_cch(encoding: &mut XlsEncoding,
+                              buf: &[u8],
+                              mut len: usize)
+                              -> Result<String> {
+    let mut s = String::new();
+    if let Some(ref mut b) = encoding.high_byte {
+        *b = buf[0] & 0x1 != 0;
+        if *b {
+            len *= 2;
+        }
+    }
+    let _ = encoding.decode_to(&buf[1..len + 1], len, &mut s)?;
+    Ok(s)
+}
+
 struct Record<'a> {
     typ: u16,
     data: &'a [u8],
@@ -412,4 +462,35 @@ impl<'a> Iterator for RecordIter<'a> {
                     cont: cont,
                 }))
     }
+}
+
+/// Formula parsing
+///
+/// Does not implement ALL possibilities, only Area are parsed
+fn parse_formula(rgce: &[u8]) -> Result<(Option<usize>, String)> {
+    let ptg = rgce[0];
+    Ok(match ptg {
+           0x3b | 0x5b | 0x7b => {
+        // PtgArea3d
+        let ixti = read_u16(&rgce[1..3]) as usize;
+        let mut f = String::new();
+        // TODO: check with relative columns
+        f.push('$');
+        push_column(read_u16(&rgce[7..9]) as u32, &mut f);
+        f.push('$');
+        f.push_str(&format!("{}", read_u16(&rgce[3..5]) + 1));
+        f.push(':');
+        f.push('$');
+        push_column(read_u16(&rgce[9..11]) as u32, &mut f);
+        f.push('$');
+        f.push_str(&format!("{}", read_u16(&rgce[5..7]) + 1));
+        (Some(ixti), f)
+    }
+           0x3d | 0x5d | 0x7d => {
+        // PtgArea3dErr
+        let ixti = read_u16(&rgce[1..3]) as usize;
+        (Some(ixti), "#REF!".to_string())
+    }
+           _ => (None, format!("Unsupported ptg: {:x}", ptg)),
+       })
 }

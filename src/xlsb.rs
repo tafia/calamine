@@ -13,7 +13,7 @@ use encoding_rs::UTF_16LE;
 
 use {Metadata, DataType, Reader, Cell, Range, CellErrorType};
 use vba::VbaProject;
-use utils::{read_u16, read_u32, read_usize, read_slice};
+use utils::{read_u16, read_u32, read_usize, read_slice, push_column};
 use errors::*;
 
 pub struct Xlsb {
@@ -159,7 +159,7 @@ impl Xlsb {
                     let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
                     let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
                     let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
-                    let formula = parse_area3d(rgce, &extern_sheets)?; // formula
+                    let formula = parse_formula(rgce, &extern_sheets)?; // formula
                     defined_names.push((name, formula));
                 }
                 0x018D | // BrtUserBookView
@@ -404,72 +404,42 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
     ((read_u32(&buf[0..4]), read_u32(&buf[8..12])), (read_u32(&buf[4..8]), read_u32(&buf[12..16])))
 }
 
-fn push_column(mut col: u32, buf: &mut String) {
-    if col < 26 {
-        buf.push((b'A' + col as u8) as char);
-    } else {
-        let mut rev = String::new();
-        while col >= 26 {
-            let c = col % 26;
-            rev.push((b'A' + c as u8) as char);
-            col -= c;
-            col /= 26;
-        }
-        buf.extend(rev.chars().rev());
-    }
-}
-
 /// Formula parsing
 ///
 /// Does not implement ALL possibilities, only Area are parsed
 ///
 /// [MS-XLSB 2.2.2]
 /// [MS-XLSB 2.5.97.88]
-fn parse_area3d(rgce: &[u8], sheets: &[&str]) -> Result<String> {
-    println!("parsing {}",
-             rgce.iter()
-                 .map(|x| format!("{:x} ", x))
-                 .collect::<String>());
-    let mut stack = Vec::with_capacity(rgce.len());
-
+fn parse_formula(rgce: &[u8], sheets: &[&str]) -> Result<String> {
     let ptg = rgce[0];
-    match ptg {
-        0x3b | 0x5b | 0x7b => {
-            // PtgArea3d
-            let ixti = read_u16(&rgce[1..3]);
-            let mut f = String::new();
-            f.push_str(sheets[ixti as usize]);
-            f.push('!');
-            // TODO: check with relative columns
-            f.push('$');
-            push_column(read_u16(&rgce[11..13]) as u32, &mut f);
-            f.push('$');
-            f.push_str(&format!("{}", read_u32(&rgce[3..7]) + 1));
-            f.push(':');
-            f.push('$');
-            push_column(read_u16(&rgce[13..15]) as u32, &mut f);
-            f.push('$');
-            f.push_str(&format!("{}", read_u32(&rgce[7..11]) + 1));
-            stack.push(f);
-        }
-        0x3d | 0x5d | 0x7d => {
-            // PtgArea3dErr
-            let ixti = read_u16(&rgce[1..3]);
-            println!("ixti err: {}", ixti);
-            let mut f = String::new();
-            f.push_str(sheets[ixti as usize]);
-            f.push('!');
-            f.push_str("#REF!");
-            stack.push(f);
-        }
-        _ => {
-            stack.push(format!("Unsupported ptg: {:x}", ptg));
-        }
+    Ok(match ptg {
+           0x3b | 0x5b | 0x7b => {
+        // PtgArea3d
+        let ixti = read_u16(&rgce[1..3]);
+        let mut f = String::new();
+        f.push_str(sheets[ixti as usize]);
+        f.push('!');
+        // TODO: check with relative columns
+        f.push('$');
+        push_column(read_u16(&rgce[11..13]) as u32, &mut f);
+        f.push('$');
+        f.push_str(&format!("{}", read_u32(&rgce[3..7]) + 1));
+        f.push(':');
+        f.push('$');
+        push_column(read_u16(&rgce[13..15]) as u32, &mut f);
+        f.push('$');
+        f.push_str(&format!("{}", read_u32(&rgce[7..11]) + 1));
+        f
     }
-
-    if stack.len() != 1 {
-        bail!("Invalid formula stack");
+           0x3d | 0x5d | 0x7d => {
+        // PtgArea3dErr
+        let ixti = read_u16(&rgce[1..3]);
+        let mut f = String::new();
+        f.push_str(sheets[ixti as usize]);
+        f.push('!');
+        f.push_str("#REF!");
+        f
     }
-
-    Ok(stack.pop().unwrap())
+           _ => format!("Unsupported ptg: {:x}", ptg),
+       })
 }
