@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.10.0
+- feat: support defined names for named ranges
+- refactor: better internal logics
+
 ## 0.9.0
 - refactor: rename `Excel` in `Sheets` to accomodate OpenDocuments
 - feat: add Index/IndexMut for Range

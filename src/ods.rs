@@ -15,7 +15,7 @@ use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attributes;
 
-use {DataType, Reader, Range};
+use {Metadata, DataType, Reader, Range};
 use vba::VbaProject;
 use errors::*;
 
@@ -72,44 +72,36 @@ impl Reader for Ods {
         unimplemented!();
     }
 
-    /// Gets vba references
-    fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        Ok(Vec::new())
-    }
-
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn read_sheets_names(&mut self, _: &HashMap<Vec<u8>, String>) -> Result<Vec<(String, String)>> {
-        self.parse_content()?;
-        if let Content::Sheets(ref s) = self.content {
-            Ok(s.keys()
-                   .map(|k| (k.to_string(), k.to_string()))
-                   .collect())
+    fn initialize(&mut self) -> Result<Metadata> {
+        let defined_names = self.parse_content()?;
+        let sheets = if let Content::Sheets(ref s) = self.content {
+            s.keys().map(|k| k.to_string()).collect()
         } else {
-            Ok(Vec::new())
-        }
-    }
-
-    /// Read workbook relationships
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
-        Ok(HashMap::new())
+            Vec::new()
+        };
+        Ok(Metadata {
+               sheets: sheets,
+               defined_names: defined_names,
+           })
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, path: &str, _: &[String]) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
         self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
-            if let Some(r) = s.get(path) {
+            if let Some(r) = s.get(name) {
                 return Ok(r.to_owned());
             }
         }
-        bail!("Cannot find '{}' sheet", path);
+        bail!("Cannot find '{}' sheet", name);
     }
 }
 
 impl Ods {
     /// Parses content.xml and store the result in `self.content`
-    fn parse_content(&mut self) -> Result<()> {
-        let sheets = if let Content::Zip(ref mut zip) = self.content {
+    fn parse_content(&mut self) -> Result<Vec<(String, String)>> {
+        let (sheets, defined_names) = if let Content::Zip(ref mut zip) = self.content {
             let mut reader = match zip.by_name("content.xml") {
                 Ok(f) => {
                     let mut r = XmlReader::from_reader(BufReader::new(f));
@@ -124,6 +116,7 @@ impl Ods {
             };
             let mut buf = Vec::new();
             let mut sheets = HashMap::new();
+            let mut defined_names = Vec::new();
             loop {
                 match reader.read_event(&mut buf) {
                     Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
@@ -135,18 +128,21 @@ impl Ods {
                             sheets.insert(name, range);
                         }
                     }
+                    Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
+                        defined_names = read_named_expressions(&mut reader)?;
+                    }
                     Ok(Event::Eof) => break,
                     Err(e) => bail!(e),
                     _ => (),
                 }
                 buf.clear();
             }
-            sheets
+            (sheets, defined_names)
         } else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         self.content = Content::Sheets(sheets);
-        Ok(())
+        Ok(defined_names)
     }
 }
 
@@ -303,4 +299,35 @@ fn get_datatype(reader: &mut OdsReader,
     } else {
         Ok((DataType::Empty, false))
     }
+}
+
+fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)>> {
+    let mut defined_names = Vec::new();
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == b"table:named-range" ||
+                                       e.name() == b"table:named-expression" => {
+                let mut name = String::new();
+                let mut formula = String::new();
+                for a in e.attributes() {
+                    let a = a?;
+                    match a.key {
+                        b"table:name" => name = a.unescape_and_decode_value(reader)?,
+                        b"table:cell-range-address" |
+                        b"table:expression" => formula = a.unescape_and_decode_value(reader)?,
+                        _ => (),
+                    }
+                }
+                defined_names.push((name, formula));
+            }
+            Ok(Event::End(ref e)) if e.name() == b"table:named-range" ||
+                                     e.name() == b"table:named-expression" => (),
+            Ok(Event::End(ref e)) if e.name() == b"table:named-expressions" => break,
+            Err(e) => bail!(e),
+            Ok(e) => bail!("Expecting 'table:named-expressions' event, found {:?}", e),
+        }
+    }
+    Ok(defined_names)
 }

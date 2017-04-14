@@ -9,7 +9,7 @@ use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::{Attribute, Attributes};
 
-use {DataType, Reader, Range, Cell};
+use {Metadata, DataType, Reader, Range, Cell};
 use vba::VbaProject;
 use errors::*;
 
@@ -17,54 +17,24 @@ use errors::*;
 /// Xlsx, Xlsm, Xlam
 pub struct Xlsx {
     zip: ZipArchive<File>,
+    /// Shared strings
+    strings: Vec<String>,
+    /// Sheets paths
+    sheets: Vec<(String, String)>,
 }
 
 impl Xlsx {
-    fn xml_reader<'a>(&'a mut self,
-                      path: &str)
-                      -> Option<Result<XmlReader<BufReader<ZipFile<'a>>>>> {
-        match self.zip.by_name(path) {
-            Ok(f) => {
-                let mut r = XmlReader::from_reader(BufReader::new(f));
-                r.check_end_names(false)
-                    .trim_text(false)
-                    .check_comments(false)
-                    .expand_empty_elements(true);
-                Some(Ok(r))
-            }
-            Err(ZipError::FileNotFound) => None,
-            Err(e) => return Some(Err(e.into())),
-        }
-    }
-}
-
-impl Reader for Xlsx {
-    fn new(f: File) -> Result<Self> {
-        Ok(Xlsx { zip: ZipArchive::new(f)? })
-    }
-
-    fn has_vba(&mut self) -> bool {
-        self.zip.by_name("xl/vbaProject.bin").is_ok()
-    }
-
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
-        let len = f.size() as usize;
-        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
-    }
-
-    fn read_shared_strings(&mut self) -> Result<Vec<String>> {
-        let mut xml = match self.xml_reader("xl/sharedStrings.xml") {
-            None => return Ok(Vec::new()),
+    fn read_shared_strings(&mut self) -> Result<()> {
+        let mut xml = match xml_reader(&mut self.zip, "xl/sharedStrings.xml") {
+            None => return Ok(()),
             Some(x) => x?,
         };
-        let mut strings = Vec::new();
         let mut buf = Vec::new();
         loop {
             match xml.read_event(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name() == b"si" => {
                     if let Some(s) = read_string(&mut xml, e.name())? {
-                        strings.push(s);
+                        self.strings.push(s);
                     }
                 }
                 Ok(Event::End(ref e)) if e.local_name() == b"sst" => break,
@@ -73,18 +43,19 @@ impl Reader for Xlsx {
             }
             buf.clear();
         }
-        Ok(strings)
+        Ok(())
     }
 
-    fn read_sheets_names(&mut self,
-                         relationships: &HashMap<Vec<u8>, String>)
-                         -> Result<Vec<(String, String)>> {
-        let mut xml = match self.xml_reader("xl/workbook.xml") {
+    fn read_workbook(&mut self,
+                     relationships: &HashMap<Vec<u8>, String>)
+                     -> Result<Vec<(String, String)>> {
+        let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml") {
             None => return Ok(Vec::new()),
             Some(x) => x?,
         };
-        let mut sheets = Vec::new();
+        let mut defined_names = Vec::new();
         let mut buf = Vec::new();
+        let mut val_buf = Vec::new();
         loop {
             match xml.read_event(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name() == b"sheet" => {
@@ -114,7 +85,17 @@ impl Reader for Xlsx {
                             _ => (),
                         }
                     }
-                    sheets.push((name, path));
+                    self.sheets.push((name, path));
+                }
+                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => {
+                    if let Some(a) = e.attributes()
+                           .filter_map(|a| a.ok())
+                           .find(|a| a.key == b"name") {
+                        let name = a.unescape_and_decode_value(&xml)?;
+                        val_buf.clear();
+                        let value = xml.read_text(b"definedName", &mut val_buf)?;
+                        defined_names.push((name, value));
+                    }
                 }
                 Ok(Event::End(ref e)) if e.local_name() == b"workbook" => break,
                 Ok(Event::Eof) => return Err("unexpected end of xml (no </workbook>)".into()),
@@ -123,17 +104,18 @@ impl Reader for Xlsx {
             }
             buf.clear();
         }
-        Ok(sheets)
+        Ok(defined_names)
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
-        let mut xml = match self.xml_reader("xl/_rels/workbook.xml.rels") {
+        let mut xml = match xml_reader(&mut self.zip, "xl/_rels/workbook.xml.rels") {
             None => return Err("Cannot find relationships file".into()),
             Some(x) => x?,
         };
         let mut relationships = HashMap::new();
         let mut buf = Vec::new();
         loop {
+            buf.clear();
             match xml.read_event(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name() == b"Relationship" => {
                     let mut id = Vec::new();
@@ -158,13 +140,49 @@ impl Reader for Xlsx {
                 Err(e) => return Err(e.into()),
                 _ => (),
             }
-            buf.clear();
         }
         Ok(relationships)
     }
+}
 
-    fn read_worksheet_range(&mut self, path: &str, strings: &[String]) -> Result<Range> {
-        let mut xml = match self.xml_reader(path) {
+impl Reader for Xlsx {
+    fn new(f: File) -> Result<Self> {
+        Ok(Xlsx {
+               zip: ZipArchive::new(f)?,
+               strings: Vec::new(),
+               sheets: Vec::new(),
+           })
+    }
+
+    fn has_vba(&mut self) -> bool {
+        self.zip.by_name("xl/vbaProject.bin").is_ok()
+    }
+
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
+        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
+        let len = f.size() as usize;
+        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
+    }
+
+    fn initialize(&mut self) -> Result<Metadata> {
+        self.read_shared_strings()?;
+        let relationships = self.read_relationships()?;
+        let defined_names = self.read_workbook(&relationships)?;
+        Ok(Metadata {
+               sheets: self.sheets
+                   .iter()
+                   .map(|&(ref s, _)| s.clone())
+                   .collect(),
+               defined_names: defined_names,
+           })
+    }
+
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+        let &(_, ref path) = self.sheets
+            .iter()
+            .find(|&&(ref n, _)| n == name)
+            .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
+        let mut xml = match xml_reader(&mut self.zip, path) {
             None => return Err(format!("Cannot find {} path", path).into()),
             Some(x) => x?,
         };
@@ -189,7 +207,7 @@ impl Reader for Xlsx {
                             }
                             return Err(format!("Expecting dimension, got {:?}", e).into());
                         }
-                        b"sheetData" => read_sheet_data(&mut xml, strings, &mut cells)?,
+                        b"sheetData" => read_sheet_data(&mut xml, &self.strings, &mut cells)?,
                         _ => (),
                     }
                 }
@@ -200,6 +218,23 @@ impl Reader for Xlsx {
             buf.clear();
         }
         Ok(Range::from_sparse(cells))
+    }
+}
+
+fn xml_reader<'a>(zip: &'a mut ZipArchive<File>,
+                  path: &str)
+                  -> Option<Result<XmlReader<BufReader<ZipFile<'a>>>>> {
+    match zip.by_name(path) {
+        Ok(f) => {
+            let mut r = XmlReader::from_reader(BufReader::new(f));
+            r.check_end_names(false)
+                .trim_text(false)
+                .check_comments(false)
+                .expand_empty_elements(true);
+            Some(Ok(r))
+        }
+        Err(ZipError::FileNotFound) => None,
+        Err(e) => return Some(Err(e.into())),
     }
 }
 
