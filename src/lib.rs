@@ -38,7 +38,7 @@
 //!         }
 //!     }
 //! }
-//! 
+//!
 //! // You can also get defined names definition (string representation only)
 //! for &(ref name, ref formula) in workbook.defined_names().expect("Cannot get defined names!") {
 //!     println!("name: {}, formula: {}", name, formula);
