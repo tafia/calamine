@@ -13,7 +13,7 @@ use encoding_rs::UTF_16LE;
 
 use {Metadata, DataType, Reader, Cell, Range, CellErrorType};
 use vba::VbaProject;
-use utils::{read_u32, read_usize, read_slice};
+use utils::{read_u16, read_u32, read_usize, read_slice};
 use errors::*;
 
 pub struct Xlsb {
@@ -92,7 +92,8 @@ impl Xlsb {
                                            (0x0023, Some(0x0024)) // future
                                            ],
                                           &mut buf)?; // BrtSSTItem
-            self.strings.push(wide_str(&buf[1..])?.into_owned());
+            self.strings
+                .push(wide_str(&buf[1..], &mut 0)?.into_owned());
         }
         Ok(())
     }
@@ -118,20 +119,52 @@ impl Xlsb {
                                       &mut buf)?;
         loop {
             match iter.read_type()? {
-                0x0090 => return Ok(Vec::new()), // BrtEndBundleShs
-                0x009C => (), // BrtBundleSh
+                0x0090 => break, // BrtEndBundleShs
+                0x009C => {
+                    // BrtBundleSh
+                    let len = iter.fill_buffer(&mut buf)?;
+                    let rel_len = read_u32(&buf[8..len]);
+                    if rel_len != 0xFFFFFFFF {
+                        let rel_len = rel_len as usize * 2;
+                        let relid = &buf[12..12 + rel_len];
+                        // converts utf16le to utf8 for HashMap search
+                        let relid = UTF_16LE.decode(relid).0;
+                        let path = format!("xl/{}", relationships[relid.as_bytes()]);
+                        let name = wide_str(&buf[12 + rel_len..len], &mut 0)?;
+                        self.sheets.push((name.into_owned(), path));
+                    }
+                }
                 typ => return Err(format!("Expecting end of sheet, got {:x}", typ).into()),
             }
-            let len = iter.fill_buffer(&mut buf)?;
-            let rel_len = read_u32(&buf[8..len]);
-            if rel_len != 0xFFFFFFFF {
-                let rel_len = rel_len as usize * 2;
-                let relid = &buf[12..12 + rel_len];
-                // converts utf16le to utf8 for HashMap search
-                let relid = UTF_16LE.decode(relid).0;
-                let path = format!("xl/{}", relationships[relid.as_bytes()]);
-                let name = wide_str(&buf[12 + rel_len..len])?;
-                self.sheets.push((name.into_owned(), path));
+        }
+        // BrtName
+        let mut defined_names = Vec::new();
+        let mut extern_sheets = Vec::new();
+        loop {
+            match iter.read_type()? {
+                0x016A => { // BrtExternSheet
+                    let len = iter.fill_buffer(&mut buf)?;
+                    let cxti = read_u32(&buf[..4]) as usize;
+                    extern_sheets.reserve(cxti);
+                    let mut start = 4;
+                    for _ in 0..cxti {
+                        let first = read_u32(&buf[start + 4..len]) as usize;
+                        extern_sheets.push(&*self.sheets[first].0);
+                        start += 12;
+                    }
+                }
+                0x0027 => {
+                    let len = iter.fill_buffer(&mut buf)?;
+                    let mut str_len = 0;
+                    let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
+                    let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
+                    let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
+                    let formula = parse_area3d(rgce, &extern_sheets)?; // formula
+                    defined_names.push((name, formula));
+                }
+                0x018D | // BrtUserBookView
+                    0x0084 => return Ok(defined_names), // BrtEndBook
+                _ => (),
             }
         }
     }
@@ -247,7 +280,7 @@ impl Reader for Xlsb {
                 }
                 0x0004 => DataType::Bool(buf[8] != 0),                         // BrtCellBool
                 0x0005 => DataType::Float(read_slice(&buf[8..16])),            // BrtCellReal
-                0x0006 => DataType::String(wide_str(&buf[8..])?.into_owned()), // BrtCellSt
+                0x0006 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtCellSt
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&buf[8..12]);
@@ -354,7 +387,7 @@ impl<'a> RecordIter<'a> {
     }
 }
 
-fn wide_str(buf: &[u8]) -> Result<Cow<str>> {
+fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
         return Err(format!("Wide string length ({}) exceeds buffer length ({})",
@@ -362,10 +395,81 @@ fn wide_str(buf: &[u8]) -> Result<Cow<str>> {
                            buf.len())
                            .into());
     }
-    let s = &buf[4..4 + len * 2];
+    *str_len = 4 + len * 2;
+    let s = &buf[4..*str_len];
     Ok(UTF_16LE.decode(s).0)
 }
 
 fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
     ((read_u32(&buf[0..4]), read_u32(&buf[8..12])), (read_u32(&buf[4..8]), read_u32(&buf[12..16])))
+}
+
+fn push_column(mut col: u32, buf: &mut String) {
+    if col < 26 {
+        buf.push((b'A' + col as u8) as char);
+    } else {
+        let mut rev = String::new();
+        while col >= 26 {
+            let c = col % 26;
+            rev.push((b'A' + c as u8) as char);
+            col -= c;
+            col /= 26;
+        }
+        buf.extend(rev.chars().rev());
+    }
+}
+
+/// Formula parsing
+///
+/// Does not implement ALL possibilities, only Area are parsed
+///
+/// [MS-XLSB 2.2.2]
+/// [MS-XLSB 2.5.97.88]
+fn parse_area3d(rgce: &[u8], sheets: &[&str]) -> Result<String> {
+    println!("parsing {}",
+             rgce.iter()
+                 .map(|x| format!("{:x} ", x))
+                 .collect::<String>());
+    let mut stack = Vec::with_capacity(rgce.len());
+
+    let ptg = rgce[0];
+    match ptg {
+        0x3b | 0x5b | 0x7b => {
+            // PtgArea3d
+            let ixti = read_u16(&rgce[1..3]);
+            let mut f = String::new();
+            f.push_str(sheets[ixti as usize]);
+            f.push('!');
+            // TODO: check with relative columns
+            f.push('$');
+            push_column(read_u16(&rgce[11..13]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u32(&rgce[3..7]) + 1));
+            f.push(':');
+            f.push('$');
+            push_column(read_u16(&rgce[13..15]) as u32, &mut f);
+            f.push('$');
+            f.push_str(&format!("{}", read_u32(&rgce[7..11]) + 1));
+            stack.push(f);
+        }
+        0x3d | 0x5d | 0x7d => {
+            // PtgArea3dErr
+            let ixti = read_u16(&rgce[1..3]);
+            println!("ixti err: {}", ixti);
+            let mut f = String::new();
+            f.push_str(sheets[ixti as usize]);
+            f.push('!');
+            f.push_str("#REF!");
+            stack.push(f);
+        }
+        _ => {
+            stack.push(format!("Unsupported ptg: {:x}", ptg));
+        }
+    }
+
+    if stack.len() != 1 {
+        bail!("Invalid formula stack");
+    }
+
+    Ok(stack.pop().unwrap())
 }
