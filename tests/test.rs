@@ -269,3 +269,10 @@ fn defined_names_ods() {
                     ("MyDataTypes".to_string(), "datatypes.$A$1:datatypes.$A$6".to_string()),
                     ("OneRange".to_string(), "Sheet1.$A$1".to_string())]);
 }
+
+#[test]
+fn parse_sheet_names_in_xls() {
+    let path = format!("{}/tests/sheet_name_parsing.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
+    assert_eq!( excel.sheet_names().unwrap(), vec!["Sheet1"]);
+}
