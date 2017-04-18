@@ -358,8 +358,8 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
             if r.continue_record() {
                 if let Some(ref mut b) = encoding.high_byte {
                     *b = r.data[0] & 0x1 != 0;
-                    r.data = &r.data[1..];
                 }
+                r.data = &r.data[1..];
             } else {
                 return Err("Cannot decode entire dbcs stream".into());
             }
