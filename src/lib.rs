@@ -328,8 +328,8 @@ trait Reader: Sized {
     fn initialize(&mut self) -> Result<Metadata>;
     /// Read worksheet data in corresponding worksheet path
     fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
-    /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+    /// Read worksheet formula in corresponding worksheet path
+    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>> {
         unimplemented!()
     }
 }
@@ -538,9 +538,9 @@ impl<T: Default + Clone + PartialEq> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Range;
+    /// use calamine::{Range, DataType};
     ///
-    /// let range = Range::new((0, 0), (5, 2));
+    /// let range: Range<DataType> = Range::new((0, 0), (5, 2));
     /// // with rows item row: &[DataType]
     /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
     /// ```

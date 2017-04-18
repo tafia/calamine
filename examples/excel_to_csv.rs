@@ -33,7 +33,7 @@ fn main() {
     write_range(&mut dest, range).unwrap();
 }
 
-fn write_range<W: Write>(dest: &mut W, range: Range) -> Result<()> {
+fn write_range<W: Write>(dest: &mut W, range: Range<DataType>) -> Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {

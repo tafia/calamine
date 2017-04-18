@@ -290,3 +290,11 @@ fn search_references() {
         .collect::<Vec<&str>>();
     assert_eq!(names, vec!["stdole", "Office"]);
 }
+
+fn formula_xlsx() {
+    let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
+
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(formula, [["=B1+OneRange".to_string()]]);
+}
