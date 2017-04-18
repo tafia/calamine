@@ -8,8 +8,11 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.10.2
+- fix: error while using a singlebyte encoding for xls files (read_dbcs)
+
 ## 0.10.1
-- fix: error while using a singlebyte encoding for xls files
+- fix: error while using a singlebyte encoding for xls files (short_strings)
 
 ## 0.10.0
 - feat: support defined names for named ranges
