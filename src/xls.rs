@@ -101,11 +101,6 @@ impl Xls {
             for record in records {
                 let mut r = record?;
                 match r.typ {
-                    0x0009 => {
-                        if read_u16(&r.data[2..]) != 0x0005 {
-                            return Err("Expecting Workbook BOF".into());
-                        }
-                    } // BOF,
                     0x0012 => {
                         if read_u16(r.data) != 0 {
                             return Err("Workbook is password protected".into());
@@ -164,11 +159,6 @@ impl Xls {
             for record in records {
                 let r = record?;
                 match r.typ {
-                    0x0009 => {
-                        if read_u16(&r.data[2..]) != 0x0010 {
-                            continue 'sh;
-                        }
-                    } // BOF, worksheet
                     0x0200 => {
                         let (start, end) = parse_dimensions(&r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
@@ -264,8 +254,8 @@ fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Stri
     let len = r.data[0] as usize;
     if let Some(ref mut b) = encoding.high_byte {
         *b = r.data[1] != 0;
-        r.data = &r.data[2..];
     }
+    r.data = &r.data[2..];
     read_dbcs(encoding, len, r)
 }
 
