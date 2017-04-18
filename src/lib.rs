@@ -212,7 +212,7 @@ impl Sheets {
            })
     }
 
-    /// Get all data from `Worksheet`
+    /// Get all data from worksheet
     ///
     /// # Examples
     /// ```
@@ -226,6 +226,22 @@ impl Sheets {
     pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         self.initialize()?;
         inner!(self, read_worksheet_range(name))
+    }
+
+    /// Get all formula from worksheet
+    ///
+    /// # Examples
+    /// ```
+    /// use calamine::Sheets;
+    ///
+    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
+    /// println!("Used range size: {:?}", range.get_size());
+    /// ```
+    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+        self.initialize()?;
+        inner!(self, read_worksheet_formula(name))
     }
 
     /// Get all data from `Worksheet` at index `idx` (0 based)
@@ -312,20 +328,24 @@ trait Reader: Sized {
     fn initialize(&mut self) -> Result<Metadata>;
     /// Read worksheet data in corresponding worksheet path
     fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
+    /// Read worksheet data in corresponding worksheet path
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+        unimplemented!()
+    }
 }
 
 /// A struct to hold cell position and value
 #[derive(Debug, Clone)]
-pub struct Cell {
+pub struct Cell<T: Default + Clone + PartialEq> {
     /// Position for the cell (row, column)
     pos: (u32, u32),
     /// Value for the cell
-    val: DataType,
+    val: T,
 }
 
-impl Cell {
+impl<T: Default + Clone + PartialEq> Cell<T> {
     /// Creates a new `Cell`
-    pub fn new(position: (u32, u32), value: DataType) -> Cell {
+    pub fn new(position: (u32, u32), value: T) -> Cell<T> {
         Cell {
             pos: position,
             val: value,
@@ -338,7 +358,7 @@ impl Cell {
     }
 
     /// Gets `Cell` value
-    pub fn get_value(&self) -> &DataType {
+    pub fn get_value(&self) -> &T {
         &self.val
     }
 }
@@ -391,6 +411,54 @@ impl<T: Default + Clone + PartialEq> Range<T> {
     /// Is range empty
     pub fn is_empty(&self) -> bool {
         self.start.0 > self.end.0 || self.start.1 > self.end.1
+    }
+
+    /// Creates a `Range` from a coo sparse vector of `Cell`s.
+    ///
+    /// Coordinate list (COO) is the natural way cells are stored
+    /// Inner size is defined only by non empty.
+    ///
+    /// cells: `Vec` of non empty `Cell`s, sorted by row
+    ///
+    /// # Panics
+    ///
+    /// panics when a `Cell` row is lower than the first `Cell` row or
+    /// bigger than the last `Cell` row.
+    fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
+        if cells.is_empty() {
+            Range {
+                start: (0, 0),
+                end: (0, 0),
+                inner: Vec::new(),
+            }
+        } else {
+            // search bounds
+            let row_start = cells.first().unwrap().pos.0;
+            let row_end = cells.last().unwrap().pos.0;
+            let mut col_start = ::std::u32::MAX;
+            let mut col_end = 0;
+            for c in cells.iter().map(|c| c.pos.1) {
+                if c < col_start {
+                    col_start = c;
+                }
+                if c > col_end {
+                    col_end = c
+                }
+            }
+            let width = col_end - col_start + 1;
+            let len = ((row_end - row_start + 1) * width) as usize;
+            let mut v = vec![T::default(); len];
+            v.shrink_to_fit();
+            for c in cells {
+                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
+                v[idx] = c.val;
+            }
+            Range {
+                start: (row_start, col_start),
+                end: (row_end, col_end),
+                inner: v,
+            }
+        }
     }
 
     /// Set inner value from absolute position
@@ -492,58 +560,6 @@ impl<T: Default + Clone + PartialEq> Range<T> {
             inner: self.inner.iter().enumerate(),
         }
     }
-}
-
-impl Range<DataType> {
-
-    /// Creates a `Range` from a coo sparse vector of `Cell`s.
-    ///
-    /// Coordinate list (COO) is the natural way cells are stored
-    /// Inner size is defined only by non empty.
-    ///
-    /// cells: `Vec` of non empty `Cell`s, sorted by row
-    ///
-    /// # Panics
-    ///
-    /// panics when a `Cell` row is lower than the first `Cell` row or
-    /// bigger than the last `Cell` row.
-    fn from_sparse(cells: Vec<Cell>) -> Range<DataType> {
-        if cells.is_empty() {
-            Range {
-                start: (0, 0),
-                end: (0, 0),
-                inner: Vec::new(),
-            }
-        } else {
-            // search bounds
-            let row_start = cells.first().unwrap().pos.0;
-            let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = ::std::u32::MAX;
-            let mut col_end = 0;
-            for c in cells.iter().map(|c| c.pos.1) {
-                if c < col_start {
-                    col_start = c;
-                }
-                if c > col_end {
-                    col_end = c
-                }
-            }
-            let width = col_end - col_start + 1;
-            let len = ((row_end - row_start + 1) * width) as usize;
-            let mut v = vec![DataType::Empty; len];
-            v.shrink_to_fit();
-            for c in cells {
-                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
-                v[idx] = c.val;
-            }
-            Range {
-                start: (row_start, col_start),
-                end: (row_end, col_end),
-                inner: v,
-            }
-        }
-    }
-
 }
 
 impl<T: Default + Clone + PartialEq> Index<usize> for Range<T> {

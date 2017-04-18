@@ -241,7 +241,7 @@ fn xml_reader<'a>(zip: &'a mut ZipArchive<File>,
 /// read sheetData node
 fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                    strings: &[String],
-                   cells: &mut Vec<Cell>)
+                   cells: &mut Vec<Cell<DataType>>)
                    -> Result<()> {
     /// read the contents of a <v> cell
     fn read_value<'a>(v: String, strings: &[String], atts: Attributes<'a>) -> Result<DataType> {

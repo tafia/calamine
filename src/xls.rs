@@ -188,7 +188,7 @@ fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize
     Ok((pos, sheet))
 }
 
-fn parse_number(r: &[u8]) -> Result<Cell> {
+fn parse_number(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 14 {
         return Err("Invalid number length".into());
     }
@@ -198,7 +198,7 @@ fn parse_number(r: &[u8]) -> Result<Cell> {
     Ok(Cell::new((row as u32, col as u32), DataType::Float(v)))
 }
 
-fn parse_bool_err(r: &[u8]) -> Result<Cell> {
+fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 8 {
         return Err("Invalid BoolErr length".into());
     }
@@ -224,7 +224,7 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell> {
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
-fn parse_rk(r: &[u8]) -> Result<Cell> {
+fn parse_rk(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 10 {
         return Err("Invalid rk length".into());
     }
@@ -259,7 +259,7 @@ fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Stri
     read_dbcs(encoding, len, r)
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell> {
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>> {
     if r.len() < 10 {
         return Err("Invalid short string length".into());
     }
