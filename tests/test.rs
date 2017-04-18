@@ -272,7 +272,8 @@ fn defined_names_ods() {
 
 #[test]
 fn parse_sheet_names_in_xls() {
-    let path = format!("{}/tests/sheet_name_parsing.xls", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/tests/sheet_name_parsing.xls",
+                       env!("CARGO_MANIFEST_DIR"));
     let mut excel = Sheets::open(&path).expect("cannot open excel file");
-    assert_eq!( excel.sheet_names().unwrap(), vec!["Sheet1"]);
+    assert_eq!(excel.sheet_names().unwrap(), vec!["Sheet1"]);
 }
