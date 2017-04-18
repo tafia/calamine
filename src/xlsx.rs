@@ -177,7 +177,7 @@ impl Reader for Xlsx {
            })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         let &(_, ref path) = self.sheets
             .iter()
             .find(|&&(ref n, _)| n == name)

@@ -132,6 +132,12 @@ pub enum DataType {
     Empty,
 }
 
+impl Default for DataType {
+    fn default() -> DataType {
+        DataType::Empty
+    }
+}
+
 /// File types
 enum FileType {
     /// Compound File Binary Format [MS-CFB] (xls, xla)
@@ -217,7 +223,7 @@ impl Sheets {
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Range> {
+    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         self.initialize()?;
         inner!(self, read_worksheet_range(name))
     }
@@ -233,7 +239,7 @@ impl Sheets {
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range> {
+    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>> {
         self.initialize()?;
         let name = self.metadata
             .sheets
@@ -305,7 +311,7 @@ trait Reader: Sized {
     /// Initialize
     fn initialize(&mut self) -> Result<Metadata>;
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range>;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
 }
 
 /// A struct to hold cell position and value
@@ -339,70 +345,21 @@ impl Cell {
 
 /// A struct which represents a squared selection of cells
 #[derive(Debug, Default, Clone)]
-pub struct Range {
+pub struct Range<T: Default + Clone + PartialEq> {
     start: (u32, u32),
     end: (u32, u32),
-    inner: Vec<DataType>,
+    inner: Vec<T>,
 }
 
-impl Range {
+impl<T: Default + Clone + PartialEq> Range<T> {
     /// Creates a new `Range`
     ///
     /// When possible, prefer the more efficient `Range::from_sparse`
-    pub fn new(start: (u32, u32), end: (u32, u32)) -> Range {
+    pub fn new(start: (u32, u32), end: (u32, u32)) -> Range<T> {
         Range {
             start: start,
             end: end,
-            inner: vec![DataType::Empty; ((end.0 - start.0 + 1)
-                                          * (end.1 - start.1 + 1)) as usize],
-        }
-    }
-
-    /// Creates a `Range` from a coo sparse vector of `Cell`s.
-    ///
-    /// Coordinate list (COO) is the natural way cells are stored
-    /// Inner size is defined only by non empty.
-    ///
-    /// cells: `Vec` of non empty `Cell`s, sorted by row
-    ///
-    /// # Panics
-    ///
-    /// panics when a `Cell` row is lower than the first `Cell` row or
-    /// bigger than the last `Cell` row.
-    fn from_sparse(cells: Vec<Cell>) -> Range {
-        if cells.is_empty() {
-            Range {
-                start: (0, 0),
-                end: (0, 0),
-                inner: Vec::new(),
-            }
-        } else {
-            // search bounds
-            let row_start = cells.first().unwrap().pos.0;
-            let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = ::std::u32::MAX;
-            let mut col_end = 0;
-            for c in cells.iter().map(|c| c.pos.1) {
-                if c < col_start {
-                    col_start = c;
-                }
-                if c > col_end {
-                    col_end = c
-                }
-            }
-            let width = col_end - col_start + 1;
-            let len = ((row_end - row_start + 1) * width) as usize;
-            let mut v = vec![DataType::Empty; len];
-            v.shrink_to_fit();
-            for c in cells {
-                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
-                v[idx] = c.val;
-            }
-            Range {
-                start: (row_start, col_start),
-                end: (row_end, col_end),
-                inner: v,
-            }
+            inner: vec![T::default(); ((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize],
         }
     }
 
@@ -454,7 +411,7 @@ impl Range {
     ///     .expect("Cannot set value at position (2, 1)");
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, absolute_position: (u32, u32), value: DataType) -> Result<()> {
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<()> {
         if self.start > absolute_position {
             return Err(ErrorKind::CellOutOfRange(absolute_position, self.start).into());
         }
@@ -464,7 +421,7 @@ impl Range {
             (false, false) => (), // regular case, position within bounds
             (true, false) => {
                 let len = (absolute_position.0 - self.end.0 + 1) as usize * self.width();
-                self.inner.extend_from_slice(&vec![DataType::Empty; len]);
+                self.inner.extend_from_slice(&vec![T::default(); len]);
                 self.end.0 = absolute_position.0;
             } // missing some rows
             (e, true) => {
@@ -476,12 +433,12 @@ impl Range {
                 let width = (absolute_position.1 - self.start.1 + 1) as usize;
                 let old_width = self.width();
                 let mut data = Vec::with_capacity(width * height);
-                let empty = vec![DataType::Empty; width - old_width];
+                let empty = vec![T::default(); width - old_width];
                 for sce in self.inner.chunks(old_width) {
                     data.extend_from_slice(sce);
                     data.extend_from_slice(&empty);
                 }
-                data.extend_from_slice(&vec![DataType::Empty; width * (height - self.height())]);
+                data.extend_from_slice(&vec![T::default(); width * (height - self.height())]);
                 if e {
                     self.end = absolute_position
                 } else {
@@ -502,7 +459,7 @@ impl Range {
     /// For relative positions, use Index trait
     ///
     /// Panics if indexes are out of range bounds
-    pub fn get_value(&self, absolute_position: (u32, u32)) -> &DataType {
+    pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
         assert!(absolute_position <= self.end);
         let idx = (absolute_position.0 - self.start.0) as usize * self.width() +
                   (absolute_position.1 - self.start.1) as usize;
@@ -519,7 +476,7 @@ impl Range {
     /// // with rows item row: &[DataType]
     /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
     /// ```
-    pub fn rows(&self) -> Rows {
+    pub fn rows(&self) -> Rows<T> {
         if self.inner.is_empty() {
             Rows { inner: None }
         } else {
@@ -529,7 +486,7 @@ impl Range {
     }
 
     /// Get an iterator over used cells only
-    pub fn used_cells(&self) -> UsedCells {
+    pub fn used_cells(&self) -> UsedCells<T> {
         UsedCells {
             width: self.width(),
             inner: self.inner.iter().enumerate(),
@@ -537,31 +494,83 @@ impl Range {
     }
 }
 
-impl Index<usize> for Range {
-    type Output = [DataType];
-    fn index(&self, index: usize) -> &[DataType] {
+impl Range<DataType> {
+
+    /// Creates a `Range` from a coo sparse vector of `Cell`s.
+    ///
+    /// Coordinate list (COO) is the natural way cells are stored
+    /// Inner size is defined only by non empty.
+    ///
+    /// cells: `Vec` of non empty `Cell`s, sorted by row
+    ///
+    /// # Panics
+    ///
+    /// panics when a `Cell` row is lower than the first `Cell` row or
+    /// bigger than the last `Cell` row.
+    fn from_sparse(cells: Vec<Cell>) -> Range<DataType> {
+        if cells.is_empty() {
+            Range {
+                start: (0, 0),
+                end: (0, 0),
+                inner: Vec::new(),
+            }
+        } else {
+            // search bounds
+            let row_start = cells.first().unwrap().pos.0;
+            let row_end = cells.last().unwrap().pos.0;
+            let mut col_start = ::std::u32::MAX;
+            let mut col_end = 0;
+            for c in cells.iter().map(|c| c.pos.1) {
+                if c < col_start {
+                    col_start = c;
+                }
+                if c > col_end {
+                    col_end = c
+                }
+            }
+            let width = col_end - col_start + 1;
+            let len = ((row_end - row_start + 1) * width) as usize;
+            let mut v = vec![DataType::Empty; len];
+            v.shrink_to_fit();
+            for c in cells {
+                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
+                v[idx] = c.val;
+            }
+            Range {
+                start: (row_start, col_start),
+                end: (row_end, col_end),
+                inner: v,
+            }
+        }
+    }
+
+}
+
+impl<T: Default + Clone + PartialEq> Index<usize> for Range<T> {
+    type Output = [T];
+    fn index(&self, index: usize) -> &[T] {
         let width = self.width();
         &self.inner[index * width..(index + 1) * width]
     }
 }
 
-impl Index<(usize, usize)> for Range {
-    type Output = DataType;
-    fn index(&self, index: (usize, usize)) -> &DataType {
+impl<T: Default + Clone + PartialEq> Index<(usize, usize)> for Range<T> {
+    type Output = T;
+    fn index(&self, index: (usize, usize)) -> &T {
         let width = self.width();
         &self.inner[index.0 * width + index.1]
     }
 }
 
-impl IndexMut<usize> for Range {
-    fn index_mut(&mut self, index: usize) -> &mut [DataType] {
+impl<T: Default + Clone + PartialEq> IndexMut<usize> for Range<T> {
+    fn index_mut(&mut self, index: usize) -> &mut [T] {
         let width = self.width();
         &mut self.inner[index * width..(index + 1) * width]
     }
 }
 
-impl IndexMut<(usize, usize)> for Range {
-    fn index_mut(&mut self, index: (usize, usize)) -> &mut DataType {
+impl<T: Default + Clone + PartialEq> IndexMut<(usize, usize)> for Range<T> {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut T {
         let width = self.width();
         &mut self.inner[index.0 * width + index.1]
     }
@@ -569,17 +578,17 @@ impl IndexMut<(usize, usize)> for Range {
 
 /// A struct to iterate over used cells
 #[derive(Debug)]
-pub struct UsedCells<'a> {
+pub struct UsedCells<'a, T: 'a + Default + Clone + PartialEq> {
     width: usize,
-    inner: ::std::iter::Enumerate<::std::slice::Iter<'a, DataType>>,
+    inner: ::std::iter::Enumerate<::std::slice::Iter<'a, T>>,
 }
 
-impl<'a> Iterator for UsedCells<'a> {
-    type Item = (usize, usize, &'a DataType);
+impl<'a, T: 'a + Default + Clone + PartialEq> Iterator for UsedCells<'a, T> {
+    type Item = (usize, usize, &'a T);
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
             .by_ref()
-            .find(|&(_, v)| v != &DataType::Empty)
+            .find(|&(_, v)| v != &T::default())
             .map(|(i, v)| {
                      let row = i / self.width;
                      let col = i % self.width;
@@ -590,12 +599,12 @@ impl<'a> Iterator for UsedCells<'a> {
 
 /// An iterator to read `Range` struct row by row
 #[derive(Debug)]
-pub struct Rows<'a> {
-    inner: Option<::std::slice::Chunks<'a, DataType>>,
+pub struct Rows<'a, T: 'a + Default + Clone + PartialEq> {
+    inner: Option<::std::slice::Chunks<'a, T>>,
 }
 
-impl<'a> Iterator for Rows<'a> {
-    type Item = &'a [DataType];
+impl<'a, T: 'a + Default + Clone + PartialEq> Iterator for Rows<'a, T> {
+    type Item = &'a [T];
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
     }

@@ -25,7 +25,7 @@ type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
 enum Content {
     Zip(ZipArchive<File>),
-    Sheets(HashMap<String, Range>),
+    Sheets(HashMap<String, Range<DataType>>),
 }
 
 /// An OpenDocument Spreadsheet document parser
@@ -87,7 +87,7 @@ impl Reader for Ods {
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
@@ -146,7 +146,7 @@ impl Ods {
     }
 }
 
-fn read_table(reader: &mut OdsReader) -> Result<Range> {
+fn read_table(reader: &mut OdsReader) -> Result<Range<DataType>> {
     let mut cells = Vec::new();
     let mut cols = Vec::new();
     let mut buf = Vec::new();
@@ -168,7 +168,7 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
     Ok(get_range(cells, &cols))
 }
 
-fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
+fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range<DataType> {
 
     // find smallest area with non empty Cells
     let mut row_min = None;

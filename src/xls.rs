@@ -12,7 +12,7 @@ use utils::{read_u16, read_u32, read_slice, push_column};
 
 enum SheetsState {
     NotParsed(BufReader<File>, Cfb),
-    Parsed(HashMap<String, Range>),
+    Parsed(HashMap<String, Range<DataType>>),
 }
 
 /// A struct representing an old xls format file (CFB)
@@ -65,7 +65,7 @@ impl Reader for Xls {
            })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),

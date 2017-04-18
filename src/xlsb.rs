@@ -203,7 +203,7 @@ impl Reader for Xlsb {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
 
         let path = {
             let &(_, ref path) = self.sheets
