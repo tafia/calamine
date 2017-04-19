@@ -443,13 +443,11 @@ fn read_sheet_formula(xml: &mut XmlReader<BufReader<ZipFile>>,
                     match xml.read_event(&mut buf) {
                         Err(e) => return Err(e.into()),
                         Ok(Event::Start(ref e)) => {
-                            debug!("e: {:?}", e);
                             match e.local_name() {
                                 b"is" | b"v" => (),
                                 b"f" => {
-                                    if let Some(s) = read_string(xml, e.name())? {
-                                        cells.push(Cell::new(pos, s));
-                                    }
+                                    let f = xml.read_text(e.name(), &mut Vec::new())?;
+                                    cells.push(Cell::new(pos, f));
                                     break;
                                 }
                                 n => {

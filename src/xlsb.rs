@@ -159,8 +159,7 @@ impl Xlsb {
                     let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
                     let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
                     let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
-                    let mut formula = parse_formula(rgce, &self.extern_sheets, &[])?; // formula
-                    formula.remove(0);
+                    let formula = parse_formula(rgce, &self.extern_sheets, &[])?; // formula
                     defined_names.push((name, formula));
                 }
                 0x018D | 0x0084 => {
@@ -499,7 +498,6 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String> {
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
-    formula.push('=');
     while !rgce.is_empty() {
         let ptg = rgce[0];
         rgce = &rgce[1..];

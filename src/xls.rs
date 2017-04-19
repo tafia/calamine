@@ -545,7 +545,6 @@ fn parse_formula(mut rgce: &[u8],
                  -> Result<String> {
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
-    formula.push('=');
     while !rgce.is_empty() {
         let ptg = rgce[0];
         rgce = &rgce[1..];
