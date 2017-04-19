@@ -355,7 +355,7 @@ impl Reader for Xlsb {
                 0x0008 => {
                     // BrtFmlaString
                     let value_len = read_u32(&buf[8..]) as usize;
-                    let formula = &buf[10 + value_len..];
+                    let formula = &buf[12 + value_len..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
                     parse_formula(rgce, &self.extern_sheets, &self.defined_names)?
