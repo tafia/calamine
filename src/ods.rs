@@ -168,7 +168,11 @@ fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>)
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-row" => {
-                read_row(reader, &mut row_buf, &mut cell_buf, &mut cells, &mut formulas)?;
+                read_row(reader,
+                         &mut row_buf,
+                         &mut cell_buf,
+                         &mut cells,
+                         &mut formulas)?;
                 cols.push(cells.len());
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table" => break,
@@ -188,11 +192,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     let mut col_min = ::std::usize::MAX;
     let mut col_max = 0;
     {
-        let not_empty = |c| if &T::default() == c {
-            false
-        } else {
-            true
-        };
+        let not_empty = |c| if &T::default() == c { false } else { true };
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| not_empty(c)) {
@@ -245,7 +245,7 @@ fn read_row(reader: &mut OdsReader,
             row_buf: &mut Vec<u8>,
             cell_buf: &mut Vec<u8>,
             cells: &mut Vec<DataType>,
-            formulas: &mut Vec<String>,)
+            formulas: &mut Vec<String>)
             -> Result<()> {
     loop {
         row_buf.clear();
@@ -282,7 +282,7 @@ fn get_datatype(reader: &mut OdsReader,
         match a.key {
             b"office:value" if !is_value_set => {
                 let v = reader.decode(a.value);
-                val =  DataType::Float(v.parse()?);
+                val = DataType::Float(v.parse()?);
                 is_value_set = true;
             }
             b"office:string-value" |
@@ -292,12 +292,10 @@ fn get_datatype(reader: &mut OdsReader,
                 is_value_set = true;
             }
             b"office:boolean-value" if !is_value_set => {
-                val =DataType::Bool(a.value == b"TRUE");
+                val = DataType::Bool(a.value == b"TRUE");
                 is_value_set = true;
             }
-            b"office:value-type" if !is_value_set => {
-                is_string = a.value == b"string"
-            },
+            b"office:value-type" if !is_value_set => is_string = a.value == b"string",
             b"table:formula" => {
                 formula = a.unescape_and_decode_value(&reader)?;
             }
