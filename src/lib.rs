@@ -43,6 +43,18 @@
 //! for &(ref name, ref formula) in workbook.defined_names().expect("Cannot get defined names!") {
 //!     println!("name: {}, formula: {}", name, formula);
 //! }
+//!
+//! // Now get all formula!
+//! let sheets = workbook.sheet_names().expect("Cannot get sheet names");
+//! for s in sheets {
+//!     println!("found {} formula in '{}'",
+//!              workbook
+//!                 .worksheet_formula(&s)
+//!                 .expect("error while getting formula")
+//!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
+//!                 .count(),
+//!              s);
+//! }
 //! ```
 
 #![deny(missing_docs)]
