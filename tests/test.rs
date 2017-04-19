@@ -307,3 +307,12 @@ fn formula_xlsb() {
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["=B1+OneRange".to_string()]]);
 }
+
+#[test]
+fn formula_xls() {
+    let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
+
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(formula, [["=B1+OneRange".to_string()]]);
+}

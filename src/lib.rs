@@ -330,7 +330,7 @@ trait Reader: Sized {
     fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
     /// Read worksheet formula in corresponding worksheet path
     fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>> {
-        unimplemented!()
+        Err("Formula reading is not implemented for this extension".into())
     }
 }
 

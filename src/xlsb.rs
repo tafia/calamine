@@ -494,8 +494,6 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 
 /// Formula parsing
 ///
-/// Does not implement ALL possibilities, only PtgRef3d and PtgArea3d are parsed
-///
 /// [MS-XLSB 2.2.2]
 /// [MS-XLSB 2.5.97]
 fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String> {
@@ -686,7 +684,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     0x22 | 0x42 | 0x62 => {
                         let iftab = read_u16(&rgce[1..]) as usize;
                         let argc = rgce[0] as usize;
-                        rgce = &rgce[2..];
+                        rgce = &rgce[3..];
                         (iftab, argc)
                     }
                     _ => {
