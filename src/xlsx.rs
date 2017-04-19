@@ -358,8 +358,10 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
     }
 
     let mut buf = Vec::new();
+    let mut cell_buf = Vec::new();
     /// main content of read_sheet_data
     loop {
+        buf.clear();
         match xml.read_event(&mut buf) {
             Err(e) => return Err(e.into()),
             Ok(Event::Start(ref c_element)) if c_element.local_name() == b"c" => {
@@ -368,8 +370,8 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
                     .and_then(get_row_column)?;
 
                 loop {
-                    let mut buf = Vec::new();
-                    match xml.read_event(&mut buf) {
+                    cell_buf.clear();
+                    match xml.read_event(&mut cell_buf) {
                         Err(e) => return Err(e.into()),
                         Ok(Event::Start(ref e)) => {
                             debug!("e: {:?}", e);
@@ -407,10 +409,8 @@ fn read_sheet_data(xml: &mut XmlReader<BufReader<ZipFile>>,
             Ok(Event::Eof) => return Err("unexpected end of xml (no </sheetData>)".into()),
             _ => (),
         }
-        buf.clear();
     }
 }
-
 
 /// read sheetData node
 fn read_sheet_formula(xml: &mut XmlReader<BufReader<ZipFile>>,
@@ -429,8 +429,10 @@ fn read_sheet_formula(xml: &mut XmlReader<BufReader<ZipFile>>,
     }
 
     let mut buf = Vec::new();
+    let mut cell_buf = Vec::new();
     /// main content of read_sheet_data
     loop {
+        buf.clear();
         match xml.read_event(&mut buf) {
             Err(e) => return Err(e.into()),
             Ok(Event::Start(ref c_element)) if c_element.local_name() == b"c" => {
@@ -439,15 +441,17 @@ fn read_sheet_formula(xml: &mut XmlReader<BufReader<ZipFile>>,
                     .and_then(get_row_column)?;
 
                 loop {
-                    let mut buf = Vec::new();
-                    match xml.read_event(&mut buf) {
+                    cell_buf.clear();
+                    match xml.read_event(&mut cell_buf) {
                         Err(e) => return Err(e.into()),
                         Ok(Event::Start(ref e)) => {
                             match e.local_name() {
                                 b"is" | b"v" => (),
                                 b"f" => {
                                     let f = xml.read_text(e.name(), &mut Vec::new())?;
-                                    cells.push(Cell::new(pos, f));
+                                    if !f.is_empty() {
+                                        cells.push(Cell::new(pos, f));
+                                    }
                                     break;
                                 }
                                 n => {
@@ -466,7 +470,6 @@ fn read_sheet_formula(xml: &mut XmlReader<BufReader<ZipFile>>,
             Ok(Event::Eof) => return Err("unexpected end of xml (no </sheetData>)".into()),
             _ => (),
         }
-        buf.clear();
     }
 }
 
