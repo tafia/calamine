@@ -145,11 +145,21 @@ impl Xlsb {
                     // BrtExternSheet
                     let len = iter.fill_buffer(&mut buf)?;
                     let cxti = read_u32(&buf[..4]) as usize;
+                    if len < 4 + cxti as usize * 12 {
+                        bail!("BrtExternSheet buffer too small");
+                    }
                     self.extern_sheets.reserve(cxti);
                     let mut start = 4;
                     for _ in 0..cxti {
-                        let first = read_u32(&buf[start + 4..len]) as usize;
-                        self.extern_sheets.push(self.sheets[first].0.to_string());
+                        let sh = match read_slice::<i32>(&buf[start + 4..len]) {
+                            -2 => "#ThisWorkbook",
+                            -1 => "#InvalidWorkSheet",
+                            p if p >= 0 && (p as usize) < self.sheets.len() => {
+                                &self.sheets[p as usize].0
+                            }
+                            _ => "#Unknown",
+                        };
+                        self.extern_sheets.push(sh.to_string());
                         start += 12;
                     }
                 }
@@ -199,7 +209,7 @@ impl Reader for Xlsb {
         let relationships = self.read_relationships()?;
         self.read_workbook(&relationships)?;
         Ok(Metadata {
-               sheets: self.extern_sheets.clone(),
+               sheets: self.sheets.iter().map(|s| s.0.clone()).collect(),
                defined_names: self.defined_names.clone(),
            })
     }
@@ -353,8 +363,8 @@ impl Reader for Xlsb {
                 0x0001 => continue, // DataType::Empty, // BrtCellBlank
                 0x0008 => {
                     // BrtFmlaString
-                    let value_len = read_u32(&buf[8..]) as usize;
-                    let formula = &buf[12 + value_len..];
+                    let cch = read_u32(&buf[8..]) as usize;
+                    let formula = &buf[14 + cch * 2..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
                     parse_formula(rgce, &self.extern_sheets, &self.defined_names)?
@@ -496,6 +506,10 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 /// [MS-XLSB 2.2.2]
 /// [MS-XLSB 2.5.97]
 fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String> {
+    if rgce.is_empty() {
+        return Ok(String::new());
+    }
+
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
     while !rgce.is_empty() {
@@ -769,6 +783,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
             _ => bail!("Unsupported ptg: 0x{:x}", ptg),
         }
     }
+
     if stack.len() != 1 {
         Err(format!("Invalid formula, final stack size: {}", stack.len()).into())
     } else {
