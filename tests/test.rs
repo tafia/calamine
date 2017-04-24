@@ -326,6 +326,11 @@ fn formula_xls() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
+
+    let sheets = excel.sheet_names().unwrap();
+    for s in sheets {
+        let _ = excel.worksheet_formula(&s).unwrap();
+    }
 }
 
 #[test]

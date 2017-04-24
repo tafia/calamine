@@ -155,10 +155,15 @@ impl Xls {
             }
         }
 
+        println!("defined: {:#?}, sheets: {:#?}", defined_names, sheet_names);
         let defined_names = defined_names
             .into_iter()
             .map(|(name, (i, f))| if let Some(i) = i {
-                     (name, format!("{}!{}", sheet_names[xtis[i]].1, f))
+                     if i >= xtis.len() || xtis[i] >= sheet_names.len() {
+                         (name, format!("#REF!{}", f))
+                     } else {
+                         (name, format!("{}!{}", sheet_names[xtis[i]].1, f))
+                     }
                  } else {
                      (name, f)
                  })
