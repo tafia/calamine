@@ -291,6 +291,7 @@ fn search_references() {
     assert_eq!(names, vec!["stdole", "Office"]);
 }
 
+#[test]
 fn formula_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel = Sheets::open(&path).expect("cannot open excel file");
