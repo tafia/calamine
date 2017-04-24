@@ -277,3 +277,16 @@ fn parse_sheet_names_in_xls() {
     let mut excel = Sheets::open(&path).expect("cannot open excel file");
     assert_eq!(excel.sheet_names().unwrap(), vec!["Sheet1"]);
 }
+
+#[test]
+fn search_references() {
+    let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
+    let mut excel = Sheets::open(&path).expect("cannot open excel file");
+    let vba = excel.vba_project().unwrap();
+    let references = vba.get_references();
+    let names = references
+        .iter()
+        .map(|r| &*r.name)
+        .collect::<Vec<&str>>();
+    assert_eq!(names, vec!["stdole", "Office"]);
+}
