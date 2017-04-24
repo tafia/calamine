@@ -64,14 +64,14 @@ impl Xlsb {
                             }
                         }
                         Ok(Event::Eof) => break,
-                        Err(e) => return Err(e.into()),
+                        Err(e) => bail!(e),
                         _ => (),
                     }
                     buf.clear();
                 }
             }
             Err(ZipError::FileNotFound) => (),
-            Err(e) => return Err(e.into()),
+            Err(e) => bail!(e),
         }
         Ok(relationships)
     }
@@ -134,13 +134,15 @@ impl Xlsb {
                         self.sheets.push((name.into_owned(), path));
                     }
                 }
-                typ => return Err(format!("Expecting end of sheet, got {:x}", typ).into()),
+                typ => bail!("Expecting end of sheet, got {:x}", typ),
             }
         }
+
         // BrtName
         let mut defined_names = Vec::new();
         loop {
-            match iter.read_type()? {
+            let typ = iter.read_type()?;
+            match typ {
                 0x016A => {
                     // BrtExternSheet
                     let len = iter.fill_buffer(&mut buf)?;
@@ -164,6 +166,7 @@ impl Xlsb {
                     }
                 }
                 0x0027 => {
+                    // BrtName
                     let len = iter.fill_buffer(&mut buf)?;
                     let mut str_len = 0;
                     let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
@@ -172,12 +175,12 @@ impl Xlsb {
                     let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
                     defined_names.push((name, formula));
                 }
-                0x018D | 0x0084 => {
-                    // BrtUserBookView
+                0x009D | 0x0225 | 0x018D | 0x0180 | 0x009A | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
+                    // record supposed to happen AFTER BrtNames
                     self.defined_names = defined_names;
-                    return Ok(()); // BrtEndBook
+                    return Ok(());
                 }
-                _ => (),
+                _ => debug!("unsupported typ: 0x{:x}", typ),
             }
         }
     }
@@ -285,7 +288,7 @@ impl Reader for Xlsb {
                         0x24 => CellErrorType::Num,
                         0x2A => CellErrorType::NA,
                         0x2B => CellErrorType::GettingData,
-                        c => return Err(format!("Unrecognised cell error code 0x{:x}", c).into()),
+                        c => bail!("Unrecognised cell error code 0x{:x}", c),
                     };
                     // BrtCellError
                     DataType::Error(error)
@@ -470,11 +473,10 @@ impl<'a> RecordIter<'a> {
                     match bounds.iter().position(|b| b.0 == typ) {
                         Some(i) => end = bounds[i].1,
                         None => {
-                            return Err(format!("Unexpected record after block: expecting 0x{:x} \
-                                                found 0x{:x}",
-                                               record_type,
-                                               typ)
-                                               .into())
+                            bail!("Unexpected record after block: \
+                                  expecting 0x{:x} found 0x{:x}",
+                                  record_type,
+                                  typ)
                         }
                     }
                 }
@@ -487,10 +489,9 @@ impl<'a> RecordIter<'a> {
 fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
-        return Err(format!("Wide string length ({}) exceeds buffer length ({})",
-                           4 + len * 2,
-                           buf.len())
-                           .into());
+        bail!("Wide string length ({}) exceeds buffer length ({})",
+              4 + len * 2,
+              buf.len());
     }
     *str_len = 4 + len * 2;
     let s = &buf[4..*str_len];
