@@ -786,6 +786,14 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 formula.push_str("#REF!");
                 rgce = &rgce[12..];
             }
+            0x29 | 0x49 | 0x69 => {
+                let cce = read_u16(rgce) as usize;
+                rgce = &rgce[2..];
+                let f = parse_formula(&rgce[..cce], sheets, names)?;
+                stack.push(formula.len());
+                formula.push_str(&f);
+                rgce = &rgce[cce..];
+            }
             _ => bail!("Unsupported ptg: 0x{:x}, current stack: '{}'", ptg, formula),
         }
     }
