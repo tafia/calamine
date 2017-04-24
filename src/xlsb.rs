@@ -169,7 +169,7 @@ impl Xlsb {
                     let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
                     let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
                     let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
-                    let formula = parse_formula(rgce, &self.extern_sheets, &[])?; // formula
+                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?; // formula
                     defined_names.push((name, formula));
                 }
                 0x018D | 0x0084 => {
