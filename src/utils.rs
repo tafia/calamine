@@ -62,12 +62,11 @@ pub fn encoding_from_windows_code_page(cp: usize) -> Option<&'static Encoding> {
         932 => Some(encoding_rs::SHIFT_JIS),
         1201 => Some(encoding_rs::UTF_16BE),
         1200 => Some(encoding_rs::UTF_16LE),
+        949 => Some(encoding_rs::EUC_KR),
         // Not available because not in the Encoding Standard
         //28591 => Some(encoding_rs::ISO_8859_1),
         //38598 => Some(encoding_rs::whatwg::ISO_8859_8_I),
         //52936 => Some(encoding_rs::HZ),
-        // not supported?
-        //949 => Some(encoding_rs::WINDOWS_949),
         _ => None,
     }
 }
