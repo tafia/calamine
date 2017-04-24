@@ -169,7 +169,7 @@ impl Xlsb {
                     let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
                     let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
                     let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
-                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?; // formula
+                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
                     defined_names.push((name, formula));
                 }
                 0x018D | 0x0084 => {
@@ -793,6 +793,12 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 stack.push(formula.len());
                 formula.push_str(&f);
                 rgce = &rgce[cce..];
+            }
+            0x39 | 0x59 | 0x79 => {
+                // TODO: external workbook ... ignore this formula ...
+                stack.push(formula.len());
+                formula.push_str("EXTERNAL_WB_NAME");
+                rgce = &rgce[6..];
             }
             _ => bail!("Unsupported ptg: 0x{:x}, current stack: '{}'", ptg, formula),
         }
