@@ -297,6 +297,11 @@ fn formula_xlsx() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
+
+    let sheets = excel.sheet_names().unwrap();
+    for s in sheets {
+        let _ = excel.worksheet_formula(&s).unwrap();
+    }
 }
 
 #[test]
@@ -306,6 +311,11 @@ fn formula_xlsb() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
+
+    let sheets = excel.sheet_names().unwrap();
+    for s in sheets {
+        let _ = excel.worksheet_formula(&s).unwrap();
+    }
 }
 
 #[test]
@@ -324,4 +334,9 @@ fn formula_ods() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["of:=[.B1]+$$OneRange".to_string()]]);
+
+    let sheets = excel.sheet_names().unwrap();
+    for s in sheets {
+        let _ = excel.worksheet_formula(&s).unwrap();
+    }
 }

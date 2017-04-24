@@ -565,6 +565,12 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 formula.push_str("#REF!");
                 rgce = &rgce[14..];
             }
+            0x01 => {
+                // PtgExp: array/shared formula, ignore
+                debug!("ignoring PtgExp array/shared formula");
+                stack.push(formula.len());
+                rgce = &rgce[4..];
+            }
             0x03...0x11 => {
                 // binary operation
                 let e2 = stack
@@ -780,7 +786,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 formula.push_str("#REF!");
                 rgce = &rgce[12..];
             }
-            _ => bail!("Unsupported ptg: 0x{:x}", ptg),
+            _ => bail!("Unsupported ptg: 0x{:x}, current stack: '{}'", ptg, formula),
         }
     }
 
