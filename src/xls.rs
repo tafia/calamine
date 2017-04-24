@@ -155,7 +155,6 @@ impl Xls {
             }
         }
 
-        println!("defined: {:#?}, sheets: {:#?}", defined_names, sheet_names);
         let defined_names = defined_names
             .into_iter()
             .map(|(name, (i, f))| if let Some(i) = i {
