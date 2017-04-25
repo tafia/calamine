@@ -160,8 +160,8 @@ impl Xlsx {
         };
         let mut cells = Vec::new();
         let mut buf = Vec::new();
-        println!("reading ws {}, {}", name, path);
         'xml: loop {
+            buf.clear();
             match xml.read_event(&mut buf) {
                 Err(e) => bail!(e),
                 Ok(Event::Start(ref e)) => {
@@ -187,12 +187,9 @@ impl Xlsx {
                         _ => (),
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name() == b"worksheet" ||
-                                         e.local_name() == b"macrosheet" => break,
-                Ok(Event::Eof) => bail!("unexpected end of xml (no </worksheet> or </macrosheet>)"),
+                Ok(Event::Eof) => break,
                 _ => (),
             }
-            buf.clear();
         }
         Ok(Range::from_sparse(cells))
     }
