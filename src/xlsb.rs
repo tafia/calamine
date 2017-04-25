@@ -463,16 +463,21 @@ impl<'a> RecordIter<'a> {
                         bounds: &[(u16, Option<u16>)],
                         buf: &mut Vec<u8>)
                         -> Result<usize> {
-        let mut end = None;
         loop {
             buf.clear();
             let typ = self.read_type()?;
             let len = self.fill_buffer(buf)?;
-            match end {
-                None if typ == record_type => return Ok(len),
-                None => end = bounds.iter().find(|b| b.0 == typ).and_then(|b| b.1),
-                Some(e) if e == typ => end = None,
-                Some(_) => (),
+            if typ == record_type {
+                return Ok(len);
+            }
+            if let Some(end) = bounds.iter().find(|b| b.0 == typ).and_then(|b| b.1) {
+                loop {
+                    let typ = self.read_type()?;
+                    let _ = self.fill_buffer(buf)?;
+                    if typ == end {
+                        break;
+                    }
+                }
             }
         }
     }
