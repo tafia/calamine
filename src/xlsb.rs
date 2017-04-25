@@ -428,6 +428,7 @@ impl<'a> RecordIter<'a> {
         Ok(self.b[0])
     }
 
+    /// Read next type, until we have no future record
     fn read_type(&mut self) -> Result<u16> {
         let b = self.read_u8()?;
         let typ = if (b & 0x80) == 0x80 {
@@ -464,24 +465,15 @@ impl<'a> RecordIter<'a> {
                         -> Result<usize> {
         let mut end = None;
         loop {
+            buf.clear();
             let typ = self.read_type()?;
+            let len = self.fill_buffer(buf)?;
             match end {
+                None if typ == record_type => return Ok(len),
+                None => end = bounds.iter().find(|b| b.0 == typ).and_then(|b| b.1),
                 Some(e) if e == typ => end = None,
                 Some(_) => (),
-                None if typ == record_type => return self.fill_buffer(buf),
-                None => {
-                    match bounds.iter().position(|b| b.0 == typ) {
-                        Some(i) => end = bounds[i].1,
-                        None => {
-                            bail!("Unexpected record after block: \
-                                  expecting 0x{:x} found 0x{:x}",
-                                  record_type,
-                                  typ)
-                        }
-                    }
-                }
             }
-            let _ = self.fill_buffer(buf)?;
         }
     }
 }
