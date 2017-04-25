@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use zip::read::{ZipFile, ZipArchive};
 use zip::result::ZipError;
 use quick_xml::reader::Reader as XmlReader;
-use quick_xml::events::Event;
+use quick_xml::events::{Event, BytesStart};
 use quick_xml::events::attributes::{Attribute, Attributes};
 
 use {Metadata, DataType, Reader, Range, Cell};
@@ -263,6 +263,43 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &'a [u8]) -> Result<Option<&'a [u8
     Ok(None)
 }
 
+fn read_sheet<T, F>(xml: &mut XlsReader, cells: &mut Vec<Cell<T>>, push_cell: &mut F) -> Result<()>
+    where T: Clone + Default + PartialEq,
+          F: FnMut(&mut Vec<Cell<T>>,
+                   &mut XlsReader,
+                   &BytesStart,
+                   (u32, u32),
+                   &BytesStart)
+                   -> Result<()>
+{
+    let mut buf = Vec::new();
+    let mut cell_buf = Vec::new();
+    loop {
+        buf.clear();
+        match xml.read_event(&mut buf) {
+            Err(e) => bail!(e),
+            Ok(Event::Start(ref c_element)) if c_element.local_name() == b"c" => {
+                let pos = get_attribute(c_element.attributes(), b"r")
+                    .and_then(|o| o.ok_or_else(|| "Cell missing 'r' attribute tag".into()))
+                    .and_then(get_row_column)?;
+                loop {
+                    cell_buf.clear();
+                    match xml.read_event(&mut cell_buf) {
+                        Err(e) => bail!(e),
+                        Ok(Event::Start(ref e)) => push_cell(cells, xml, e, pos, c_element)?,
+                        Ok(Event::End(ref e)) if e.local_name() == b"c" => break,
+                        Ok(Event::Eof) => bail!("unexpected end of xml (no </c>)"),
+                        o => debug!("ignored Event: {:?}", o),
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) if e.local_name() == b"sheetData" => return Ok(()),
+            Ok(Event::Eof) => bail!("unexpected end of xml (no </sheetData>)"),
+            _ => (),
+        }
+    }
+}
+
 /// read sheetData node
 fn read_sheet_data(xml: &mut XlsReader,
                    strings: &[String],
@@ -327,99 +364,45 @@ fn read_sheet_data(xml: &mut XlsReader,
         }
     }
 
-    let mut buf = Vec::new();
-    let mut cell_buf = Vec::new();
-    /// main content of read_sheet_data
-    loop {
-        buf.clear();
-        match xml.read_event(&mut buf) {
-            Err(e) => bail!(e),
-            Ok(Event::Start(ref c_element)) if c_element.local_name() == b"c" => {
-                let pos = get_attribute(c_element.attributes(), b"r")
-                    .and_then(|o| o.ok_or_else(|| "Cell missing 'r' attribute tag".into()))
-                    .and_then(get_row_column)?;
-
-                loop {
-                    cell_buf.clear();
-                    match xml.read_event(&mut cell_buf) {
-                        Err(e) => bail!(e),
-                        Ok(Event::Start(ref e)) => {
-                            debug!("e: {:?}", e);
-                            match e.local_name() {
-                                b"is" => {
-                                    // inlineStr
-                                    if let Some(s) = read_string(xml, e.name())? {
-                                        cells.push(Cell::new(pos, DataType::String(s)));
-                                    }
-                                    break;
-                                }
-                                b"v" => {
-                                    // value
-                                    let v = xml.read_text(e.name(), &mut Vec::new())?;
-                                    cells.push(Cell::new(pos,
-                                                         read_value(v,
-                                                                    strings,
-                                                                    c_element.attributes())?));
-                                    break;
-                                }
-                                b"f" => {} // ignore f nodes
-                                n => bail!("not a 'v', 'f', or 'is' node: {:?}", n),
-                            }
-                        }
-                        Ok(Event::End(ref e)) if e.local_name() == b"c" => break,
-                        Ok(Event::Eof) => bail!("unexpected end of xml (no </c>)"),
-                        o => debug!("ignored Event: {:?}", o),
-                    }
+    read_sheet(xml,
+               cells,
+               &mut |cells, xml, e, pos, c_element| {
+        match e.local_name() {
+            b"is" => {
+                // inlineStr
+                if let Some(s) = read_string(xml, e.name())? {
+                    cells.push(Cell::new(pos, DataType::String(s)));
                 }
             }
-            Ok(Event::End(ref e)) if e.local_name() == b"sheetData" => return Ok(()),
-            Ok(Event::Eof) => bail!("unexpected end of xml (no </sheetData>)"),
-            _ => (),
+            b"v" => {
+                // value
+                let v = xml.read_text(e.name(), &mut Vec::new())?;
+                cells.push(Cell::new(pos, read_value(v, strings, c_element.attributes())?));
+            }
+            b"f" => {} // ignore f nodes
+            n => bail!("not a 'v', 'f', or 'is' node: {:?}", n),
         }
-    }
+        Ok(())
+    })
 }
 
 /// read sheetData node
 fn read_sheet_formula(xml: &mut XlsReader, cells: &mut Vec<Cell<String>>) -> Result<()> {
-
-    let mut buf = Vec::new();
-    let mut cell_buf = Vec::new();
-    /// main content of read_sheet_data
-    loop {
-        buf.clear();
-        match xml.read_event(&mut buf) {
-            Err(e) => bail!(e),
-            Ok(Event::Start(ref c_element)) if c_element.local_name() == b"c" => {
-                let pos = get_attribute(c_element.attributes(), b"r")
-                    .and_then(|o| o.ok_or_else(|| "Cell missing 'r' attribute tag".into()))
-                    .and_then(get_row_column)?;
-                loop {
-                    cell_buf.clear();
-                    match xml.read_event(&mut cell_buf) {
-                        Err(e) => bail!(e),
-                        Ok(Event::Start(ref e)) => {
-                            match e.local_name() {
-                                b"is" | b"v" => (),
-                                b"f" => {
-                                    let f = xml.read_text(e.name(), &mut Vec::new())?;
-                                    if !f.is_empty() {
-                                        cells.push(Cell::new(pos, f));
-                                    }
-                                }
-                                n => bail!("not a 'v', 'f', or 'is' node: {:?}", n),
-                            }
-                        }
-                        Ok(Event::End(ref e)) if e.local_name() == b"c" => break,
-                        Ok(Event::Eof) => bail!("unexpected end of xml (no </c>)"),
-                        o => debug!("ignored Event: {:?}", o),
-                    }
+    read_sheet(xml,
+               cells,
+               &mut |cells, xml, e, pos, _| {
+        match e.local_name() {
+            b"is" | b"v" => (),
+            b"f" => {
+                let f = xml.read_text(e.name(), &mut Vec::new())?;
+                if !f.is_empty() {
+                    cells.push(Cell::new(pos, f));
                 }
             }
-            Ok(Event::End(ref e)) if e.local_name() == b"sheetData" => return Ok(()),
-            Ok(Event::Eof) => bail!("unexpected end of xml (no </sheetData>)"),
-            _ => (),
+            n => bail!("not a 'v', 'f', or 'is' node: {:?}", n),
         }
-    }
+        Ok(())
+    })
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
