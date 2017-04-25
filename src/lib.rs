@@ -215,8 +215,8 @@ impl Sheets {
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
             Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
             Some("ods") => FileType::Ods(ods::Ods::new(f)?),
-            Some(e) => return Err(ErrorKind::InvalidExtension(e.to_string()).into()),
-            None => return Err(ErrorKind::InvalidExtension("".to_string()).into()),
+            Some(e) => bail!(ErrorKind::InvalidExtension(e.to_string())),
+            None => bail!(ErrorKind::InvalidExtension("".to_string())),
         };
         Ok(Sheets {
                file: file,
@@ -493,7 +493,7 @@ impl<T: Default + Clone + PartialEq> Range<T> {
     /// ```
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<()> {
         if self.start > absolute_position {
-            return Err(ErrorKind::CellOutOfRange(absolute_position, self.start).into());
+            bail!(ErrorKind::CellOutOfRange(absolute_position, self.start));
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
