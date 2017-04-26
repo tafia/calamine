@@ -145,25 +145,28 @@ impl Xlsb {
             match typ {
                 0x016A => {
                     // BrtExternSheet
-                    let len = iter.fill_buffer(&mut buf)?;
+                    let _len = iter.fill_buffer(&mut buf)?;
                     let cxti = read_u32(&buf[..4]) as usize;
-                    if len < 4 + cxti as usize * 12 {
-                        bail!("BrtExternSheet buffer too small");
+                    if cxti < 500_000 {
+                        self.extern_sheets.reserve(cxti);
                     }
-                    self.extern_sheets.reserve(cxti);
-                    let mut start = 4;
-                    for _ in 0..cxti {
-                        let sh = match read_slice::<i32>(&buf[start + 4..len]) {
-                            -2 => "#ThisWorkbook",
-                            -1 => "#InvalidWorkSheet",
-                            p if p >= 0 && (p as usize) < self.sheets.len() => {
-                                &self.sheets[p as usize].0
-                            }
-                            _ => "#Unknown",
-                        };
-                        self.extern_sheets.push(sh.to_string());
-                        start += 12;
-                    }
+                    let sheets = &self.sheets;
+                    let extern_sheets = buf[4..]
+                        .chunks(12)
+                        .map(|xti| {
+                            match read_slice::<i32>(&xti[4..8]) {
+                                    -2 => "#ThisWorkbook",
+                                    -1 => "#InvalidWorkSheet",
+                                    p if p >= 0 && (p as usize) < sheets.len() => {
+                                        &sheets[p as usize].0
+                                    }
+                                    _ => "#Unknown",
+                                }
+                                .to_string()
+                        })
+                        .take(cxti)
+                        .collect();
+                    self.extern_sheets = extern_sheets;
                 }
                 0x0027 => {
                     // BrtName
@@ -340,8 +343,12 @@ impl Reader for Xlsb {
                                            ],
                                       &mut buf)?;
         let (start, end) = parse_dimensions(&buf[..16]);
-        let mut cells = Vec::with_capacity((((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
-                                            usize));
+        let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
+        let mut cells = if len < 500_000 {
+            Vec::with_capacity(len as usize)
+        } else {
+            Vec::new()
+        };
 
         // BrtBeginSheetData
         let _ = iter.next_skip_blocks(0x0091,
