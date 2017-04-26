@@ -139,14 +139,11 @@ impl Xls {
                     }
                     0x0017 => {
                         // ExternSheet
-                        let len = read_u16(r.data) as usize;
-                        xtis.reserve(len);
-                        let mut start = 4;
-                        for _ in 0..len {
-                            let i = read_u16(&r.data[start..]) as usize;
-                            xtis.push(i);
-                            start += 6;
-                        }
+                        let cxti = read_u16(r.data) as usize;
+                        xtis.extend(r.data[2..]
+                                        .chunks(6)
+                                        .take(cxti)
+                                        .map(|xti| read_u16(&xti[2..]) as usize));
                     }
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     0x000A => break, // EOF,

@@ -298,7 +298,6 @@ fn formula_xlsx() {
 
     let sheets = excel.sheet_names().unwrap();
     for s in sheets {
-        println!("{}", s);
         let _ = excel.worksheet_formula(&s).unwrap();
     }
 
