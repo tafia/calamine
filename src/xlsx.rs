@@ -242,7 +242,7 @@ impl Reader for Xlsx {
                        cells,
                        &mut |cells, xml, e, pos, _| {
                 match e.local_name() {
-                    b"is" | b"v" => (),
+                    b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
                     b"f" => {
                         let f = xml.read_text(e.name(), &mut Vec::new())?;
                         if !f.is_empty() {
@@ -403,7 +403,7 @@ fn read_sheet_data(xml: &mut XlsReader,
                     v => cells.push(Cell::new(pos, v)),
                 }
             }
-            b"f" => {} // ignore f nodes
+            b"f" => xml.read_to_end(e.name(), &mut Vec::new())?,
             n => bail!("not a 'v', 'f', or 'is' node: {:?}", n),
         }
         Ok(())
