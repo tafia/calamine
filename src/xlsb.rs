@@ -242,8 +242,12 @@ impl Reader for Xlsb {
                                            ],
                                       &mut buf)?;
         let (start, end) = parse_dimensions(&buf[..16]);
-        let mut cells = Vec::with_capacity((((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as
-                                            usize));
+        let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
+        let mut cells = if len < 500_000 {
+            Vec::with_capacity(len as usize)
+        } else {
+            Vec::new()
+        };
 
         // BrtBeginSheetData
         let _ = iter.next_skip_blocks(0x0091,
