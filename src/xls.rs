@@ -187,13 +187,16 @@ impl Xls {
                     0x027E => cells.push(parse_rk(&r.data)?), // RK
                     0x00FD => cells.push(parse_label_sst(&r.data, &strings)?), // LabelSst
                     0x000A => break, // EOF,
-                    0x0006 => { // Formula
+                    0x0006 => {
+                        // Formula
                         let row = read_u16(&r.data);
                         let col = read_u16(&r.data[2..]);
 
                         // Formula
-                        let fmla =
-                            parse_formula(&r.data[20..], &fmla_sheet_names, &defined_names, &mut encoding)
+                        let fmla = parse_formula(&r.data[20..],
+                                                 &fmla_sheet_names,
+                                                 &defined_names,
+                                                 &mut encoding)
                                 .unwrap_or_else(|e| {
                                                     format!("Unrecognised formula \
                                                             for cell ({}, {}): {:?}",
