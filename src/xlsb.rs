@@ -514,6 +514,8 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 ///
 /// [MS-XLSB 2.2.2]
 /// [MS-XLSB 2.5.97]
+///
+/// See Ptg [2.5.97.16]
 fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String> {
     if rgce.is_empty() {
         return Ok(String::new());
@@ -641,13 +643,20 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 formula.push('\"');
                 rgce = &rgce[2 + 2 * cch..];
             }
-            0x18 | 0x19 => {
-                // ignore most of these ptgs ...
-                let etpg = rgce[0];
+            0x18 => {
+                stack.push(formula.len());
+                let eptg = rgce[0];
                 rgce = &rgce[1..];
-                match etpg {
+                match eptg {
                     0x19 => rgce = &rgce[12..],
                     0x1D => rgce = &rgce[4..],
+                    e => bail!("Unsupported eptg: 0x{:x}", e),
+                }
+            }
+            0x19 => {
+                let eptg = rgce[0];
+                rgce = &rgce[1..];
+                match eptg {
                     0x01 => rgce = &rgce[2..],
                     0x02 => rgce = &rgce[2..],
                     0x04 => rgce = &rgce[10..],
@@ -667,7 +676,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     0x40 => rgce = &rgce[2..],
                     0x41 => rgce = &rgce[2..],
                     0x80 => rgce = &rgce[2..],
-                    e => bail!("Unsupported etpg: 0x{:x}", e),
+                    e => bail!("Unsupported eptg: 0x{:x}", e),
                 }
             }
             0x1C => {

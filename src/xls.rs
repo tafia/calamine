@@ -187,18 +187,16 @@ impl Xls {
                     0x027E => cells.push(parse_rk(&r.data)?), // RK
                     0x00FD => cells.push(parse_label_sst(&r.data, &strings)?), // LabelSst
                     0x000A => break, // EOF,
-                    0x0006 => {
+                    0x0006 => { // Formula
                         let row = read_u16(&r.data);
                         let col = read_u16(&r.data[2..]);
 
                         // Formula
-                        let cce = read_u16(&r.data[20..]) as usize;
-                        let rgce = &r.data[22..22 + cce];
                         let fmla =
-                            parse_formula(rgce, &fmla_sheet_names, &defined_names, &mut encoding)
+                            parse_formula(&r.data[20..], &fmla_sheet_names, &defined_names, &mut encoding)
                                 .unwrap_or_else(|e| {
                                                     format!("Unrecognised formula \
-                                for cell ({}, {}): {:?}",
+                                                            for cell ({}, {}): {:?}",
                                                             row,
                                                             col,
                                                             e)
@@ -219,21 +217,21 @@ impl Xls {
     }
 }
 
+/// BoundSheet8 [MS-XLS 2.4.28]
 fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize, String)> {
     let pos = read_u32(r.data) as usize;
     r.data = &r.data[6..];
-    let sheet = parse_short_string(r, encoding)?;
-    Ok((pos, sheet))
+    parse_short_string(r, encoding).map(|s| (pos, s))
 }
 
 fn parse_number(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 14 {
         bail!("Invalid number length");
     }
-    let row = read_u16(r);
-    let col = read_u16(&r[2..]);
+    let row = read_u16(r) as u32;
+    let col = read_u16(&r[2..]) as u32;
     let v = read_slice::<f64>(&r[6..]);
-    Ok(Cell::new((row as u32, col as u32), DataType::Float(v)))
+    Ok(Cell::new((row, col), DataType::Float(v)))
 }
 
 fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>> {
@@ -285,16 +283,19 @@ fn parse_rk(r: &[u8]) -> Result<Cell<DataType>> {
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
+/// ShortXLUnicodeString [MS-XLS 2.5.240]
 fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
     if r.data.len() < 2 {
         bail!("Invalid short string length");
     }
-    let len = r.data[0] as usize;
+    let cch = r.data[0] as usize;
     if let Some(ref mut b) = encoding.high_byte {
         *b = r.data[1] != 0;
     }
     r.data = &r.data[2..];
-    read_dbcs(encoding, len, r)
+    let mut s = String::with_capacity(cch);
+    let _ = encoding.decode_to(r.data, cch, &mut s)?;
+    Ok(s)
 }
 
 fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>> {
@@ -541,8 +542,7 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String)> {
 
 /// Formula parsing
 ///
-/// [MS-XLSB 2.2.2]
-/// [MS-XLSB 2.5.97]
+/// CellParsedForumula [MS-XLS 2.5.198.3]
 fn parse_formula(mut rgce: &[u8],
                  sheets: &[String],
                  names: &[(String, String)],
@@ -550,6 +550,8 @@ fn parse_formula(mut rgce: &[u8],
                  -> Result<String> {
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
+    let cce = read_u16(rgce) as usize;
+    rgce = &rgce[2..2 + cce];
     while !rgce.is_empty() {
         let ptg = rgce[0];
         rgce = &rgce[1..];
@@ -602,6 +604,12 @@ fn parse_formula(mut rgce: &[u8],
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[10..];
+            }
+            0x01 => {
+                // PtgExp: array/shared formula, ignore
+                debug!("ignoring PtgExp array/shared formula");
+                stack.push(formula.len());
+                rgce = &rgce[4..];
             }
             0x03...0x11 => {
                 // binary operation
@@ -781,10 +789,9 @@ fn parse_formula(mut rgce: &[u8],
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {
-                let row = read_u16(rgce) + 1;
-                let col = [rgce[2], rgce[3] & 0x3F];
-                let col = read_u16(&col);
                 stack.push(formula.len());
+                let row = read_u16(rgce) + 1;
+                let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
                 if rgce[3] & 0x80 != 0x80 {
                     formula.push('$');
                 }
