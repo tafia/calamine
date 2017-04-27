@@ -11,6 +11,8 @@
 ## 0.11.0
 - feat: add support for formula parsing/decoding
 - refactor: make `Range` generic over its content
+- fix: convert codepage 21010 as codepage 1200
+- fix: support EUC_KR encoding
 
 ## 0.10.2
 - fix: error while using a singlebyte encoding for xls files (read_dbcs)
