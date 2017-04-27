@@ -109,7 +109,7 @@ impl VbaProject {
     pub fn get_module_raw(&self, name: &str) -> Result<&[u8]> {
         match self.modules.get(name) {
             Some(m) => Ok(&**m),
-            None => return Err(format!("Cannot find module {}", name).into()),
+            None => bail!("Cannot find module {}", name),
         }
     }
 }
@@ -187,10 +187,7 @@ impl Reference {
                             check_record(0x0030, stream)?;
                         }
                         0x0030 => (),
-                        e => {
-                            return Err(format!("unexpected token in reference control {:x}", e)
-                                           .into())
-                        }
+                        e => bail!("unexpected token in reference control {:x}", e),
                     }
                     *stream = &stream[4..];
                     reference.set_libid(stream, encoding)?;
@@ -217,7 +214,7 @@ impl Reference {
                     read_variable_record(stream, 1)?; // project libid relative
                     *stream = &stream[6..];
                 }
-                c => return Err(format!("invalid of unknown check Id {}", c).into()),
+                c => bail!("invalid of unknown check Id {}", c),
             }
         }
 
@@ -326,7 +323,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         match stream.read_u16::<LittleEndian>()? {
             0x0021 /* procedural module */ |
             0x0022 /* document, class or designer module */ => (),
-            e => return Err(format!("unknown module type {}", e).into()),
+            e => bail!("unknown module type {}", e),
         }
 
         loop {
@@ -334,8 +331,8 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
             match stream.read_u16::<LittleEndian>() {
                 Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
                 Ok(0x002B) => break,
-                Ok(e) => return Err(format!("unknown record id {}", e).into()),
-                Err(e) => return Err(e.into()),
+                Ok(e) => bail!("unknown record id {}", e),
+                Err(e) => bail!(e),
             }
         }
         *stream = &stream[4..]; // reserved

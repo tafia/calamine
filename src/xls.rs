@@ -12,7 +12,7 @@ use utils::{read_u16, read_u32, read_slice, push_column};
 
 enum SheetsState {
     NotParsed(BufReader<File>, Cfb),
-    Parsed(HashMap<String, Range>),
+    Parsed(HashMap<String, (Range<DataType>, Range<String>)>),
 }
 
 /// A struct representing an old xls format file (CFB)
@@ -65,14 +65,26 @@ impl Reader for Xls {
            })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => {
                 shs.get(name)
                     .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
-                    .map(|r| r.clone())
+                    .map(|r| r.0.clone())
+            }
+        }
+    }
+
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+        let _ = self.parse_workbook()?;
+        match self.sheets {
+            SheetsState::NotParsed(_, _) => unreachable!(),
+            SheetsState::Parsed(ref shs) => {
+                shs.get(name)
+                    .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
+                    .map(|r| r.1.clone())
             }
         }
     }
@@ -94,16 +106,16 @@ impl Xls {
         let mut strings = Vec::new();
         let mut defined_names = Vec::new();
         let mut xtis = Vec::new();
+        let mut encoding = XlsEncoding::from_codepage(1200)?;
         {
             let mut wb = &stream;
-            let mut encoding = XlsEncoding::from_codepage(1200)?;
             let records = RecordIter { stream: &mut wb };
             for record in records {
                 let mut r = record?;
                 match r.typ {
                     0x0012 => {
                         if read_u16(r.data) != 0 {
-                            return Err("Workbook is password protected".into());
+                            bail!("Workbook is password protected");
                         }
                     }
                     0x0042 => encoding = XlsEncoding::from_codepage(read_u16(r.data))?, // CodePage
@@ -117,23 +129,21 @@ impl Xls {
                     }
                     0x0018 => {
                         // Lbl for defined_names
-                        let cch = r.data[3] as usize;
+                        let mut cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
-                        let name = read_unicode_string_no_cch(&mut encoding, &r.data[14..], cch)?;
+                        let name =
+                            read_unicode_string_no_cch(&mut encoding, &r.data[14..], &mut cch)?;
                         let rgce = &r.data[r.data.len() - cce..];
-                        let formula = parse_formula(rgce)?;
+                        let formula = parse_defined_names(rgce)?;
                         defined_names.push((name, formula));
                     }
                     0x0017 => {
                         // ExternSheet
-                        let len = read_u16(r.data) as usize;
-                        xtis.reserve(len);
-                        let mut start = 4;
-                        for _ in 0..len {
-                            let i = read_u16(&r.data[start..]) as usize;
-                            xtis.push(i);
-                            start += 6;
-                        }
+                        let cxti = read_u16(r.data) as usize;
+                        xtis.extend(r.data[2..]
+                                        .chunks(6)
+                                        .take(cxti)
+                                        .map(|xti| read_u16(&xti[2..]) as usize));
                     }
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     0x000A => break, // EOF,
@@ -145,17 +155,26 @@ impl Xls {
         let defined_names = defined_names
             .into_iter()
             .map(|(name, (i, f))| if let Some(i) = i {
-                     (name, format!("{}!{}", sheet_names[xtis[i]].1, f))
+                     if i >= xtis.len() || xtis[i] >= sheet_names.len() {
+                         (name, format!("#REF!{}", f))
+                     } else {
+                         (name, format!("{}!{}", sheet_names[xtis[i]].1, f))
+                     }
                  } else {
                      (name, f)
                  })
-            .collect();
+            .collect::<Vec<_>>();
 
         let mut sheets = HashMap::with_capacity(sheet_names.len());
+        let fmla_sheet_names = sheet_names
+            .iter()
+            .map(|&(_, ref n)| n.clone())
+            .collect::<Vec<_>>();
         'sh: for (pos, name) in sheet_names.into_iter() {
             let mut sh = &stream[pos..];
             let records = RecordIter { stream: &mut sh };
             let mut cells = Vec::new();
+            let mut formulas = Vec::new();
             for record in records {
                 let r = record?;
                 match r.typ {
@@ -168,11 +187,31 @@ impl Xls {
                     0x027E => cells.push(parse_rk(&r.data)?), // RK
                     0x00FD => cells.push(parse_label_sst(&r.data, &strings)?), // LabelSst
                     0x000A => break, // EOF,
+                    0x0006 => {
+                        // Formula
+                        let row = read_u16(&r.data);
+                        let col = read_u16(&r.data[2..]);
+
+                        // Formula
+                        let fmla = parse_formula(&r.data[20..],
+                                                 &fmla_sheet_names,
+                                                 &defined_names,
+                                                 &mut encoding)
+                                .unwrap_or_else(|e| {
+                                                    format!("Unrecognised formula \
+                                                            for cell ({}, {}): {:?}",
+                                                            row,
+                                                            col,
+                                                            e)
+                                                });
+                        formulas.push(Cell::new((row as u32, col as u32), fmla));
+                    }
                     _ => (),
                 }
             }
             let range = Range::from_sparse(cells);
-            sheets.insert(name, range);
+            let formula = Range::from_sparse(formulas);
+            sheets.insert(name, (range, formula));
         }
 
         self.sheets = SheetsState::Parsed(sheets);
@@ -181,26 +220,26 @@ impl Xls {
     }
 }
 
+/// BoundSheet8 [MS-XLS 2.4.28]
 fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize, String)> {
     let pos = read_u32(r.data) as usize;
     r.data = &r.data[6..];
-    let sheet = parse_short_string(r, encoding)?;
-    Ok((pos, sheet))
+    parse_short_string(r, encoding).map(|s| (pos, s))
 }
 
-fn parse_number(r: &[u8]) -> Result<Cell> {
+fn parse_number(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 14 {
-        return Err("Invalid number length".into());
+        bail!("Invalid number length");
     }
-    let row = read_u16(r);
-    let col = read_u16(&r[2..]);
+    let row = read_u16(r) as u32;
+    let col = read_u16(&r[2..]) as u32;
     let v = read_slice::<f64>(&r[6..]);
-    Ok(Cell::new((row as u32, col as u32), DataType::Float(v)))
+    Ok(Cell::new((row, col), DataType::Float(v)))
 }
 
-fn parse_bool_err(r: &[u8]) -> Result<Cell> {
+fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 8 {
-        return Err("Invalid BoolErr length".into());
+        bail!("Invalid BoolErr length");
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
@@ -216,17 +255,17 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell> {
                 0x24 => DataType::Error(CellErrorType::Num),
                 0x2A => DataType::Error(CellErrorType::NA),
                 0x2B => DataType::Error(CellErrorType::GettingData),
-                e => return Err(format!("Unrecognized error {:x}", e).into()),
+                e => bail!("Unrecognized error {:x}", e),
             }
         }
-        e => return Err(format!("Unrecognized fError {:x}", e).into()),
+        e => bail!("Unrecognized fError {:x}", e),
     };
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
-fn parse_rk(r: &[u8]) -> Result<Cell> {
+fn parse_rk(r: &[u8]) -> Result<Cell<DataType>> {
     if r.len() < 10 {
-        return Err("Invalid rk length".into());
+        bail!("Invalid rk length");
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
@@ -247,21 +286,24 @@ fn parse_rk(r: &[u8]) -> Result<Cell> {
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
+/// ShortXLUnicodeString [MS-XLS 2.5.240]
 fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
     if r.data.len() < 2 {
-        return Err("Invalid short string length".into());
+        bail!("Invalid short string length");
     }
-    let len = r.data[0] as usize;
+    let cch = r.data[0] as usize;
     if let Some(ref mut b) = encoding.high_byte {
         *b = r.data[1] != 0;
     }
     r.data = &r.data[2..];
-    read_dbcs(encoding, len, r)
+    let mut s = String::with_capacity(cch);
+    let _ = encoding.decode_to(r.data, cch, &mut s)?;
+    Ok(s)
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell> {
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>> {
     if r.len() < 10 {
-        return Err("Invalid short string length".into());
+        bail!("Invalid short string length");
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
@@ -284,7 +326,7 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
              read_u16(&r[8..10]) as u32,
              read_u16(&r[10..12]) as u32)
         }
-        _ => return Err("Invalid dimensions lengths".into()),
+        _ => bail!("Invalid dimensions lengths"),
     };
     if (1, 1) <= (rl, cl) {
         Ok(((rf, cf), (rl - 1, cl - 1)))
@@ -295,7 +337,7 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
 
 fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {
     if r.data.len() < 8 {
-        return Err("Invalid sst length".into());
+        bail!("Invalid sst length");
     }
     let len = read_slice::<i32>(&r.data[4..]) as usize;
     let mut sst = Vec::with_capacity(len);
@@ -308,7 +350,7 @@ fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> 
 
 fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
     if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
-        return Err("Invalid rich extended string length".into());
+        bail!("Invalid rich extended string length");
     }
 
     let str_len = read_u16(r.data) as usize;
@@ -337,7 +379,7 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
 
     while unused_len > 0 {
         if r.data.is_empty() && !r.continue_record() {
-            return Err("continued record too short while reading extended string".into());
+            bail!("continued record too short while reading extended string");
         }
         let l = min(unused_len, r.data.len());
         let (_, next) = r.data.split_at(l);
@@ -361,7 +403,7 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
                 }
                 r.data = &r.data[1..];
             } else {
-                return Err("Cannot decode entire dbcs stream".into());
+                bail!("Cannot decode entire dbcs stream");
             }
         }
     }
@@ -370,16 +412,16 @@ fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> 
 
 fn read_unicode_string_no_cch(encoding: &mut XlsEncoding,
                               buf: &[u8],
-                              mut len: usize)
+                              len: &mut usize)
                               -> Result<String> {
     let mut s = String::new();
     if let Some(ref mut b) = encoding.high_byte {
         *b = buf[0] & 0x1 != 0;
         if *b {
-            len *= 2;
+            *len *= 2;
         }
     }
-    let _ = encoding.decode_to(&buf[1..len + 1], len, &mut s)?;
+    let _ = encoding.decode_to(&buf[1..*len + 1], *len, &mut s)?;
     Ok(s)
 }
 
@@ -457,7 +499,11 @@ impl<'a> Iterator for RecordIter<'a> {
 /// Formula parsing
 ///
 /// Does not implement ALL possibilities, only Area are parsed
-fn parse_formula(rgce: &[u8]) -> Result<(Option<usize>, String)> {
+fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String)> {
+    if rgce.is_empty() {
+        // TODO: do something better here ...
+        return Ok((None, "empty rgce".to_string()));
+    }
     let ptg = rgce[0];
     let res = match ptg {
         0x3a | 0x5a | 0x7a => {
@@ -468,7 +514,7 @@ fn parse_formula(rgce: &[u8]) -> Result<(Option<usize>, String)> {
             f.push('$');
             push_column(read_u16(&rgce[5..7]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[3..5]) + 1));
+            f.push_str(&format!("{}", read_u16(&rgce[3..5]) as u32 + 1));
             (Some(ixti), f)
         }
         0x3b | 0x5b | 0x7b => {
@@ -479,12 +525,12 @@ fn parse_formula(rgce: &[u8]) -> Result<(Option<usize>, String)> {
             f.push('$');
             push_column(read_u16(&rgce[7..9]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[3..5]) + 1));
+            f.push_str(&format!("{}", read_u16(&rgce[3..5]) as u32 + 1));
             f.push(':');
             f.push('$');
             push_column(read_u16(&rgce[9..11]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[5..7]) + 1));
+            f.push_str(&format!("{}", read_u16(&rgce[5..7]) as u32 + 1));
             (Some(ixti), f)
         }
         0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
@@ -495,4 +541,299 @@ fn parse_formula(rgce: &[u8]) -> Result<(Option<usize>, String)> {
         _ => (None, format!("Unsupported ptg: {:x}", ptg)),
     };
     Ok(res)
+}
+
+/// Formula parsing
+///
+/// CellParsedForumula [MS-XLS 2.5.198.3]
+fn parse_formula(mut rgce: &[u8],
+                 sheets: &[String],
+                 names: &[(String, String)],
+                 encoding: &mut XlsEncoding)
+                 -> Result<String> {
+    let mut stack = Vec::new();
+    let mut formula = String::with_capacity(rgce.len());
+    let cce = read_u16(rgce) as usize;
+    rgce = &rgce[2..2 + cce];
+    while !rgce.is_empty() {
+        let ptg = rgce[0];
+        rgce = &rgce[1..];
+        match ptg {
+            0x3a | 0x5a | 0x7a => {
+                // PtgRef3d
+                let ixti = read_u16(&rgce[0..2]);
+                stack.push(formula.len());
+                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push('!');
+                // TODO: check with relative columns
+                formula.push('$');
+                push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
+                formula.push('$');
+                formula.push_str(&format!("{}", read_u16(&rgce[2..4]) as u32 + 1));
+                rgce = &rgce[6..];
+            }
+            0x3b | 0x5b | 0x7b => {
+                // PtgArea3d
+                let ixti = read_u16(&rgce[0..2]);
+                stack.push(formula.len());
+                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push('!');
+                // TODO: check with relative columns
+                formula.push('$');
+                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
+                formula.push('$');
+                formula.push_str(&format!("{}", read_u16(&rgce[2..4]) as u32 + 1));
+                formula.push(':');
+                formula.push('$');
+                push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
+                formula.push('$');
+                formula.push_str(&format!("{}", read_u16(&rgce[4..6]) as u32 + 1));
+                rgce = &rgce[10..];
+            }
+            0x3c | 0x5c | 0x7c => {
+                // PtfRefErr3d
+                let ixti = read_u16(&rgce[0..2]);
+                stack.push(formula.len());
+                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push('!');
+                formula.push_str("#REF!");
+                rgce = &rgce[6..];
+            }
+            0x3d | 0x5d | 0x7d => {
+                // PtgAreaErr3d
+                let ixti = read_u16(&rgce[0..2]);
+                stack.push(formula.len());
+                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push('!');
+                formula.push_str("#REF!");
+                rgce = &rgce[10..];
+            }
+            0x01 => {
+                // PtgExp: array/shared formula, ignore
+                debug!("ignoring PtgExp array/shared formula");
+                stack.push(formula.len());
+                rgce = &rgce[4..];
+            }
+            0x03...0x11 => {
+                // binary operation
+                let e2 = stack
+                    .pop()
+                    .ok_or::<Error>("Invalid stack length".into())?;
+                let e2 = formula.split_off(e2);
+                // imaginary 'e1' will actually already be the start of the binary op
+                let op = match ptg {
+                    0x03 => "+",
+                    0x04 => "-",
+                    0x05 => "*",
+                    0x06 => "/",
+                    0x07 => "^",
+                    0x08 => "&",
+                    0x09 => "<",
+                    0x0A => "<=",
+                    0x0B => "=",
+                    0x0C => ">",
+                    0x0D => ">=",
+                    0x0E => "<>",
+                    0x0F => " ",
+                    0x10 => ",",
+                    0x11 => ":",
+                    _ => unreachable!(),
+                };
+                formula.push_str(op);
+                formula.push_str(&e2);
+            }
+            0x12 => {
+                let e = stack
+                    .last()
+                    .ok_or::<Error>("Invalid stack length".into())?;
+                formula.insert(*e, '+');
+            }
+            0x13 => {
+                let e = stack
+                    .last()
+                    .ok_or::<Error>("Invalid stack length".into())?;
+                formula.insert(*e, '-');
+            }
+            0x14 => {
+                formula.push('%');
+            }
+            0x15 => {
+                let e = stack
+                    .last()
+                    .ok_or::<Error>("Invalid stack length".into())?;
+                formula.insert(*e, '(');
+                formula.push(')');
+            }
+            0x16 => {
+                stack.push(formula.len());
+            }
+            0x17 => {
+                stack.push(formula.len());
+                formula.push('\"');
+                let mut cch = rgce[0] as usize;
+                formula.push_str(&read_unicode_string_no_cch(encoding, &rgce[1..], &mut cch)?);
+                formula.push('\"');
+                rgce = &rgce[2 + cch..];
+            }
+            0x18 => {
+                rgce = &rgce[5..];
+            }
+            0x19 => {
+                // ignore most of these ptgs ...
+                let etpg = rgce[0];
+                rgce = &rgce[1..];
+                match etpg {
+                    0x01 => rgce = &rgce[2..],
+                    0x02 => rgce = &rgce[2..],
+                    0x04 => rgce = &rgce[10..],
+                    0x08 => rgce = &rgce[2..],
+                    0x10 => {
+                        rgce = &rgce[2..];
+                        let e = *stack
+                                     .last()
+                                     .ok_or::<Error>("Invalid stack length".into())?;
+                        let e = formula.split_off(e);
+                        formula.push_str("SUM(");
+                        formula.push_str(&e);
+                        formula.push(')');
+                    }
+                    0x20 => rgce = &rgce[2..],
+                    0x21 => rgce = &rgce[2..],
+                    0x40 => rgce = &rgce[2..],
+                    0x41 => rgce = &rgce[2..],
+                    e => bail!("Unsupported etpg: 0x{:x}", e),
+                }
+            }
+            0x1C => {
+                stack.push(formula.len());
+                let err = rgce[0];
+                rgce = &rgce[1..];
+                match err {
+                    0x00 => formula.push_str("#NULL!"),
+                    0x07 => formula.push_str("#DIV/0!"),
+                    0x0F => formula.push_str("#VALUE!"),
+                    0x17 => formula.push_str("#REF!"),
+                    0x1D => formula.push_str("#NAME?"),
+                    0x24 => formula.push_str("#NUM!"),
+                    0x2A => formula.push_str("#N/A"),
+                    0x2B => formula.push_str("#GETTING_DATA"),
+                    e => bail!("Unrecognosed BErr 0x{:x}", e),
+                }
+            }
+            0x1D => {
+                stack.push(formula.len());
+                formula.push_str(if rgce[0] == 0 { "FALSE" } else { "TRUE" });
+                rgce = &rgce[1..];
+            }
+            0x1E => {
+                stack.push(formula.len());
+                formula.push_str(&format!("{}", read_u16(rgce)));
+                rgce = &rgce[2..];
+            }
+            0x1F => {
+                stack.push(formula.len());
+                formula.push_str(&format!("{}", read_slice::<f64>(rgce)));
+                rgce = &rgce[8..];
+            }
+            0x20 | 0x40 | 0x60 => {
+                // PtgArray: ignore
+                stack.push(formula.len());
+                rgce = &rgce[7..];
+            }
+            0x21 | 0x22 | 0x41 | 0x42 | 0x61 | 0x62 => {
+                let (iftab, argc) = match ptg {
+                    0x22 | 0x42 | 0x62 => {
+                        let iftab = read_u16(&rgce[1..]) as usize;
+                        let argc = rgce[0] as usize;
+                        rgce = &rgce[3..];
+                        (iftab, argc)
+                    }
+                    _ => {
+                        let iftab = read_u16(rgce) as usize;
+                        if iftab > ::utils::FTAB_LEN {
+                            bail!("Invalid iftab");
+                        }
+                        rgce = &rgce[2..];
+                        let argc = ::utils::FTAB_ARGC[iftab] as usize;
+                        (iftab, argc)
+                    }
+                };
+                if stack.len() < argc {
+                    bail!("Invalid formula, stack is too small");
+                }
+                if argc > 0 {
+                    let args_start = stack.len() - argc;
+                    let mut args = stack.split_off(args_start);
+                    let start = args[0];
+                    for s in &mut args {
+                        *s -= start;
+                    }
+                    let fargs = formula.split_off(start);
+                    stack.push(formula.len());
+                    args.push(fargs.len());
+                    formula.push_str(::utils::FTAB[iftab]);
+                    formula.push('(');
+                    for w in args.windows(2) {
+                        formula.push_str(&fargs[w[0]..w[1]]);
+                        formula.push(',');
+                    }
+                    formula.pop();
+                    formula.push(')');
+                } else {
+                    stack.push(formula.len());
+                    formula.push_str(::utils::FTAB[iftab]);
+                    formula.push_str("()");
+                }
+            }
+            0x23 | 0x43 | 0x63 => {
+                let iname = read_u32(rgce) as usize - 1; // one-based
+                stack.push(formula.len());
+                formula.push_str(names.get(iname).map_or("#REF!", |n| &*n.0));
+                rgce = &rgce[4..];
+            }
+            0x24 | 0x44 | 0x64 => {
+                stack.push(formula.len());
+                let row = read_u16(rgce) + 1;
+                let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
+                if rgce[3] & 0x80 != 0x80 {
+                    formula.push('$');
+                }
+                push_column(col as u32, &mut formula);
+                if rgce[3] & 0x40 != 0x40 {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", row));
+                rgce = &rgce[4..];
+            }
+            0x25 | 0x45 | 0x65 => {
+                stack.push(formula.len());
+                formula.push('$');
+                push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
+                formula.push('$');
+                formula.push_str(&format!("{}", read_u16(&rgce[0..2]) as u32 + 1));
+                formula.push(':');
+                formula.push('$');
+                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
+                formula.push('$');
+                formula.push_str(&format!("{}", read_u16(&rgce[2..4]) as u32 + 1));
+                rgce = &rgce[8..];
+            }
+            0x2A | 0x4A | 0x6A => {
+                stack.push(formula.len());
+                formula.push_str("#REF!");
+                rgce = &rgce[4..];
+            }
+            0x2B | 0x4B | 0x6B => {
+                stack.push(formula.len());
+                formula.push_str("#REF!");
+                rgce = &rgce[8..];
+            }
+            _ => bail!("Unsupported ptg: 0x{:x}", ptg),
+        }
+    }
+    if stack.len() != 1 {
+        Err(format!("Invalid formula, final stack size: {}", stack.len()).into())
+    } else {
+        Ok(formula)
+    }
 }

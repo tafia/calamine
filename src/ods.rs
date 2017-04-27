@@ -25,7 +25,7 @@ type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
 enum Content {
     Zip(ZipArchive<File>),
-    Sheets(HashMap<String, Range>),
+    Sheets(HashMap<String, (Range<DataType>, Range<String>)>),
 }
 
 /// An OpenDocument Spreadsheet document parser
@@ -87,11 +87,22 @@ impl Reader for Ods {
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
         self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
-                return Ok(r.to_owned());
+                return Ok(r.0.to_owned());
+            }
+        }
+        bail!("Cannot find '{}' sheet", name);
+    }
+
+    /// Read worksheet data in corresponding worksheet path
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+        self.parse_content()?;
+        if let Content::Sheets(ref s) = self.content {
+            if let Some(r) = s.get(name) {
+                return Ok(r.1.to_owned());
             }
         }
         bail!("Cannot find '{}' sheet", name);
@@ -124,8 +135,8 @@ impl Ods {
                                .filter_map(|a| a.ok())
                                .find(|ref a| a.key == b"table:name") {
                             let name = a.unescape_and_decode_value(&mut reader)?;
-                            let range = read_table(&mut reader)?;
-                            sheets.insert(name, range);
+                            let (range, formulas) = read_table(&mut reader)?;
+                            sheets.insert(name, (range, formulas));
                         }
                     }
                     Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
@@ -146,8 +157,9 @@ impl Ods {
     }
 }
 
-fn read_table(reader: &mut OdsReader) -> Result<Range> {
+fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>)> {
     let mut cells = Vec::new();
+    let mut formulas = Vec::new();
     let mut cols = Vec::new();
     let mut buf = Vec::new();
     let mut row_buf = Vec::new();
@@ -156,7 +168,11 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-row" => {
-                read_row(reader, &mut row_buf, &mut cell_buf, &mut cells)?;
+                read_row(reader,
+                         &mut row_buf,
+                         &mut cell_buf,
+                         &mut cells,
+                         &mut formulas)?;
                 cols.push(cells.len());
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table" => break,
@@ -165,10 +181,10 @@ fn read_table(reader: &mut OdsReader) -> Result<Range> {
         }
         buf.clear();
     }
-    Ok(get_range(cells, &cols))
+    Ok((get_range(cells, &cols), get_range(formulas, &cols)))
 }
 
-fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
+fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) -> Range<T> {
 
     // find smallest area with non empty Cells
     let mut row_min = None;
@@ -176,11 +192,7 @@ fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
     let mut col_min = ::std::usize::MAX;
     let mut col_max = 0;
     {
-        let not_empty = |c| if let &DataType::Empty = c {
-            false
-        } else {
-            true
-        };
+        let not_empty = |c| if &T::default() == c { false } else { true };
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| not_empty(c)) {
@@ -208,7 +220,7 @@ fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
     let cells_len = (row_max + 1 - row_min) * (col_max + 1 - col_min);
     if cells.len() != cells_len {
         let mut new_cells = Vec::with_capacity(cells_len);
-        let empty_cells = vec![DataType::Empty; col_max + 1];
+        let empty_cells = vec![T::default(); col_max + 1];
         for w in cols.windows(2).skip(row_min).take(row_max + 1) {
             let row = &cells[w[0]..w[1]];
             if row.len() < col_max + 1 {
@@ -232,14 +244,16 @@ fn get_range(mut cells: Vec<DataType>, cols: &[usize]) -> Range {
 fn read_row(reader: &mut OdsReader,
             row_buf: &mut Vec<u8>,
             cell_buf: &mut Vec<u8>,
-            cells: &mut Vec<DataType>)
+            cells: &mut Vec<DataType>,
+            formulas: &mut Vec<String>)
             -> Result<()> {
     loop {
         row_buf.clear();
         match reader.read_event(row_buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" => {
-                let (value, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
+                let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
                 cells.push(value);
+                formulas.push(formula);
                 if !is_closed {
                     reader.read_to_end(b"table:table-cell", cell_buf)?;
                 }
@@ -258,38 +272,47 @@ fn read_row(reader: &mut OdsReader,
 fn get_datatype(reader: &mut OdsReader,
                 atts: Attributes,
                 buf: &mut Vec<u8>)
-                -> Result<(DataType, bool)> {
+                -> Result<(DataType, String, bool)> {
     let mut is_string = false;
+    let mut is_value_set = false;
+    let mut val = DataType::Empty;
+    let mut formula = String::new();
     for a in atts {
         let a = a?;
         match a.key {
-            b"office:value" => {
+            b"office:value" if !is_value_set => {
                 let v = reader.decode(a.value);
-                return v.parse()
-                           .map(|f| (DataType::Float(f), false))
-                           .map_err(|e| e.into());
+                val = DataType::Float(v.parse()?);
+                is_value_set = true;
             }
             b"office:string-value" |
             b"office:date-value" |
-            b"office:time-value" => {
-                return Ok((DataType::String(a.unescape_and_decode_value(reader)?), false));
+            b"office:time-value" if !is_value_set => {
+                val = DataType::String(a.unescape_and_decode_value(reader)?);
+                is_value_set = true;
             }
-            b"office:boolean-value" => return Ok((DataType::Bool(a.value == b"TRUE"), false)),
-            b"office:value-type" => is_string = a.value == b"string",
+            b"office:boolean-value" if !is_value_set => {
+                val = DataType::Bool(a.value == b"TRUE");
+                is_value_set = true;
+            }
+            b"office:value-type" if !is_value_set => is_string = a.value == b"string",
+            b"table:formula" => {
+                formula = a.unescape_and_decode_value(&reader)?;
+            }
             _ => (),
         }
     }
-    if is_string {
+    if !is_value_set && is_string {
         // If the value type is string and the office:string-value attribute
         // is not present, the element content defines the value.
         loop {
             buf.clear();
             match reader.read_event(buf) {
                 Ok(Event::Text(ref e)) => {
-                    return Ok((DataType::String(e.unescape_and_decode(reader)?), false));
+                    return Ok((DataType::String(e.unescape_and_decode(reader)?), formula, false));
                 }
                 Ok(Event::End(ref e)) if e.name() == b"table:table-cell" => {
-                    return Ok((DataType::String("".to_string()), true));
+                    return Ok((DataType::String("".to_string()), formula, true));
                 }
                 Err(e) => bail!(e),
                 Ok(Event::Eof) => bail!("Expecting 'table:table-cell' end element, found EOF"),
@@ -297,7 +320,7 @@ fn get_datatype(reader: &mut OdsReader,
             }
         }
     } else {
-        Ok((DataType::Empty, false))
+        Ok((val, formula, false))
     }
 }
 

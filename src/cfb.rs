@@ -11,6 +11,7 @@ use utils::*;
 
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
+const RESERVED_SECTORS: u32 = 0xFFFFFFFA;
 
 /// A struct for managing Compound File Binary format
 #[derive(Debug, Clone)]
@@ -35,7 +36,7 @@ impl Cfb {
         // load fat and dif sectors
         debug!("load difat");
         let mut sector_id = h.difat_start;
-        while sector_id != FREESECT && sector_id != ENDOFCHAIN {
+        while sector_id < RESERVED_SECTORS {
             difat.extend_from_slice(to_u32(sectors.get(sector_id, f)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }
@@ -56,7 +57,7 @@ impl Cfb {
             .collect::<Result<Vec<_>>>()?;
 
         if dirs.is_empty() || (h.version != 3 && dirs[0].start == ENDOFCHAIN) {
-            return Err("Unexpected empty root directory".into());
+            bail!("Unexpected empty root directory");
         }
         debug!("{:?}", dirs);
 
@@ -117,7 +118,7 @@ impl Header {
 
         // check ole signature
         if read_slice::<u64>(buf.as_ref()) != 0xE11AB1A1E011CFD0 {
-            return Err("invalid OLE signature (not an office document?)".into());
+            bail!("invalid OLE signature (not an office document?)");
         }
 
         let version = read_u16(&buf[26..28]);
@@ -131,14 +132,11 @@ impl Header {
                 f.read_exact(&mut buf_end)?;
                 4096
             }
-            s => {
-                return Err(format!("Invalid sector shift, expecting 0x09 or 0x0C, got {:x}", s)
-                               .into())
-            }
+            s => bail!("Invalid sector shift, expecting 0x09 or 0x0C, got {:x}", s),
         };
 
         if read_u16(&buf[32..34]) != 0x0006 {
-            return Err("Invalid minisector shift".into());
+            bail!("Invalid minisector shift");
         }
 
         let dir_len = read_usize(&buf[40..44]);
@@ -258,7 +256,7 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
     let mut res = Vec::new();
 
     if s[0] != 0x01 {
-        return Err("invalid signature byte".into());
+        bail!("invalid signature byte");
     }
 
     let mut i = 1;
@@ -340,7 +338,7 @@ impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding> {
         let e = match encoding_from_windows_code_page(codepage as usize) {
             Some(e) => e,
-            None => return Err(format!("Cannot find {} codepage", codepage).into()),
+            None => bail!("Cannot find {} codepage", codepage),
         };
         let high_byte = match codepage {
             20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 874 | 1250...1258 |
