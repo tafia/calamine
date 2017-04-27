@@ -11,6 +11,7 @@ use utils::*;
 
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
+const RESERVED_SECTORS: u32 = 0xFFFFFFFA;
 
 /// A struct for managing Compound File Binary format
 #[derive(Debug, Clone)]
@@ -35,7 +36,7 @@ impl Cfb {
         // load fat and dif sectors
         debug!("load difat");
         let mut sector_id = h.difat_start;
-        while sector_id != FREESECT && sector_id != ENDOFCHAIN {
+        while sector_id < RESERVED_SECTORS {
             difat.extend_from_slice(to_u32(sectors.get(sector_id, f)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }

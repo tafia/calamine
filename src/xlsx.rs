@@ -173,7 +173,7 @@ impl Xlsx {
                                        } = a? {
                                     let (start, end) = get_dimension(rdim)?;
                                     let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-                                    if len < 500_000 {
+                                    if len < 1_000_000 {
                                         // it is unlikely to have more than that
                                         // there may be of empty cells
                                         cells.reserve(len as usize);

@@ -147,7 +147,7 @@ impl Xlsb {
                     // BrtExternSheet
                     let _len = iter.fill_buffer(&mut buf)?;
                     let cxti = read_u32(&buf[..4]) as usize;
-                    if cxti < 500_000 {
+                    if cxti < 1_000_000 {
                         self.extern_sheets.reserve(cxti);
                     }
                     let sheets = &self.sheets;
@@ -243,7 +243,7 @@ impl Reader for Xlsb {
                                       &mut buf)?;
         let (start, end) = parse_dimensions(&buf[..16]);
         let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-        let mut cells = if len < 500_000 {
+        let mut cells = if len < 1_000_000 {
             Vec::with_capacity(len as usize)
         } else {
             Vec::new()
@@ -348,7 +348,7 @@ impl Reader for Xlsb {
                                       &mut buf)?;
         let (start, end) = parse_dimensions(&buf[..16]);
         let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-        let mut cells = if len < 500_000 {
+        let mut cells = if len < 1_000_000 {
             Vec::with_capacity(len as usize)
         } else {
             Vec::new()
