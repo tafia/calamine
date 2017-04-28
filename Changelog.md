@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## master
+- refactor: update encoding_rs to 0.6.2
+
 ## 0.11.0
 - feat: add support for formula parsing/decoding
 - refactor: make `Range` generic over its content
