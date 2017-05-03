@@ -21,7 +21,6 @@ log = "0.3.7"
 encoding_rs = "0.6.2"
 byteorder = "1.0.0"
 error-chain = "0.10.0"
-smallvec = "0.3.3"
 
 [dev-dependencies]
 glob = "0.2.11"

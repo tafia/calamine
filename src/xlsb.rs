@@ -475,20 +475,16 @@ impl<'a> RecordIter<'a> {
                         buf: &mut Vec<u8>)
                         -> Result<usize> {
         loop {
-            buf.clear();
             let typ = self.read_type()?;
             let len = self.fill_buffer(buf)?;
             if typ == record_type {
                 return Ok(len);
             }
             if let Some(end) = bounds.iter().find(|b| b.0 == typ).and_then(|b| b.1) {
-                loop {
-                    let typ = self.read_type()?;
+                while self.read_type()? != end {
                     let _ = self.fill_buffer(buf)?;
-                    if typ == end {
-                        break;
-                    }
                 }
+                let _ = self.fill_buffer(buf)?;
             }
         }
     }
