@@ -10,6 +10,7 @@
 
 ## master
 - refactor: update encoding_rs to 0.6.2
+- perf: add benches and avoid clearing a buffer supposed to be reused
 
 ## 0.11.0
 - feat: add support for formula parsing/decoding
