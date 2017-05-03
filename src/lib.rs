@@ -65,6 +65,7 @@ extern crate encoding_rs;
 extern crate byteorder;
 #[macro_use]
 extern crate error_chain;
+extern crate smallvec;
 
 #[macro_use]
 extern crate log;
