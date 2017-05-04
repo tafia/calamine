@@ -8,7 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
-## master
+## 0.11.2
+- perf: update to quick-xml 0.7.1
+
+## 0.11.1
 - refactor: update encoding_rs to 0.6.2
 - perf: add benches and avoid clearing a buffer supposed to be reused
 
