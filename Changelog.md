@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.11.3
+- feat: implement Display for DataType and CellTypeError
+- feat: add a CellType alias trait
+
 ## 0.11.2
 - perf: update to quick-xml 0.7.1
 
