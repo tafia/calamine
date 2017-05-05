@@ -79,6 +79,7 @@ mod ods;
 pub mod vba;
 
 use std::borrow::Cow;
+use std::fmt;
 use std::fs::File;
 use std::ops::{Index, IndexMut};
 use std::path::Path;
@@ -126,6 +127,21 @@ impl FromStr for CellErrorType {
     }
 }
 
+impl fmt::Display for CellErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+        match *self {
+            CellErrorType::Div0 => write!(f, "#DIV/0!"),
+            CellErrorType::NA => write!(f, "#N/A"),
+            CellErrorType::Name => write!(f, "#NAME?"),
+            CellErrorType::Null => write!(f, "#NULL!"),
+            CellErrorType::Num => write!(f, "#NUM!"),
+            CellErrorType::Ref => write!(f, "#REF!"),
+            CellErrorType::Value => write!(f, "#VALUE!"),
+            CellErrorType::GettingData => write!(f, "#DATA!"),
+        }
+    }
+}
+
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
@@ -147,6 +163,19 @@ pub enum DataType {
 impl Default for DataType {
     fn default() -> DataType {
         DataType::Empty
+    }
+}
+
+impl fmt::Display for DataType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+        match *self {
+            DataType::Int(ref e) => write!(f, "{}", e),
+            DataType::Float(ref e) => write!(f, "{}", e),
+            DataType::String(ref e) => write!(f, "{}", e),
+            DataType::Bool(ref e) => write!(f, "{}", e),
+            DataType::Error(ref e) => write!(f, "{}", e),
+            DataType::Empty => Ok(()),
+        }
     }
 }
 
@@ -346,16 +375,20 @@ trait Reader: Sized {
     }
 }
 
+/// A trait to constrain cells
+pub trait CellType: Default + Clone + PartialEq {}
+impl<T: Default + Clone + PartialEq> CellType for T {}
+
 /// A struct to hold cell position and value
 #[derive(Debug, Clone)]
-pub struct Cell<T: Default + Clone + PartialEq> {
+pub struct Cell<T: CellType> {
     /// Position for the cell (row, column)
     pos: (u32, u32),
     /// Value for the cell
     val: T,
 }
 
-impl<T: Default + Clone + PartialEq> Cell<T> {
+impl<T: CellType> Cell<T> {
     /// Creates a new `Cell`
     pub fn new(position: (u32, u32), value: T) -> Cell<T> {
         Cell {
@@ -377,13 +410,13 @@ impl<T: Default + Clone + PartialEq> Cell<T> {
 
 /// A struct which represents a squared selection of cells
 #[derive(Debug, Default, Clone)]
-pub struct Range<T: Default + Clone + PartialEq> {
+pub struct Range<T: CellType> {
     start: (u32, u32),
     end: (u32, u32),
     inner: Vec<T>,
 }
 
-impl<T: Default + Clone + PartialEq> Range<T> {
+impl<T: CellType> Range<T> {
     /// Creates a new `Range`
     ///
     /// When possible, prefer the more efficient `Range::from_sparse`
@@ -574,7 +607,7 @@ impl<T: Default + Clone + PartialEq> Range<T> {
     }
 }
 
-impl<T: Default + Clone + PartialEq> Index<usize> for Range<T> {
+impl<T: CellType> Index<usize> for Range<T> {
     type Output = [T];
     fn index(&self, index: usize) -> &[T] {
         let width = self.width();
@@ -582,7 +615,7 @@ impl<T: Default + Clone + PartialEq> Index<usize> for Range<T> {
     }
 }
 
-impl<T: Default + Clone + PartialEq> Index<(usize, usize)> for Range<T> {
+impl<T: CellType> Index<(usize, usize)> for Range<T> {
     type Output = T;
     fn index(&self, index: (usize, usize)) -> &T {
         let width = self.width();
@@ -590,14 +623,14 @@ impl<T: Default + Clone + PartialEq> Index<(usize, usize)> for Range<T> {
     }
 }
 
-impl<T: Default + Clone + PartialEq> IndexMut<usize> for Range<T> {
+impl<T: CellType> IndexMut<usize> for Range<T> {
     fn index_mut(&mut self, index: usize) -> &mut [T] {
         let width = self.width();
         &mut self.inner[index * width..(index + 1) * width]
     }
 }
 
-impl<T: Default + Clone + PartialEq> IndexMut<(usize, usize)> for Range<T> {
+impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut T {
         let width = self.width();
         &mut self.inner[index.0 * width + index.1]
@@ -606,12 +639,12 @@ impl<T: Default + Clone + PartialEq> IndexMut<(usize, usize)> for Range<T> {
 
 /// A struct to iterate over used cells
 #[derive(Debug)]
-pub struct UsedCells<'a, T: 'a + Default + Clone + PartialEq> {
+pub struct UsedCells<'a, T: 'a + CellType> {
     width: usize,
     inner: ::std::iter::Enumerate<::std::slice::Iter<'a, T>>,
 }
 
-impl<'a, T: 'a + Default + Clone + PartialEq> Iterator for UsedCells<'a, T> {
+impl<'a, T: 'a + CellType> Iterator for UsedCells<'a, T> {
     type Item = (usize, usize, &'a T);
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
@@ -627,11 +660,11 @@ impl<'a, T: 'a + Default + Clone + PartialEq> Iterator for UsedCells<'a, T> {
 
 /// An iterator to read `Range` struct row by row
 #[derive(Debug)]
-pub struct Rows<'a, T: 'a + Default + Clone + PartialEq> {
+pub struct Rows<'a, T: 'a + CellType> {
     inner: Option<::std::slice::Chunks<'a, T>>,
 }
 
-impl<'a, T: 'a + Default + Clone + PartialEq> Iterator for Rows<'a, T> {
+impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     type Item = &'a [T];
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
