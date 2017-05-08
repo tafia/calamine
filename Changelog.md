@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.11.4
+- refactor: update to quick-xml 0.7.3 and encoding_rs 0.6.6
+
 ## 0.11.3
 - feat: implement Display for DataType and CellTypeError
 - feat: add a CellType alias trait
