@@ -301,7 +301,7 @@ impl Sheets {
         let name = self.metadata
             .sheets
             .get(idx)
-            .ok_or(ErrorKind::WorksheetIndex(idx))?;
+            .ok_or_else(|| ErrorKind::WorksheetIndex(idx))?;
         inner!(self, read_worksheet_range(name))
     }
 

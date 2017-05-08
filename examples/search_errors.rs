@@ -21,7 +21,7 @@ fn main() {
 
     // Search recursively for all excel files matching argument pattern
     // Output statistics: nb broken references, nb broken cells etc...
-    let folder = env::args().skip(1).next().unwrap_or(".".to_string());
+    let folder = env::args().nth(1).unwrap_or_else(|| ".".to_string());
     let pattern = format!("{}/**/*.xl*", folder);
     let mut filecount = 0;
 
@@ -40,13 +40,13 @@ fn main() {
     for f in glob(&pattern)
         .expect("Failed to read excel glob, the first argument must correspond to a directory") {
         filecount += 1;
-        let _ = match run(f) {
+        match run(f) {
                 Ok((f, missing, cell_errors)) => {
                     writeln!(output, "{:?}~{:?}~{}", f, missing, cell_errors)
                 }
                 Err(e) => writeln!(output, "{:?}", e),
             }
-            .unwrap_or_else(|e| println!("{:?}", e));
+            .unwrap_or_else(|e| println!("{:?}", e))
     }
 
     println!("Found {} excel files", filecount);
@@ -83,7 +83,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
             .rows()
             .flat_map(|r| {
                           r.iter()
-                              .filter(|c| if let &&DataType::Error(_) = c {
+                              .filter(|c| if let DataType::Error(_) = **c {
                                           true
                                       } else {
                                           false

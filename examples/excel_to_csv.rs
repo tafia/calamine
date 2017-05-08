@@ -11,12 +11,10 @@ fn main() {
     // if the file already exists
 
     let file = env::args()
-        .skip(1)
-        .next()
+        .nth(1)
         .expect("Please provide an excel file to convert");
     let sheet = env::args()
-        .skip(2)
-        .next()
+        .nth(2)
         .expect("Expecting a sheet name as second argument");
 
     let sce = PathBuf::from(file);
@@ -30,14 +28,14 @@ fn main() {
     let mut xl = Sheets::open(&sce).unwrap();
     let range = xl.worksheet_range(&sheet).unwrap();
 
-    write_range(&mut dest, range).unwrap();
+    write_range(&mut dest, &range).unwrap();
 }
 
-fn write_range<W: Write>(dest: &mut W, range: Range<DataType>) -> Result<()> {
+fn write_range<W: Write>(dest: &mut W, range: &Range<DataType>) -> Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {
-            let _ = match *c {
+            match *c {
                 DataType::Empty => Ok(()),
                 DataType::String(ref s) => write!(dest, "{}", s),
                 DataType::Float(ref f) => write!(dest, "{}", f),
@@ -46,10 +44,10 @@ fn write_range<W: Write>(dest: &mut W, range: Range<DataType>) -> Result<()> {
                 DataType::Bool(ref b) => write!(dest, "{}", b),
             }?;
             if i != n {
-                let _ = write!(dest, ";")?;
+                write!(dest, ";")?;
             }
         }
-        let _ = write!(dest, "\r\n")?;
+        write!(dest, "\r\n")?;
     }
     Ok(())
 }

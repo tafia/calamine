@@ -49,7 +49,7 @@ impl Reader for Xls {
         self.vba
             .as_ref()
             .map(|vba| Cow::Borrowed(vba))
-            .ok_or("No vba project".into())
+            .ok_or_else(|| "No vba project".into())
     }
 
     /// Parses Workbook stream, no need for the relationships variable
@@ -170,7 +170,7 @@ impl Xls {
             .iter()
             .map(|&(_, ref n)| n.clone())
             .collect::<Vec<_>>();
-        'sh: for (pos, name) in sheet_names.into_iter() {
+        for (pos, name) in sheet_names {
             let mut sh = &stream[pos..];
             let records = RecordIter { stream: &mut sh };
             let mut cells = Vec::new();
@@ -179,17 +179,17 @@ impl Xls {
                 let r = record?;
                 match r.typ {
                     0x0200 => {
-                        let (start, end) = parse_dimensions(&r.data)?;
+                        let (start, end) = parse_dimensions(r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
                     } // Dimensions
-                    0x0203 => cells.push(parse_number(&r.data)?), // Number
-                    0x0205 => cells.push(parse_bool_err(&r.data)?), // BoolErr
-                    0x027E => cells.push(parse_rk(&r.data)?), // RK
-                    0x00FD => cells.push(parse_label_sst(&r.data, &strings)?), // LabelSst
+                    0x0203 => cells.push(parse_number(r.data)?), // Number
+                    0x0205 => cells.push(parse_bool_err(r.data)?), // BoolErr
+                    0x027E => cells.push(parse_rk(r.data)?), // RK
+                    0x00FD => cells.push(parse_label_sst(r.data, &strings)?), // LabelSst
                     0x000A => break, // EOF,
                     0x0006 => {
                         // Formula
-                        let row = read_u16(&r.data);
+                        let row = read_u16(r.data);
                         let col = read_u16(&r.data[2..]);
 
                         // Formula
@@ -364,14 +364,14 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
     }
 
     let mut unused_len = if rich_st != 0 {
-        let l = 4 * read_u16(&r.data) as usize;
+        let l = 4 * read_u16(r.data) as usize;
         r.data = &r.data[2..];
         l
     } else {
         0
     };
     if ext_st != 0 {
-        unused_len += read_slice::<i32>(&r.data) as usize;
+        unused_len += read_slice::<i32>(r.data) as usize;
         r.data = &r.data[4..];
     };
 
@@ -390,7 +390,7 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
     Ok(s)
 }
 
-fn read_dbcs<'a>(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String> {
+fn read_dbcs(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String> {
     let mut s = String::with_capacity(len);
     while len > 0 {
         let (l, at) = encoding.decode_to(r.data, len, &mut s)?;
@@ -618,7 +618,7 @@ fn parse_formula(mut rgce: &[u8],
                 // binary operation
                 let e2 = stack
                     .pop()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
                 let op = match ptg {
@@ -645,13 +645,13 @@ fn parse_formula(mut rgce: &[u8],
             0x12 => {
                 let e = stack
                     .last()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 formula.insert(*e, '+');
             }
             0x13 => {
                 let e = stack
                     .last()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 formula.insert(*e, '-');
             }
             0x14 => {
@@ -660,7 +660,7 @@ fn parse_formula(mut rgce: &[u8],
             0x15 => {
                 let e = stack
                     .last()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 formula.insert(*e, '(');
                 formula.push(')');
             }
@@ -683,24 +683,18 @@ fn parse_formula(mut rgce: &[u8],
                 let etpg = rgce[0];
                 rgce = &rgce[1..];
                 match etpg {
-                    0x01 => rgce = &rgce[2..],
-                    0x02 => rgce = &rgce[2..],
+                    0x01 | 0x02 | 0x08 | 0x20 | 0x21 | 0x40 | 0x41 => rgce = &rgce[2..],
                     0x04 => rgce = &rgce[10..],
-                    0x08 => rgce = &rgce[2..],
                     0x10 => {
                         rgce = &rgce[2..];
                         let e = *stack
                                      .last()
-                                     .ok_or::<Error>("Invalid stack length".into())?;
+                                     .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                         let e = formula.split_off(e);
                         formula.push_str("SUM(");
                         formula.push_str(&e);
                         formula.push(')');
                     }
-                    0x20 => rgce = &rgce[2..],
-                    0x21 => rgce = &rgce[2..],
-                    0x40 => rgce = &rgce[2..],
-                    0x41 => rgce = &rgce[2..],
                     e => bail!("Unsupported etpg: 0x{:x}", e),
                 }
             }

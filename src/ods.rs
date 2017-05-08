@@ -133,8 +133,8 @@ impl Ods {
                     Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
                         if let Some(ref a) = e.attributes()
                                .filter_map(|a| a.ok())
-                               .find(|ref a| a.key == b"table:name") {
-                            let name = a.unescape_and_decode_value(&mut reader)?;
+                               .find(|a| a.key == b"table:name") {
+                            let name = a.unescape_and_decode_value(&reader)?;
                             let (range, formulas) = read_table(&mut reader)?;
                             sheets.insert(name, (range, formulas));
                         }
@@ -192,10 +192,9 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     let mut col_min = ::std::usize::MAX;
     let mut col_max = 0;
     {
-        let not_empty = |c| if &T::default() == c { false } else { true };
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
-            if let Some(p) = row.iter().position(|c| not_empty(c)) {
+            if let Some(p) = row.iter().position(|c| c != &T::default()) {
                 if row_min.is_none() {
                     row_min = Some(i);
                 }
@@ -203,7 +202,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
                 if p < col_min {
                     col_min = p;
                 }
-                if let Some(p) = row.iter().rposition(|c| not_empty(c)) {
+                if let Some(p) = row.iter().rposition(|c| c != &T::default()) {
                     if p > col_max {
                         col_max = p;
                     }
@@ -266,7 +265,7 @@ fn read_row(reader: &mut OdsReader,
     Ok(())
 }
 
-/// Converts table-cell element into a DataType
+/// Converts table-cell element into a `DataType`
 ///
 /// ODF 1.2-19.385
 fn get_datatype(reader: &mut OdsReader,
@@ -297,7 +296,7 @@ fn get_datatype(reader: &mut OdsReader,
             }
             b"office:value-type" if !is_value_set => is_string = a.value == b"string",
             b"table:formula" => {
-                formula = a.unescape_and_decode_value(&reader)?;
+                formula = a.unescape_and_decode_value(reader)?;
             }
             _ => (),
         }

@@ -215,7 +215,7 @@ impl Reader for Xlsx {
     fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
         let mut f = self.zip.by_name("xl/vbaProject.bin")?;
         let len = f.size() as usize;
-        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
+        VbaProject::new(&mut f, len).map(Cow::Owned)
     }
 
     fn initialize(&mut self) -> Result<Metadata> {
@@ -268,7 +268,7 @@ fn xml_reader<'a>(zip: &'a mut ZipArchive<File>, path: &str) -> Option<Result<Xl
             Some(Ok(r))
         }
         Err(ZipError::FileNotFound) => None,
-        Err(e) => return Some(Err(e.into())),
+        Err(e) => Some(Err(e.into())),
     }
 }
 

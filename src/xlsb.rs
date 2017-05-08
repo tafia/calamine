@@ -207,7 +207,7 @@ impl Reader for Xlsb {
     fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
         let mut f = self.zip.by_name("xl/vbaProject.bin")?;
         let len = f.size() as usize;
-        VbaProject::new(&mut f, len).map(|v| Cow::Owned(v))
+        VbaProject::new(&mut f, len).map(Cow::Owned)
     }
 
     fn initialize(&mut self) -> Result<Metadata> {
@@ -269,7 +269,7 @@ impl Reader for Xlsb {
             let _ = iter.fill_buffer(&mut buf)?;
 
             let value = match typ {
-                0x0001 => continue, // DataType::Empty, // BrtCellBlank
+                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
                 0x0002 => {
                     // BrtCellRk MS-XLSB 2.5.122
                     let d100 = (buf[8] & 1) != 0;
@@ -374,7 +374,7 @@ impl Reader for Xlsb {
             let _ = iter.fill_buffer(&mut buf)?;
 
             let value = match typ {
-                0x0001 => continue, // DataType::Empty, // BrtCellBlank
+                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
                 0x0008 => {
                     // BrtFmlaString
                     let cch = read_u32(&buf[8..]) as usize;
@@ -464,7 +464,7 @@ impl<'a> RecordIter<'a> {
             *buf = vec![0; len];
         }
 
-        let _ = self.r.read_exact(&mut buf[..len])?;
+        self.r.read_exact(&mut buf[..len])?;
         Ok(len)
     }
 
@@ -582,7 +582,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 // binary operation
                 let e2 = stack
                     .pop()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
                 let op = match ptg {
@@ -609,13 +609,13 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
             0x12 => {
                 let e = stack
                     .last()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 formula.insert(*e, '+');
             }
             0x13 => {
                 let e = stack
                     .last()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 formula.insert(*e, '-');
             }
             0x14 => {
@@ -624,7 +624,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
             0x15 => {
                 let e = stack
                     .last()
-                    .ok_or::<Error>("Invalid stack length".into())?;
+                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                 formula.insert(*e, '(');
                 formula.push(')');
             }
@@ -653,25 +653,18 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 let eptg = rgce[0];
                 rgce = &rgce[1..];
                 match eptg {
-                    0x01 => rgce = &rgce[2..],
-                    0x02 => rgce = &rgce[2..],
+                    0x01 | 0x02 | 0x08 | 0x20 | 0x21 | 0x40 | 0x41 | 0x80 => rgce = &rgce[2..],
                     0x04 => rgce = &rgce[10..],
-                    0x08 => rgce = &rgce[2..],
                     0x10 => {
                         rgce = &rgce[2..];
                         let e = *stack
                                      .last()
-                                     .ok_or::<Error>("Invalid stack length".into())?;
+                                     .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                         let e = formula.split_off(e);
                         formula.push_str("SUM(");
                         formula.push_str(&e);
                         formula.push(')');
                     }
-                    0x20 => rgce = &rgce[2..],
-                    0x21 => rgce = &rgce[2..],
-                    0x40 => rgce = &rgce[2..],
-                    0x41 => rgce = &rgce[2..],
-                    0x80 => rgce = &rgce[2..],
                     e => bail!("Unsupported eptg: 0x{:x}", e),
                 }
             }
