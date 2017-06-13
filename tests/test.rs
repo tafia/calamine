@@ -284,10 +284,7 @@ fn search_references() {
     let mut excel = Sheets::open(&path).expect("cannot open excel file");
     let vba = excel.vba_project().unwrap();
     let references = vba.get_references();
-    let names = references
-        .iter()
-        .map(|r| &*r.name)
-        .collect::<Vec<&str>>();
+    let names = references.iter().map(|r| &*r.name).collect::<Vec<&str>>();
     assert_eq!(names, vec!["stdole", "Office"]);
 }
 

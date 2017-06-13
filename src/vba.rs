@@ -52,11 +52,9 @@ impl VbaProject {
         // read all modules
         let modules: HashMap<String, Vec<u8>> = mods.into_iter()
             .map(|m| {
-                     cfb.get_stream(&m.stream_name, r)
-                         .and_then(|s| {
-                                       ::cfb::decompress_stream(&s[m.text_offset..])
-                                           .map(move |s| (m.name, s))
-                                   })
+                     cfb.get_stream(&m.stream_name, r).and_then(|s| {
+                    ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
+                })
                  })
             .collect::<Result<HashMap<_, _>>>()?;
 
@@ -378,7 +376,7 @@ fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
         Err(format!("invalid record id, found {:x}, expecting {:x}",
                     record_id,
                     id)
-                    .into())
+                .into())
     } else {
         Ok(())
     }

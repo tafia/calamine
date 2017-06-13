@@ -223,10 +223,7 @@ impl Reader for Xlsx {
         let relationships = self.read_relationships()?;
         let defined_names = self.read_workbook(&relationships)?;
         Ok(Metadata {
-               sheets: self.sheets
-                   .iter()
-                   .map(|&(ref s, _)| s.clone())
-                   .collect(),
+               sheets: self.sheets.iter().map(|&(ref s, _)| s.clone()).collect(),
                defined_names: defined_names,
            })
     }
@@ -236,11 +233,8 @@ impl Reader for Xlsx {
     }
 
     fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
-        self.read_worksheet(name,
-                            &mut |_, xml, cells| {
-            read_sheet(xml,
-                       cells,
-                       &mut |cells, xml, e, pos, _| {
+        self.read_worksheet(name, &mut |_, xml, cells| {
+            read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
                 match e.local_name() {
                     b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
                     b"f" => {
@@ -385,9 +379,7 @@ fn read_sheet_data(xml: &mut XlsReader,
         }
     }
 
-    read_sheet(xml,
-               cells,
-               &mut |cells, xml, e, pos, c_element| {
+    read_sheet(xml, cells, &mut |cells, xml, e, pos, c_element| {
         match e.local_name() {
             b"is" => {
                 // inlineStr

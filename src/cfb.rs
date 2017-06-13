@@ -317,8 +317,8 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
                             res.extend_from_slice(&buf[..offset]);
                             len -= offset;
                         }
-                        buf[..len].copy_from_slice(&res[res.len() - offset..
-                                                    res.len() - offset + len]);
+                        buf[..len]
+                            .copy_from_slice(&res[res.len() - offset..res.len() - offset + len]);
                         res.extend_from_slice(&buf[..len]);
                     }
                 }

@@ -94,8 +94,7 @@ impl Xlsb {
                                            (0x0023, Some(0x0024)) // future
                                            ],
                                           &mut buf)?; // BrtSSTItem
-            self.strings
-                .push(wide_str(&buf[1..], &mut 0)?.into_owned());
+            self.strings.push(wide_str(&buf[1..], &mut 0)?.into_owned());
         }
         Ok(())
     }
@@ -154,16 +153,13 @@ impl Xlsb {
                     let extern_sheets = buf[4..]
                         .chunks(12)
                         .map(|xti| {
-                            match read_slice::<i32>(&xti[4..8]) {
-                                    -2 => "#ThisWorkbook",
-                                    -1 => "#InvalidWorkSheet",
-                                    p if p >= 0 && (p as usize) < sheets.len() => {
-                                        &sheets[p as usize].0
-                                    }
-                                    _ => "#Unknown",
-                                }
-                                .to_string()
-                        })
+                                 match read_slice::<i32>(&xti[4..8]) {
+                                -2 => "#ThisWorkbook",
+                                -1 => "#InvalidWorkSheet",
+                                p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
+                                _ => "#Unknown",
+                            }.to_string()
+                             })
                         .take(cxti)
                         .collect();
                     self.extern_sheets = extern_sheets;
@@ -658,8 +654,8 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     0x10 => {
                         rgce = &rgce[2..];
                         let e = *stack
-                                     .last()
-                                     .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                            .last()
+                            .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                         let e = formula.split_off(e);
                         formula.push_str("SUM(");
                         formula.push_str(&e);

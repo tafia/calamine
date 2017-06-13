@@ -37,16 +37,17 @@ fn main() {
     output.push_str("_errors.csv");
     let mut output = BufWriter::new(File::create(output).unwrap());
 
-    for f in glob(&pattern)
-        .expect("Failed to read excel glob, the first argument must correspond to a directory") {
+    for f in glob(&pattern).expect(
+        "Failed to read excel glob,\
+                     the first argument must correspond to a directory",
+    ) {
         filecount += 1;
         match run(f) {
-                Ok((f, missing, cell_errors)) => {
-                    writeln!(output, "{:?}~{:?}~{}", f, missing, cell_errors)
-                }
-                Err(e) => writeln!(output, "{:?}", e),
+            Ok((f, missing, cell_errors)) => {
+                writeln!(output, "{:?}~{:?}~{}", f, missing, cell_errors)
             }
-            .unwrap_or_else(|e| println!("{:?}", e))
+            Err(e) => writeln!(output, "{:?}", e),
+        }.unwrap_or_else(|e| println!("{:?}", e))
     }
 
     println!("Found {} excel files", filecount);
@@ -82,12 +83,11 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
         cell_errors += range
             .rows()
             .flat_map(|r| {
-                          r.iter()
-                              .filter(|c| if let DataType::Error(_) = **c {
-                                          true
-                                      } else {
-                                          false
-                                      })
+                          r.iter().filter(|c| if let DataType::Error(_) = **c {
+                                              true
+                                          } else {
+                                              false
+                                          })
                       })
             .count();
     }

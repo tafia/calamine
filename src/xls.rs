@@ -197,13 +197,13 @@ impl Xls {
                                                  &fmla_sheet_names,
                                                  &defined_names,
                                                  &mut encoding)
-                                .unwrap_or_else(|e| {
-                                                    format!("Unrecognised formula \
+                            .unwrap_or_else(|e| {
+                                                format!("Unrecognised formula \
                                                             for cell ({}, {}): {:?}",
-                                                            row,
-                                                            col,
-                                                            e)
-                                                });
+                                                        row,
+                                                        col,
+                                                        e)
+                                            });
                         formulas.push(Cell::new((row as u32, col as u32), fmla));
                     }
                     _ => (),
@@ -456,10 +456,10 @@ impl<'a> Iterator for RecordIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.stream.len() < 4 {
             return if self.stream.is_empty() {
-                       None
-                   } else {
-                       Some(Err("Expecting record type and length, found end of stream".into()))
-                   };
+                None
+            } else {
+                Some(Err("Expecting record type and length, found end of stream".into()))
+            };
         }
         let t = read_u16(self.stream);
         let mut len = read_u16(&self.stream[2..]) as usize;
@@ -688,8 +688,8 @@ fn parse_formula(mut rgce: &[u8],
                     0x10 => {
                         rgce = &rgce[2..];
                         let e = *stack
-                                     .last()
-                                     .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                            .last()
+                            .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
                         let e = formula.split_off(e);
                         formula.push_str("SUM(");
                         formula.push_str(&e);
