@@ -8,8 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
-## master
+## 0.11.6
 - refactor: bump dependencies
+- style: ignore .bk files
 
 ## 0.11.5
 - refactor: bump dependencies
