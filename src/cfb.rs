@@ -285,6 +285,10 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
             let mut buf = [0u8; 4096];
             'chunk: loop {
 
+                if i >= s.len() {
+                    break;
+                }
+
                 let bit_flags = s[i];
                 i += 1;
                 chunk_len += 1;
