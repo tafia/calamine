@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.11.7
+- fix: add a bound check when decoding cfb
+- refactor: bump dependencies
+
 ## 0.11.6
 - refactor: bump dependencies
 - style: ignore .bk files
