@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.11.8
+- perf: update dependencies, in particular quick-xml 0.9.1
+
 ## 0.11.7
 - fix: add a bound check when decoding cfb
 - refactor: bump dependencies
