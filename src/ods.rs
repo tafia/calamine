@@ -9,13 +9,13 @@ use std::io::{BufReader, Read};
 use std::collections::HashMap;
 use std::borrow::Cow;
 
-use zip::read::{ZipFile, ZipArchive};
+use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attributes;
 
-use {Metadata, DataType, Reader, Range};
+use {DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use errors::*;
 
@@ -49,16 +49,20 @@ impl Reader for Ods {
                 let mut buf = [0u8; 46];
                 f.read_exact(&mut buf)?;
                 if &buf[..] != MIMETYPE {
-                    bail!("Invalid mimetype, expecting {:?}, found {:?}",
-                          MIMETYPE,
-                          &buf[..]);
+                    bail!(
+                        "Invalid mimetype, expecting {:?}, found {:?}",
+                        MIMETYPE,
+                        &buf[..]
+                    );
                 }
             }
             Err(ZipError::FileNotFound) => bail!("Cannot find 'mimetype' file"),
             Err(e) => bail!(e),
         }
 
-        Ok(Ods { content: Content::Zip(zip) })
+        Ok(Ods {
+            content: Content::Zip(zip),
+        })
     }
 
     /// Does the workbook contain a vba project
@@ -81,9 +85,9 @@ impl Reader for Ods {
             Vec::new()
         };
         Ok(Metadata {
-               sheets: sheets,
-               defined_names: defined_names,
-           })
+            sheets: sheets,
+            defined_names: defined_names,
+        })
     }
 
     /// Read worksheet data in corresponding worksheet path
@@ -130,15 +134,15 @@ impl Ods {
             let mut defined_names = Vec::new();
             loop {
                 match reader.read_event(&mut buf) {
-                    Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
-                        if let Some(ref a) = e.attributes()
-                               .filter_map(|a| a.ok())
-                               .find(|a| a.key == b"table:name") {
-                            let name = a.unescape_and_decode_value(&reader)?;
-                            let (range, formulas) = read_table(&mut reader)?;
-                            sheets.insert(name, (range, formulas));
-                        }
-                    }
+                    Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) =
+                        e.attributes()
+                            .filter_map(|a| a.ok())
+                            .find(|a| a.key == b"table:name")
+                    {
+                        let name = a.unescape_and_decode_value(&reader)?;
+                        let (range, formulas) = read_table(&mut reader)?;
+                        sheets.insert(name, (range, formulas));
+                    },
                     Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
                         defined_names = read_named_expressions(&mut reader)?;
                     }
@@ -168,11 +172,13 @@ fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>)
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-row" => {
-                read_row(reader,
-                         &mut row_buf,
-                         &mut cell_buf,
-                         &mut cells,
-                         &mut formulas)?;
+                read_row(
+                    reader,
+                    &mut row_buf,
+                    &mut cell_buf,
+                    &mut cells,
+                    &mut formulas,
+                )?;
                 cols.push(cells.len());
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table" => break,
@@ -185,7 +191,6 @@ fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>)
 }
 
 fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) -> Range<T> {
-
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
@@ -240,12 +245,13 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     }
 }
 
-fn read_row(reader: &mut OdsReader,
-            row_buf: &mut Vec<u8>,
-            cell_buf: &mut Vec<u8>,
-            cells: &mut Vec<DataType>,
-            formulas: &mut Vec<String>)
-            -> Result<()> {
+fn read_row(
+    reader: &mut OdsReader,
+    row_buf: &mut Vec<u8>,
+    cell_buf: &mut Vec<u8>,
+    cells: &mut Vec<DataType>,
+    formulas: &mut Vec<String>,
+) -> Result<()> {
     loop {
         row_buf.clear();
         match reader.read_event(row_buf) {
@@ -268,10 +274,11 @@ fn read_row(reader: &mut OdsReader,
 /// Converts table-cell element into a `DataType`
 ///
 /// ODF 1.2-19.385
-fn get_datatype(reader: &mut OdsReader,
-                atts: Attributes,
-                buf: &mut Vec<u8>)
-                -> Result<(DataType, String, bool)> {
+fn get_datatype(
+    reader: &mut OdsReader,
+    atts: Attributes,
+    buf: &mut Vec<u8>,
+) -> Result<(DataType, String, bool)> {
     let mut is_string = false;
     let mut is_value_set = false;
     let mut val = DataType::Empty;
@@ -284,9 +291,9 @@ fn get_datatype(reader: &mut OdsReader,
                 val = DataType::Float(v.parse()?);
                 is_value_set = true;
             }
-            b"office:string-value" |
-            b"office:date-value" |
-            b"office:time-value" if !is_value_set => {
+            b"office:string-value" | b"office:date-value" | b"office:time-value"
+                if !is_value_set =>
+            {
                 val = DataType::String(a.unescape_and_decode_value(reader)?);
                 is_value_set = true;
             }
@@ -308,7 +315,11 @@ fn get_datatype(reader: &mut OdsReader,
             buf.clear();
             match reader.read_event(buf) {
                 Ok(Event::Text(ref e)) => {
-                    return Ok((DataType::String(e.unescape_and_decode(reader)?), formula, false));
+                    return Ok((
+                        DataType::String(e.unescape_and_decode(reader)?),
+                        formula,
+                        false,
+                    ));
                 }
                 Ok(Event::End(ref e)) if e.name() == b"table:table-cell" => {
                     return Ok((DataType::String("".to_string()), formula, true));
@@ -329,23 +340,28 @@ fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)
     loop {
         buf.clear();
         match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:named-range" ||
-                                       e.name() == b"table:named-expression" => {
+            Ok(Event::Start(ref e))
+                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" =>
+            {
                 let mut name = String::new();
                 let mut formula = String::new();
                 for a in e.attributes() {
                     let a = a?;
                     match a.key {
                         b"table:name" => name = a.unescape_and_decode_value(reader)?,
-                        b"table:cell-range-address" |
-                        b"table:expression" => formula = a.unescape_and_decode_value(reader)?,
+                        b"table:cell-range-address" | b"table:expression" => {
+                            formula = a.unescape_and_decode_value(reader)?
+                        }
                         _ => (),
                     }
                 }
                 defined_names.push((name, formula));
             }
-            Ok(Event::End(ref e)) if e.name() == b"table:named-range" ||
-                                     e.name() == b"table:named-expression" => (),
+            Ok(Event::End(ref e))
+                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" =>
+            {
+                ()
+            }
             Ok(Event::End(ref e)) if e.name() == b"table:named-expressions" => break,
             Err(e) => bail!(e),
             Ok(e) => bail!("Expecting 'table:named-expressions' event, found {:?}", e),

@@ -4,16 +4,16 @@ use std::io::{BufReader, Read};
 use std::collections::HashMap;
 use std::borrow::Cow;
 
-use zip::read::{ZipFile, ZipArchive};
+use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 use quick_xml::reader::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attribute;
 use encoding_rs::UTF_16LE;
 
-use {Metadata, DataType, Reader, Cell, Range, CellErrorType};
+use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
-use utils::{read_u16, read_u32, read_usize, read_slice, push_column};
+use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
 use errors::*;
 
 pub struct Xlsb {
@@ -89,11 +89,13 @@ impl Xlsb {
 
         // BrtSSTItems
         for _ in 0..len {
-            let _ = iter.next_skip_blocks(0x0013,
-                                          &[
-                                           (0x0023, Some(0x0024)) // future
-                                           ],
-                                          &mut buf)?; // BrtSSTItem
+            let _ = iter.next_skip_blocks(
+                0x0013,
+                &[
+                    (0x0023, Some(0x0024)), // future
+                ],
+                &mut buf,
+            )?; // BrtSSTItem
             self.strings.push(wide_str(&buf[1..], &mut 0)?.into_owned());
         }
         Ok(())
@@ -105,17 +107,19 @@ impl Xlsb {
         let mut buf = vec![0; 1024];
 
         // BrtBeginBundleShs
-        let _ = iter.next_skip_blocks(0x008F,
-                                      &[
-                                          (0x0083, None),         // BrtBeginBook
-                                          (0x0080, None),         // BrtFileVersion
-                                          (0x0099, None),         // BrtWbProp
-                                          (0x02A4, Some(0x0224)), // File Sharing
-                                          (0x0025, Some(0x0026)), // AC blocks
-                                          (0x02A5, Some(0x0216)), // Book protection(iso)
-                                          (0x0087, Some(0x0088)), // BOOKVIEWS
-                                          ],
-                                      &mut buf)?;
+        let _ = iter.next_skip_blocks(
+            0x008F,
+            &[
+                (0x0083, None),         // BrtBeginBook
+                (0x0080, None),         // BrtFileVersion
+                (0x0099, None),         // BrtWbProp
+                (0x02A4, Some(0x0224)), // File Sharing
+                (0x0025, Some(0x0026)), // AC blocks
+                (0x02A5, Some(0x0216)), // Book protection(iso)
+                (0x0087, Some(0x0088)), // BOOKVIEWS
+            ],
+            &mut buf,
+        )?;
         loop {
             match iter.read_type()? {
                 0x0090 => break, // BrtEndBundleShs
@@ -153,13 +157,13 @@ impl Xlsb {
                     let extern_sheets = buf[4..]
                         .chunks(12)
                         .map(|xti| {
-                                 match read_slice::<i32>(&xti[4..8]) {
+                            match read_slice::<i32>(&xti[4..8]) {
                                 -2 => "#ThisWorkbook",
                                 -1 => "#InvalidWorkSheet",
                                 p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
                                 _ => "#Unknown",
                             }.to_string()
-                             })
+                        })
                         .take(cxti)
                         .collect();
                     self.extern_sheets = extern_sheets;
@@ -188,12 +192,12 @@ impl Xlsb {
 impl Reader for Xlsb {
     fn new(f: File) -> Result<Self> {
         Ok(Xlsb {
-               zip: ZipArchive::new(f)?,
-               sheets: Vec::new(),
-               strings: Vec::new(),
-               extern_sheets: Vec::new(),
-               defined_names: Vec::new(),
-           })
+            zip: ZipArchive::new(f)?,
+            sheets: Vec::new(),
+            strings: Vec::new(),
+            extern_sheets: Vec::new(),
+            defined_names: Vec::new(),
+        })
     }
 
     fn has_vba(&mut self) -> bool {
@@ -211,14 +215,13 @@ impl Reader for Xlsb {
         let relationships = self.read_relationships()?;
         self.read_workbook(&relationships)?;
         Ok(Metadata {
-               sheets: self.sheets.iter().map(|s| s.0.clone()).collect(),
-               defined_names: self.defined_names.clone(),
-           })
+            sheets: self.sheets.iter().map(|s| s.0.clone()).collect(),
+            defined_names: self.defined_names.clone(),
+        })
     }
 
     /// MS-XLSB 2.1.7.62
     fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
-
         let path = {
             let &(_, ref path) = self.sheets
                 .iter()
@@ -231,12 +234,14 @@ impl Reader for Xlsb {
         let mut buf = vec![0; 1024];
 
         // BrtWsDim
-        let _ = iter.next_skip_blocks(0x0094,
-                                      &[
-                                           (0x0081, None), // BrtBeginSheet
-                                           (0x0093, None), // BrtWsProp
-                                           ],
-                                      &mut buf)?;
+        let _ = iter.next_skip_blocks(
+            0x0094,
+            &[
+                (0x0081, None), // BrtBeginSheet
+                (0x0093, None), // BrtWsProp
+            ],
+            &mut buf,
+        )?;
         let (start, end) = parse_dimensions(&buf[..16]);
         let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
         let mut cells = if len < 1_000_000 {
@@ -246,14 +251,16 @@ impl Reader for Xlsb {
         };
 
         // BrtBeginSheetData
-        let _ = iter.next_skip_blocks(0x0091,
-                                      &[
-                                          (0x0085, Some(0x0086)), // Views
-                                          (0x0025, Some(0x0026)), // AC blocks
-                                          (0x01E5, None),         // BrtWsFmtInfo
-                                          (0x0186, Some(0x0187)), // Col Infos
-                                          ],
-                                      &mut buf)?;
+        let _ = iter.next_skip_blocks(
+            0x0091,
+            &[
+                (0x0085, Some(0x0086)), // Views
+                (0x0025, Some(0x0026)), // AC blocks
+                (0x01E5, None),         // BrtWsFmtInfo
+                (0x0186, Some(0x0187)), // Col Infos
+            ],
+            &mut buf,
+        )?;
 
         // Initialization: first BrtRowHdr
         let mut typ: u16;
@@ -296,8 +303,8 @@ impl Reader for Xlsb {
                     // BrtCellError
                     DataType::Error(error)
                 }
-                0x0004 => DataType::Bool(buf[8] != 0),                         // BrtCellBool
-                0x0005 => DataType::Float(read_slice(&buf[8..16])),            // BrtCellReal
+                0x0004 => DataType::Bool(buf[8] != 0), // BrtCellBool
+                0x0005 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal
                 0x0006 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtCellSt
                 0x0007 => {
                     // BrtCellIsst
@@ -312,8 +319,8 @@ impl Reader for Xlsb {
                     }
                     continue;
                 }
-                0x0092 => return Ok(Range::from_sparse(cells)),  // BrtEndSheetData
-                _ => continue,  // anything else, ignore and try next, without changing idx
+                0x0092 => return Ok(Range::from_sparse(cells)), // BrtEndSheetData
+                _ => continue, // anything else, ignore and try next, without changing idx
             };
 
             let col = read_u32(&buf);
@@ -323,7 +330,6 @@ impl Reader for Xlsb {
 
     /// MS-XLSB 2.1.7.62
     fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
-
         let path = {
             let &(_, ref path) = self.sheets
                 .iter()
@@ -336,12 +342,14 @@ impl Reader for Xlsb {
         let mut buf = vec![0; 1024];
 
         // BrtWsDim
-        let _ = iter.next_skip_blocks(0x0094,
-                                      &[
-                                           (0x0081, None), // BrtBeginSheet
-                                           (0x0093, None), // BrtWsProp
-                                           ],
-                                      &mut buf)?;
+        let _ = iter.next_skip_blocks(
+            0x0094,
+            &[
+                (0x0081, None), // BrtBeginSheet
+                (0x0093, None), // BrtWsProp
+            ],
+            &mut buf,
+        )?;
         let (start, end) = parse_dimensions(&buf[..16]);
         let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
         let mut cells = if len < 1_000_000 {
@@ -351,14 +359,16 @@ impl Reader for Xlsb {
         };
 
         // BrtBeginSheetData
-        let _ = iter.next_skip_blocks(0x0091,
-                                      &[
-                                          (0x0085, Some(0x0086)), // Views
-                                          (0x0025, Some(0x0026)), // AC blocks
-                                          (0x01E5, None),         // BrtWsFmtInfo
-                                          (0x0186, Some(0x0187)), // Col Infos
-                                          ],
-                                      &mut buf)?;
+        let _ = iter.next_skip_blocks(
+            0x0091,
+            &[
+                (0x0085, Some(0x0086)), // Views
+                (0x0025, Some(0x0026)), // AC blocks
+                (0x01E5, None),         // BrtWsFmtInfo
+                (0x0186, Some(0x0187)), // Col Infos
+            ],
+            &mut buf,
+        )?;
 
         // Initialization: first BrtRowHdr
         let mut typ: u16;
@@ -401,8 +411,8 @@ impl Reader for Xlsb {
                     }
                     continue;
                 }
-                0x0092 => return Ok(Range::from_sparse(cells)),  // BrtEndSheetData
-                _ => continue,  // anything else, ignore and try next, without changing idx
+                0x0092 => return Ok(Range::from_sparse(cells)), // BrtEndSheetData
+                _ => continue, // anything else, ignore and try next, without changing idx
             };
 
             let col = read_u32(&buf);
@@ -419,12 +429,10 @@ struct RecordIter<'a> {
 impl<'a> RecordIter<'a> {
     fn from_zip(zip: &'a mut ZipArchive<File>, path: &str) -> Result<RecordIter<'a>> {
         match zip.by_name(path) {
-            Ok(f) => {
-                Ok(RecordIter {
-                       r: BufReader::new(f),
-                       b: [0],
-                   })
-            }
+            Ok(f) => Ok(RecordIter {
+                r: BufReader::new(f),
+                b: [0],
+            }),
             Err(ZipError::FileNotFound) => Err(format!("file {} does not exist", path).into()),
             Err(e) => Err(e.into()),
         }
@@ -465,11 +473,12 @@ impl<'a> RecordIter<'a> {
     }
 
     /// Reads next type, and discard blocks between `start` and `end`
-    fn next_skip_blocks(&mut self,
-                        record_type: u16,
-                        bounds: &[(u16, Option<u16>)],
-                        buf: &mut Vec<u8>)
-                        -> Result<usize> {
+    fn next_skip_blocks(
+        &mut self,
+        record_type: u16,
+        bounds: &[(u16, Option<u16>)],
+        buf: &mut Vec<u8>,
+    ) -> Result<usize> {
         loop {
             let typ = self.read_type()?;
             let len = self.fill_buffer(buf)?;
@@ -489,9 +498,11 @@ impl<'a> RecordIter<'a> {
 fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
-        bail!("Wide string length ({}) exceeds buffer length ({})",
-              4 + len * 2,
-              buf.len());
+        bail!(
+            "Wide string length ({}) exceeds buffer length ({})",
+            4 + len * 2,
+            buf.len()
+        );
     }
     *str_len = 4 + len * 2;
     let s = &buf[4..*str_len];
@@ -499,7 +510,10 @@ fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str
 }
 
 fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
-    ((read_u32(&buf[0..4]), read_u32(&buf[8..12])), (read_u32(&buf[4..8]), read_u32(&buf[12..16])))
+    (
+        (read_u32(&buf[0..4]), read_u32(&buf[8..12])),
+        (read_u32(&buf[4..8]), read_u32(&buf[12..16])),
+    )
 }
 
 /// Formula parsing
@@ -808,7 +822,9 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
     }
 
     if stack.len() != 1 {
-        Err(format!("Invalid formula, final stack size: {}", stack.len()).into())
+        Err(
+            format!("Invalid formula, final stack size: {}", stack.len()).into(),
+        )
     } else {
         Ok(formula)
     }

@@ -56,15 +56,14 @@
 //!              s);
 //! }
 //! ```
-
 #![deny(missing_docs)]
 
-extern crate zip;
-extern crate quick_xml;
-extern crate encoding_rs;
 extern crate byteorder;
+extern crate encoding_rs;
 #[macro_use]
 extern crate error_chain;
+extern crate quick_xml;
+extern crate zip;
 
 #[macro_use]
 extern crate log;
@@ -248,9 +247,9 @@ impl Sheets {
             None => bail!(ErrorKind::InvalidExtension("".to_string())),
         };
         Ok(Sheets {
-               file: file,
-               metadata: Metadata::default(),
-           })
+            file: file,
+            metadata: Metadata::default(),
+        })
     }
 
     /// Get all data from worksheet
@@ -371,7 +370,9 @@ trait Reader: Sized {
     fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
     /// Read worksheet formula in corresponding worksheet path
     fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>> {
-        Err("Formula reading is not implemented for this extension".into())
+        Err(
+            "Formula reading is not implemented for this extension".into(),
+        )
     }
 }
 
@@ -530,13 +531,17 @@ impl<T: CellType> Range<T> {
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
-        match (self.end.0 < absolute_position.0, self.end.1 < absolute_position.1) {
+        match (
+            self.end.0 < absolute_position.0,
+            self.end.1 < absolute_position.1,
+        ) {
             (false, false) => (), // regular case, position within bounds
             (true, false) => {
                 let len = (absolute_position.0 - self.end.0 + 1) as usize * self.width();
                 self.inner.extend_from_slice(&vec![T::default(); len]);
                 self.end.0 = absolute_position.0;
-            } // missing some rows
+            }
+            // missing some rows
             (e, true) => {
                 let height = if e {
                     (absolute_position.0 - self.start.0 + 1) as usize
@@ -561,7 +566,10 @@ impl<T: CellType> Range<T> {
             } // missing some columns
         }
 
-        let pos = (absolute_position.0 - self.start.0, absolute_position.1 - self.start.1);
+        let pos = (
+            absolute_position.0 - self.start.0,
+            absolute_position.1 - self.start.1,
+        );
         let idx = pos.0 as usize * self.width() + pos.1 as usize;
         self.inner[idx] = value;
         Ok(())
@@ -575,7 +583,7 @@ impl<T: CellType> Range<T> {
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
         assert!(absolute_position <= self.end);
         let idx = (absolute_position.0 - self.start.0) as usize * self.width() +
-                  (absolute_position.1 - self.start.1) as usize;
+            (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]
     }
 
@@ -594,7 +602,9 @@ impl<T: CellType> Range<T> {
             Rows { inner: None }
         } else {
             let width = self.width();
-            Rows { inner: Some(self.inner.chunks(width)) }
+            Rows {
+                inner: Some(self.inner.chunks(width)),
+            }
         }
     }
 
@@ -651,10 +661,10 @@ impl<'a, T: 'a + CellType> Iterator for UsedCells<'a, T> {
             .by_ref()
             .find(|&(_, v)| v != &T::default())
             .map(|(i, v)| {
-                     let row = i / self.width;
-                     let col = i % self.width;
-                     (row, col, v)
-                 })
+                let row = i / self.width;
+                let col = i % self.width;
+                (row, col, v)
+            })
     }
 }
 
@@ -673,17 +683,29 @@ impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
 
 #[test]
 fn test_parse_error() {
-    assert_eq!(CellErrorType::from_str("#DIV/0!").unwrap(),
-               CellErrorType::Div0);
+    assert_eq!(
+        CellErrorType::from_str("#DIV/0!").unwrap(),
+        CellErrorType::Div0
+    );
     assert_eq!(CellErrorType::from_str("#N/A").unwrap(), CellErrorType::NA);
-    assert_eq!(CellErrorType::from_str("#NAME?").unwrap(),
-               CellErrorType::Name);
-    assert_eq!(CellErrorType::from_str("#NULL!").unwrap(),
-               CellErrorType::Null);
-    assert_eq!(CellErrorType::from_str("#NUM!").unwrap(),
-               CellErrorType::Num);
-    assert_eq!(CellErrorType::from_str("#REF!").unwrap(),
-               CellErrorType::Ref);
-    assert_eq!(CellErrorType::from_str("#VALUE!").unwrap(),
-               CellErrorType::Value);
+    assert_eq!(
+        CellErrorType::from_str("#NAME?").unwrap(),
+        CellErrorType::Name
+    );
+    assert_eq!(
+        CellErrorType::from_str("#NULL!").unwrap(),
+        CellErrorType::Null
+    );
+    assert_eq!(
+        CellErrorType::from_str("#NUM!").unwrap(),
+        CellErrorType::Num
+    );
+    assert_eq!(
+        CellErrorType::from_str("#REF!").unwrap(),
+        CellErrorType::Ref
+    );
+    assert_eq!(
+        CellErrorType::from_str("#VALUE!").unwrap(),
+        CellErrorType::Value
+    );
 }
