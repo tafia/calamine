@@ -13,14 +13,13 @@ before_script:
   - travis-cargo --only nightly install rustfmt-nightly -- --force
 
 script:
-  - |
-      travis-cargo --only nighlty fmt -- --write-mode=diff &&
-      cargo build &&
-      cargo test &&
-      travis-cargo --only stable doc
+  - travis-cargo --only nighlty fmt -- --write-mode=diff
+  - cargo build
+  - cargo test
+  - travis-cargo --only stable doc
 after_success:
   - travis-cargo --only stable doc-upload
 
 env:
   global:
-- TRAVIS_CARGO_NIGHTLY_FEATURE=""
+    - TRAVIS_CARGO_NIGHTLY_FEATURE=""
