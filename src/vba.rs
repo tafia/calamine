@@ -34,7 +34,6 @@ impl VbaProject {
 
     /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
     pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject> {
-
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
         let stream = ::cfb::decompress_stream(&*stream)?;
@@ -52,17 +51,17 @@ impl VbaProject {
         // read all modules
         let modules: HashMap<String, Vec<u8>> = mods.into_iter()
             .map(|m| {
-                     cfb.get_stream(&m.stream_name, r).and_then(|s| {
+                cfb.get_stream(&m.stream_name, r).and_then(|s| {
                     ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
                 })
-                 })
+            })
             .collect::<Result<HashMap<_, _>>>()?;
 
         Ok(VbaProject {
-               references: refs,
-               modules: modules,
-               encoding: encoding,
-           })
+            references: refs,
+            modules: modules,
+            encoding: encoding,
+        })
     }
 
     /// Gets the list of `Reference`s
@@ -291,7 +290,6 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
     let mut modules = Vec::with_capacity(module_len);
 
     for _ in 0..module_len {
-
         // name
         let name = check_variable_record(0x0019, stream)?;
         let name = encoding.decode_all(name)?;
@@ -336,10 +334,10 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         *stream = &stream[4..]; // reserved
 
         modules.push(Module {
-                         name: name,
-                         stream_name: stream_name,
-                         text_offset: offset,
-                     });
+            name: name,
+            stream_name: stream_name,
+            text_offset: offset,
+        });
     }
 
     Ok(modules)
@@ -360,10 +358,12 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8]> {
     check_record(id, r)?;
     let record = read_variable_record(r, 1)?;
     if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
-        warn!("record id {} as a suspicious huge length of {} (hex: {:x})",
-              id,
-              record.len(),
-              record.len() as u32);
+        warn!(
+            "record id {} as a suspicious huge length of {} (hex: {:x})",
+            id,
+            record.len(),
+            record.len() as u32
+        );
     }
     Ok(record)
 }
@@ -373,10 +373,13 @@ fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
     debug!("check record {:x}", id);
     let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
-        Err(format!("invalid record id, found {:x}, expecting {:x}",
-                    record_id,
-                    id)
-                .into())
+        Err(
+            format!(
+                "invalid record id, found {:x}, expecting {:x}",
+                record_id,
+                id
+            ).into(),
+        )
     } else {
         Ok(())
     }

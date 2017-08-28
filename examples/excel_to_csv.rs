@@ -4,7 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use calamine::{Sheets, Range, DataType, Result};
+use calamine::{DataType, Range, Result, Sheets};
 
 fn main() {
     // converts first argument into a csv (same name, silently overrides

@@ -28,7 +28,6 @@ impl Cfb {
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
     pub fn new<R: Read>(mut f: &mut R, len: usize) -> Result<Cfb> {
-
         // load header
         let (h, mut difat) = Header::from_reader(&mut f)?;
         let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
@@ -50,8 +49,7 @@ impl Cfb {
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = sectors
-            .get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
+        let dirs = sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
         let dirs = dirs.chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
             .collect::<Result<Vec<_>>>()?;
@@ -64,16 +62,16 @@ impl Cfb {
         // load the mini streams
         debug!("load minis");
         let ministream = sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len)?;
-        let minifat = sectors
-            .get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
+        let minifat =
+            sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
-               directories: dirs,
-               sectors: sectors,
-               fats: fats,
-               mini_sectors: Sectors::new(64, ministream),
-               mini_fats: minifat,
-           })
+            directories: dirs,
+            sectors: sectors,
+            fats: fats,
+            mini_sectors: Sectors::new(64, ministream),
+            mini_fats: minifat,
+        })
     }
 
     /// Checks if directory exists
@@ -150,7 +148,8 @@ impl Header {
         let mut difat = Vec::with_capacity(difat_len);
         difat.extend_from_slice(to_u32(&buf[76..512]));
 
-        Ok((Header {
+        Ok((
+            Header {
                 version: version,
                 sector_size: sector_size,
                 dir_len: dir_len,
@@ -160,7 +159,8 @@ impl Header {
                 mini_fat_start: mini_fat_start,
                 difat_start: difat_start,
             },
-            difat))
+            difat,
+        ))
     }
 }
 
@@ -194,12 +194,13 @@ impl Sectors {
         Ok(&self.data[start..end])
     }
 
-    fn get_chain<R: Read>(&mut self,
-                          mut sector_id: u32,
-                          fats: &[u32],
-                          r: &mut R,
-                          len: usize)
-                          -> Result<Vec<u8>> {
+    fn get_chain<R: Read>(
+        &mut self,
+        mut sector_id: u32,
+        fats: &[u32],
+        r: &mut R,
+        len: usize,
+    ) -> Result<Vec<u8>> {
         let mut chain = if len > 0 {
             Vec::with_capacity(len)
         } else {
@@ -238,19 +239,33 @@ impl Directory {
         };
 
         Ok(Directory {
-               start: start,
-               len: len,
-               name: name,
-           })
+            start: start,
+            len: len,
+            name: name,
+        })
     }
 }
 
 /// Decompresses stream
 pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
-
-    const POWER_2: [usize; 16] = [1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6, 1 << 7,
-                                  1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14,
-                                  1 << 15];
+    const POWER_2: [usize; 16] = [
+        1,
+        1 << 1,
+        1 << 2,
+        1 << 3,
+        1 << 4,
+        1 << 5,
+        1 << 6,
+        1 << 7,
+        1 << 8,
+        1 << 9,
+        1 << 10,
+        1 << 11,
+        1 << 12,
+        1 << 13,
+        1 << 14,
+        1 << 15,
+    ];
 
     debug!("decompress stream");
     let mut res = Vec::new();
@@ -261,7 +276,6 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
 
     let mut i = 1;
     while i < s.len() {
-
         let chunk_header = read_u16(&s[i..]);
         i += 2;
 
@@ -280,11 +294,9 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
             res.extend_from_slice(&s[i..i + 4096]);
             i += 4096;
         } else {
-
             let mut chunk_len = 0;
             let mut buf = [0u8; 4096];
             'chunk: loop {
-
                 if i >= s.len() {
                     break;
                 }
@@ -294,7 +306,6 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
                 chunk_len += 1;
 
                 for bit_index in 0..8 {
-
                     if chunk_len > chunk_size {
                         break 'chunk;
                     }
@@ -345,15 +356,23 @@ impl XlsEncoding {
             None => bail!("Cannot find {} codepage", codepage),
         };
         let high_byte = match codepage {
-            20127 | 65000 | 65001 | 20866 | 21866 | 10000 | 10007 | 874 | 1250...1258 |
+            20127 |
+            65000 |
+            65001 |
+            20866 |
+            21866 |
+            10000 |
+            10007 |
+            874 |
+            1250...1258 |
             28591...28605 => None, // SingleByte encodings
             _ => Some(false),
         };
 
         Ok(XlsEncoding {
-               encoding: e,
-               high_byte: high_byte,
-           })
+            encoding: e,
+            high_byte: high_byte,
+        })
     }
 
     pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut String) -> Result<(usize, usize)> {

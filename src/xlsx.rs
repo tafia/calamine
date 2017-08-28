@@ -3,13 +3,13 @@ use std::io::BufReader;
 use std::collections::HashMap;
 use std::borrow::Cow;
 
-use zip::read::{ZipFile, ZipArchive};
+use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 use quick_xml::reader::Reader as XmlReader;
-use quick_xml::events::{Event, BytesStart};
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::events::attributes::{Attribute, Attributes};
 
-use {Metadata, DataType, Reader, Range, Cell};
+use {Cell, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use errors::*;
 
@@ -48,9 +48,10 @@ impl Xlsx {
         Ok(())
     }
 
-    fn read_workbook(&mut self,
-                     relationships: &HashMap<Vec<u8>, String>)
-                     -> Result<Vec<(String, String)>> {
+    fn read_workbook(
+        &mut self,
+        relationships: &HashMap<Vec<u8>, String>,
+    ) -> Result<Vec<(String, String)>> {
         let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml") {
             None => return Ok(Vec::new()),
             Some(x) => x?,
@@ -90,16 +91,16 @@ impl Xlsx {
                     }
                     self.sheets.push((name, path));
                 }
-                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => {
-                    if let Some(a) = e.attributes()
-                           .filter_map(|a| a.ok())
-                           .find(|a| a.key == b"name") {
-                        let name = a.unescape_and_decode_value(&xml)?;
-                        val_buf.clear();
-                        let value = xml.read_text(b"definedName", &mut val_buf)?;
-                        defined_names.push((name, value));
-                    }
-                }
+                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => if let Some(a) =
+                    e.attributes()
+                        .filter_map(|a| a.ok())
+                        .find(|a| a.key == b"name")
+                {
+                    let name = a.unescape_and_decode_value(&xml)?;
+                    val_buf.clear();
+                    let value = xml.read_text(b"definedName", &mut val_buf)?;
+                    defined_names.push((name, value));
+                },
                 Ok(Event::End(ref e)) if e.local_name() == b"workbook" => break,
                 Ok(Event::Eof) => bail!("unexpected end of xml (no </workbook>)"),
                 Err(e) => bail!(e),
@@ -147,8 +148,9 @@ impl Xlsx {
     }
 
     fn read_worksheet<T, F>(&mut self, name: &str, read_data: &mut F) -> Result<Range<T>>
-        where T: Default + Clone + PartialEq,
-              F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<()>
+    where
+        T: Default + Clone + PartialEq,
+        F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<()>,
     {
         let &(_, ref path) = self.sheets
             .iter()
@@ -168,9 +170,10 @@ impl Xlsx {
                         b"dimension" => {
                             for a in e.attributes() {
                                 if let Attribute {
-                                           key: b"ref",
-                                           value: rdim,
-                                       } = a? {
+                                    key: b"ref",
+                                    value: rdim,
+                                } = a?
+                                {
                                     let (start, end) = get_dimension(rdim)?;
                                     let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
                                     if len < 1_000_000 {
@@ -202,10 +205,10 @@ impl Xlsx {
 impl Reader for Xlsx {
     fn new(f: File) -> Result<Self> {
         Ok(Xlsx {
-               zip: ZipArchive::new(f)?,
-               strings: Vec::new(),
-               sheets: Vec::new(),
-           })
+            zip: ZipArchive::new(f)?,
+            strings: Vec::new(),
+            sheets: Vec::new(),
+        })
     }
 
     fn has_vba(&mut self) -> bool {
@@ -223,9 +226,9 @@ impl Reader for Xlsx {
         let relationships = self.read_relationships()?;
         let defined_names = self.read_workbook(&relationships)?;
         Ok(Metadata {
-               sheets: self.sheets.iter().map(|&(ref s, _)| s.clone()).collect(),
-               defined_names: defined_names,
-           })
+            sheets: self.sheets.iter().map(|&(ref s, _)| s.clone()).collect(),
+            defined_names: defined_names,
+        })
     }
 
     fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
@@ -279,13 +282,10 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &'a [u8]) -> Result<Option<&'a [u8
 }
 
 fn read_sheet<T, F>(xml: &mut XlsReader, cells: &mut Vec<Cell<T>>, push_cell: &mut F) -> Result<()>
-    where T: Clone + Default + PartialEq,
-          F: FnMut(&mut Vec<Cell<T>>,
-                   &mut XlsReader,
-                   &BytesStart,
-                   (u32, u32),
-                   &BytesStart)
-                   -> Result<()>
+where
+    T: Clone + Default + PartialEq,
+    F: FnMut(&mut Vec<Cell<T>>, &mut XlsReader, &BytesStart, (u32, u32), &BytesStart)
+        -> Result<()>,
 {
     let mut buf = Vec::new();
     let mut cell_buf = Vec::new();
@@ -316,10 +316,11 @@ fn read_sheet<T, F>(xml: &mut XlsReader, cells: &mut Vec<Cell<T>>, push_cell: &m
 }
 
 /// read sheetData node
-fn read_sheet_data(xml: &mut XlsReader,
-                   strings: &[String],
-                   cells: &mut Vec<Cell<DataType>>)
-                   -> Result<()> {
+fn read_sheet_data(
+    xml: &mut XlsReader,
+    strings: &[String],
+    cells: &mut Vec<Cell<DataType>>,
+) -> Result<()> {
     /// read the contents of a <v> cell
     fn read_value<'a>(v: String, strings: &[String], atts: Attributes<'a>) -> Result<DataType> {
         match get_attribute(atts, b"t")? {
@@ -415,7 +416,9 @@ fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32))> {
         0 => Err("dimension cannot be empty".into()),
         1 => Ok((parts[0], parts[0])),
         2 => Ok((parts[0], parts[1])),
-        len => Err(format!("range dimension has 0 or 1 ':', got {}", len).into()),
+        len => Err(
+            format!("range dimension has 0 or 1 ':', got {}", len).into(),
+        ),
     }
 }
 
@@ -426,15 +429,15 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32)> {
     let mut readrow = true;
     for c in range.iter().rev() {
         match *c {
-            c @ b'0'...b'9' => {
-                if readrow {
-                    row += ((c - b'0') as u32) * pow;
-                    pow *= 10;
-                } else {
-                    bail!("Numeric character are only allowed at the end of the range: {:x}",
-                          c);
-                }
-            }
+            c @ b'0'...b'9' => if readrow {
+                row += ((c - b'0') as u32) * pow;
+                pow *= 10;
+            } else {
+                bail!(
+                    "Numeric character are only allowed at the end of the range: {:x}",
+                    c
+                );
+            },
             c @ b'A'...b'Z' => {
                 if readrow {
                     pow = 1;
