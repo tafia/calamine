@@ -18,7 +18,7 @@ appveyor = { repository = "tafia/calamine" }
 zip = { version = "0.2.6", default-features = false }
 quick-xml = "0.9.1"
 log = "0.3.8"
-encoding_rs = "0.6.11"
+encoding_rs = "0.7.0"
 byteorder = "1.1.0"
 error-chain = "0.10.0"
 
