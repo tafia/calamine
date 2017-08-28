@@ -6,7 +6,7 @@ rust:
 sudo: false
 before_script:
   - export PATH=$PATH:$HOME/.cargo/bin
-  - rustfmt || rustup run nightly cargo install rustfmt-nightly
+  - which rustfmt || rustup run nightly cargo install rustfmt-nightly
 script:
   - cargo fmt -- --write-mode=diff
   - cargo build
