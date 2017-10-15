@@ -57,17 +57,24 @@
 //! }
 //! ```
 #![deny(missing_docs)]
+#![recursion_limit="128"]
 
 extern crate byteorder;
 extern crate encoding_rs;
 #[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate serde;
 extern crate quick_xml;
 extern crate zip;
 
 #[macro_use]
 extern crate log;
 
+mod de;
+pub mod vba;
+
+mod datatype;
 mod errors;
 mod utils;
 mod xlsb;
@@ -75,7 +82,6 @@ mod xlsx;
 mod xls;
 mod cfb;
 mod ods;
-pub mod vba;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -83,8 +89,12 @@ use std::fs::File;
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 use std::str::FromStr;
+use serde::de::DeserializeOwned;
 
+pub use datatype::DataType;
+pub use de::{RangeDeserializerBuilder, RangeDeserializer, ToCellDeserializer};
 pub use errors::*;
+
 use vba::VbaProject;
 
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
@@ -137,43 +147,6 @@ impl fmt::Display for CellErrorType {
             CellErrorType::Ref => write!(f, "#REF!"),
             CellErrorType::Value => write!(f, "#VALUE!"),
             CellErrorType::GettingData => write!(f, "#DATA!"),
-        }
-    }
-}
-
-/// An enum to represent all different data types that can appear as
-/// a value in a worksheet cell
-#[derive(Debug, Clone, PartialEq)]
-pub enum DataType {
-    /// Unsigned integer
-    Int(i64),
-    /// Float
-    Float(f64),
-    /// String
-    String(String),
-    /// Boolean
-    Bool(bool),
-    /// Error
-    Error(CellErrorType),
-    /// Empty cell
-    Empty,
-}
-
-impl Default for DataType {
-    fn default() -> DataType {
-        DataType::Empty
-    }
-}
-
-impl fmt::Display for DataType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
-        match *self {
-            DataType::Int(ref e) => write!(f, "{}", e),
-            DataType::Float(ref e) => write!(f, "{}", e),
-            DataType::String(ref e) => write!(f, "{}", e),
-            DataType::Bool(ref e) => write!(f, "{}", e),
-            DataType::Error(ref e) => write!(f, "{}", e),
-            DataType::Empty => Ok(()),
         }
     }
 }
@@ -614,6 +587,37 @@ impl<T: CellType> Range<T> {
             width: self.width(),
             inner: self.inner.iter().enumerate(),
         }
+    }
+
+    /// Build a `RangeDeserializer` from this configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use calamine::{Result, Sheets, RangeDeserializerBuilder};
+    /// # fn main() { example().unwrap(); }
+    /// fn example() -> Result<()> {
+    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook = Sheets::open(path)?;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
+    ///     let mut iter = sheet.deserialize()?;
+    /// 
+    ///     if let Some(result) = iter.next() {
+    ///         let (label, value): (String, f64) = result?;
+    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(value, 22.2222);
+    ///
+    ///         Ok(())
+    ///     } else {
+    ///         return Err(From::from("expected at least one record but got none"));
+    ///     }
+    /// }
+    /// ```
+    pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>>
+        where T: ToCellDeserializer<'a>,
+              D: DeserializeOwned,
+    {
+        RangeDeserializerBuilder::new().from_range(self)
     }
 }
 
