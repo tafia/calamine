@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.12.0
+- feat: add serde deserialization
+
 ## 0.11.8
 - perf: update dependencies, in particular quick-xml 0.9.1
 

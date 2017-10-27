@@ -1,6 +1,6 @@
 # calamine
 
-An Excel/OpenDocument Spreadsheets file reader, in pure Rust.
+An Excel/OpenDocument Spreadsheets file reader/deserializer, in pure Rust.
 
 [![Build Status](https://travis-ci.org/tafia/calamine.svg?branch=master)](https://travis-ci.org/tafia/calamine)
 [![Build status](https://ci.appveyor.com/api/projects/status/njpnhq54h5hxsgel/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/calamine/branch/master)
@@ -9,7 +9,7 @@ An Excel/OpenDocument Spreadsheets file reader, in pure Rust.
 
 ## Description
 
-**calamine** is a pure Rust library to read any spreadsheet file:
+**calamine** is a pure Rust library to read and deserialize any spreadsheet file:
 - excel like (`xls`, `xlsx`, `xlsm`, `xlsb`, `xla`, `xlam`)
 - opendocument spreadsheets (`ods`)
 
@@ -18,7 +18,32 @@ For anything else, please file an issue with a failing test or send a pull reque
 
 ## Examples
 
-### Simple
+### Serde deserialization
+
+It is as simple as:
+
+```rust
+use calamine::{Result, Sheets, RangeDeserializerBuilder};
+
+fn example() -> Result<()> {
+    let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut workbook = Sheets::open(path)?;
+    let range = workbook.worksheet_range("Sheet1")?;
+
+    let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
+
+    if let Some(result) = iter.next() {
+        let (label, value): (String, f64) = result?;
+        assert_eq!(label, "celcius");
+        assert_eq!(value, 22.2222);
+        Ok(())
+    } else {
+        Err(From::from("expected at least one record but got none"))
+    }
+}
+```
+
+### Reader: Simple
 ```rust
 let mut excel = Sheets::open("file.xlsx").unwrap();
 let r = excel.worksheet_range("Sheet1").unwrap();
@@ -27,7 +52,7 @@ for row in r.rows() {
 }
 ```
 
-### More complex
+### Reader: More complex
 
 ```rust
 use calamine::{Sheets, Range, DataType};
