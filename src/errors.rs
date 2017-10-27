@@ -5,7 +5,12 @@
 
 #![allow(missing_docs)]
 
+use std::fmt;
+
 use quick_xml::errors::Error as XmlError;
+use serde::de;
+
+use super::CellErrorType;
 
 error_chain! {
     foreign_links {
@@ -36,11 +41,25 @@ error_chain! {
             description("invalid worksheet index")
             display("invalid worksheet index: {}", idx)
         }
+        UnexpectedEndOfRow(pos: (u32, u32)) {
+            description("unexpected end of row")
+            display("unexpected end of row at position '{:?}'", pos)
+        }
+        CellError(err: CellErrorType, pos: (u32, u32)) {
+            description("cell error")
+            display("cell error at position '{:?}'", pos)
+        }
     }
 }
 
 impl From<(XmlError, usize)> for Error {
     fn from(err: (XmlError, usize)) -> Error {
         err.0.into()
+    }
+}
+
+impl de::Error for Error {
+    fn custom<T: fmt::Display>(msg: T) -> Self {
+        Error::from(msg.to_string())
     }
 }
