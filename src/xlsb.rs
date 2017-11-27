@@ -54,7 +54,7 @@ impl Xlsb {
                                         key: b"Target",
                                         value: v,
                                     } => {
-                                        target = Some(xml.decode(v).into_owned());
+                                        target = Some(xml.decode(&v).into_owned());
                                     }
                                     _ => (),
                                 }
