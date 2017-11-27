@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.12.1
+- feat: update dependencies
+
 ## 0.12.0
 - feat: add serde deserialization
 
