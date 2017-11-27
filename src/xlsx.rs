@@ -128,11 +128,11 @@ impl Xlsx {
                             Attribute {
                                 key: b"Id",
                                 value: v,
-                            } => id.extend_from_slice(v),
+                            } => id.extend_from_slice(&v),
                             Attribute {
                                 key: b"Target",
                                 value: v,
-                            } => target = xml.decode(v).into_owned(),
+                            } => target = xml.decode(&v).into_owned(),
                             _ => (),
                         }
                     }
@@ -174,7 +174,7 @@ impl Xlsx {
                                     value: rdim,
                                 } = a?
                                 {
-                                    let (start, end) = get_dimension(rdim)?;
+                                    let (start, end) = get_dimension(&rdim)?;
                                     let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
                                     if len < 1_000_000 {
                                         // it is unlikely to have more than that
@@ -270,10 +270,11 @@ fn xml_reader<'a>(zip: &'a mut ZipArchive<File>, path: &str) -> Option<Result<Xl
 }
 
 /// search through an Element's attributes for the named one
-fn get_attribute<'a>(atts: Attributes<'a>, n: &'a [u8]) -> Result<Option<&'a [u8]>> {
+fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>> {
+    use std::borrow::Cow;
     for a in atts {
         match a {
-            Ok(Attribute { key: k, value: v }) if k == n => return Ok(Some(v)),
+            Ok(Attribute { key, value: Cow::Borrowed(value) }) if key == n => return Ok(Some(value)),
             Err(qe) => bail!(qe),
             _ => {} // ignore other attributes
         }

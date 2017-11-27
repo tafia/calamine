@@ -287,7 +287,7 @@ fn get_datatype(
         let a = a?;
         match a.key {
             b"office:value" if !is_value_set => {
-                let v = reader.decode(a.value);
+                let v = reader.decode(&a.value);
                 val = DataType::Float(v.parse()?);
                 is_value_set = true;
             }
@@ -298,10 +298,10 @@ fn get_datatype(
                 is_value_set = true;
             }
             b"office:boolean-value" if !is_value_set => {
-                val = DataType::Bool(a.value == b"TRUE");
+                val = DataType::Bool(&*a.value == b"TRUE");
                 is_value_set = true;
             }
-            b"office:value-type" if !is_value_set => is_string = a.value == b"string",
+            b"office:value-type" if !is_value_set => is_string = &*a.value == b"string",
             b"table:formula" => {
                 formula = a.unescape_and_decode_value(reader)?;
             }
