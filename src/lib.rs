@@ -422,7 +422,7 @@ impl<T: CellType> Range<T> {
         (self.end.0 - self.start.0 + 1) as usize
     }
 
-    /// Get size
+    /// Get size in (height, width) format
     pub fn get_size(&self) -> (usize, usize) {
         (self.height(), self.width())
     }
@@ -550,7 +550,7 @@ impl<T: CellType> Range<T> {
 
     /// Get cell value from absolute position
     ///
-    /// For relative positions, use Index trait
+    /// The coordinate format is (row, column). For relative positions, use Index trait
     ///
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
