@@ -37,10 +37,11 @@ impl RangeDeserializerBuilder {
     ///
     /// ```
     /// # use calamine::{Result, Sheets, RangeDeserializerBuilder};
+    /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<()> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::open(path)?;
+    ///     let mut workbook = Sheets::<File>::open(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
     ///
@@ -69,10 +70,11 @@ impl RangeDeserializerBuilder {
     ///
     /// ```
     /// # use calamine::{DataType, Result, Sheets, RangeDeserializerBuilder};
+    /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<()> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::open(path)?;
+    ///     let mut workbook = Sheets::<File>::open(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")?;
     ///
     ///     let mut iter = RangeDeserializerBuilder::new()
@@ -108,10 +110,11 @@ impl RangeDeserializerBuilder {
 ///
 /// ```
 /// # use calamine::{Result, Sheets, RangeDeserializerBuilder};
+/// # use std::fs::File;
 /// # fn main() { example().unwrap(); }
 /// fn example() -> Result<()> {
 ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-///     let mut workbook = Sheets::open(path)?;
+///     let mut workbook = Sheets::<File>::open(path)?;
 ///     let range = workbook.worksheet_range("Sheet1")?;
 ///
 ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;

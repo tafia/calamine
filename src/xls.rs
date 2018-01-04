@@ -1,6 +1,6 @@
-use std::fs::File;
 use std::collections::HashMap;
-use std::io::BufReader;
+use std::io::SeekFrom;
+use std::io::{Read, Seek};
 use std::borrow::Cow;
 use std::cmp::min;
 
@@ -10,32 +10,34 @@ use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{push_column, read_slice, read_u16, read_u32};
 
-enum SheetsState {
-    NotParsed(BufReader<File>, Cfb),
+enum SheetsState<RS> where RS: Read + Seek {
+    NotParsed(RS, Cfb),
     Parsed(HashMap<String, (Range<DataType>, Range<String>)>),
 }
 
 /// A struct representing an old xls format file (CFB)
-pub struct Xls {
-    sheets: SheetsState,
+pub struct Xls<RS> where RS: Read + Seek {
+    sheets: SheetsState<RS>,
     vba: Option<VbaProject>,
 }
 
-impl Reader for Xls {
-    fn new(r: File) -> Result<Self> {
-        let len = r.metadata()?.len() as usize;
-        let mut r = BufReader::new(r);
-        let mut cfb = Cfb::new(&mut r, len)?;
+impl<RS> Reader<RS> for Xls<RS> where RS: Read + Seek {
+    fn new(mut reader: RS) -> Result<Self> where RS: Read + Seek {
+        let mut cfb = {
+            let offset_end = reader.seek(SeekFrom::End(0))? as usize;
+            reader.seek(SeekFrom::Start(0))?;
+            Cfb::new(&mut reader, offset_end)?
+        };
 
         // Reads vba once for all (better than reading all worksheets once for all)
         let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            Some(VbaProject::from_cfb(&mut r, &mut cfb)?)
+            Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
         } else {
             None
         };
 
         Ok(Xls {
-            sheets: SheetsState::NotParsed(r, cfb),
+            sheets: SheetsState::NotParsed(reader, cfb),
             vba: vba,
         })
     }
@@ -85,7 +87,7 @@ impl Reader for Xls {
     }
 }
 
-impl Xls {
+impl<RS> Xls<RS> where RS: Read + Seek {
     fn parse_workbook(&mut self) -> Result<Vec<(String, String)>> {
         // gets workbook and worksheets stream, or early exit
         let stream = match self.sheets {

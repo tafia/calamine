@@ -4,8 +4,7 @@
 //! OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 //! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 
-use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Seek};
 use std::collections::HashMap;
 use std::borrow::Cow;
 
@@ -23,8 +22,8 @@ const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet
 
 type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
-enum Content {
-    Zip(ZipArchive<File>),
+enum Content<RS> where RS: Read + Seek {
+    Zip(ZipArchive<RS>),
     Sheets(HashMap<String, (Range<DataType>, Range<String>)>),
 }
 
@@ -33,15 +32,14 @@ enum Content {
 /// # Reference
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-pub struct Ods {
+pub struct Ods<RS> where RS: Read + Seek {
     /// A zip package or an already parsed xml content
-    content: Content,
+    content: Content<RS>,
 }
 
-impl Reader for Ods {
-    /// Creates a new instance based on the actual file
-    fn new(f: File) -> Result<Self> {
-        let mut zip = ZipArchive::new(f)?;
+impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
+    fn new(reader: RS) -> Result<Self> where RS: Read + Seek {
+        let mut zip = ZipArchive::new(reader)?;
 
         // check mimetype
         match zip.by_name("mimetype") {
@@ -113,7 +111,7 @@ impl Reader for Ods {
     }
 }
 
-impl Ods {
+impl<RS> Ods<RS> where RS: Read + Seek {
     /// Parses content.xml and store the result in `self.content`
     fn parse_content(&mut self) -> Result<Vec<(String, String)>> {
         let (sheets, defined_names) = if let Content::Zip(ref mut zip) = self.content {

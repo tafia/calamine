@@ -5,12 +5,13 @@ extern crate test;
 
 use test::Bencher;
 use calamine::Sheets;
+use std::fs::File;
 
 #[bench]
 fn bench_xls(b: &mut Bencher) {
     b.iter(|| {
         let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
-        let mut excel = Sheets::open(&path).expect("cannot open excel file");
+        let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
 
         let sheets = excel.sheet_names().unwrap();
         let mut count = 0;
@@ -26,7 +27,7 @@ fn bench_xls(b: &mut Bencher) {
 fn bench_xlsx(b: &mut Bencher) {
     b.iter(|| {
         let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-        let mut excel = Sheets::open(&path).expect("cannot open excel file");
+        let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
 
         let sheets = excel.sheet_names().unwrap();
         let mut count = 0;
@@ -42,7 +43,7 @@ fn bench_xlsx(b: &mut Bencher) {
 fn bench_xlsb(b: &mut Bencher) {
     b.iter(|| {
         let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-        let mut excel = Sheets::open(&path).expect("cannot open excel file");
+        let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
 
         let sheets = excel.sheet_names().unwrap();
         let mut count = 0;
@@ -58,7 +59,7 @@ fn bench_xlsb(b: &mut Bencher) {
 fn bench_ods(b: &mut Bencher) {
     b.iter(|| {
         let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-        let mut excel = Sheets::open(&path).expect("cannot open excel file");
+        let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
 
         let sheets = excel.sheet_names().unwrap();
         let mut count = 0;

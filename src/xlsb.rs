@@ -1,6 +1,5 @@
 use std::string::String;
-use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Seek};
 use std::collections::HashMap;
 use std::borrow::Cow;
 
@@ -16,15 +15,15 @@ use vba::VbaProject;
 use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
 use errors::*;
 
-pub struct Xlsb {
-    zip: ZipArchive<File>,
+pub struct Xlsb<RS> where RS: Read + Seek {
+    zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
     strings: Vec<String>,
     defined_names: Vec<(String, String)>,
 }
 
-impl Xlsb {
+impl<RS> Xlsb<RS>where RS: Read + Seek {
     /// MS-XLSB
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
         let mut relationships = HashMap::new();
@@ -189,10 +188,10 @@ impl Xlsb {
     }
 }
 
-impl Reader for Xlsb {
-    fn new(f: File) -> Result<Self> {
+impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
+    fn new(reader: RS) -> Result<Self> where RS: Read + Seek {
         Ok(Xlsb {
-            zip: ZipArchive::new(f)?,
+            zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
@@ -427,7 +426,7 @@ struct RecordIter<'a> {
 }
 
 impl<'a> RecordIter<'a> {
-    fn from_zip(zip: &'a mut ZipArchive<File>, path: &str) -> Result<RecordIter<'a>> {
+    fn from_zip<RS: Read + Seek>(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a>> {
         match zip.by_name(path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),
