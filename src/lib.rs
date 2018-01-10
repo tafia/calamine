@@ -2,7 +2,7 @@
 //!
 //! # Status
 //!
-//! **calamine** is a pure Rust library to read Excel and OpenDocument Spreasheet files.
+//! **calamine** is a pure Rust library to read Excel and OpenDocument Spreadsheet files.
 //!
 //! Read both cell values and vba project.
 //!
