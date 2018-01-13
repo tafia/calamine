@@ -118,13 +118,13 @@ While there is no official benchmark yet, my first tests show a significant boos
 Many (most) part of the specifications are not implemented, the focus has been put on reading cell **values** and **vba** code.
 
 The main unsupported items are:
-- no support for writing excel files, this is a read-only libray
+- no support for writing excel files, this is a read-only library
 - no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
 - no support for reading VB for opendocuments
 
 ## Credits
 
-Thanks to [xlsx-js](https://github.com/SheetJS/js-xlsx) developpers!
+Thanks to [xlsx-js](https://github.com/SheetJS/js-xlsx) developers!
 This library is by far the simplest open source implementation I could find and helps making sense out of official documentation.
 
 ## License
