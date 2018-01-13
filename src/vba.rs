@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::LogLevel;
+use log::Level;
 
 use errors::*;
 use cfb::{Cfb, XlsEncoding};
@@ -357,7 +357,7 @@ fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8]> {
 fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8]> {
     check_record(id, r)?;
     let record = read_variable_record(r, 1)?;
-    if log_enabled!(LogLevel::Warn) && record.len() > 100_000 {
+    if log_enabled!(Level::Warn) && record.len() > 100_000 {
         warn!(
             "record id {} as a suspicious huge length of {} (hex: {:x})",
             id,
