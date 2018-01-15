@@ -21,7 +21,8 @@ error-chain = "0.11.0"
 log = "0.4"
 serde = "1.0.21"
 quick-xml = "0.10.0"
-zip = { version = "=0.2.8", default-features = false }
+zip = { version = "0.2.9", default-features = false, features = ["deflate"] }
+
 
 [dev-dependencies]
 glob = "0.2.11"
