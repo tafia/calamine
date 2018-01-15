@@ -56,7 +56,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let f = f.map_err(FileStatus::Glob)?;
 
     println!("Analysing {:?}", f.display());
-    let mut xl = Sheets::open(&f).map_err(FileStatus::SheetsError)?;
+    let mut xl = Sheets::<File>::open(&f).map_err(FileStatus::SheetsError)?;
 
     let mut missing = None;
     let mut cell_errors = 0;

@@ -9,10 +9,11 @@
 //! # Examples
 //! ```
 //! use calamine::{Sheets, DataType};
+//! use std::fs::File;
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Sheets::open(path).expect("Cannot open file");
+//! let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
@@ -86,6 +87,7 @@ mod ods;
 use std::borrow::Cow;
 use std::fmt;
 use std::fs::File;
+use std::io::{Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 use std::str::FromStr;
@@ -152,15 +154,15 @@ impl fmt::Display for CellErrorType {
 }
 
 /// File types
-enum FileType {
+enum FileType<RS> where RS: Read + Seek {
     /// Compound File Binary Format [MS-CFB] (xls, xla)
-    Xls(xls::Xls),
+    Xls(xls::Xls<RS>),
     /// Regular xml zipped file (xlsx, xlsm, xlam)
-    Xlsx(xlsx::Xlsx),
+    Xlsx(xlsx::Xlsx<RS>),
     /// Binary zipped file (xlsb)
-    Xlsb(xlsb::Xlsb),
+    Xlsb(xlsb::Xlsb<RS>),
     /// OpenDocument Spreadsheet Document
-    Ods(ods::Ods),
+    Ods(ods::Ods<RS>),
 }
 
 /// Common file metadata
@@ -175,8 +177,8 @@ struct Metadata {
 }
 
 /// A wrapper struct over the spreadsheet file
-pub struct Sheets {
-    file: FileType,
+pub struct Sheets<RS> where RS: Read + Seek {
+    file: FileType<RS>,
     metadata: Metadata,
 }
 
@@ -199,19 +201,20 @@ macro_rules! inner {
     }};
 }
 
-impl Sheets {
-    /// Opens a new workbook
+impl<RS> Sheets<RS> where RS: Read + Seek {
+    /// Opens a new workbook from a file.
     ///
     /// # Examples
     /// ```
     /// use calamine::Sheets;
+    /// use std::fs::File;
     ///
     /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    /// assert!(Sheets::open(path).is_ok());
+    /// assert!(Sheets::<File>::open(path).is_ok());
     /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets> {
-        let f = File::open(&path)?;
-        let file = match path.as_ref().extension().and_then(|s| s.to_str()) {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>> {
+        let f: File = File::open(&path)?;
+        let file: FileType<File> = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
             Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
@@ -225,14 +228,31 @@ impl Sheets {
         })
     }
 
+    /// Creates a new workbook from a reader.
+    /// ```
+    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>> where RS: Read + Seek {
+        let filetype = match extension {
+            "xls" | "xla" => FileType::Xls(xls::Xls::new(reader)?),
+            "xlsx" | "xlsm" | "xlam" => FileType::Xlsx(xlsx::Xlsx::new(reader)?),
+            "xlsb" => FileType::Xlsb(xlsb::Xlsb::new(reader)?),
+            "ods" => FileType::Ods(ods::Ods::new(reader)?),
+            _ => bail!(ErrorKind::InvalidExtension("".to_string())),
+        };
+        Ok(Sheets {
+            file: filetype,
+            metadata: Metadata::default(),
+        })
+    }
+
     /// Get all data from worksheet
     ///
     /// # Examples
     /// ```
     /// use calamine::Sheets;
+    /// use std::fs::File;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -246,9 +266,10 @@ impl Sheets {
     /// # Examples
     /// ```
     /// use calamine::Sheets;
+    /// use std::fs::File;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -262,9 +283,10 @@ impl Sheets {
     /// # Examples
     /// ```
     /// use calamine::Sheets;
+    /// use std::fs::File;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::open(path).expect("Cannot open file");
+    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
@@ -294,9 +316,10 @@ impl Sheets {
     /// # Examples
     /// ```
     /// use calamine::Sheets;
+    /// use std::fs::File;
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::open(path).unwrap();
+    /// let mut workbook = Sheets::<File>::open(path).unwrap();
     /// if workbook.has_vba() {
     ///     let vba = workbook.vba_project().expect("Cannot find vba project");
     ///     println!("References: {:?}", vba.get_references());
@@ -312,9 +335,10 @@ impl Sheets {
     /// # Examples
     /// ```
     /// use calamine::Sheets;
+    /// use std::fs::File;
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::open(path).unwrap();
+    /// let mut workbook = Sheets::<File>::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
     pub fn sheet_names(&mut self) -> Result<Vec<String>> {
@@ -329,10 +353,12 @@ impl Sheets {
     }
 }
 
+// FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
+// the kinds of readers (other) data in formats can be read from.
 /// A trait to share spreadsheets reader functions accross different `FileType`s
-trait Reader: Sized {
-    /// Creates a new instance based on the actual file
-    fn new(f: File) -> Result<Self>;
+trait Reader<RS>: Sized where RS: Read + Seek {
+    /// Creates a new instance.
+    fn new(reader: RS) -> Result<Self>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets `VbaProject`
@@ -595,13 +621,14 @@ impl<T: CellType> Range<T> {
     ///
     /// ```
     /// # use calamine::{Result, Sheets, RangeDeserializerBuilder};
+    /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<()> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::open(path)?;
+    ///     let mut workbook = Sheets::<File>::open(path)?;
     ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = sheet.deserialize()?;
-    /// 
+    ///
     ///     if let Some(result) = iter.next() {
     ///         let (label, value): (String, f64) = result?;
     ///         assert_eq!(label, "celcius");

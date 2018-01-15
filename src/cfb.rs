@@ -27,16 +27,16 @@ impl Cfb {
     /// Create a new `Cfb`
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
-    pub fn new<R: Read>(mut f: &mut R, len: usize) -> Result<Cfb> {
+    pub fn new<R: Read>(mut reader: &mut R, len: usize) -> Result<Cfb> {
         // load header
-        let (h, mut difat) = Header::from_reader(&mut f)?;
+        let (h, mut difat) = Header::from_reader(&mut reader)?;
         let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
 
         // load fat and dif sectors
         debug!("load difat");
         let mut sector_id = h.difat_start;
         while sector_id < RESERVED_SECTORS {
-            difat.extend_from_slice(to_u32(sectors.get(sector_id, f)?));
+            difat.extend_from_slice(to_u32(sectors.get(sector_id, reader)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }
 
@@ -44,12 +44,12 @@ impl Cfb {
         debug!("load fat");
         let mut fats = Vec::with_capacity(h.fat_len);
         for id in difat.into_iter().filter(|id| *id != FREESECT) {
-            fats.extend_from_slice(to_u32(sectors.get(id, f)?));
+            fats.extend_from_slice(to_u32(sectors.get(id, reader)?));
         }
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = sectors.get_chain(h.dir_start, &fats, f, h.dir_len * h.sector_size)?;
+        let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * h.sector_size)?;
         let dirs = dirs.chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
             .collect::<Result<Vec<_>>>()?;
@@ -61,9 +61,9 @@ impl Cfb {
 
         // load the mini streams
         debug!("load minis");
-        let ministream = sectors.get_chain(dirs[0].start, &fats, f, dirs[0].len)?;
+        let ministream = sectors.get_chain(dirs[0].start, &fats, reader, dirs[0].len)?;
         let minifat =
-            sectors.get_chain(h.mini_fat_start, &fats, f, h.mini_fat_len * h.sector_size)?;
+            sectors.get_chain(h.mini_fat_start, &fats, reader, h.mini_fat_len * h.sector_size)?;
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
             directories: dirs,

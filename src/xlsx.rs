@@ -1,5 +1,5 @@
-use std::fs::File;
 use std::io::BufReader;
+use std::io::{Read, Seek};
 use std::collections::HashMap;
 use std::borrow::Cow;
 
@@ -17,15 +17,15 @@ type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
-pub struct Xlsx {
-    zip: ZipArchive<File>,
+pub struct Xlsx<RS> where RS: Read + Seek {
+    zip: ZipArchive<RS>,
     /// Shared strings
     strings: Vec<String>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
 }
 
-impl Xlsx {
+impl<RS> Xlsx<RS> where RS: Read + Seek {
     fn read_shared_strings(&mut self) -> Result<()> {
         let mut xml = match xml_reader(&mut self.zip, "xl/sharedStrings.xml") {
             None => return Ok(()),
@@ -202,10 +202,10 @@ impl Xlsx {
     }
 }
 
-impl Reader for Xlsx {
-    fn new(f: File) -> Result<Self> {
+impl<RS> Reader<RS> for Xlsx<RS> where RS: Read + Seek {
+    fn new(reader: RS) -> Result<Self> where RS: Read + Seek {
         Ok(Xlsx {
-            zip: ZipArchive::new(f)?,
+            zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             sheets: Vec::new(),
         })
@@ -254,7 +254,7 @@ impl Reader for Xlsx {
     }
 }
 
-fn xml_reader<'a>(zip: &'a mut ZipArchive<File>, path: &str) -> Option<Result<XlsReader<'a>>> {
+fn xml_reader<'a, RS>(zip: &'a mut ZipArchive<RS>, path: &str) -> Option<Result<XlsReader<'a>>> where RS: Read + Seek {
     match zip.by_name(path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));

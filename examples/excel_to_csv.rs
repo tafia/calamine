@@ -25,7 +25,7 @@ fn main() {
 
     let dest = sce.with_extension("csv");
     let mut dest = BufWriter::new(File::create(dest).unwrap());
-    let mut xl = Sheets::open(&sce).unwrap();
+    let mut xl = Sheets::<File>::open(&sce).unwrap();
     let range = xl.worksheet_range(&sheet).unwrap();
 
     write_range(&mut dest, &range).unwrap();

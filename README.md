@@ -24,10 +24,11 @@ It is as simple as:
 
 ```rust
 use calamine::{Result, Sheets, RangeDeserializerBuilder};
+use std::io::File;
 
 fn example() -> Result<()> {
     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut workbook = Sheets::open(path)?;
+    let mut workbook = Sheets::<File>::open(path)?;
     let range = workbook.worksheet_range("Sheet1")?;
 
     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
@@ -45,7 +46,9 @@ fn example() -> Result<()> {
 
 ### Reader: Simple
 ```rust
-let mut excel = Sheets::open("file.xlsx").unwrap();
+use calamine::Sheets;
+
+let mut excel = Sheets::<File>::open("file.xlsx").unwrap();
 let r = excel.worksheet_range("Sheet1").unwrap();
 for row in r.rows() {
     println!("row={:?}, row[0]={:?}", row, row[0]);
@@ -59,7 +62,7 @@ use calamine::{Sheets, Range, DataType};
 
 // opens a new workbook
 let path = "/path/to/my/excel/file.xlsm";
-let mut workbook = Sheets::open(path).unwrap();
+let mut workbook = Sheets::<File>::open(path).unwrap();
 
 // Read whole worksheet data and provide some statistics
 if let Ok(range) = workbook.worksheet_range("Sheet1") {
