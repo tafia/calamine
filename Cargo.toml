@@ -15,14 +15,13 @@ travis-ci = { repository = "tafia/calamine" }
 appveyor = { repository = "tafia/calamine" }
 
 [dependencies]
-byteorder = "1.1.0"
-encoding_rs = "0.7.0"
+byteorder = "1.2.1"
+encoding_rs = "0.7.1"
 error-chain = "0.11.0"
 log = "0.4"
-serde = "1.0.21"
-quick-xml = "0.10.0"
-zip = { version = "0.2.9", default-features = false, features = ["deflate"] }
-
+serde = "1.0.27"
+quick-xml = "0.11.0"
+zip = { version = "0.3.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 glob = "0.2.11"

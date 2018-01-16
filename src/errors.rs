@@ -16,7 +16,6 @@ error_chain! {
     foreign_links {
         Io(::std::io::Error);
         Zip(::zip::result::ZipError);
-        Xml(XmlError);
         ParseInt(::std::num::ParseIntError);
         ParseFloat(::std::num::ParseFloatError);
         Utf8(::std::str::Utf8Error);
@@ -24,6 +23,10 @@ error_chain! {
     }
 
     errors {
+        Xml(err: XmlError) {
+            description("xml error")
+            display("an error occured while parsing xml: {:?}", err)
+        }
         InvalidExtension(ext: String) {
             description("invalid extension")
             display("invalid extension: '{}'", ext)
@@ -52,9 +55,15 @@ error_chain! {
     }
 }
 
+impl From<XmlError> for Error {
+    fn from(err: XmlError) -> Error {
+        ErrorKind::Xml(err).into()
+    }
+}
+
 impl From<(XmlError, usize)> for Error {
     fn from(err: (XmlError, usize)) -> Error {
-        err.0.into()
+        ErrorKind::Xml(err.0).into()
     }
 }
 
