@@ -2,11 +2,74 @@ use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{self, DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
 use serde::{self, Deserialize};
 use std::marker::PhantomData;
-use std::slice;
-use std::str;
+use std::{fmt, slice, str};
 
-use super::errors::{Error, ErrorKind};
-use super::{CellType, DataType, Range, Rows};
+use super::{CellType, CellErrorType, DataType, Range, Rows};
+
+/// A cell deserialization specific error enum
+#[derive(Debug)]
+pub enum DeError {
+    /// Cell out of range
+    CellOutOfRange { 
+        /// Position tried
+        try_pos: (u32, u32),
+        /// Minimum position
+        min_pos: (u32, u32) },
+    /// The cell value is an error
+    CellError {
+        /// Cell value error
+        err: CellErrorType,
+        /// Cell position
+        pos: (u32, u32)
+    },
+    /// Unexpected end of row
+    UnexpectedEndOfRow {
+        /// Cell position
+        pos: (u32, u32)
+    },
+    /// Serde specific error
+    Custom(String),
+}
+
+impl fmt::Display for DeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            DeError::CellOutOfRange { ref try_pos, ref min_pos } => {
+                write!(f, 
+                       "there is no cell at position '{:?}'.Minimum position is '{:?}'",
+                       try_pos,
+                       min_pos)
+            }
+            DeError::CellError { ref pos, ref err } => {
+                write!(f, "Cell error at position '{:?}': {}", pos, err)
+            }
+            DeError::UnexpectedEndOfRow { ref pos } => {
+                write!(f, "Unexpected end of row at position '{:?}'", pos)
+            }
+            DeError::Custom(ref s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl ::std::error::Error for DeError {
+    fn description(&self) -> &str {
+        match *self {
+            DeError::CellOutOfRange { .. } => "cell out of range",
+            DeError::CellError { .. } => "error in cell value",
+            DeError::UnexpectedEndOfRow { .. } => "unexpected end of row",
+            DeError::Custom(ref s) => &**s,
+        }
+    }
+    fn cause(&self) -> Option<&::std::error::Error> {
+        None
+    }
+}
+
+impl de::Error for DeError {
+    fn custom<T: fmt::Display>(msg: T) -> Self {
+        DeError::Custom(msg.to_string())
+    }
+}
 
 /// Builds a `Range` deserializer with some configuration options.
 ///
@@ -57,7 +120,7 @@ impl RangeDeserializerBuilder {
     /// }
     /// ```
     pub fn from_range<'cell, T, D>(&self, range: &'cell Range<T>)
-        -> Result<RangeDeserializer<'cell, T, D>, Error>
+        -> Result<RangeDeserializer<'cell, T, D>, DeError>
         where T: ToCellDeserializer<'cell>,
               D: DeserializeOwned,
     {
@@ -144,7 +207,7 @@ impl<'cell, T, D> RangeDeserializer<'cell, T, D>
 where T: ToCellDeserializer<'cell>,
       D: DeserializeOwned,
 {
-    fn new(builder: &RangeDeserializerBuilder, range: &'cell Range<T>) -> Result<Self, Error> {
+    fn new(builder: &RangeDeserializerBuilder, range: &'cell Range<T>) -> Result<Self, DeError> {
         let mut rows = range.rows();
 
         let mut current_pos = range.start();
@@ -176,9 +239,9 @@ impl<'cell, T, D> Iterator for RangeDeserializer<'cell, T, D>
 where T: ToCellDeserializer<'cell>,
       D: DeserializeOwned
 {
-    type Item = Result<D, Error>;
+    type Item = Result<D, DeError>;
 
-    fn next(&mut self) -> Option<Result<D, Error>> {
+    fn next(&mut self) -> Option<Self::Item> {
         let RangeDeserializer { ref headers, ref mut rows, mut current_pos, .. } = *self;
 
         if let Some(row) = rows.next() {
@@ -226,12 +289,12 @@ where T: 'cell + ToCellDeserializer<'cell>,
         self.headers.as_mut().and_then(|it| it.next().map(|header| &**header))
     }
 
-    fn next_cell(&mut self) -> Result<&'cell T, Error> {
+    fn next_cell(&mut self) -> Result<&'cell T, DeError> {
         if let Some(cell) = self.iter.next() {
             self.pos.1 += 1;
             Ok(cell)
         } else {
-            bail!(ErrorKind::UnexpectedEndOfRow(self.pos))
+            return Err(DeError::UnexpectedEndOfRow { pos: self.pos });
         }
     }
 }
@@ -241,9 +304,9 @@ where 'header: 'de,
       'cell: 'de,
       T: 'cell + ToCellDeserializer<'cell>,
 {
-    type Error = Error;
+    type Error = DeError;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -283,9 +346,9 @@ where 'header: 'de,
       'cell: 'de,
       T: ToCellDeserializer<'cell>,
 {
-    type Error = Error;
+    type Error = DeError;
 
-    fn next_element_seed<D>(&mut self, seed: D) -> Result<Option<D::Value>, Error>
+    fn next_element_seed<D>(&mut self, seed: D) -> Result<Option<D::Value>, Self::Error>
     where
         D: DeserializeSeed<'de>,
     {
@@ -311,7 +374,7 @@ where 'header: 'de,
       'cell: 'de,
       T: ToCellDeserializer<'cell>,
 {
-    type Error = Error;
+    type Error = DeError;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
@@ -320,7 +383,7 @@ where 'header: 'de,
         assert!(self.has_headers());
 
         if let Some(header) = self.next_header() {
-            let de = BorrowedStrDeserializer::<Error>::new(header);
+            let de = BorrowedStrDeserializer::<Self::Error>::new(header);
             seed.deserialize(de).map(Some)
         } else {
             Ok(None)
@@ -340,7 +403,7 @@ where 'header: 'de,
 /// Constructs a deserializer for a `CellType`.
 pub trait ToCellDeserializer<'a>: CellType {
     /// The deserializer.
-    type Deserializer: for<'de> serde::Deserializer<'de, Error=Error>;
+    type Deserializer: for<'de> serde::Deserializer<'de, Error=DeError>;
 
     /// Construct a `CellType` deserializer at the specified position.
     fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> Self::Deserializer;
@@ -364,9 +427,9 @@ pub struct DataTypeDeserializer<'a> {
 }
 
 impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
-    type Error = Error;
+    type Error = DeError;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -376,11 +439,11 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
             DataType::Int(v) => visitor.visit_i64(v),
             DataType::Float(v) => visitor.visit_f64(v),
             DataType::String(ref v) => visitor.visit_str(v),
-            DataType::Error(ref err) => bail!(ErrorKind::CellError(err.clone(), self.pos)),
+            DataType::Error(ref err) => return Err(DeError::CellError { err: err.clone(), pos: self.pos }),
         }
     }
 
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Error>
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {

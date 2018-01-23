@@ -16,11 +16,41 @@ use quick_xml::events::attributes::Attributes;
 
 use {DataType, Metadata, Range, Reader};
 use vba::VbaProject;
-use errors::*;
+use errors::CalError;
 
 const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
 type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
+
+/// An enum for ods specific errors
+#[derive(Debug, Fail)]
+pub enum OdsError {
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)]
+    Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)]
+    Parse(#[cause] ::std::string::ParseError),
+    #[fail(display = "{}", _0)]
+    ParseFloat(#[cause] ::std::num::ParseFloatError),
+
+    #[fail(display = "Invalid MIME type: {:?}", _0)]
+    InvalidMime(Vec<u8>),
+    #[fail(display = "Cannot find '{}' file", _0)]
+    FileNotFound(&'static str),
+    #[fail(display = "Expecting {} found EOF", _0)]
+    Eof(&'static str),
+    #[fail(display = "Expecting {} found {}", expected, found)]
+    Mismatch { expected: &'static str, found: String },
+}
+
+impl_error!(::std::io::Error, OdsError, Io);
+impl_error!(::zip::result::ZipError, OdsError, Zip);
+impl_error!(::quick_xml::errors::Error, OdsError, Xml);
+impl_error!(::std::string::ParseError, OdsError, Parse);
+impl_error!(::std::num::ParseFloatError, OdsError, ParseFloat);
 
 enum Content<RS> where RS: Read + Seek {
     Zip(ZipArchive<RS>),
@@ -38,8 +68,8 @@ pub struct Ods<RS> where RS: Read + Seek {
 }
 
 impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
-    fn new(reader: RS) -> Result<Self> where RS: Read + Seek {
-        let mut zip = ZipArchive::new(reader)?;
+    fn new(reader: RS) -> Result<Self, CalError> where RS: Read + Seek {
+        let mut zip = ZipArchive::new(reader).map_err(OdsError::Zip)?;
 
         // check mimetype
         match zip.by_name("mimetype") {
@@ -47,15 +77,11 @@ impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
                 let mut buf = [0u8; 46];
                 f.read_exact(&mut buf)?;
                 if &buf[..] != MIMETYPE {
-                    bail!(
-                        "Invalid mimetype, expecting {:?}, found {:?}",
-                        MIMETYPE,
-                        &buf[..]
-                    );
+                    return Err(CalError::Ods(OdsError::InvalidMime(buf.to_vec())));
                 }
             }
-            Err(ZipError::FileNotFound) => bail!("Cannot find 'mimetype' file"),
-            Err(e) => bail!(e),
+            Err(ZipError::FileNotFound) => return Err(CalError::Ods(OdsError::FileNotFound("mimetype"))),
+            Err(e) => return Err(CalError::Ods(OdsError::Zip(e))),
         }
 
         Ok(Ods {
@@ -70,13 +96,13 @@ impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
         unimplemented!();
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn initialize(&mut self) -> Result<Metadata> {
-        let defined_names = self.parse_content()?;
+    fn initialize(&mut self) -> Result<Metadata, CalError> {
+        let defined_names = self.parse_content().map_err(CalError::Ods)?;
         let sheets = if let Content::Sheets(ref s) = self.content {
             s.keys().map(|k| k.to_string()).collect()
         } else {
@@ -89,31 +115,31 @@ impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
-        self.parse_content()?;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
+        self.parse_content().map_err(CalError::Ods)?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
                 return Ok(r.0.to_owned());
             }
         }
-        bail!("Cannot find '{}' sheet", name);
+        Err(CalError::WorksheetName(name.into()))
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
-        self.parse_content()?;
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
+        self.parse_content().map_err(CalError::Ods)?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
                 return Ok(r.1.to_owned());
             }
         }
-        bail!("Cannot find '{}' sheet", name);
+        Err(CalError::WorksheetName(name.into()))
     }
 }
 
 impl<RS> Ods<RS> where RS: Read + Seek {
     /// Parses content.xml and store the result in `self.content`
-    fn parse_content(&mut self) -> Result<Vec<(String, String)>> {
+    fn parse_content(&mut self) -> Result<Vec<(String, String)>, OdsError> {
         let (sheets, defined_names) = if let Content::Zip(ref mut zip) = self.content {
             let mut reader = match zip.by_name("content.xml") {
                 Ok(f) => {
@@ -124,8 +150,8 @@ impl<RS> Ods<RS> where RS: Read + Seek {
                         .expand_empty_elements(true);
                     r
                 }
-                Err(ZipError::FileNotFound) => bail!("Cannot find 'content.xml' file"),
-                Err(e) => bail!(e),
+                Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("content.xml")),
+                Err(e) => return Err(OdsError::Zip(e)),
             };
             let mut buf = Vec::new();
             let mut sheets = HashMap::new();
@@ -137,7 +163,7 @@ impl<RS> Ods<RS> where RS: Read + Seek {
                             .filter_map(|a| a.ok())
                             .find(|a| a.key == b"table:name")
                     {
-                        let name = a.unescape_and_decode_value(&reader)?;
+                        let name = a.unescape_and_decode_value(&reader).map_err(OdsError::Xml)?;
                         let (range, formulas) = read_table(&mut reader)?;
                         sheets.insert(name, (range, formulas));
                     },
@@ -145,7 +171,7 @@ impl<RS> Ods<RS> where RS: Read + Seek {
                         defined_names = read_named_expressions(&mut reader)?;
                     }
                     Ok(Event::Eof) => break,
-                    Err(e) => bail!(e),
+                    Err(e) => return Err(OdsError::Xml(e)),
                     _ => (),
                 }
                 buf.clear();
@@ -159,7 +185,7 @@ impl<RS> Ods<RS> where RS: Read + Seek {
     }
 }
 
-fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>)> {
+fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>), OdsError> {
     let mut cells = Vec::new();
     let mut formulas = Vec::new();
     let mut cols = Vec::new();
@@ -180,7 +206,7 @@ fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>)
                 cols.push(cells.len());
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table" => break,
-            Err(e) => bail!(e),
+            Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
         }
         buf.clear();
@@ -249,7 +275,7 @@ fn read_row(
     cell_buf: &mut Vec<u8>,
     cells: &mut Vec<DataType>,
     formulas: &mut Vec<String>,
-) -> Result<()> {
+) -> Result<(), OdsError> {
     loop {
         row_buf.clear();
         match reader.read_event(row_buf) {
@@ -262,8 +288,8 @@ fn read_row(
                 }
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table-row" => break,
-            Err(e) => bail!(e),
-            Ok(e) => bail!("Expecting 'table-cell' event, found {:?}", e),
+            Err(e) => return Err(OdsError::Xml(e)),
+            Ok(e) => return Err(OdsError::Mismatch { expected: "table-cell", found: format!("{:?}", e) }),
         }
     }
     Ok(())
@@ -276,7 +302,7 @@ fn get_datatype(
     reader: &mut OdsReader,
     atts: Attributes,
     buf: &mut Vec<u8>,
-) -> Result<(DataType, String, bool)> {
+) -> Result<(DataType, String, bool), OdsError> {
     let mut is_string = false;
     let mut is_value_set = false;
     let mut val = DataType::Empty;
@@ -286,13 +312,13 @@ fn get_datatype(
         match a.key {
             b"office:value" if !is_value_set => {
                 let v = reader.decode(&a.value);
-                val = DataType::Float(v.parse()?);
+                val = DataType::Float(v.parse().map_err(OdsError::ParseFloat)?);
                 is_value_set = true;
             }
             b"office:string-value" | b"office:date-value" | b"office:time-value"
                 if !is_value_set =>
             {
-                val = DataType::String(a.unescape_and_decode_value(reader)?);
+                val = DataType::String(a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?);
                 is_value_set = true;
             }
             b"office:boolean-value" if !is_value_set => {
@@ -301,7 +327,7 @@ fn get_datatype(
             }
             b"office:value-type" if !is_value_set => is_string = &*a.value == b"string",
             b"table:formula" => {
-                formula = a.unescape_and_decode_value(reader)?;
+                formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?;
             }
             _ => (),
         }
@@ -314,7 +340,7 @@ fn get_datatype(
             match reader.read_event(buf) {
                 Ok(Event::Text(ref e)) => {
                     return Ok((
-                        DataType::String(e.unescape_and_decode(reader)?),
+                        DataType::String(e.unescape_and_decode(reader).map_err(OdsError::Xml)?),
                         formula,
                         false,
                     ));
@@ -322,8 +348,8 @@ fn get_datatype(
                 Ok(Event::End(ref e)) if e.name() == b"table:table-cell" => {
                     return Ok((DataType::String("".to_string()), formula, true));
                 }
-                Err(e) => bail!(e),
-                Ok(Event::Eof) => bail!("Expecting 'table:table-cell' end element, found EOF"),
+                Err(e) => return Err(OdsError::Xml(e)),
+                Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),
                 _ => (),
             }
         }
@@ -332,7 +358,7 @@ fn get_datatype(
     }
 }
 
-fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)>> {
+fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)>, OdsError> {
     let mut defined_names = Vec::new();
     let mut buf = Vec::new();
     loop {
@@ -344,11 +370,11 @@ fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)
                 let mut name = String::new();
                 let mut formula = String::new();
                 for a in e.attributes() {
-                    let a = a?;
+                    let a = a.map_err(OdsError::Xml)?;
                     match a.key {
-                        b"table:name" => name = a.unescape_and_decode_value(reader)?,
+                        b"table:name" => name = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?,
                         b"table:cell-range-address" | b"table:expression" => {
-                            formula = a.unescape_and_decode_value(reader)?
+                            formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
                         }
                         _ => (),
                     }
@@ -356,13 +382,10 @@ fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)
                 defined_names.push((name, formula));
             }
             Ok(Event::End(ref e))
-                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" =>
-            {
-                ()
-            }
+                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" => {}
             Ok(Event::End(ref e)) if e.name() == b"table:named-expressions" => break,
-            Err(e) => bail!(e),
-            Ok(e) => bail!("Expecting 'table:named-expressions' event, found {:?}", e),
+            Err(e) => return Err(OdsError::Xml(e)),
+            Ok(e) => return Err(OdsError::Mismatch { expected: "table:named-expressions", found: format!("{:?}", e) }),
         }
     }
     Ok(defined_names)

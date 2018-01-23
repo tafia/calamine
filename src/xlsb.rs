@@ -13,7 +13,43 @@ use encoding_rs::UTF_16LE;
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
-use errors::*;
+use errors::CalError;
+
+#[derive(Debug, Fail)]
+pub enum XlsbError {
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)]
+    Xml(#[cause] ::quick_xml::errors::Error),
+
+    #[fail(display = "Expecting {}, got {:X}", expected, found)]
+    Mismatch { expected: &'static str, found: u16 },
+    #[fail(display = "File not found: '{}'", _0)]
+    FileNotFound(String),
+    #[fail(display = "Invalid stack length")]
+    StackLen,
+
+    #[fail(display = "Unsupported type {:X}", _0)]
+    UnsupportedType(u16),
+    #[fail(display = "Unsupported etpg {:X}", _0)]
+    Etpg(u8),
+    #[fail(display = "Unsupported iftab {:X}", _0)]
+    IfTab(usize),
+    #[fail(display = "Unsupported BErr {:X}", _0)]
+    BErr(u8),
+    #[fail(display = "Unsupported Ptg {:X}", _0)]
+    Ptg(u8),
+    #[fail(display = "Unsupported Cell Error code {:X}", _0)]
+    CellError(u8),
+    #[fail(display = "Wide str length {} exceeds buffer length {}", ws_len, buf_len)]
+    WideStr { ws_len: usize, buf_len: usize },
+}
+
+impl_error!(::std::io::Error, XlsbError, Io);
+impl_error!(::zip::result::ZipError, XlsbError, Zip);
+impl_error!(::quick_xml::errors::Error, XlsbError, Xml);
 
 pub struct Xlsb<RS> where RS: Read + Seek {
     zip: ZipArchive<RS>,
@@ -23,9 +59,9 @@ pub struct Xlsb<RS> where RS: Read + Seek {
     defined_names: Vec<(String, String)>,
 }
 
-impl<RS> Xlsb<RS>where RS: Read + Seek {
+impl<RS> Xlsb<RS> where RS: Read + Seek {
     /// MS-XLSB
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>> {
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
         let mut relationships = HashMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
@@ -63,20 +99,20 @@ impl<RS> Xlsb<RS>where RS: Read + Seek {
                             }
                         }
                         Ok(Event::Eof) => break,
-                        Err(e) => bail!(e),
+                        Err(e) => return Err(XlsbError::Xml(e)),
                         _ => (),
                     }
                     buf.clear();
                 }
             }
             Err(ZipError::FileNotFound) => (),
-            Err(e) => bail!(e),
+            Err(e) => return Err(XlsbError::Zip(e)),
         }
         Ok(relationships)
     }
 
     /// MS-XLSB 2.1.7.45
-    fn read_shared_strings(&mut self) -> Result<()> {
+    fn read_shared_strings(&mut self) -> Result<(), XlsbError> {
         let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/sharedStrings.bin") {
             Ok(iter) => iter,
             Err(_) => return Ok(()), // it is fine if path does not exists
@@ -101,7 +137,7 @@ impl<RS> Xlsb<RS>where RS: Read + Seek {
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<()> {
+    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
         let mut buf = vec![0; 1024];
 
@@ -136,7 +172,7 @@ impl<RS> Xlsb<RS>where RS: Read + Seek {
                         self.sheets.push((name.into_owned(), path));
                     }
                 }
-                typ => bail!("Expecting end of sheet, got {:x}", typ),
+                typ => return Err(XlsbError::Mismatch { expected: "end of sheet", found: typ }),
             }
         }
 
@@ -182,16 +218,16 @@ impl<RS> Xlsb<RS>where RS: Read + Seek {
                     self.defined_names = defined_names;
                     return Ok(());
                 }
-                _ => debug!("unsupported typ: 0x{:x}", typ),
+                _ => debug!("Unsupported type {:X}", typ),
             }
         }
     }
 }
 
 impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
-    fn new(reader: RS) -> Result<Self> where RS: Read + Seek {
+    fn new(reader: RS) -> Result<Self, CalError> where RS: Read + Seek {
         Ok(Xlsb {
-            zip: ZipArchive::new(reader)?,
+            zip: ZipArchive::new(reader).map_err(XlsbError::Zip)?,
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
@@ -203,13 +239,13 @@ impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+        let mut f = self.zip.by_name("xl/vbaProject.bin").map_err(XlsbError::Zip)?;
         let len = f.size() as usize;
-        VbaProject::new(&mut f, len).map(Cow::Owned)
+        Ok(VbaProject::new(&mut f, len).map(Cow::Owned)?)
     }
 
-    fn initialize(&mut self) -> Result<Metadata> {
+    fn initialize(&mut self) -> Result<Metadata, CalError> {
         self.read_shared_strings()?;
         let relationships = self.read_relationships()?;
         self.read_workbook(&relationships)?;
@@ -220,12 +256,12 @@ impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
         let path = {
             let &(_, ref path) = self.sheets
                 .iter()
                 .find(|&&(ref n, _)| n == name)
-                .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
+                .ok_or_else(|| CalError::WorksheetName(name.to_string()))?;
             path.clone()
         };
 
@@ -297,7 +333,7 @@ impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
                         0x24 => CellErrorType::Num,
                         0x2A => CellErrorType::NA,
                         0x2B => CellErrorType::GettingData,
-                        c => bail!("Unrecognised cell error code 0x{:x}", c),
+                        c => return Err(CalError::Xlsb(XlsbError::CellError(c))),
                     };
                     // BrtCellError
                     DataType::Error(error)
@@ -328,12 +364,12 @@ impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
         let path = {
             let &(_, ref path) = self.sheets
                 .iter()
                 .find(|&&(ref n, _)| n == name)
-                .ok_or_else(|| ErrorKind::WorksheetName(name.to_string()))?;
+                .ok_or_else(|| CalError::WorksheetName(name.to_string()))?;
             path.clone()
         };
 
@@ -426,24 +462,24 @@ struct RecordIter<'a> {
 }
 
 impl<'a> RecordIter<'a> {
-    fn from_zip<RS: Read + Seek>(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a>> {
+    fn from_zip<RS: Read + Seek>(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a>, XlsbError> {
         match zip.by_name(path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),
                 b: [0],
             }),
-            Err(ZipError::FileNotFound) => Err(format!("file {} does not exist", path).into()),
-            Err(e) => Err(e.into()),
+            Err(ZipError::FileNotFound) => Err(XlsbError::FileNotFound(path.into())),
+            Err(e) => Err(XlsbError::Zip(e)),
         }
     }
 
-    fn read_u8(&mut self) -> Result<u8> {
+    fn read_u8(&mut self) -> Result<u8, ::std::io::Error> {
         self.r.read_exact(&mut self.b)?;
         Ok(self.b[0])
     }
 
     /// Read next type, until we have no future record
-    fn read_type(&mut self) -> Result<u16> {
+    fn read_type(&mut self) -> Result<u16, ::std::io::Error> {
         let b = self.read_u8()?;
         let typ = if (b & 0x80) == 0x80 {
             (b & 0x7F) as u16 + (((self.read_u8()? & 0x7F) as u16) << 7)
@@ -453,7 +489,7 @@ impl<'a> RecordIter<'a> {
         Ok(typ)
     }
 
-    fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
+    fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize, ::std::io::Error> {
         let mut b = self.read_u8()?;
         let mut len = (b & 0x7F) as usize;
         for i in 1..4 {
@@ -477,7 +513,7 @@ impl<'a> RecordIter<'a> {
         record_type: u16,
         bounds: &[(u16, Option<u16>)],
         buf: &mut Vec<u8>,
-    ) -> Result<usize> {
+    ) -> Result<usize, XlsbError> {
         loop {
             let typ = self.read_type()?;
             let len = self.fill_buffer(buf)?;
@@ -494,14 +530,10 @@ impl<'a> RecordIter<'a> {
     }
 }
 
-fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>> {
+fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>, XlsbError> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
-        bail!(
-            "Wide string length ({}) exceeds buffer length ({})",
-            4 + len * 2,
-            buf.len()
-        );
+        return Err(XlsbError::WideStr { ws_len: 4 + len * 2, buf_len: buf.len() });
     }
     *str_len = 4 + len * 2;
     let s = &buf[4..*str_len];
@@ -521,7 +553,7 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 /// [MS-XLSB 2.5.97]
 ///
 /// See Ptg [2.5.97.16]
-fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String> {
+fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String, XlsbError> {
     if rgce.is_empty() {
         return Ok(String::new());
     }
@@ -589,9 +621,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
             }
             0x03...0x11 => {
                 // binary operation
-                let e2 = stack
-                    .pop()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e2 = stack.pop().ok_or(XlsbError::StackLen)?;
                 let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
                 let op = match ptg {
@@ -616,24 +646,18 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 formula.push_str(&e2);
             }
             0x12 => {
-                let e = stack
-                    .last()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e = stack.last().ok_or(XlsbError::StackLen)?;
                 formula.insert(*e, '+');
             }
             0x13 => {
-                let e = stack
-                    .last()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e = stack.last().ok_or(XlsbError::StackLen)?;
                 formula.insert(*e, '-');
             }
             0x14 => {
                 formula.push('%');
             }
             0x15 => {
-                let e = stack
-                    .last()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e = stack.last().ok_or(XlsbError::StackLen)?;
                 formula.insert(*e, '(');
                 formula.push(')');
             }
@@ -655,7 +679,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 match eptg {
                     0x19 => rgce = &rgce[12..],
                     0x1D => rgce = &rgce[4..],
-                    e => bail!("Unsupported eptg: 0x{:x}", e),
+                    e => return Err(XlsbError::Etpg(e)),
                 }
             }
             0x19 => {
@@ -666,15 +690,13 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     0x04 => rgce = &rgce[10..],
                     0x10 => {
                         rgce = &rgce[2..];
-                        let e = *stack
-                            .last()
-                            .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
-                        let e = formula.split_off(e);
+                        let e = stack.last().ok_or(XlsbError::StackLen)?;
+                        let e = formula.split_off(*e);
                         formula.push_str("SUM(");
                         formula.push_str(&e);
                         formula.push(')');
                     }
-                    e => bail!("Unsupported eptg: 0x{:x}", e),
+                    e => return Err(XlsbError::Etpg(e)),
                 }
             }
             0x1C => {
@@ -690,7 +712,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     0x24 => formula.push_str("#NUM!"),
                     0x2A => formula.push_str("#N/A"),
                     0x2B => formula.push_str("#GETTING_DATA"),
-                    e => bail!("Unrecognosed BErr 0x{:x}", e),
+                    e => return Err(XlsbError::BErr(e)),
                 }
             }
             0x1D => {
@@ -724,7 +746,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     _ => {
                         let iftab = read_u16(rgce) as usize;
                         if iftab > ::utils::FTAB_LEN {
-                            bail!("Invalid iftab");
+                            return Err(XlsbError::IfTab(iftab));
                         }
                         rgce = &rgce[2..];
                         let argc = ::utils::FTAB_ARGC[iftab] as usize;
@@ -732,7 +754,7 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                     }
                 };
                 if stack.len() < argc {
-                    bail!("Invalid formula, stack is too small");
+                    return Err(XlsbError::StackLen);
                 }
                 if argc > 0 {
                     let args_start = stack.len() - argc;
@@ -816,14 +838,12 @@ fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)])
                 formula.push_str("EXTERNAL_WB_NAME");
                 rgce = &rgce[6..];
             }
-            _ => bail!("Unsupported ptg: 0x{:x}, current stack: '{}'", ptg, formula),
+            _ => return Err(XlsbError::Ptg(ptg)),
         }
     }
 
     if stack.len() != 1 {
-        Err(
-            format!("Invalid formula, final stack size: {}", stack.len()).into(),
-        )
+        Err(XlsbError::StackLen)
     } else {
         Ok(formula)
     }

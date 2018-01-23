@@ -63,7 +63,7 @@
 extern crate byteorder;
 extern crate encoding_rs;
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
 #[macro_use]
 extern crate serde;
 extern crate quick_xml;
@@ -72,17 +72,18 @@ extern crate zip;
 #[macro_use]
 extern crate log;
 
-mod de;
-pub mod vba;
-
+#[macro_use]
+mod utils;
 mod datatype;
 mod errors;
-mod utils;
 mod xlsb;
 mod xlsx;
 mod xls;
 mod cfb;
 mod ods;
+
+mod de;
+pub mod vba;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -90,12 +91,11 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
-use std::str::FromStr;
 use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
-pub use de::{RangeDeserializerBuilder, RangeDeserializer, ToCellDeserializer};
-pub use errors::*;
+pub use de::{DeError, RangeDeserializerBuilder, RangeDeserializer, ToCellDeserializer};
+use errors::CalError;
 
 use vba::VbaProject;
 
@@ -122,24 +122,8 @@ pub enum CellErrorType {
     GettingData,
 }
 
-impl FromStr for CellErrorType {
-    type Err = errors::Error;
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "#DIV/0!" => Ok(CellErrorType::Div0),
-            "#N/A" => Ok(CellErrorType::NA),
-            "#NAME?" => Ok(CellErrorType::Name),
-            "#NULL!" => Ok(CellErrorType::Null),
-            "#NUM!" => Ok(CellErrorType::Num),
-            "#REF!" => Ok(CellErrorType::Ref),
-            "#VALUE!" => Ok(CellErrorType::Value),
-            _ => Err(format!("Unsupported error '{}'", s).into()),
-        }
-    }
-}
-
 impl fmt::Display for CellErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             CellErrorType::Div0 => write!(f, "#DIV/0!"),
             CellErrorType::NA => write!(f, "#N/A"),
@@ -212,15 +196,15 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
     /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     /// assert!(Sheets::<File>::open(path).is_ok());
     /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>, CalError> {
         let f: File = File::open(&path)?;
         let file: FileType<File> = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
             Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
             Some("ods") => FileType::Ods(ods::Ods::new(f)?),
-            Some(e) => bail!(ErrorKind::InvalidExtension(e.to_string())),
-            None => bail!(ErrorKind::InvalidExtension("".to_string())),
+            Some(e) => return Err(CalError::InvalidExtension(e.to_string())),
+            None => return Err(CalError::InvalidExtension("".to_string())),
         };
         Ok(Sheets {
             file: file,
@@ -230,13 +214,13 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
 
     /// Creates a new workbook from a reader.
     /// ```
-    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>> where RS: Read + Seek {
+    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>, CalError> where RS: Read + Seek {
         let filetype = match extension {
             "xls" | "xla" => FileType::Xls(xls::Xls::new(reader)?),
             "xlsx" | "xlsm" | "xlam" => FileType::Xlsx(xlsx::Xlsx::new(reader)?),
             "xlsb" => FileType::Xlsb(xlsb::Xlsb::new(reader)?),
             "ods" => FileType::Ods(ods::Ods::new(reader)?),
-            _ => bail!(ErrorKind::InvalidExtension("".to_string())),
+            _ => return Err(CalError::InvalidExtension("".to_string())),
         };
         Ok(Sheets {
             file: filetype,
@@ -256,7 +240,7 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
+    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
         self.initialize()?;
         inner!(self, read_worksheet_range(name))
     }
@@ -273,7 +257,7 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
     /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
         self.initialize()?;
         inner!(self, read_worksheet_formula(name))
     }
@@ -290,16 +274,16 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>> {
+    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>, CalError> {
         self.initialize()?;
         let name = self.metadata
             .sheets
             .get(idx)
-            .ok_or_else(|| ErrorKind::WorksheetIndex(idx))?;
+            .ok_or_else(|| CalError::WorksheetIndex { idx: idx })?;
         inner!(self, read_worksheet_range(name))
     }
 
-    fn initialize(&mut self) -> Result<()> {
+    fn initialize(&mut self) -> Result<(), CalError> {
         if self.metadata.sheets.is_empty() {
             self.metadata = inner!(self, initialize())?;
         }
@@ -326,7 +310,7 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
     ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
     /// ```
-    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
+    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
         inner!(self, vba_project())
     }
 
@@ -341,13 +325,13 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
     /// let mut workbook = Sheets::<File>::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<String>> {
+    pub fn sheet_names(&mut self) -> Result<Vec<String>, CalError> {
         self.initialize()?;
         Ok(self.metadata.sheets.clone())
     }
 
     /// Get all defined names (Ranges names etc)
-    pub fn defined_names(&mut self) -> Result<&[(String, String)]> {
+    pub fn defined_names(&mut self) -> Result<&[(String, String)], CalError> {
         self.initialize()?;
         Ok(&self.metadata.defined_names)
     }
@@ -358,21 +342,17 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
 /// A trait to share spreadsheets reader functions accross different `FileType`s
 trait Reader<RS>: Sized where RS: Read + Seek {
     /// Creates a new instance.
-    fn new(reader: RS) -> Result<Self>;
+    fn new(reader: RS) -> Result<Self, CalError>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>>;
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError>;
     /// Initialize
-    fn initialize(&mut self) -> Result<Metadata>;
+    fn initialize(&mut self) -> Result<Metadata, CalError>;
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError>;
     /// Read worksheet formula in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>> {
-        Err(
-            "Formula reading is not implemented for this extension".into(),
-        )
-    }
+    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>, CalError>;
 }
 
 /// A trait to constrain cells
@@ -524,9 +504,9 @@ impl<T: CellType> Range<T> {
     ///     .expect("Cannot set value at position (2, 1)");
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<()> {
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<(), CalError> {
         if self.start > absolute_position {
-            bail!(ErrorKind::CellOutOfRange(absolute_position, self.start));
+            return Err(CalError::CellOutOfRange { try_pos: absolute_position, min_pos: self.start });
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
@@ -640,7 +620,7 @@ impl<T: CellType> Range<T> {
     ///     }
     /// }
     /// ```
-    pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>>
+    pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>, DeError>
         where T: ToCellDeserializer<'a>,
               D: DeserializeOwned,
     {

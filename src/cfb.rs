@@ -6,12 +6,29 @@ use std::io::Read;
 
 use encoding_rs::{Encoding, UTF_16LE};
 
-use errors::*;
 use utils::*;
 
 const ENDOFCHAIN: u32 = 0xFFFFFFFE;
 const FREESECT: u32 = 0xFFFFFFFF;
 const RESERVED_SECTORS: u32 = 0xFFFFFFFA;
+
+/// A Cfb specific error enum
+#[derive(Debug, Fail)]
+pub enum CfbError {
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
+
+    #[fail(display = "Invalid OLE signature (not an office document?)")]
+    Ole,
+    #[fail(display = "Empty Root directory")]
+    EmptyRootDir,
+    #[fail(display = "Cannot find {} stream", _0)]
+    StreamNotFound(String),
+    #[fail(display = "Invalid {}, expecting {} found {:X}", name, expected, found)]
+    Invalid { name: &'static str, expected: &'static str, found: u16 },
+    #[fail(display = "Codepage {:X} not found", _0)]
+    CodePageNotFound(u16),
+}
 
 /// A struct for managing Compound File Binary format
 #[derive(Debug, Clone)]
@@ -27,7 +44,7 @@ impl Cfb {
     /// Create a new `Cfb`
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
-    pub fn new<R: Read>(mut reader: &mut R, len: usize) -> Result<Cfb> {
+    pub fn new<R: Read>(mut reader: &mut R, len: usize) -> Result<Cfb, CfbError> {
         // load header
         let (h, mut difat) = Header::from_reader(&mut reader)?;
         let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
@@ -52,10 +69,10 @@ impl Cfb {
         let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * h.sector_size)?;
         let dirs = dirs.chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Vec<_>>();
 
         if dirs.is_empty() || (h.version != 3 && dirs[0].start == ENDOFCHAIN) {
-            bail!("Unexpected empty root directory");
+            return Err(CfbError::EmptyRootDir);
         }
         debug!("{:?}", dirs);
 
@@ -80,17 +97,12 @@ impl Cfb {
     }
 
     /// Gets a stream by name out of directories
-    pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>> {
+    pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>, CfbError> {
         match self.directories.iter().find(|d| &*d.name == name) {
-            None => Err(format!("Cannot find {} stream", name).into()),
+            None => Err(CfbError::StreamNotFound(name.to_string())),
             Some(d) => {
-                if d.len < 4096 {
-                    // TODO: Study the possibility to return a `VecArray` (stack allocated)
-                    self.mini_sectors
-                        .get_chain(d.start, &self.mini_fats, r, d.len)
-                } else {
-                    self.sectors.get_chain(d.start, &self.fats, r, d.len)
-                }
+                let fats = if d.len < 4096 { &self.mini_fats } else { &self.fats };
+                self.sectors.get_chain(d.start, fats, r, d.len)
             }
         }
     }
@@ -110,13 +122,13 @@ struct Header {
 }
 
 impl Header {
-    fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>)> {
+    fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>), CfbError> {
         let mut buf = [0u8; 512];
-        f.read_exact(&mut buf)?;
+        f.read_exact(&mut buf).map_err(CfbError::Io)?;
 
         // check ole signature
         if read_slice::<u64>(buf.as_ref()) != 0xE11AB1A1E011CFD0 {
-            bail!("invalid OLE signature (not an office document?)");
+            return Err(CfbError::Ole);
         }
 
         let version = read_u16(&buf[26..28]);
@@ -127,14 +139,14 @@ impl Header {
                 // sector size is 4096 bytes, but header is 512 bytes,
                 // so the remaining sector bytes have to be read
                 let mut buf_end = [0u8; 3584];
-                f.read_exact(&mut buf_end)?;
+                f.read_exact(&mut buf_end).map_err(CfbError::Io)?;
                 4096
             }
-            s => bail!("Invalid sector shift, expecting 0x09 or 0x0C, got {:x}", s),
+            s => return Err(CfbError::Invalid {name:"sector shift", expected:"0x09 or 0x0C", found:s}),
         };
 
         if read_u16(&buf[32..34]) != 0x0006 {
-            bail!("Invalid minisector shift");
+            return Err(CfbError::Invalid { name:"minisector shift", expected:"0x06", found:read_u16(&buf[32..34])});
         }
 
         let dir_len = read_usize(&buf[40..44]);
@@ -181,7 +193,7 @@ impl Sectors {
         }
     }
 
-    fn get<R: Read>(&mut self, id: u32, r: &mut R) -> Result<&[u8]> {
+    fn get<R: Read>(&mut self, id: u32, r: &mut R) -> Result<&[u8], CfbError> {
         let start = id as usize * self.size;
         let end = start + self.size;
         if end > self.data.len() {
@@ -189,7 +201,7 @@ impl Sectors {
             unsafe {
                 self.data.set_len(end);
             }
-            r.read_exact(&mut self.data[len..end])?;
+            r.read_exact(&mut self.data[len..end]).map_err(CfbError::Io)?;
         }
         Ok(&self.data[start..end])
     }
@@ -200,7 +212,7 @@ impl Sectors {
         fats: &[u32],
         r: &mut R,
         len: usize,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<Vec<u8>, CfbError> {
         let mut chain = if len > 0 {
             Vec::with_capacity(len)
         } else {
@@ -226,7 +238,7 @@ struct Directory {
 }
 
 impl Directory {
-    fn from_slice(buf: &[u8], sector_size: usize) -> Result<Directory> {
+    fn from_slice(buf: &[u8], sector_size: usize) -> Directory {
         let mut name = UTF_16LE.decode(&buf[..64]).0.into_owned();
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
@@ -238,16 +250,16 @@ impl Directory {
             read_slice::<u64>(&buf[120..128]) as usize
         };
 
-        Ok(Directory {
+        Directory {
             start: start,
             len: len,
             name: name,
-        })
+        }
     }
 }
 
 /// Decompresses stream
-pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
+pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
     const POWER_2: [usize; 16] = [
         1,
         1 << 1,
@@ -271,7 +283,7 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>> {
     let mut res = Vec::new();
 
     if s[0] != 0x01 {
-        bail!("invalid signature byte");
+        return Err(CfbError::Invalid { name:"signature", expected:"0x01", found: s[0] as u16});
     }
 
     let mut i = 1;
@@ -350,11 +362,9 @@ pub struct XlsEncoding {
 }
 
 impl XlsEncoding {
-    pub fn from_codepage(codepage: u16) -> Result<XlsEncoding> {
-        let e = match encoding_from_windows_code_page(codepage as usize) {
-            Some(e) => e,
-            None => bail!("Cannot find {} codepage", codepage),
-        };
+    pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
+        let e = encoding_from_windows_code_page(codepage as usize)
+            .ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
         let high_byte = match codepage {
             20127 |
             65000 |
@@ -375,7 +385,7 @@ impl XlsEncoding {
         })
     }
 
-    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut String) -> Result<(usize, usize)> {
+    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut String) -> (usize, usize) {
         let (l, ub, bytes) = match self.high_byte {
             None => {
                 let l = min(stream.len(), len);
@@ -398,12 +408,12 @@ impl XlsEncoding {
         };
 
         s.push_str(&self.encoding.decode(&bytes).0);
-        Ok((l, ub))
+        (l, ub)
     }
 
-    pub fn decode_all(&self, stream: &[u8]) -> Result<String> {
+    pub fn decode_all(&self, stream: &[u8]) -> String {
         let mut s = String::with_capacity(stream.len());
-        let _ = self.decode_to(stream, stream.len(), &mut s)?;
-        Ok(s)
+        let _ = self.decode_to(stream, stream.len(), &mut s);
+        s
     }
 }

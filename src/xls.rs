@@ -4,11 +4,42 @@ use std::io::{Read, Seek};
 use std::borrow::Cow;
 use std::cmp::min;
 
-use errors::*;
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{push_column, read_slice, read_u16, read_u32};
+use errors::CalError;
+
+#[derive(Fail, Debug)]
+/// An enum to handle Xls specific errors
+pub enum XlsError {
+    #[fail(display = "{}", _0)]
+    Cfb(#[cause] ::cfb::CfbError),
+
+    #[fail(display = "Invalid stack length")]
+    StackLen,
+    #[fail(display = "Unrecognized {}: 0x{:0X}", typ, val)]
+    Unrecognized { typ: &'static str, val: u8 },
+    #[fail(display = "Workbook is password protected")]
+    Password,
+    #[fail(display = "Invalid {} length, expected {} maximum, found {}", typ, expected, found)]
+    Len { expected: usize, found: usize, typ: &'static str },
+    #[fail(display = "Continued record too short while reading extended string")]
+    ContinueRecordTooShort,
+    #[fail(display = "End of stream for {}", _0)]
+    EoStream(&'static str),
+
+    #[fail(display = "Invalid formula (stack size: {})", stack_size)]
+    InvalidFormula { stack_size: usize },
+    #[fail(display = "Invalid iftab {:X}", _0)]
+    IfTab(usize),
+    #[fail(display = "Invalid etpg {:X}", _0)]
+    Etpg(u8),
+    #[fail(display = "No VBA project")]
+    NoVba,
+}
+
+impl_error!(::cfb::CfbError, XlsError, Cfb);
 
 enum SheetsState<RS> where RS: Read + Seek {
     NotParsed(RS, Cfb),
@@ -22,11 +53,11 @@ pub struct Xls<RS> where RS: Read + Seek {
 }
 
 impl<RS> Reader<RS> for Xls<RS> where RS: Read + Seek {
-    fn new(mut reader: RS) -> Result<Self> where RS: Read + Seek {
+    fn new(mut reader: RS) -> Result<Self, CalError> where RS: Read + Seek {
         let mut cfb = {
             let offset_end = reader.seek(SeekFrom::End(0))? as usize;
             reader.seek(SeekFrom::Start(0))?;
-            Cfb::new(&mut reader, offset_end)?
+            Cfb::new(&mut reader, offset_end).map_err(XlsError::Cfb)?
         };
 
         // Reads vba once for all (better than reading all worksheets once for all)
@@ -46,15 +77,15 @@ impl<RS> Reader<RS> for Xls<RS> where RS: Read + Seek {
         self.vba.is_some()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        self.vba
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+        Ok(self.vba
             .as_ref()
             .map(|vba| Cow::Borrowed(vba))
-            .ok_or_else(|| "No vba project".into())
+            .ok_or(XlsError::NoVba)?)
     }
 
     /// Parses Workbook stream, no need for the relationships variable
-    fn initialize(&mut self) -> Result<Metadata> {
+    fn initialize(&mut self) -> Result<Metadata, CalError> {
         let defined_names = self.parse_workbook()?;
         let sheets = match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
@@ -66,29 +97,29 @@ impl<RS> Reader<RS> for Xls<RS> where RS: Read + Seek {
         })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => shs.get(name)
-                .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
-                .map(|r| r.0.clone()),
+                .map(|r| r.0.clone())
+                .ok_or(CalError::WorksheetName(name.into())),
         }
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => shs.get(name)
-                .ok_or_else(|| format!("Sheet '{}' does not exist", name).into())
-                .map(|r| r.1.clone()),
+                .map(|r| r.1.clone())
+                .ok_or(CalError::WorksheetName(name.into()))
         }
     }
 }
 
 impl<RS> Xls<RS> where RS: Read + Seek {
-    fn parse_workbook(&mut self) -> Result<Vec<(String, String)>> {
+    fn parse_workbook(&mut self) -> Result<Vec<(String, String)>, XlsError> {
         // gets workbook and worksheets stream, or early exit
         let stream = match self.sheets {
             SheetsState::NotParsed(ref mut reader, ref mut cfb) => {
@@ -109,9 +140,7 @@ impl<RS> Xls<RS> where RS: Read + Seek {
             for record in records {
                 let mut r = record?;
                 match r.typ {
-                    0x0012 => if read_u16(r.data) != 0 {
-                        bail!("Workbook is password protected");
-                    },
+                    0x0012 if read_u16(r.data) != 0 => return Err(XlsError::Password),
                     0x0042 => encoding = XlsEncoding::from_codepage(read_u16(r.data))?, // CodePage
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
@@ -127,7 +156,7 @@ impl<RS> Xls<RS> where RS: Read + Seek {
                         let mut cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
                         let name =
-                            read_unicode_string_no_cch(&mut encoding, &r.data[14..], &mut cch)?;
+                            read_unicode_string_no_cch(&mut encoding, &r.data[14..], &mut cch);
                         let rgce = &r.data[r.data.len() - cce..];
                         let formula = parse_defined_names(rgce)?;
                         defined_names.push((name, formula));
@@ -222,15 +251,15 @@ impl<RS> Xls<RS> where RS: Read + Seek {
 }
 
 /// BoundSheet8 [MS-XLS 2.4.28]
-fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize, String)> {
+fn parse_sheet_name(r: &mut Record, encoding: &mut XlsEncoding) -> Result<(usize, String), XlsError> {
     let pos = read_u32(r.data) as usize;
     r.data = &r.data[6..];
     parse_short_string(r, encoding).map(|s| (pos, s))
 }
 
-fn parse_number(r: &[u8]) -> Result<Cell<DataType>> {
+fn parse_number(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 14 {
-        bail!("Invalid number length");
+        return Err(XlsError::Len { typ: "number", expected: 14, found: r.len() });
     }
     let row = read_u16(r) as u32;
     let col = read_u16(&r[2..]) as u32;
@@ -238,9 +267,9 @@ fn parse_number(r: &[u8]) -> Result<Cell<DataType>> {
     Ok(Cell::new((row, col), DataType::Float(v)))
 }
 
-fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>> {
+fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 8 {
-        bail!("Invalid BoolErr length");
+        return Err(XlsError::Len { typ: "BoolErr", expected: 8, found: r.len() });
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
@@ -255,16 +284,16 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>> {
             0x24 => DataType::Error(CellErrorType::Num),
             0x2A => DataType::Error(CellErrorType::NA),
             0x2B => DataType::Error(CellErrorType::GettingData),
-            e => bail!("Unrecognized error {:x}", e),
+            e => return Err(XlsError::Unrecognized { typ: "error", val: e }),
         },
-        e => bail!("Unrecognized fError {:x}", e),
+        e => return Err(XlsError::Unrecognized { typ: "fError", val: e }),
     };
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
-fn parse_rk(r: &[u8]) -> Result<Cell<DataType>> {
+fn parse_rk(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 10 {
-        bail!("Invalid rk length");
+        return Err(XlsError::Len { typ: "rk", expected: 10, found: r.len() });
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
@@ -286,9 +315,9 @@ fn parse_rk(r: &[u8]) -> Result<Cell<DataType>> {
 }
 
 /// ShortXLUnicodeString [MS-XLS 2.5.240]
-fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
+fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String, XlsError> {
     if r.data.len() < 2 {
-        bail!("Invalid short string length");
+        return Err(XlsError::Len { typ: "short string", expected: 2, found: r.data.len() });
     }
     let cch = r.data[0] as usize;
     if let Some(ref mut b) = encoding.high_byte {
@@ -296,13 +325,13 @@ fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Stri
     }
     r.data = &r.data[2..];
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(r.data, cch, &mut s)?;
+    let _ = encoding.decode_to(r.data, cch, &mut s);
     Ok(s)
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>> {
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 10 {
-        bail!("Invalid short string length");
+        return Err(XlsError::Len { typ: "label sst", expected: 10, found: r.len() });
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
@@ -313,7 +342,7 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>> {
     ))
 }
 
-fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
+fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsError> {
     let (rf, rl, cf, cl) = match r.len() {
         10 => (
             read_u16(&r[0..2]) as u32,
@@ -327,7 +356,7 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
             read_u16(&r[8..10]) as u32,
             read_u16(&r[10..12]) as u32,
         ),
-        _ => bail!("Invalid dimensions lengths"),
+        _ => return Err(XlsError::Len { typ: "dimensions", expected: 14, found: r.len() }),
     };
     if (1, 1) <= (rl, cl) {
         Ok(((rf, cf), (rl - 1, cl - 1)))
@@ -336,9 +365,9 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32))> {
     }
 }
 
-fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> {
+fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>, XlsError> {
     if r.data.len() < 8 {
-        bail!("Invalid sst length");
+        return Err(XlsError::Len { typ: "sst", expected: 8, found: r.data.len() });
     }
     let len = read_slice::<i32>(&r.data[4..]) as usize;
     let mut sst = Vec::with_capacity(len);
@@ -349,9 +378,9 @@ fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>> 
     Ok(sst)
 }
 
-fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String> {
+fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String, XlsError> {
     if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
-        bail!("Invalid rich extended string length");
+        return Err(XlsError::Len { typ: "rick extended string", expected: 3, found: r.data.len() } );
     }
 
     let str_len = read_u16(r.data) as usize;
@@ -380,7 +409,7 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
 
     while unused_len > 0 {
         if r.data.is_empty() && !r.continue_record() {
-            bail!("continued record too short while reading extended string");
+            return Err(XlsError::ContinueRecordTooShort);
         }
         let l = min(unused_len, r.data.len());
         let (_, next) = r.data.split_at(l);
@@ -391,10 +420,10 @@ fn read_rich_extended_string(r: &mut Record, encoding: &mut XlsEncoding) -> Resu
     Ok(s)
 }
 
-fn read_dbcs(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String> {
+fn read_dbcs(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Result<String, XlsError> {
     let mut s = String::with_capacity(len);
     while len > 0 {
-        let (l, at) = encoding.decode_to(r.data, len, &mut s)?;
+        let (l, at) = encoding.decode_to(r.data, len, &mut s);
         r.data = &r.data[at..];
         len -= l;
         if len > 0 {
@@ -404,7 +433,7 @@ fn read_dbcs(encoding: &mut XlsEncoding, mut len: usize, r: &mut Record) -> Resu
                 }
                 r.data = &r.data[1..];
             } else {
-                bail!("Cannot decode entire dbcs stream");
+                return Err(XlsError::EoStream("dbcs"));
             }
         }
     }
@@ -415,7 +444,7 @@ fn read_unicode_string_no_cch(
     encoding: &mut XlsEncoding,
     buf: &[u8],
     len: &mut usize,
-) -> Result<String> {
+) -> String {
     let mut s = String::new();
     if let Some(ref mut b) = encoding.high_byte {
         *b = buf[0] & 0x1 != 0;
@@ -423,8 +452,8 @@ fn read_unicode_string_no_cch(
             *len *= 2;
         }
     }
-    let _ = encoding.decode_to(&buf[1..*len + 1], *len, &mut s)?;
-    Ok(s)
+    let _ = encoding.decode_to(&buf[1..*len + 1], *len, &mut s);
+    s
 }
 
 struct Record<'a> {
@@ -452,21 +481,19 @@ struct RecordIter<'a> {
 }
 
 impl<'a> Iterator for RecordIter<'a> {
-    type Item = Result<Record<'a>>;
+    type Item = Result<Record<'a>, XlsError>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.stream.len() < 4 {
             return if self.stream.is_empty() {
                 None
             } else {
-                Some(Err(
-                    "Expecting record type and length, found end of stream".into(),
-                ))
+                Some(Err(XlsError::EoStream("record type and length")))
             };
         }
         let t = read_u16(self.stream);
         let mut len = read_u16(&self.stream[2..]) as usize;
         if self.stream.len() < len + 4 {
-            return Some(Err("Expecting record length, found end of stream".into()));
+            return Some(Err(XlsError::EoStream("record length")))
         }
         let (data, next) = self.stream.split_at(len + 4);
         self.stream = next;
@@ -478,9 +505,7 @@ impl<'a> Iterator for RecordIter<'a> {
             while self.stream.len() > 4 && read_u16(self.stream) == 0x003C {
                 len = read_u16(&self.stream[2..]) as usize;
                 if self.stream.len() < len + 4 {
-                    return Some(Err(
-                        "Expecting continue record length, found end of stream".into(),
-                    ));
+                    return Some(Err(XlsError::EoStream("continue record length")))
                 }
                 let sp = self.stream.split_at(len + 4);
                 cont.push(&sp.0[4..]);
@@ -502,7 +527,7 @@ impl<'a> Iterator for RecordIter<'a> {
 /// Formula parsing
 ///
 /// Does not implement ALL possibilities, only Area are parsed
-fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String)> {
+fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError> {
     if rgce.is_empty() {
         // TODO: do something better here ...
         return Ok((None, "empty rgce".to_string()));
@@ -554,7 +579,7 @@ fn parse_formula(
     sheets: &[String],
     names: &[(String, String)],
     encoding: &mut XlsEncoding,
-) -> Result<String> {
+) -> Result<String, XlsError> {
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
     let cce = read_u16(rgce) as usize;
@@ -622,7 +647,7 @@ fn parse_formula(
                 // binary operation
                 let e2 = stack
                     .pop()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                    .ok_or(XlsError::StackLen)?;
                 let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
                 let op = match ptg {
@@ -647,24 +672,18 @@ fn parse_formula(
                 formula.push_str(&e2);
             }
             0x12 => {
-                let e = stack
-                    .last()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e = stack.last().ok_or(XlsError::StackLen)?;
                 formula.insert(*e, '+');
             }
             0x13 => {
-                let e = stack
-                    .last()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e = stack.last().ok_or(XlsError::StackLen)?;
                 formula.insert(*e, '-');
             }
             0x14 => {
                 formula.push('%');
             }
             0x15 => {
-                let e = stack
-                    .last()
-                    .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                let e = stack.last().ok_or(XlsError::StackLen)?;
                 formula.insert(*e, '(');
                 formula.push(')');
             }
@@ -675,7 +694,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let mut cch = rgce[0] as usize;
-                formula.push_str(&read_unicode_string_no_cch(encoding, &rgce[1..], &mut cch)?);
+                formula.push_str(&read_unicode_string_no_cch(encoding, &rgce[1..], &mut cch));
                 formula.push('\"');
                 rgce = &rgce[2 + cch..];
             }
@@ -693,13 +712,13 @@ fn parse_formula(
                         rgce = &rgce[2..];
                         let e = *stack
                             .last()
-                            .ok_or_else::<Error, _>(|| "Invalid stack length".into())?;
+                            .ok_or(XlsError::StackLen)?;
                         let e = formula.split_off(e);
                         formula.push_str("SUM(");
                         formula.push_str(&e);
                         formula.push(')');
                     }
-                    e => bail!("Unsupported etpg: 0x{:x}", e),
+                    e => return Err(XlsError::Etpg(e)),
                 }
             }
             0x1C => {
@@ -715,7 +734,7 @@ fn parse_formula(
                     0x24 => formula.push_str("#NUM!"),
                     0x2A => formula.push_str("#N/A"),
                     0x2B => formula.push_str("#GETTING_DATA"),
-                    e => bail!("Unrecognosed BErr 0x{:x}", e),
+                    e => return Err(XlsError::Unrecognized { typ: "BErr", val: e }),
                 }
             }
             0x1D => {
@@ -749,7 +768,7 @@ fn parse_formula(
                     _ => {
                         let iftab = read_u16(rgce) as usize;
                         if iftab > ::utils::FTAB_LEN {
-                            bail!("Invalid iftab");
+                            return Err(XlsError::IfTab(iftab));
                         }
                         rgce = &rgce[2..];
                         let argc = ::utils::FTAB_ARGC[iftab] as usize;
@@ -757,7 +776,7 @@ fn parse_formula(
                     }
                 };
                 if stack.len() < argc {
-                    bail!("Invalid formula, stack is too small");
+                    return Err(XlsError::StackLen);
                 }
                 if argc > 0 {
                     let args_start = stack.len() - argc;
@@ -826,13 +845,11 @@ fn parse_formula(
                 formula.push_str("#REF!");
                 rgce = &rgce[8..];
             }
-            _ => bail!("Unsupported ptg: 0x{:x}", ptg),
+            _ => return Err(XlsError::Unrecognized { typ: "ptg", val: ptg }),
         }
     }
     if stack.len() != 1 {
-        Err(
-            format!("Invalid formula, final stack size: {}", stack.len()).into(),
-        )
+        Err(XlsError::InvalidFormula { stack_size:stack.len() })
     } else {
         Ok(formula)
     }

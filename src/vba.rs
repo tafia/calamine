@@ -10,9 +10,45 @@ use std::collections::HashMap;
 use byteorder::{LittleEndian, ReadBytesExt};
 use log::Level;
 
-use errors::*;
 use cfb::{Cfb, XlsEncoding};
 use utils::read_u16;
+
+/// A VBA specific error enum
+#[derive(Debug, Fail)]
+pub enum VbaError {
+    /// Error comes from a cfb parsing
+    #[fail(display = "{}", _0)]
+    Cfb(#[cause] ::cfb::CfbError),
+    /// Io error
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
+
+    /// Cannot find module
+    #[fail(display = "Cannot find module '{}'", _0)]
+    ModuleNotFound(String),
+    /// Generic unknown u16 value
+    #[fail(display = "Unknown {} '{:X}'", typ, val)]
+    Unknown {
+        /// error type
+        typ: &'static str,
+        /// value found
+        val: u16
+    },
+    /// Invalid libid format
+    #[fail(display = "Unexpected libid format")]
+    LibId,
+    /// Invalid record id
+    #[fail(display = "Invalid record id: expecting {:X} found {:X}", expected, found)]
+    InvalidRecordId {
+        /// expected record id
+        expected: u16,
+        /// record if found
+        found: u16
+    },
+}
+
+impl_error!(::cfb::CfbError, VbaError, Cfb);
+impl_error!(::std::io::Error, VbaError, Io);
 
 /// A struct for managing VBA reading
 #[allow(dead_code)]
@@ -27,13 +63,13 @@ impl VbaProject {
     /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile` or xls file
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
-    pub fn new<R: Read>(r: &mut R, len: usize) -> Result<VbaProject> {
+    pub fn new<R: Read>(r: &mut R, len: usize) -> Result<VbaProject, VbaError> {
         let mut cfb = Cfb::new(r, len)?;
         VbaProject::from_cfb(r, &mut cfb)
     }
 
     /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
-    pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject> {
+    pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
         let stream = ::cfb::decompress_stream(&*stream)?;
@@ -55,7 +91,7 @@ impl VbaProject {
                     ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
                 })
             })
-            .collect::<Result<HashMap<_, _>>>()?;
+            .collect::<Result<HashMap<_, _>, _>>()?;
 
         Ok(VbaProject {
             references: refs,
@@ -97,17 +133,17 @@ impl VbaProject {
     ///                       .expect(&format!("cannot read {:?} module", m)));
     /// }
     /// ```
-    pub fn get_module(&self, name: &str) -> Result<String> {
+    pub fn get_module(&self, name: &str) -> Result<String, VbaError> {
         debug!("read module {}", name);
         let data = self.get_module_raw(name)?;
-        self.encoding.decode_all(data)
+        Ok(self.encoding.decode_all(data))
     }
 
     /// Reads module content (MBSC encoded) and output it as-is (binary output)
-    pub fn get_module_raw(&self, name: &str) -> Result<&[u8]> {
+    pub fn get_module_raw(&self, name: &str) -> Result<&[u8], VbaError> {
         match self.modules.get(name) {
             Some(m) => Ok(&**m),
-            None => bail!("Cannot find module {}", name),
+            None => return Err(VbaError::ModuleNotFound(name.into())),
         }
     }
 }
@@ -130,7 +166,7 @@ impl Reference {
     }
 
     /// Gets the list of references from the dir_stream relevant part
-    fn from_stream(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Reference>> {
+    fn from_stream(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Reference>, VbaError> {
         debug!("read all references metadata");
 
         let mut references = Vec::new();
@@ -156,10 +192,7 @@ impl Reference {
                         references.push(reference);
                     }
                     let name = read_variable_record(stream, 1)?;
-                    if name.is_empty() {
-                        bail!("empty reference name");
-                    }
-                    let name = encoding.decode_all(name)?;
+                    let name = encoding.decode_all(name);
                     reference = Reference {
                         name: name.clone(),
                         description: name,
@@ -185,7 +218,7 @@ impl Reference {
                             check_record(0x0030, stream)?;
                         }
                         0x0030 => (),
-                        e => bail!("unexpected token in reference control {:x}", e),
+                        e => return Err(VbaError::Unknown { typ: "token in reference control", val: e }),
                     }
                     *stream = &stream[4..];
                     reference.set_libid(stream, encoding)?;
@@ -202,7 +235,7 @@ impl Reference {
                     *stream = &stream[4..];
                     let absolute = read_variable_record(stream, 1)?; // project libid absolute
                     {
-                        let absolute = encoding.decode_all(absolute)?;
+                        let absolute = encoding.decode_all(absolute);
                         reference.path = if absolute.starts_with("*\\C") {
                             absolute[3..].into()
                         } else {
@@ -212,7 +245,7 @@ impl Reference {
                     read_variable_record(stream, 1)?; // project libid relative
                     *stream = &stream[6..];
                 }
-                c => bail!("invalid of unknown check Id {}", c),
+                c => return Err(VbaError::Unknown { typ: "check id", val: c }),
             }
         }
 
@@ -220,12 +253,12 @@ impl Reference {
         Ok(references)
     }
 
-    fn set_libid(&mut self, stream: &mut &[u8], encoding: &XlsEncoding) -> Result<()> {
+    fn set_libid(&mut self, stream: &mut &[u8], encoding: &XlsEncoding) -> Result<(), VbaError> {
         let libid = read_variable_record(stream, 1)?; //libid twiddled
         if libid.is_empty() || libid.ends_with(b"##") {
             return Ok(());
         }
-        let libid = encoding.decode_all(libid)?;
+        let libid = encoding.decode_all(libid);
         let mut parts = libid.rsplit('#');
         match (parts.next(), parts.next()) {
             (Some(desc), Some(path)) => {
@@ -236,7 +269,7 @@ impl Reference {
                 }
                 Ok(())
             }
-            _ => bail!("unexpected libid format"),
+            _ => return Err(VbaError::LibId),
         }
     }
 }
@@ -250,7 +283,7 @@ struct Module {
     text_offset: usize,
 }
 
-fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding> {
+fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
     debug!("read dir header");
 
     // PROJECTSYSKIND, PROJECTLCID and PROJECTLCIDINVOKE Records
@@ -281,7 +314,7 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding> {
     Ok(encoding)
 }
 
-fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module>> {
+fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module>, VbaError> {
     debug!("read all modules metadata");
     *stream = &stream[4..];
 
@@ -293,12 +326,12 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
     for _ in 0..module_len {
         // name
         let name = check_variable_record(0x0019, stream)?;
-        let name = encoding.decode_all(name)?;
+        let name = encoding.decode_all(name);
 
         check_variable_record(0x0047, stream)?; // unicode
 
         let stream_name = check_variable_record(0x001A, stream)?; // stream name
-        let stream_name = encoding.decode_all(stream_name)?;
+        let stream_name = encoding.decode_all(stream_name);
 
         check_variable_record(0x0032, stream)?; // stream name unicode
         check_variable_record(0x001C, stream)?; // doc string
@@ -320,7 +353,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         match stream.read_u16::<LittleEndian>()? {
             0x0021 /* procedural module */ |
             0x0022 /* document, class or designer module */ => (),
-            e => bail!("unknown module type {}", e),
+            e => return Err(VbaError::Unknown { typ: "module typ", val: e }),
         }
 
         loop {
@@ -328,8 +361,8 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
             match stream.read_u16::<LittleEndian>() {
                 Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
                 Ok(0x002B) => break,
-                Ok(e) => bail!("unknown record id {}", e),
-                Err(e) => bail!(e),
+                Ok(e) => return Err(VbaError::Unknown { typ: "record id", val: e }),
+                Err(e) => return Err(VbaError::Io(e)),
             }
         }
         *stream = &stream[4..]; // reserved
@@ -347,7 +380,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
 /// Reads a variable length record
 ///
 /// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
-fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8]> {
+fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8], VbaError> {
     let len = r.read_u32::<LittleEndian>()? as usize * mult;
     let (read, next) = r.split_at(len);
     *r = next;
@@ -355,7 +388,7 @@ fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8]> {
 }
 
 /// Check that next record matches `id` and returns a variable length record
-fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8]> {
+fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaError> {
     check_record(id, r)?;
     let record = read_variable_record(r, 1)?;
     if log_enabled!(Level::Warn) && record.len() > 100_000 {
@@ -370,17 +403,11 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8]> {
 }
 
 /// Check that next record matches `id`
-fn check_record(id: u16, r: &mut &[u8]) -> Result<()> {
+fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
     debug!("check record {:x}", id);
     let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
-        Err(
-            format!(
-                "invalid record id, found {:x}, expecting {:x}",
-                record_id,
-                id
-            ).into(),
-        )
+        Err(VbaError::InvalidRecordId { expected: id, found: record_id })
     } else {
         Ok(())
     }
