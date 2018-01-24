@@ -20,6 +20,8 @@ pub enum CalError {
     Xlsx(#[cause] ::xlsx::XlsxError),
     #[fail(display = "{}", _0)]
     Vba(#[cause] ::vba::VbaError),
+    #[fail(display = "{}", _0)]
+    De(#[cause] ::de::DeError),
 
     #[fail(display = "invalid extension: '{}'", _0)]
     InvalidExtension(String),
@@ -30,6 +32,8 @@ pub enum CalError {
     WorksheetName(String),
     #[fail(display = "invalid worksheet index: {}", idx)]
     WorksheetIndex { idx: usize },
+    #[fail(display = "{}", _0)]
+    StaticMsg(&'static str),
 }
 
 impl_error!(::std::io::Error, CalError, Io);
@@ -38,3 +42,5 @@ impl_error!(::xls::XlsError, CalError, Xls);
 impl_error!(::xlsb::XlsbError, CalError, Xlsb);
 impl_error!(::xlsx::XlsxError, CalError, Xlsx);
 impl_error!(::vba::VbaError, CalError, Vba);
+impl_error!(::de::DeError, CalError, De);
+impl_error!(&'static str, CalError, StaticMsg);

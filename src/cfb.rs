@@ -101,8 +101,13 @@ impl Cfb {
         match self.directories.iter().find(|d| &*d.name == name) {
             None => Err(CfbError::StreamNotFound(name.to_string())),
             Some(d) => {
-                let fats = if d.len < 4096 { &self.mini_fats } else { &self.fats };
-                self.sectors.get_chain(d.start, fats, r, d.len)
+                if d.len < 4096 {
+                    // TODO: Study the possibility to return a `VecArray` (stack allocated)
+                    self.mini_sectors
+                        .get_chain(d.start, &self.mini_fats, r, d.len)
+                } else {
+                    self.sectors.get_chain(d.start, &self.fats, r, d.len)
+                }
             }
         }
     }
