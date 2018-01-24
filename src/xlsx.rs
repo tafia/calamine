@@ -2,6 +2,7 @@ use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::collections::HashMap;
 use std::borrow::Cow;
+use std::str::FromStr;
 
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
@@ -60,7 +61,7 @@ impl_error!(::std::string::ParseError, XlsxError, Parse);
 impl_error!(::std::num::ParseFloatError, XlsxError, ParseFloat);
 impl_error!(::std::num::ParseIntError, XlsxError, ParseInt);
 
-impl ::std::str::FromStr for CellErrorType {
+impl FromStr for CellErrorType {
     type Err = XlsxError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -564,4 +565,33 @@ fn test_dimensions() {
     assert_eq!(get_row_column(b"A1").unwrap(), (0, 0));
     assert_eq!(get_row_column(b"C107").unwrap(), (106, 2));
     assert_eq!(get_dimension(b"C2:D35").unwrap(), ((1, 2), (34, 3)));
+}
+
+#[test]
+fn test_parse_error() {
+    assert_eq!(
+        CellErrorType::from_str("#DIV/0!").unwrap(),
+        CellErrorType::Div0
+    );
+    assert_eq!(CellErrorType::from_str("#N/A").unwrap(), CellErrorType::NA);
+    assert_eq!(
+        CellErrorType::from_str("#NAME?").unwrap(),
+        CellErrorType::Name
+    );
+    assert_eq!(
+        CellErrorType::from_str("#NULL!").unwrap(),
+        CellErrorType::Null
+    );
+    assert_eq!(
+        CellErrorType::from_str("#NUM!").unwrap(),
+        CellErrorType::Num
+    );
+    assert_eq!(
+        CellErrorType::from_str("#REF!").unwrap(),
+        CellErrorType::Ref
+    );
+    assert_eq!(
+        CellErrorType::from_str("#VALUE!").unwrap(),
+        CellErrorType::Value
+    );
 }

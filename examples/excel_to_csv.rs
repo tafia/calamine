@@ -4,7 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use calamine::{DataType, Range, Result, Sheets};
+use calamine::{DataType, Range, Sheets};
 
 fn main() {
     // converts first argument into a csv (same name, silently overrides
@@ -31,7 +31,7 @@ fn main() {
     write_range(&mut dest, &range).unwrap();
 }
 
-fn write_range<W: Write>(dest: &mut W, range: &Range<DataType>) -> Result<()> {
+fn write_range<W: Write>(dest: &mut W, range: &Range<DataType>) -> ::std::io::Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {

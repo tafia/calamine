@@ -75,7 +75,6 @@ extern crate log;
 #[macro_use]
 mod utils;
 mod datatype;
-mod errors;
 mod xlsb;
 mod xlsx;
 mod xls;
@@ -83,6 +82,7 @@ mod cfb;
 mod ods;
 
 mod de;
+pub mod errors;
 pub mod vba;
 
 use std::borrow::Cow;
@@ -690,33 +690,4 @@ impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
     }
-}
-
-#[test]
-fn test_parse_error() {
-    assert_eq!(
-        CellErrorType::from_str("#DIV/0!").unwrap(),
-        CellErrorType::Div0
-    );
-    assert_eq!(CellErrorType::from_str("#N/A").unwrap(), CellErrorType::NA);
-    assert_eq!(
-        CellErrorType::from_str("#NAME?").unwrap(),
-        CellErrorType::Name
-    );
-    assert_eq!(
-        CellErrorType::from_str("#NULL!").unwrap(),
-        CellErrorType::Null
-    );
-    assert_eq!(
-        CellErrorType::from_str("#NUM!").unwrap(),
-        CellErrorType::Num
-    );
-    assert_eq!(
-        CellErrorType::from_str("#REF!").unwrap(),
-        CellErrorType::Ref
-    );
-    assert_eq!(
-        CellErrorType::from_str("#VALUE!").unwrap(),
-        CellErrorType::Value
-    );
 }

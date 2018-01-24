@@ -7,13 +7,14 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
-use calamine::{DataType, Error, Sheets};
+use calamine::{DataType, Sheets};
+use calamine::errors::CalError;
 
 #[derive(Debug)]
 enum FileStatus {
-    SheetsError(Error),
-    VbaError(Error),
-    RangeError(Error),
+    SheetsError(CalError),
+    VbaError(CalError),
+    RangeError(CalError),
     Glob(GlobError),
 }
 
