@@ -25,25 +25,20 @@ type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 /// An enum for ods specific errors
 #[derive(Debug, Fail)]
 pub enum OdsError {
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
-    #[fail(display = "{}", _0)]
-    Zip(#[cause] ::zip::result::ZipError),
-    #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::errors::Error),
-    #[fail(display = "{}", _0)]
-    Parse(#[cause] ::std::string::ParseError),
-    #[fail(display = "{}", _0)]
-    ParseFloat(#[cause] ::std::num::ParseFloatError),
+    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)] Parse(#[cause] ::std::string::ParseError),
+    #[fail(display = "{}", _0)] ParseFloat(#[cause] ::std::num::ParseFloatError),
 
-    #[fail(display = "Invalid MIME type: {:?}", _0)]
-    InvalidMime(Vec<u8>),
-    #[fail(display = "Cannot find '{}' file", _0)]
-    FileNotFound(&'static str),
-    #[fail(display = "Expecting {} found EOF", _0)]
-    Eof(&'static str),
+    #[fail(display = "Invalid MIME type: {:?}", _0)] InvalidMime(Vec<u8>),
+    #[fail(display = "Cannot find '{}' file", _0)] FileNotFound(&'static str),
+    #[fail(display = "Expecting {} found EOF", _0)] Eof(&'static str),
     #[fail(display = "Expecting {} found {}", expected, found)]
-    Mismatch { expected: &'static str, found: String },
+    Mismatch {
+        expected: &'static str,
+        found: String,
+    },
 }
 
 impl_error!(::std::io::Error, OdsError, Io);
@@ -52,7 +47,10 @@ impl_error!(::quick_xml::errors::Error, OdsError, Xml);
 impl_error!(::std::string::ParseError, OdsError, Parse);
 impl_error!(::std::num::ParseFloatError, OdsError, ParseFloat);
 
-enum Content<RS> where RS: Read + Seek {
+enum Content<RS>
+where
+    RS: Read + Seek,
+{
     Zip(ZipArchive<RS>),
     Sheets(HashMap<String, (Range<DataType>, Range<String>)>),
 }
@@ -62,13 +60,22 @@ enum Content<RS> where RS: Read + Seek {
 /// # Reference
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-pub struct Ods<RS> where RS: Read + Seek {
+pub struct Ods<RS>
+where
+    RS: Read + Seek,
+{
     /// A zip package or an already parsed xml content
     content: Content<RS>,
 }
 
-impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
-    fn new(reader: RS) -> Result<Self, CalError> where RS: Read + Seek {
+impl<RS> Reader<RS> for Ods<RS>
+where
+    RS: Read + Seek,
+{
+    fn new(reader: RS) -> Result<Self, CalError>
+    where
+        RS: Read + Seek,
+    {
         let mut zip = ZipArchive::new(reader).map_err(OdsError::Zip)?;
 
         // check mimetype
@@ -80,7 +87,9 @@ impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
                     return Err(CalError::Ods(OdsError::InvalidMime(buf.to_vec())));
                 }
             }
-            Err(ZipError::FileNotFound) => return Err(CalError::Ods(OdsError::FileNotFound("mimetype"))),
+            Err(ZipError::FileNotFound) => {
+                return Err(CalError::Ods(OdsError::FileNotFound("mimetype")))
+            }
             Err(e) => return Err(CalError::Ods(OdsError::Zip(e))),
         }
 
@@ -137,7 +146,10 @@ impl<RS> Reader<RS> for Ods<RS> where RS: Read + Seek {
     }
 }
 
-impl<RS> Ods<RS> where RS: Read + Seek {
+impl<RS> Ods<RS>
+where
+    RS: Read + Seek,
+{
     /// Parses content.xml and store the result in `self.content`
     fn parse_content(&mut self) -> Result<Vec<(String, String)>, OdsError> {
         let (sheets, defined_names) = if let Content::Zip(ref mut zip) = self.content {
@@ -289,7 +301,12 @@ fn read_row(
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table-row" => break,
             Err(e) => return Err(OdsError::Xml(e)),
-            Ok(e) => return Err(OdsError::Mismatch { expected: "table-cell", found: format!("{:?}", e) }),
+            Ok(e) => {
+                return Err(OdsError::Mismatch {
+                    expected: "table-cell",
+                    found: format!("{:?}", e),
+                })
+            }
         }
     }
     Ok(())
@@ -372,7 +389,9 @@ fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)
                 for a in e.attributes() {
                     let a = a.map_err(OdsError::Xml)?;
                     match a.key {
-                        b"table:name" => name = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?,
+                        b"table:name" => {
+                            name = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
+                        }
                         b"table:cell-range-address" | b"table:expression" => {
                             formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
                         }
@@ -385,7 +404,12 @@ fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)
                 if e.name() == b"table:named-range" || e.name() == b"table:named-expression" => {}
             Ok(Event::End(ref e)) if e.name() == b"table:named-expressions" => break,
             Err(e) => return Err(OdsError::Xml(e)),
-            Ok(e) => return Err(OdsError::Mismatch { expected: "table:named-expressions", found: format!("{:?}", e) }),
+            Ok(e) => {
+                return Err(OdsError::Mismatch {
+                    expected: "table:named-expressions",
+                    found: format!("{:?}", e),
+                })
+            }
         }
     }
     Ok(defined_names)

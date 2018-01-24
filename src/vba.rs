@@ -32,7 +32,7 @@ pub enum VbaError {
         /// error type
         typ: &'static str,
         /// value found
-        val: u16
+        val: u16,
     },
     /// Invalid libid format
     #[fail(display = "Unexpected libid format")]
@@ -43,7 +43,7 @@ pub enum VbaError {
         /// expected record id
         expected: u16,
         /// record if found
-        found: u16
+        found: u16,
     },
 }
 
@@ -218,7 +218,12 @@ impl Reference {
                             check_record(0x0030, stream)?;
                         }
                         0x0030 => (),
-                        e => return Err(VbaError::Unknown { typ: "token in reference control", val: e }),
+                        e => {
+                            return Err(VbaError::Unknown {
+                                typ: "token in reference control",
+                                val: e,
+                            })
+                        }
                     }
                     *stream = &stream[4..];
                     reference.set_libid(stream, encoding)?;
@@ -245,7 +250,12 @@ impl Reference {
                     read_variable_record(stream, 1)?; // project libid relative
                     *stream = &stream[6..];
                 }
-                c => return Err(VbaError::Unknown { typ: "check id", val: c }),
+                c => {
+                    return Err(VbaError::Unknown {
+                        typ: "check id",
+                        val: c,
+                    })
+                }
             }
         }
 
@@ -407,7 +417,10 @@ fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
     debug!("check record {:x}", id);
     let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
-        Err(VbaError::InvalidRecordId { expected: id, found: record_id })
+        Err(VbaError::InvalidRecordId {
+            expected: id,
+            found: record_id,
+        })
     } else {
         Ok(())
     }

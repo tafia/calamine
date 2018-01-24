@@ -15,19 +15,18 @@ const RESERVED_SECTORS: u32 = 0xFFFFFFFA;
 /// A Cfb specific error enum
 #[derive(Debug, Fail)]
 pub enum CfbError {
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
 
-    #[fail(display = "Invalid OLE signature (not an office document?)")]
-    Ole,
-    #[fail(display = "Empty Root directory")]
-    EmptyRootDir,
-    #[fail(display = "Cannot find {} stream", _0)]
-    StreamNotFound(String),
+    #[fail(display = "Invalid OLE signature (not an office document?)")] Ole,
+    #[fail(display = "Empty Root directory")] EmptyRootDir,
+    #[fail(display = "Cannot find {} stream", _0)] StreamNotFound(String),
     #[fail(display = "Invalid {}, expecting {} found {:X}", name, expected, found)]
-    Invalid { name: &'static str, expected: &'static str, found: u16 },
-    #[fail(display = "Codepage {:X} not found", _0)]
-    CodePageNotFound(u16),
+    Invalid {
+        name: &'static str,
+        expected: &'static str,
+        found: u16,
+    },
+    #[fail(display = "Codepage {:X} not found", _0)] CodePageNotFound(u16),
 }
 
 /// A struct for managing Compound File Binary format
@@ -79,8 +78,12 @@ impl Cfb {
         // load the mini streams
         debug!("load minis");
         let ministream = sectors.get_chain(dirs[0].start, &fats, reader, dirs[0].len)?;
-        let minifat =
-            sectors.get_chain(h.mini_fat_start, &fats, reader, h.mini_fat_len * h.sector_size)?;
+        let minifat = sectors.get_chain(
+            h.mini_fat_start,
+            &fats,
+            reader,
+            h.mini_fat_len * h.sector_size,
+        )?;
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
             directories: dirs,
@@ -147,11 +150,21 @@ impl Header {
                 f.read_exact(&mut buf_end).map_err(CfbError::Io)?;
                 4096
             }
-            s => return Err(CfbError::Invalid {name:"sector shift", expected:"0x09 or 0x0C", found:s}),
+            s => {
+                return Err(CfbError::Invalid {
+                    name: "sector shift",
+                    expected: "0x09 or 0x0C",
+                    found: s,
+                })
+            }
         };
 
         if read_u16(&buf[32..34]) != 0x0006 {
-            return Err(CfbError::Invalid { name:"minisector shift", expected:"0x06", found:read_u16(&buf[32..34])});
+            return Err(CfbError::Invalid {
+                name: "minisector shift",
+                expected: "0x06",
+                found: read_u16(&buf[32..34]),
+            });
         }
 
         let dir_len = read_usize(&buf[40..44]);
@@ -206,7 +219,8 @@ impl Sectors {
             unsafe {
                 self.data.set_len(end);
             }
-            r.read_exact(&mut self.data[len..end]).map_err(CfbError::Io)?;
+            r.read_exact(&mut self.data[len..end])
+                .map_err(CfbError::Io)?;
         }
         Ok(&self.data[start..end])
     }
@@ -288,7 +302,11 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
     let mut res = Vec::new();
 
     if s[0] != 0x01 {
-        return Err(CfbError::Invalid { name:"signature", expected:"0x01", found: s[0] as u16});
+        return Err(CfbError::Invalid {
+            name: "signature",
+            expected: "0x01",
+            found: s[0] as u16,
+        });
     }
 
     let mut i = 1;
@@ -371,16 +389,16 @@ impl XlsEncoding {
         let e = encoding_from_windows_code_page(codepage as usize)
             .ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
         let high_byte = match codepage {
-            20127 |
-            65000 |
-            65001 |
-            20866 |
-            21866 |
-            10000 |
-            10007 |
-            874 |
-            1250...1258 |
-            28591...28605 => None, // SingleByte encodings
+            20127
+            | 65000
+            | 65001
+            | 20866
+            | 21866
+            | 10000
+            | 10007
+            | 874
+            | 1250...1258
+            | 28591...28605 => None, // SingleByte encodings
             _ => Some(false),
         };
 

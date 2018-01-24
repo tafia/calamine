@@ -19,39 +19,24 @@ type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 /// An enum for Xlsx specific errors
 #[derive(Debug, Fail)]
 pub enum XlsxError {
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
-    #[fail(display = "{}", _0)]
-    Zip(#[cause] ::zip::result::ZipError),
-    #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::errors::Error),
-    #[fail(display = "{}", _0)]
-    Parse(#[cause] ::std::string::ParseError),
-    #[fail(display = "{}", _0)]
-    ParseFloat(#[cause] ::std::num::ParseFloatError),
-    #[fail(display = "{}", _0)]
-    ParseInt(#[cause] ::std::num::ParseIntError),
+    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)] Parse(#[cause] ::std::string::ParseError),
+    #[fail(display = "{}", _0)] ParseFloat(#[cause] ::std::num::ParseFloatError),
+    #[fail(display = "{}", _0)] ParseInt(#[cause] ::std::num::ParseIntError),
 
-    #[fail(display = "Unexpected end of xml, expecting '</{}>'", _0)]
-    XmlEof(&'static str),
-    #[fail(display = "Expecting '{}' node", _0)]
-    UnexpectedNode(&'static str),
-    #[fail(display = "File not found '{}'", _0)]
-    FileNotFound(String),
-    #[fail(display = "Expecting alphanumeric character, got {:X}", _0)]
-    Alphanumeric(u8),
+    #[fail(display = "Unexpected end of xml, expecting '</{}>'", _0)] XmlEof(&'static str),
+    #[fail(display = "Expecting '{}' node", _0)] UnexpectedNode(&'static str),
+    #[fail(display = "File not found '{}'", _0)] FileNotFound(String),
+    #[fail(display = "Expecting alphanumeric character, got {:X}", _0)] Alphanumeric(u8),
     #[fail(display = "Numeric character is not allowed for column name, got {}", _0)]
     NumericColumn(u8),
-    #[fail(display = "Range dimension must be lower than 2. Got {}", _0)]
-    DimensionCount(usize),
-    #[fail(display = "Unknown cell 't' attribute: {:?}", _0)]
-    CellTAttribute(String),
-    #[fail(display = "Cell missing 'r' attribute")]
-    CellRAttribute,
-    #[fail(display = "{}", _0)]
-    Unexpected(&'static str),
-    #[fail(display = "Unsupported cell error value '{}'", _0)]
-    CellError(String),
+    #[fail(display = "Range dimension must be lower than 2. Got {}", _0)] DimensionCount(usize),
+    #[fail(display = "Unknown cell 't' attribute: {:?}", _0)] CellTAttribute(String),
+    #[fail(display = "Cell missing 'r' attribute")] CellRAttribute,
+    #[fail(display = "{}", _0)] Unexpected(&'static str),
+    #[fail(display = "Unsupported cell error value '{}'", _0)] CellError(String),
 }
 
 impl_error!(::std::io::Error, XlsxError, Io);
@@ -79,7 +64,10 @@ impl FromStr for CellErrorType {
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
-pub struct Xlsx<RS> where RS: Read + Seek {
+pub struct Xlsx<RS>
+where
+    RS: Read + Seek,
+{
     zip: ZipArchive<RS>,
     /// Shared strings
     strings: Vec<String>,
@@ -87,7 +75,10 @@ pub struct Xlsx<RS> where RS: Read + Seek {
     sheets: Vec<(String, String)>,
 }
 
-impl<RS> Xlsx<RS> where RS: Read + Seek {
+impl<RS> Xlsx<RS>
+where
+    RS: Read + Seek,
+{
     fn read_shared_strings(&mut self) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/sharedStrings.xml") {
             None => return Ok(()),
@@ -175,7 +166,11 @@ impl<RS> Xlsx<RS> where RS: Read + Seek {
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/_rels/workbook.xml.rels") {
-            None => return Err(XlsxError::FileNotFound("xl/_rels/workbook.xml.rels".to_string())),
+            None => {
+                return Err(XlsxError::FileNotFound(
+                    "xl/_rels/workbook.xml.rels".to_string(),
+                ))
+            }
             Some(x) => x?,
         };
         let mut relationships = HashMap::new();
@@ -265,8 +260,14 @@ impl<RS> Xlsx<RS> where RS: Read + Seek {
     }
 }
 
-impl<RS> Reader<RS> for Xlsx<RS> where RS: Read + Seek {
-    fn new(reader: RS) -> Result<Self, CalError> where RS: Read + Seek {
+impl<RS> Reader<RS> for Xlsx<RS>
+where
+    RS: Read + Seek,
+{
+    fn new(reader: RS) -> Result<Self, CalError>
+    where
+        RS: Read + Seek,
+    {
         Ok(Xlsx {
             zip: ZipArchive::new(reader).map_err(XlsxError::Zip)?,
             strings: Vec::new(),
@@ -279,7 +280,9 @@ impl<RS> Reader<RS> for Xlsx<RS> where RS: Read + Seek {
     }
 
     fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin").map_err(XlsxError::Zip)?;
+        let mut f = self.zip
+            .by_name("xl/vbaProject.bin")
+            .map_err(XlsxError::Zip)?;
         let len = f.size() as usize;
         Ok(VbaProject::new(&mut f, len).map(Cow::Owned)?)
     }
@@ -317,9 +320,12 @@ impl<RS> Reader<RS> for Xlsx<RS> where RS: Read + Seek {
     }
 }
 
-fn xml_reader<'a, RS>(zip: &'a mut ZipArchive<RS>, path: &str) 
-    -> Option<Result<XlsReader<'a>, XlsxError>> 
-    where RS: Read + Seek
+fn xml_reader<'a, RS>(
+    zip: &'a mut ZipArchive<RS>,
+    path: &str,
+) -> Option<Result<XlsReader<'a>, XlsxError>>
+where
+    RS: Read + Seek,
 {
     match zip.by_name(path) {
         Ok(f) => {
@@ -340,7 +346,13 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
     use std::borrow::Cow;
     for a in atts {
         match a {
-            Ok(Attribute { key, value: Cow::Borrowed(value) }) if key == n => return Ok(Some(value)),
+            Ok(Attribute {
+                key,
+                value: Cow::Borrowed(value),
+            }) if key == n =>
+            {
+                return Ok(Some(value))
+            }
             Err(e) => return Err(XlsxError::Xml(e)),
             _ => {} // ignore other attributes
         }
@@ -348,7 +360,11 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
     Ok(None)
 }
 
-fn read_sheet<T, F>(xml: &mut XlsReader, cells: &mut Vec<Cell<T>>, push_cell: &mut F) -> Result<(), XlsxError>
+fn read_sheet<T, F>(
+    xml: &mut XlsReader,
+    cells: &mut Vec<Cell<T>>,
+    push_cell: &mut F,
+) -> Result<(), XlsxError>
 where
     T: Clone + Default + PartialEq,
     F: FnMut(&mut Vec<Cell<T>>, &mut XlsReader, &BytesStart, (u32, u32), &BytesStart)
@@ -389,7 +405,11 @@ fn read_sheet_data(
     cells: &mut Vec<Cell<DataType>>,
 ) -> Result<(), XlsxError> {
     /// read the contents of a <v> cell
-    fn read_value<'a>(v: String, strings: &[String], atts: Attributes<'a>) -> Result<DataType, XlsxError> {
+    fn read_value<'a>(
+        v: String,
+        strings: &[String],
+        atts: Attributes<'a>,
+    ) -> Result<DataType, XlsxError> {
         match get_attribute(atts, b"t")? {
             Some(b"s") => {
                 // shared string
@@ -428,7 +448,9 @@ fn read_sheet_data(
             }
             Some(b"n") => {
                 // n - number
-                v.parse().map(DataType::Float).map_err(XlsxError::ParseFloat)
+                v.parse()
+                    .map(DataType::Float)
+                    .map_err(XlsxError::ParseFloat)
             }
             None => {
                 // If type is not known, we try to parse as Float for utility, but fall back to
@@ -441,10 +463,14 @@ fn read_sheet_data(
             Some(b"is") => {
                 // this case should be handled in outer loop over cell elements, in which
                 // case read_inline_str is called instead. Case included here for completeness.
-                return Err(XlsxError::Unexpected("called read_value on a cell of type inlineStr"));
+                return Err(XlsxError::Unexpected(
+                    "called read_value on a cell of type inlineStr",
+                ));
             }
             Some(t) => {
-                let t = ::std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();
+                let t = ::std::str::from_utf8(t)
+                    .unwrap_or("<utf8 error>")
+                    .to_string();
                 return Err(XlsxError::CellTAttribute(t));
             }
         }

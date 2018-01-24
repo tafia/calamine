@@ -58,15 +58,15 @@
 //! }
 //! ```
 #![deny(missing_docs)]
-#![recursion_limit="128"]
+#![recursion_limit = "128"]
 
 extern crate byteorder;
 extern crate encoding_rs;
 #[macro_use]
 extern crate failure;
+extern crate quick_xml;
 #[macro_use]
 extern crate serde;
-extern crate quick_xml;
 extern crate zip;
 
 #[macro_use]
@@ -94,7 +94,7 @@ use std::path::Path;
 use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
-pub use de::{DeError, RangeDeserializerBuilder, RangeDeserializer, ToCellDeserializer};
+pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 use errors::CalError;
 
 use vba::VbaProject;
@@ -138,7 +138,10 @@ impl fmt::Display for CellErrorType {
 }
 
 /// File types
-enum FileType<RS> where RS: Read + Seek {
+enum FileType<RS>
+where
+    RS: Read + Seek,
+{
     /// Compound File Binary Format [MS-CFB] (xls, xla)
     Xls(xls::Xls<RS>),
     /// Regular xml zipped file (xlsx, xlsm, xlam)
@@ -161,7 +164,10 @@ struct Metadata {
 }
 
 /// A wrapper struct over the spreadsheet file
-pub struct Sheets<RS> where RS: Read + Seek {
+pub struct Sheets<RS>
+where
+    RS: Read + Seek,
+{
     file: FileType<RS>,
     metadata: Metadata,
 }
@@ -185,7 +191,10 @@ macro_rules! inner {
     }};
 }
 
-impl<RS> Sheets<RS> where RS: Read + Seek {
+impl<RS> Sheets<RS>
+where
+    RS: Read + Seek,
+{
     /// Opens a new workbook from a file.
     ///
     /// # Examples
@@ -214,7 +223,10 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
 
     /// Creates a new workbook from a reader.
     /// ```
-    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>, CalError> where RS: Read + Seek {
+    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>, CalError>
+    where
+        RS: Read + Seek,
+    {
         let filetype = match extension {
             "xls" | "xla" => FileType::Xls(xls::Xls::new(reader)?),
             "xlsx" | "xlsm" | "xlam" => FileType::Xlsx(xlsx::Xlsx::new(reader)?),
@@ -340,7 +352,10 @@ impl<RS> Sheets<RS> where RS: Read + Seek {
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
 /// A trait to share spreadsheets reader functions accross different `FileType`s
-trait Reader<RS>: Sized where RS: Read + Seek {
+trait Reader<RS>: Sized
+where
+    RS: Read + Seek,
+{
     /// Creates a new instance.
     fn new(reader: RS) -> Result<Self, CalError>;
     /// Does the workbook contain a vba project
@@ -506,7 +521,10 @@ impl<T: CellType> Range<T> {
     /// ```
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<(), CalError> {
         if self.start > absolute_position {
-            return Err(CalError::CellOutOfRange { try_pos: absolute_position, min_pos: self.start });
+            return Err(CalError::CellOutOfRange {
+                try_pos: absolute_position,
+                min_pos: self.start,
+            });
         }
 
         // check if we need to change range dimension (strangely happens sometimes ...)
@@ -561,8 +579,8 @@ impl<T: CellType> Range<T> {
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
         assert!(absolute_position <= self.end);
-        let idx = (absolute_position.0 - self.start.0) as usize * self.width() +
-            (absolute_position.1 - self.start.1) as usize;
+        let idx = (absolute_position.0 - self.start.0) as usize * self.width()
+            + (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]
     }
 
@@ -622,8 +640,9 @@ impl<T: CellType> Range<T> {
     /// }
     /// ```
     pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>, DeError>
-        where T: ToCellDeserializer<'a>,
-              D: DeserializeOwned,
+    where
+        T: ToCellDeserializer<'a>,
+        D: DeserializeOwned,
     {
         RangeDeserializerBuilder::new().from_range(self)
     }

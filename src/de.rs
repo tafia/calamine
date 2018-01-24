@@ -4,28 +4,29 @@ use serde::{self, Deserialize};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
-use super::{CellType, CellErrorType, DataType, Range, Rows};
+use super::{CellErrorType, CellType, DataType, Range, Rows};
 
 /// A cell deserialization specific error enum
 #[derive(Debug)]
 pub enum DeError {
     /// Cell out of range
-    CellOutOfRange { 
+    CellOutOfRange {
         /// Position tried
         try_pos: (u32, u32),
         /// Minimum position
-        min_pos: (u32, u32) },
+        min_pos: (u32, u32),
+    },
     /// The cell value is an error
     CellError {
         /// Cell value error
         err: CellErrorType,
         /// Cell position
-        pos: (u32, u32)
+        pos: (u32, u32),
     },
     /// Unexpected end of row
     UnexpectedEndOfRow {
         /// Cell position
-        pos: (u32, u32)
+        pos: (u32, u32),
     },
     /// Serde specific error
     Custom(String),
@@ -34,12 +35,14 @@ pub enum DeError {
 impl fmt::Display for DeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
-            DeError::CellOutOfRange { ref try_pos, ref min_pos } => {
-                write!(f, 
-                       "there is no cell at position '{:?}'.Minimum position is '{:?}'",
-                       try_pos,
-                       min_pos)
-            }
+            DeError::CellOutOfRange {
+                ref try_pos,
+                ref min_pos,
+            } => write!(
+                f,
+                "there is no cell at position '{:?}'.Minimum position is '{:?}'",
+                try_pos, min_pos
+            ),
             DeError::CellError { ref pos, ref err } => {
                 write!(f, "Cell error at position '{:?}': {}", pos, err)
             }
@@ -82,9 +85,7 @@ pub struct RangeDeserializerBuilder {
 
 impl Default for RangeDeserializerBuilder {
     fn default() -> Self {
-        RangeDeserializerBuilder {
-            has_headers: true,
-        }
+        RangeDeserializerBuilder { has_headers: true }
     }
 }
 
@@ -120,10 +121,13 @@ impl RangeDeserializerBuilder {
     ///     }
     /// }
     /// ```
-    pub fn from_range<'cell, T, D>(&self, range: &'cell Range<T>)
-        -> Result<RangeDeserializer<'cell, T, D>, DeError>
-        where T: ToCellDeserializer<'cell>,
-              D: DeserializeOwned,
+    pub fn from_range<'cell, T, D>(
+        &self,
+        range: &'cell Range<T>,
+    ) -> Result<RangeDeserializer<'cell, T, D>, DeError>
+    where
+        T: ToCellDeserializer<'cell>,
+        D: DeserializeOwned,
     {
         RangeDeserializer::new(self, range)
     }
@@ -196,8 +200,9 @@ impl RangeDeserializerBuilder {
 /// }
 /// ```
 pub struct RangeDeserializer<'cell, T, D>
-where T: 'cell + ToCellDeserializer<'cell>,
-      D: DeserializeOwned,
+where
+    T: 'cell + ToCellDeserializer<'cell>,
+    D: DeserializeOwned,
 {
     headers: Option<Vec<String>>,
     rows: Rows<'cell, T>,
@@ -207,8 +212,9 @@ where T: 'cell + ToCellDeserializer<'cell>,
 }
 
 impl<'cell, T, D> RangeDeserializer<'cell, T, D>
-where T: ToCellDeserializer<'cell>,
-      D: DeserializeOwned,
+where
+    T: ToCellDeserializer<'cell>,
+    D: DeserializeOwned,
 {
     fn new(builder: &RangeDeserializerBuilder, range: &'cell Range<T>) -> Result<Self, DeError> {
         let mut rows = range.rows();
@@ -239,13 +245,19 @@ where T: ToCellDeserializer<'cell>,
 }
 
 impl<'cell, T, D> Iterator for RangeDeserializer<'cell, T, D>
-where T: ToCellDeserializer<'cell>,
-      D: DeserializeOwned
+where
+    T: ToCellDeserializer<'cell>,
+    D: DeserializeOwned,
 {
     type Item = Result<D, DeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let RangeDeserializer { ref headers, ref mut rows, mut current_pos, .. } = *self;
+        let RangeDeserializer {
+            ref headers,
+            ref mut rows,
+            mut current_pos,
+            ..
+        } = *self;
 
         if let Some(row) = rows.next() {
             current_pos.0 += 1;
@@ -266,7 +278,8 @@ where T: ToCellDeserializer<'cell>,
 }
 
 struct RowDeserializer<'header, 'cell, T>
-where T: 'cell + ToCellDeserializer<'cell>,
+where
+    T: 'cell + ToCellDeserializer<'cell>,
 {
     headers: Option<slice::Iter<'header, String>>,
     iter: slice::Iter<'cell, T>,
@@ -274,7 +287,8 @@ where T: 'cell + ToCellDeserializer<'cell>,
 }
 
 impl<'header, 'cell, T> RowDeserializer<'header, 'cell, T>
-where T: 'cell + ToCellDeserializer<'cell>,
+where
+    T: 'cell + ToCellDeserializer<'cell>,
 {
     fn new(headers: Option<&'header Vec<String>>, record: &'cell [T], pos: (u32, u32)) -> Self {
         RowDeserializer {
@@ -289,7 +303,9 @@ where T: 'cell + ToCellDeserializer<'cell>,
     }
 
     fn next_header(&mut self) -> Option<&'header str> {
-        self.headers.as_mut().and_then(|it| it.next().map(|header| &**header))
+        self.headers
+            .as_mut()
+            .and_then(|it| it.next().map(|header| &**header))
     }
 
     fn next_cell(&mut self) -> Result<&'cell T, DeError> {
@@ -303,9 +319,10 @@ where T: 'cell + ToCellDeserializer<'cell>,
 }
 
 impl<'de, 'header, 'cell, T> serde::Deserializer<'de> for RowDeserializer<'header, 'cell, T>
-where 'header: 'de,
-      'cell: 'de,
-      T: 'cell + ToCellDeserializer<'cell>,
+where
+    'header: 'de,
+    'cell: 'de,
+    T: 'cell + ToCellDeserializer<'cell>,
 {
     type Error = DeError;
 
@@ -345,9 +362,10 @@ where 'header: 'de,
 }
 
 impl<'de, 'header, 'cell, T> SeqAccess<'de> for RowDeserializer<'header, 'cell, T>
-where 'header: 'de,
-      'cell: 'de,
-      T: ToCellDeserializer<'cell>,
+where
+    'header: 'de,
+    'cell: 'de,
+    T: ToCellDeserializer<'cell>,
 {
     type Error = DeError;
 
@@ -373,9 +391,10 @@ where 'header: 'de,
 }
 
 impl<'de, 'header: 'de, 'cell: 'de, T> de::MapAccess<'de> for RowDeserializer<'header, 'cell, T>
-where 'header: 'de,
-      'cell: 'de,
-      T: ToCellDeserializer<'cell>,
+where
+    'header: 'de,
+    'cell: 'de,
+    T: ToCellDeserializer<'cell>,
 {
     type Error = DeError;
 
@@ -406,7 +425,7 @@ where 'header: 'de,
 /// Constructs a deserializer for a `CellType`.
 pub trait ToCellDeserializer<'a>: CellType {
     /// The deserializer.
-    type Deserializer: for<'de> serde::Deserializer<'de, Error=DeError>;
+    type Deserializer: for<'de> serde::Deserializer<'de, Error = DeError>;
 
     /// Construct a `CellType` deserializer at the specified position.
     fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> Self::Deserializer;
@@ -442,7 +461,12 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
             DataType::Int(v) => visitor.visit_i64(v),
             DataType::Float(v) => visitor.visit_f64(v),
             DataType::String(ref v) => visitor.visit_str(v),
-            DataType::Error(ref err) => return Err(DeError::CellError { err: err.clone(), pos: self.pos }),
+            DataType::Error(ref err) => {
+                return Err(DeError::CellError {
+                    err: err.clone(),
+                    pos: self.pos,
+                })
+            }
         }
     }
 

@@ -17,41 +17,39 @@ use errors::CalError;
 
 #[derive(Debug, Fail)]
 pub enum XlsbError {
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
-    #[fail(display = "{}", _0)]
-    Zip(#[cause] ::zip::result::ZipError),
-    #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
 
     #[fail(display = "Expecting {}, got {:X}", expected, found)]
-    Mismatch { expected: &'static str, found: u16 },
-    #[fail(display = "File not found: '{}'", _0)]
-    FileNotFound(String),
-    #[fail(display = "Invalid stack length")]
-    StackLen,
+    Mismatch {
+        expected: &'static str,
+        found: u16,
+    },
+    #[fail(display = "File not found: '{}'", _0)] FileNotFound(String),
+    #[fail(display = "Invalid stack length")] StackLen,
 
-    #[fail(display = "Unsupported type {:X}", _0)]
-    UnsupportedType(u16),
-    #[fail(display = "Unsupported etpg {:X}", _0)]
-    Etpg(u8),
-    #[fail(display = "Unsupported iftab {:X}", _0)]
-    IfTab(usize),
-    #[fail(display = "Unsupported BErr {:X}", _0)]
-    BErr(u8),
-    #[fail(display = "Unsupported Ptg {:X}", _0)]
-    Ptg(u8),
-    #[fail(display = "Unsupported Cell Error code {:X}", _0)]
-    CellError(u8),
+    #[fail(display = "Unsupported type {:X}", _0)] UnsupportedType(u16),
+    #[fail(display = "Unsupported etpg {:X}", _0)] Etpg(u8),
+    #[fail(display = "Unsupported iftab {:X}", _0)] IfTab(usize),
+    #[fail(display = "Unsupported BErr {:X}", _0)] BErr(u8),
+    #[fail(display = "Unsupported Ptg {:X}", _0)] Ptg(u8),
+    #[fail(display = "Unsupported Cell Error code {:X}", _0)] CellError(u8),
     #[fail(display = "Wide str length {} exceeds buffer length {}", ws_len, buf_len)]
-    WideStr { ws_len: usize, buf_len: usize },
+    WideStr {
+        ws_len: usize,
+        buf_len: usize,
+    },
 }
 
 impl_error!(::std::io::Error, XlsbError, Io);
 impl_error!(::zip::result::ZipError, XlsbError, Zip);
 impl_error!(::quick_xml::errors::Error, XlsbError, Xml);
 
-pub struct Xlsb<RS> where RS: Read + Seek {
+pub struct Xlsb<RS>
+where
+    RS: Read + Seek,
+{
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
@@ -59,7 +57,10 @@ pub struct Xlsb<RS> where RS: Read + Seek {
     defined_names: Vec<(String, String)>,
 }
 
-impl<RS> Xlsb<RS> where RS: Read + Seek {
+impl<RS> Xlsb<RS>
+where
+    RS: Read + Seek,
+{
     /// MS-XLSB
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
         let mut relationships = HashMap::new();
@@ -172,7 +173,12 @@ impl<RS> Xlsb<RS> where RS: Read + Seek {
                         self.sheets.push((name.into_owned(), path));
                     }
                 }
-                typ => return Err(XlsbError::Mismatch { expected: "end of sheet", found: typ }),
+                typ => {
+                    return Err(XlsbError::Mismatch {
+                        expected: "end of sheet",
+                        found: typ,
+                    })
+                }
             }
         }
 
@@ -224,8 +230,14 @@ impl<RS> Xlsb<RS> where RS: Read + Seek {
     }
 }
 
-impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
-    fn new(reader: RS) -> Result<Self, CalError> where RS: Read + Seek {
+impl<RS> Reader<RS> for Xlsb<RS>
+where
+    RS: Read + Seek,
+{
+    fn new(reader: RS) -> Result<Self, CalError>
+    where
+        RS: Read + Seek,
+    {
         Ok(Xlsb {
             zip: ZipArchive::new(reader).map_err(XlsbError::Zip)?,
             sheets: Vec::new(),
@@ -240,7 +252,9 @@ impl<RS> Reader<RS> for Xlsb<RS> where RS: Read + Seek {
     }
 
     fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin").map_err(XlsbError::Zip)?;
+        let mut f = self.zip
+            .by_name("xl/vbaProject.bin")
+            .map_err(XlsbError::Zip)?;
         let len = f.size() as usize;
         Ok(VbaProject::new(&mut f, len).map(Cow::Owned)?)
     }
@@ -462,7 +476,10 @@ struct RecordIter<'a> {
 }
 
 impl<'a> RecordIter<'a> {
-    fn from_zip<RS: Read + Seek>(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a>, XlsbError> {
+    fn from_zip<RS: Read + Seek>(
+        zip: &'a mut ZipArchive<RS>,
+        path: &str,
+    ) -> Result<RecordIter<'a>, XlsbError> {
         match zip.by_name(path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),
@@ -533,7 +550,10 @@ impl<'a> RecordIter<'a> {
 fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>, XlsbError> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
-        return Err(XlsbError::WideStr { ws_len: 4 + len * 2, buf_len: buf.len() });
+        return Err(XlsbError::WideStr {
+            ws_len: 4 + len * 2,
+            buf_len: buf.len(),
+        });
     }
     *str_len = 4 + len * 2;
     let s = &buf[4..*str_len];
@@ -553,7 +573,11 @@ fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
 /// [MS-XLSB 2.5.97]
 ///
 /// See Ptg [2.5.97.16]
-fn parse_formula(mut rgce: &[u8], sheets: &[String], names: &[(String, String)]) -> Result<String, XlsbError> {
+fn parse_formula(
+    mut rgce: &[u8],
+    sheets: &[String],
+    names: &[(String, String)],
+) -> Result<String, XlsbError> {
     if rgce.is_empty() {
         return Ok(String::new());
     }
