@@ -12,7 +12,7 @@ use quick_xml::events::attributes::{Attribute, Attributes};
 
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
-use errors::CalError;
+use errors::Error;
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -39,12 +39,12 @@ pub enum XlsxError {
     #[fail(display = "Unsupported cell error value '{}'", _0)] CellError(String),
 }
 
-impl_error!(::std::io::Error, XlsxError, Io);
-impl_error!(::zip::result::ZipError, XlsxError, Zip);
-impl_error!(::quick_xml::errors::Error, XlsxError, Xml);
-impl_error!(::std::string::ParseError, XlsxError, Parse);
-impl_error!(::std::num::ParseFloatError, XlsxError, ParseFloat);
-impl_error!(::std::num::ParseIntError, XlsxError, ParseInt);
+from_err!(::std::io::Error, XlsxError, Io);
+from_err!(::zip::result::ZipError, XlsxError, Zip);
+from_err!(::quick_xml::errors::Error, XlsxError, Xml);
+from_err!(::std::string::ParseError, XlsxError, Parse);
+from_err!(::std::num::ParseFloatError, XlsxError, ParseFloat);
+from_err!(::std::num::ParseIntError, XlsxError, ParseInt);
 
 impl FromStr for CellErrorType {
     type Err = XlsxError;
@@ -264,7 +264,7 @@ impl<RS> Reader<RS> for Xlsx<RS>
 where
     RS: Read + Seek,
 {
-    fn new(reader: RS) -> Result<Self, CalError>
+    fn new(reader: RS) -> Result<Self, Error>
     where
         RS: Read + Seek,
     {
@@ -279,7 +279,7 @@ where
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
         let mut f = self.zip
             .by_name("xl/vbaProject.bin")
             .map_err(XlsxError::Zip)?;
@@ -287,7 +287,7 @@ where
         Ok(VbaProject::new(&mut f, len).map(Cow::Owned)?)
     }
 
-    fn initialize(&mut self) -> Result<Metadata, CalError> {
+    fn initialize(&mut self) -> Result<Metadata, Error> {
         self.read_shared_strings()?;
         let relationships = self.read_relationships()?;
         let defined_names = self.read_workbook(&relationships)?;
@@ -297,11 +297,11 @@ where
         })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
         Ok(self.read_worksheet(name, &mut |s, xml, cells| read_sheet_data(xml, s, cells))?)
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
         self.read_worksheet(name, &mut |_, xml, cells| {
             read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
                 match e.local_name() {
@@ -316,7 +316,7 @@ where
                 }
                 Ok(())
             })
-        }).map_err(CalError::Xlsx)
+        }).map_err(Error::Xlsx)
     }
 }
 

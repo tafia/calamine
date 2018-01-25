@@ -16,7 +16,7 @@ use quick_xml::events::attributes::Attributes;
 
 use {DataType, Metadata, Range, Reader};
 use vba::VbaProject;
-use errors::CalError;
+use errors::Error;
 
 const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
@@ -41,11 +41,11 @@ pub enum OdsError {
     },
 }
 
-impl_error!(::std::io::Error, OdsError, Io);
-impl_error!(::zip::result::ZipError, OdsError, Zip);
-impl_error!(::quick_xml::errors::Error, OdsError, Xml);
-impl_error!(::std::string::ParseError, OdsError, Parse);
-impl_error!(::std::num::ParseFloatError, OdsError, ParseFloat);
+from_err!(::std::io::Error, OdsError, Io);
+from_err!(::zip::result::ZipError, OdsError, Zip);
+from_err!(::quick_xml::errors::Error, OdsError, Xml);
+from_err!(::std::string::ParseError, OdsError, Parse);
+from_err!(::std::num::ParseFloatError, OdsError, ParseFloat);
 
 enum Content<RS>
 where
@@ -72,7 +72,7 @@ impl<RS> Reader<RS> for Ods<RS>
 where
     RS: Read + Seek,
 {
-    fn new(reader: RS) -> Result<Self, CalError>
+    fn new(reader: RS) -> Result<Self, Error>
     where
         RS: Read + Seek,
     {
@@ -84,13 +84,13 @@ where
                 let mut buf = [0u8; 46];
                 f.read_exact(&mut buf)?;
                 if &buf[..] != MIMETYPE {
-                    return Err(CalError::Ods(OdsError::InvalidMime(buf.to_vec())));
+                    return Err(Error::Ods(OdsError::InvalidMime(buf.to_vec())));
                 }
             }
             Err(ZipError::FileNotFound) => {
-                return Err(CalError::Ods(OdsError::FileNotFound("mimetype")))
+                return Err(Error::Ods(OdsError::FileNotFound("mimetype")))
             }
-            Err(e) => return Err(CalError::Ods(OdsError::Zip(e))),
+            Err(e) => return Err(Error::Ods(OdsError::Zip(e))),
         }
 
         Ok(Ods {
@@ -105,13 +105,13 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
         unimplemented!();
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn initialize(&mut self) -> Result<Metadata, CalError> {
-        let defined_names = self.parse_content().map_err(CalError::Ods)?;
+    fn initialize(&mut self) -> Result<Metadata, Error> {
+        let defined_names = self.parse_content().map_err(Error::Ods)?;
         let sheets = if let Content::Sheets(ref s) = self.content {
             s.keys().map(|k| k.to_string()).collect()
         } else {
@@ -124,25 +124,25 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
-        self.parse_content().map_err(CalError::Ods)?;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
+        self.parse_content().map_err(Error::Ods)?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
                 return Ok(r.0.to_owned());
             }
         }
-        Err(CalError::WorksheetName(name.into()))
+        Err(Error::WorksheetName(name.into()))
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
-        self.parse_content().map_err(CalError::Ods)?;
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
+        self.parse_content().map_err(Error::Ods)?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
                 return Ok(r.1.to_owned());
             }
         }
-        Err(CalError::WorksheetName(name.into()))
+        Err(Error::WorksheetName(name.into()))
     }
 }
 

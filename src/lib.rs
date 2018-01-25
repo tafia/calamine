@@ -95,7 +95,7 @@ use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
 pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
-use errors::CalError;
+pub use errors::Error;
 
 use vba::VbaProject;
 
@@ -205,15 +205,15 @@ where
     /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     /// assert!(Sheets::<File>::open(path).is_ok());
     /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>, CalError> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>, Error> {
         let f: File = File::open(&path)?;
         let file: FileType<File> = match path.as_ref().extension().and_then(|s| s.to_str()) {
             Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
             Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
             Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
             Some("ods") => FileType::Ods(ods::Ods::new(f)?),
-            Some(e) => return Err(CalError::InvalidExtension(e.to_string())),
-            None => return Err(CalError::InvalidExtension("".to_string())),
+            Some(e) => return Err(Error::InvalidExtension(e.to_string())),
+            None => return Err(Error::InvalidExtension("".to_string())),
         };
         Ok(Sheets {
             file: file,
@@ -222,8 +222,7 @@ where
     }
 
     /// Creates a new workbook from a reader.
-    /// ```
-    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>, CalError>
+    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>, Error>
     where
         RS: Read + Seek,
     {
@@ -232,7 +231,7 @@ where
             "xlsx" | "xlsm" | "xlam" => FileType::Xlsx(xlsx::Xlsx::new(reader)?),
             "xlsb" => FileType::Xlsb(xlsb::Xlsb::new(reader)?),
             "ods" => FileType::Ods(ods::Ods::new(reader)?),
-            _ => return Err(CalError::InvalidExtension("".to_string())),
+            _ => return Err(Error::InvalidExtension("".to_string())),
         };
         Ok(Sheets {
             file: filetype,
@@ -252,7 +251,7 @@ where
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
+    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
         self.initialize()?;
         inner!(self, read_worksheet_range(name))
     }
@@ -269,7 +268,7 @@ where
     /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
+    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
         self.initialize()?;
         inner!(self, read_worksheet_formula(name))
     }
@@ -286,16 +285,16 @@ where
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>, CalError> {
+    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>, Error> {
         self.initialize()?;
         let name = self.metadata
             .sheets
             .get(idx)
-            .ok_or_else(|| CalError::WorksheetIndex { idx: idx })?;
+            .ok_or_else(|| Error::WorksheetIndex { idx: idx })?;
         inner!(self, read_worksheet_range(name))
     }
 
-    fn initialize(&mut self) -> Result<(), CalError> {
+    fn initialize(&mut self) -> Result<(), Error> {
         if self.metadata.sheets.is_empty() {
             self.metadata = inner!(self, initialize())?;
         }
@@ -322,7 +321,7 @@ where
     ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
     /// ```
-    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
         inner!(self, vba_project())
     }
 
@@ -337,13 +336,13 @@ where
     /// let mut workbook = Sheets::<File>::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<String>, CalError> {
+    pub fn sheet_names(&mut self) -> Result<Vec<String>, Error> {
         self.initialize()?;
         Ok(self.metadata.sheets.clone())
     }
 
     /// Get all defined names (Ranges names etc)
-    pub fn defined_names(&mut self) -> Result<&[(String, String)], CalError> {
+    pub fn defined_names(&mut self) -> Result<&[(String, String)], Error> {
         self.initialize()?;
         Ok(&self.metadata.defined_names)
     }
@@ -357,17 +356,17 @@ where
     RS: Read + Seek,
 {
     /// Creates a new instance.
-    fn new(reader: RS) -> Result<Self, CalError>;
+    fn new(reader: RS) -> Result<Self, Error>;
     /// Does the workbook contain a vba project
     fn has_vba(&mut self) -> bool;
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError>;
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error>;
     /// Initialize
-    fn initialize(&mut self) -> Result<Metadata, CalError>;
+    fn initialize(&mut self) -> Result<Metadata, Error>;
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError>;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error>;
     /// Read worksheet formula in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>, CalError>;
+    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Error>;
 }
 
 /// A trait to constrain cells
@@ -519,9 +518,9 @@ impl<T: CellType> Range<T> {
     ///     .expect("Cannot set value at position (2, 1)");
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<(), CalError> {
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<(), Error> {
         if self.start > absolute_position {
-            return Err(CalError::CellOutOfRange {
+            return Err(Error::CellOutOfRange {
                 try_pos: absolute_position,
                 min_pos: self.start,
             });
@@ -619,10 +618,10 @@ impl<T: CellType> Range<T> {
     ///
     /// ```
     /// # use calamine::{Sheets, RangeDeserializerBuilder};
-    /// # use calamine::errors::CalError;
+    /// # use calamine::errors::Error;
     /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
-    /// fn example() -> Result<(), CalError> {
+    /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook = Sheets::<File>::open(path)?;
     ///     let mut sheet = workbook.worksheet_range("Sheet1")?;

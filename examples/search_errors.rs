@@ -8,13 +8,13 @@ use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
 use calamine::{DataType, Sheets};
-use calamine::errors::CalError;
+use calamine::errors::Error;
 
 #[derive(Debug)]
 enum FileStatus {
-    SheetsError(CalError),
-    VbaError(CalError),
-    RangeError(CalError),
+    SheetsError(Error),
+    VbaError(Error),
+    RangeError(Error),
     Glob(GlobError),
 }
 

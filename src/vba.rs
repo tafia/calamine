@@ -47,8 +47,8 @@ pub enum VbaError {
     },
 }
 
-impl_error!(::cfb::CfbError, VbaError, Cfb);
-impl_error!(::std::io::Error, VbaError, Io);
+from_err!(::cfb::CfbError, VbaError, Cfb);
+from_err!(::std::io::Error, VbaError, Io);
 
 /// A struct for managing VBA reading
 #[allow(dead_code)]

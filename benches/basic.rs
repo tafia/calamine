@@ -22,7 +22,6 @@ fn bench_xls(b: &mut Bencher) {
                 .rows()
                 .flat_map(|r| r.iter())
                 .count();
-            //             count += excel.worksheet_formula(&s).unwrap().rows().flat_map(|r| r.iter()).count();
         }
         count
     })
@@ -43,7 +42,6 @@ fn bench_xlsx(b: &mut Bencher) {
                 .rows()
                 .flat_map(|r| r.iter())
                 .count();
-            //             count += excel.worksheet_formula(&s).unwrap().rows().flat_map(|r| r.iter()).count();
         }
         count
     })
@@ -64,7 +62,6 @@ fn bench_xlsb(b: &mut Bencher) {
                 .rows()
                 .flat_map(|r| r.iter())
                 .count();
-            //             count += excel.worksheet_formula(&s).unwrap().rows().flat_map(|r| r.iter()).count();
         }
         count
     })
@@ -85,7 +82,6 @@ fn bench_ods(b: &mut Bencher) {
                 .rows()
                 .flat_map(|r| r.iter())
                 .count();
-            //             count += excel.worksheet_formula(&s).unwrap().rows().flat_map(|r| r.iter()).count();
         }
         count
     })

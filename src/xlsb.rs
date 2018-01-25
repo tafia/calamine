@@ -13,7 +13,7 @@ use encoding_rs::UTF_16LE;
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
-use errors::CalError;
+use errors::Error;
 
 #[derive(Debug, Fail)]
 pub enum XlsbError {
@@ -42,9 +42,9 @@ pub enum XlsbError {
     },
 }
 
-impl_error!(::std::io::Error, XlsbError, Io);
-impl_error!(::zip::result::ZipError, XlsbError, Zip);
-impl_error!(::quick_xml::errors::Error, XlsbError, Xml);
+from_err!(::std::io::Error, XlsbError, Io);
+from_err!(::zip::result::ZipError, XlsbError, Zip);
+from_err!(::quick_xml::errors::Error, XlsbError, Xml);
 
 pub struct Xlsb<RS>
 where
@@ -234,7 +234,7 @@ impl<RS> Reader<RS> for Xlsb<RS>
 where
     RS: Read + Seek,
 {
-    fn new(reader: RS) -> Result<Self, CalError>
+    fn new(reader: RS) -> Result<Self, Error>
     where
         RS: Read + Seek,
     {
@@ -251,7 +251,7 @@ where
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
         let mut f = self.zip
             .by_name("xl/vbaProject.bin")
             .map_err(XlsbError::Zip)?;
@@ -259,7 +259,7 @@ where
         Ok(VbaProject::new(&mut f, len).map(Cow::Owned)?)
     }
 
-    fn initialize(&mut self) -> Result<Metadata, CalError> {
+    fn initialize(&mut self) -> Result<Metadata, Error> {
         self.read_shared_strings()?;
         let relationships = self.read_relationships()?;
         self.read_workbook(&relationships)?;
@@ -270,12 +270,12 @@ where
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
         let path = {
             let &(_, ref path) = self.sheets
                 .iter()
                 .find(|&&(ref n, _)| n == name)
-                .ok_or_else(|| CalError::WorksheetName(name.to_string()))?;
+                .ok_or_else(|| Error::WorksheetName(name.to_string()))?;
             path.clone()
         };
 
@@ -347,7 +347,7 @@ where
                         0x24 => CellErrorType::Num,
                         0x2A => CellErrorType::NA,
                         0x2B => CellErrorType::GettingData,
-                        c => return Err(CalError::Xlsb(XlsbError::CellError(c))),
+                        c => return Err(Error::Xlsb(XlsbError::CellError(c))),
                     };
                     // BrtCellError
                     DataType::Error(error)
@@ -378,12 +378,12 @@ where
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
         let path = {
             let &(_, ref path) = self.sheets
                 .iter()
                 .find(|&&(ref n, _)| n == name)
-                .ok_or_else(|| CalError::WorksheetName(name.to_string()))?;
+                .ok_or_else(|| Error::WorksheetName(name.to_string()))?;
             path.clone()
         };
 

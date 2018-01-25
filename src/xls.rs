@@ -8,7 +8,7 @@ use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{push_column, read_slice, read_u16, read_u32};
-use errors::CalError;
+use errors::Error;
 
 #[derive(Fail, Debug)]
 /// An enum to handle Xls specific errors
@@ -41,7 +41,7 @@ pub enum XlsError {
     #[fail(display = "No VBA project")] NoVba,
 }
 
-impl_error!(::cfb::CfbError, XlsError, Cfb);
+from_err!(::cfb::CfbError, XlsError, Cfb);
 
 enum SheetsState<RS>
 where
@@ -64,7 +64,7 @@ impl<RS> Reader<RS> for Xls<RS>
 where
     RS: Read + Seek,
 {
-    fn new(mut reader: RS) -> Result<Self, CalError>
+    fn new(mut reader: RS) -> Result<Self, Error>
     where
         RS: Read + Seek,
     {
@@ -91,7 +91,7 @@ where
         self.vba.is_some()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, CalError> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
         Ok(self.vba
             .as_ref()
             .map(|vba| Cow::Borrowed(vba))
@@ -99,7 +99,7 @@ where
     }
 
     /// Parses Workbook stream, no need for the relationships variable
-    fn initialize(&mut self) -> Result<Metadata, CalError> {
+    fn initialize(&mut self) -> Result<Metadata, Error> {
         let defined_names = self.parse_workbook()?;
         let sheets = match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
@@ -111,23 +111,23 @@ where
         })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, CalError> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => shs.get(name)
                 .map(|r| r.0.clone())
-                .ok_or(CalError::WorksheetName(name.into())),
+                .ok_or(Error::WorksheetName(name.into())),
         }
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, CalError> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
             SheetsState::Parsed(ref shs) => shs.get(name)
                 .map(|r| r.1.clone())
-                .ok_or(CalError::WorksheetName(name.into())),
+                .ok_or(Error::WorksheetName(name.into())),
         }
     }
 }

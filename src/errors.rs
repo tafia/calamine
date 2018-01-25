@@ -6,7 +6,7 @@
 
 /// A struct to handle calamine specific errors
 #[derive(Fail, Debug)]
-pub enum CalError {
+pub enum Error {
     #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
 
     #[fail(display = "{}", _0)] Ods(#[cause] ::ods::OdsError),
@@ -32,11 +32,11 @@ pub enum CalError {
     #[fail(display = "{}", _0)] StaticMsg(&'static str),
 }
 
-impl_error!(::std::io::Error, CalError, Io);
-impl_error!(::ods::OdsError, CalError, Ods);
-impl_error!(::xls::XlsError, CalError, Xls);
-impl_error!(::xlsb::XlsbError, CalError, Xlsb);
-impl_error!(::xlsx::XlsxError, CalError, Xlsx);
-impl_error!(::vba::VbaError, CalError, Vba);
-impl_error!(::de::DeError, CalError, De);
-impl_error!(&'static str, CalError, StaticMsg);
+from_err!(::std::io::Error, Error, Io);
+from_err!(::ods::OdsError, Error, Ods);
+from_err!(::xls::XlsError, Error, Xls);
+from_err!(::xlsb::XlsbError, Error, Xlsb);
+from_err!(::xlsx::XlsxError, Error, Xlsx);
+from_err!(::vba::VbaError, Error, Vba);
+from_err!(::de::DeError, Error, De);
+from_err!(&'static str, Error, StaticMsg);
