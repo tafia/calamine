@@ -95,7 +95,6 @@ use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
 pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
-use errors::Error;
 pub use xls::{Xls, XlsError};
 pub use xlsx::{Xlsx, XlsxError};
 pub use xlsb::{Xlsb, XlsbError};
@@ -447,23 +446,21 @@ impl<T: CellType> Range<T> {
     /// Try to avoid this method as much as possible and prefer initializing
     /// the `Range` with `from_sparce` constructor.
     ///
+    /// # Panics
+    ///
+    /// If absolute_position > Cell start
+    ///
     /// # Examples
     /// ```
     /// use calamine::{Range, DataType};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
     /// assert_eq!(range.get_value((2, 1)), &DataType::Empty);
-    /// range.set_value((2, 1), DataType::Float(1.0))
-    ///     .expect("Cannot set value at position (2, 1)");
+    /// range.set_value((2, 1), DataType::Float(1.0));
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<(), Error> {
-        if self.start > absolute_position {
-            return Err(Error::CellOutOfRange {
-                try_pos: absolute_position,
-                min_pos: self.start,
-            });
-        }
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
+        assert!(self.start <= absolute_position);
 
         // check if we need to change range dimension (strangely happens sometimes ...)
         match (
@@ -507,7 +504,6 @@ impl<T: CellType> Range<T> {
         );
         let idx = pos.0 as usize * self.width() + pos.1 as usize;
         self.inner[idx] = value;
-        Ok(())
     }
 
     /// Get cell value from absolute position
