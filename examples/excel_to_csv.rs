@@ -4,7 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use calamine::{DataType, Range, Result, Sheets};
+use calamine::{open_workbook_auto, DataType, Range, Reader};
 
 fn main() {
     // converts first argument into a csv (same name, silently overrides
@@ -25,13 +25,13 @@ fn main() {
 
     let dest = sce.with_extension("csv");
     let mut dest = BufWriter::new(File::create(dest).unwrap());
-    let mut xl = Sheets::<File>::open(&sce).unwrap();
-    let range = xl.worksheet_range(&sheet).unwrap();
+    let mut xl = open_workbook_auto(&sce).unwrap();
+    let range = xl.worksheet_range(&sheet).unwrap().unwrap();
 
     write_range(&mut dest, &range).unwrap();
 }
 
-fn write_range<W: Write>(dest: &mut W, range: &Range<DataType>) -> Result<()> {
+fn write_range<W: Write>(dest: &mut W, range: &Range<DataType>) -> ::std::io::Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {

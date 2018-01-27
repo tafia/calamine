@@ -2,6 +2,16 @@
 
 use encoding_rs::{self, Encoding};
 
+macro_rules! from_err {
+    ($from:ty, $to:tt, $var:tt) => {
+        impl From<$from> for $to {
+            fn from(e: $from) -> $to {
+                $to::$var(e)
+            }
+        }
+    }
+}
+
 /// Converts a &[u8] into a &[u32]
 pub fn to_u32(s: &[u8]) -> &[u32] {
     assert_eq!(s.len() % 4, 0);

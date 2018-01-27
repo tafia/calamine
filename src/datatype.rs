@@ -141,7 +141,10 @@ impl From<()> for DataType {
     }
 }
 
-impl<T> From<Option<T>> for DataType where DataType: From<T> {
+impl<T> From<Option<T>> for DataType
+where
+    DataType: From<T>,
+{
     fn from(v: Option<T>) -> Self {
         match v {
             Some(v) => From::from(v),

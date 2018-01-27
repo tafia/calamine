@@ -7,11 +7,10 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
-use calamine::{DataType, Error, Sheets};
+use calamine::{open_workbook_auto, DataType, Error, Reader};
 
 #[derive(Debug)]
 enum FileStatus {
-    SheetsError(Error),
     VbaError(Error),
     RangeError(Error),
     Glob(GlobError),
@@ -56,37 +55,39 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let f = f.map_err(FileStatus::Glob)?;
 
     println!("Analysing {:?}", f.display());
-    let mut xl = Sheets::<File>::open(&f).map_err(FileStatus::SheetsError)?;
+    let mut xl = open_workbook_auto(&f).unwrap();
 
     let mut missing = None;
     let mut cell_errors = 0;
-
-    if xl.has_vba() {
-        let vba = xl.vba_project().map_err(FileStatus::VbaError)?;
-        missing = Some(
-            vba.get_references()
-                .iter()
-                .filter(|r| r.is_missing())
-                .count(),
-        );
+    match xl.vba_project() {
+        Some(Ok(vba)) => {
+            missing = Some(
+                vba.get_references()
+                    .iter()
+                    .filter(|r| r.is_missing())
+                    .count(),
+            );
+        }
+        Some(Err(e)) => return Err(FileStatus::VbaError(e)),
+        None => (),
     }
 
     // get owned sheet names
-    let sheets = xl.sheet_names()
-        .map_err(FileStatus::SheetsError)?
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
+    let sheets = xl.sheet_names().to_owned();
 
     for s in sheets {
-        let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
+        let range = xl.worksheet_range(&s)
+            .unwrap()
+            .map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
             .flat_map(|r| {
-                r.iter().filter(|c| if let DataType::Error(_) = **c {
-                    true
-                } else {
-                    false
+                r.iter().filter(|c| {
+                    if let DataType::Error(_) = **c {
+                        true
+                    } else {
+                        false
+                    }
                 })
             })
             .count();

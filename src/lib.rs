@@ -8,15 +8,14 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Sheets, DataType};
-//! use std::fs::File;
+//! use calamine::{Reader, open_workbook, Xlsx, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
+//! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
-//! if let Ok(range) = workbook.worksheet_range("Sheet1") {
+//! if let Some(Ok(range)) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
@@ -27,8 +26,7 @@
 //! }
 //!
 //! // Check if the workbook has a vba project
-//! if workbook.has_vba() {
-//!     let mut vba = workbook.vba_project().expect("Cannot find VbaProject");
+//! if let Some(Ok(mut vba)) = workbook.vba_project() {
 //!     let vba = vba.to_mut();
 //!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
@@ -41,16 +39,17 @@
 //! }
 //!
 //! // You can also get defined names definition (string representation only)
-//! for &(ref name, ref formula) in workbook.defined_names().expect("Cannot get defined names!") {
-//!     println!("name: {}, formula: {}", name, formula);
+//! for name in workbook.defined_names() {
+//!     println!("name: {}, formula: {}", name.0, name.1);
 //! }
 //!
 //! // Now get all formula!
-//! let sheets = workbook.sheet_names().expect("Cannot get sheet names");
+//! let sheets = workbook.sheet_names().to_owned();
 //! for s in sheets {
 //!     println!("found {} formula in '{}'",
 //!              workbook
 //!                 .worksheet_formula(&s)
+//!                 .expect("sheet not found")
 //!                 .expect("error while getting formula")
 //!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
 //!                 .count(),
@@ -58,44 +57,49 @@
 //! }
 //! ```
 #![deny(missing_docs)]
-#![recursion_limit="128"]
 
 extern crate byteorder;
 extern crate encoding_rs;
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
+extern crate quick_xml;
 #[macro_use]
 extern crate serde;
-extern crate quick_xml;
 extern crate zip;
 
 #[macro_use]
 extern crate log;
 
-mod de;
-pub mod vba;
-
-mod datatype;
-mod errors;
+#[macro_use]
 mod utils;
+mod datatype;
 mod xlsb;
 mod xlsx;
 mod xls;
 mod cfb;
 mod ods;
+mod auto;
+
+mod de;
+mod errors;
+pub mod vba;
 
 use std::borrow::Cow;
 use std::fmt;
-use std::fs::File;
-use std::io::{Read, Seek};
+use std::io::{BufReader, Read, Seek};
 use std::ops::{Index, IndexMut};
+use std::fs::File;
 use std::path::Path;
-use std::str::FromStr;
 use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
-pub use de::{RangeDeserializerBuilder, RangeDeserializer, ToCellDeserializer};
-pub use errors::*;
+pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
+pub use xls::{Xls, XlsError};
+pub use xlsx::{Xlsx, XlsxError};
+pub use xlsb::{Xlsb, XlsbError};
+pub use ods::{Ods, OdsError};
+pub use auto::{open_workbook_auto, Sheets};
+pub use errors::Error;
 
 use vba::VbaProject;
 
@@ -122,24 +126,8 @@ pub enum CellErrorType {
     GettingData,
 }
 
-impl FromStr for CellErrorType {
-    type Err = errors::Error;
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "#DIV/0!" => Ok(CellErrorType::Div0),
-            "#N/A" => Ok(CellErrorType::NA),
-            "#NAME?" => Ok(CellErrorType::Name),
-            "#NULL!" => Ok(CellErrorType::Null),
-            "#NUM!" => Ok(CellErrorType::Num),
-            "#REF!" => Ok(CellErrorType::Ref),
-            "#VALUE!" => Ok(CellErrorType::Value),
-            _ => Err(format!("Unsupported error '{}'", s).into()),
-        }
-    }
-}
-
 impl fmt::Display for CellErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             CellErrorType::Div0 => write!(f, "#DIV/0!"),
             CellErrorType::NA => write!(f, "#N/A"),
@@ -153,226 +141,65 @@ impl fmt::Display for CellErrorType {
     }
 }
 
-/// File types
-enum FileType<RS> where RS: Read + Seek {
-    /// Compound File Binary Format [MS-CFB] (xls, xla)
-    Xls(xls::Xls<RS>),
-    /// Regular xml zipped file (xlsx, xlsm, xlam)
-    Xlsx(xlsx::Xlsx<RS>),
-    /// Binary zipped file (xlsb)
-    Xlsb(xlsb::Xlsb<RS>),
-    /// OpenDocument Spreadsheet Document
-    Ods(ods::Ods<RS>),
-}
-
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
 /// in the Reader implementations
 #[derive(Debug, Default)]
-struct Metadata {
+pub struct Metadata {
     sheets: Vec<String>,
     /// Map of sheet names/sheet path within zip archive
-    defined_names: Vec<(String, String)>,
-}
-
-/// A wrapper struct over the spreadsheet file
-pub struct Sheets<RS> where RS: Read + Seek {
-    file: FileType<RS>,
-    metadata: Metadata,
-}
-
-macro_rules! inner {
-    ($s:expr, $func:ident()) => {{
-        match $s.file {
-            FileType::Xls(ref mut f) => f.$func(),
-            FileType::Xlsx(ref mut f) => f.$func(),
-            FileType::Xlsb(ref mut f) => f.$func(),
-            FileType::Ods(ref mut f) => f.$func(),
-        }
-    }};
-    ($s:expr, $func:ident($first_arg:expr $(, $args:expr)*)) => {{
-        match $s.file {
-            FileType::Xls(ref mut f) => f.$func($first_arg $(, $args)*),
-            FileType::Xlsx(ref mut f) => f.$func($first_arg $(, $args)*),
-            FileType::Xlsb(ref mut f) => f.$func($first_arg $(, $args)*),
-            FileType::Ods(ref mut f) => f.$func($first_arg $(, $args)*),
-        }
-    }};
-}
-
-impl<RS> Sheets<RS> where RS: Read + Seek {
-    /// Opens a new workbook from a file.
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    /// assert!(Sheets::<File>::open(path).is_ok());
-    /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>> {
-        let f: File = File::open(&path)?;
-        let file: FileType<File> = match path.as_ref().extension().and_then(|s| s.to_str()) {
-            Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
-            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
-            Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
-            Some("ods") => FileType::Ods(ods::Ods::new(f)?),
-            Some(e) => bail!(ErrorKind::InvalidExtension(e.to_string())),
-            None => bail!(ErrorKind::InvalidExtension("".to_string())),
-        };
-        Ok(Sheets {
-            file: file,
-            metadata: Metadata::default(),
-        })
-    }
-
-    /// Creates a new workbook from a reader.
-    /// ```
-    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>> where RS: Read + Seek {
-        let filetype = match extension {
-            "xls" | "xla" => FileType::Xls(xls::Xls::new(reader)?),
-            "xlsx" | "xlsm" | "xlam" => FileType::Xlsx(xlsx::Xlsx::new(reader)?),
-            "xlsb" => FileType::Xlsb(xlsb::Xlsb::new(reader)?),
-            "ods" => FileType::Ods(ods::Ods::new(reader)?),
-            _ => bail!(ErrorKind::InvalidExtension("".to_string())),
-        };
-        Ok(Sheets {
-            file: filetype,
-            metadata: Metadata::default(),
-        })
-    }
-
-    /// Get all data from worksheet
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
-    /// println!("Used range size: {:?}", range.get_size());
-    /// ```
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>> {
-        self.initialize()?;
-        inner!(self, read_worksheet_range(name))
-    }
-
-    /// Get all formula from worksheet
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
-    /// println!("Used range size: {:?}", range.get_size());
-    /// ```
-    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>> {
-        self.initialize()?;
-        inner!(self, read_worksheet_formula(name))
-    }
-
-    /// Get all data from `Worksheet` at index `idx` (0 based)
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
-    /// println!("Used range size: {:?}", range.get_size());
-    /// ```
-    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>> {
-        self.initialize()?;
-        let name = self.metadata
-            .sheets
-            .get(idx)
-            .ok_or_else(|| ErrorKind::WorksheetIndex(idx))?;
-        inner!(self, read_worksheet_range(name))
-    }
-
-    fn initialize(&mut self) -> Result<()> {
-        if self.metadata.sheets.is_empty() {
-            self.metadata = inner!(self, initialize())?;
-        }
-        Ok(())
-    }
-
-    /// Does the workbook contain a vba project
-    pub fn has_vba(&mut self) -> bool {
-        inner!(self, has_vba())
-    }
-
-    /// Gets vba project
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).unwrap();
-    /// if workbook.has_vba() {
-    ///     let vba = workbook.vba_project().expect("Cannot find vba project");
-    ///     println!("References: {:?}", vba.get_references());
-    ///     println!("Modules: {:?}", vba.get_module_names());
-    /// }
-    /// ```
-    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>> {
-        inner!(self, vba_project())
-    }
-
-    /// Get all sheet names of this workbook
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).unwrap();
-    /// println!("Sheets: {:#?}", workbook.sheet_names());
-    /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<String>> {
-        self.initialize()?;
-        Ok(self.metadata.sheets.clone())
-    }
-
-    /// Get all defined names (Ranges names etc)
-    pub fn defined_names(&mut self) -> Result<&[(String, String)]> {
-        self.initialize()?;
-        Ok(&self.metadata.defined_names)
-    }
+    names: Vec<(String, String)>,
 }
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
 /// A trait to share spreadsheets reader functions accross different `FileType`s
-trait Reader<RS>: Sized where RS: Read + Seek {
+pub trait Reader: Sized {
+    /// Inner reader type
+    type RS: Read + Seek;
+    /// Error specific to file type
+    type Error: ::std::fmt::Debug + From<::std::io::Error>;
+
     /// Creates a new instance.
-    fn new(reader: RS) -> Result<Self>;
-    /// Does the workbook contain a vba project
-    fn has_vba(&mut self) -> bool;
+    fn new(reader: Self::RS) -> Result<Self, Self::Error>;
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>>;
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, Self::Error>>;
     /// Initialize
-    fn initialize(&mut self) -> Result<Metadata>;
+    fn metadata(&self) -> &Metadata;
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>>;
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>>;
     /// Read worksheet formula in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>> {
-        Err(
-            "Formula reading is not implemented for this extension".into(),
-        )
+    fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
+
+    /// Get all sheet names of this workbook
+    ///
+    /// # Examples
+    /// ```
+    /// use calamine::{Xlsx, open_workbook, Reader};
+    ///
+    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
+    /// println!("Sheets: {:#?}", workbook.sheet_names());
+    /// ```
+    fn sheet_names(&self) -> &[String] {
+        &self.metadata().sheets
     }
+
+    /// Get all defined names (Ranges names etc)
+    fn defined_names(&self) -> &[(String, String)] {
+        &self.metadata().names
+    }
+}
+
+/// Convenient function to open a file with a BufReader<File>
+pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
+where
+    R: Reader<RS = BufReader<File>>,
+    P: AsRef<Path>,
+{
+    let file = BufReader::new(File::open(path)?);
+    R::new(file)
 }
 
 /// A trait to constrain cells
@@ -514,20 +341,21 @@ impl<T: CellType> Range<T> {
     /// Try to avoid this method as much as possible and prefer initializing
     /// the `Range` with `from_sparce` constructor.
     ///
+    /// # Panics
+    ///
+    /// If absolute_position > Cell start
+    ///
     /// # Examples
     /// ```
     /// use calamine::{Range, DataType};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
     /// assert_eq!(range.get_value((2, 1)), &DataType::Empty);
-    /// range.set_value((2, 1), DataType::Float(1.0))
-    ///     .expect("Cannot set value at position (2, 1)");
+    /// range.set_value((2, 1), DataType::Float(1.0));
     /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
     /// ```
-    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) -> Result<()> {
-        if self.start > absolute_position {
-            bail!(ErrorKind::CellOutOfRange(absolute_position, self.start));
-        }
+    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
+        assert!(self.start <= absolute_position);
 
         // check if we need to change range dimension (strangely happens sometimes ...)
         match (
@@ -571,7 +399,6 @@ impl<T: CellType> Range<T> {
         );
         let idx = pos.0 as usize * self.width() + pos.1 as usize;
         self.inner[idx] = value;
-        Ok(())
     }
 
     /// Get cell value from absolute position
@@ -581,8 +408,8 @@ impl<T: CellType> Range<T> {
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
         assert!(absolute_position <= self.end);
-        let idx = (absolute_position.0 - self.start.0) as usize * self.width() +
-            (absolute_position.1 - self.start.1) as usize;
+        let idx = (absolute_position.0 - self.start.0) as usize * self.width()
+            + (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]
     }
 
@@ -620,13 +447,13 @@ impl<T: CellType> Range<T> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Result, Sheets, RangeDeserializerBuilder};
-    /// # use std::fs::File;
+    /// # use calamine::{Reader, Error, open_workbook, Xlsx, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
-    /// fn example() -> Result<()> {
+    /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<File>::open(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {
@@ -640,9 +467,10 @@ impl<T: CellType> Range<T> {
     ///     }
     /// }
     /// ```
-    pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>>
-        where T: ToCellDeserializer<'a>,
-              D: DeserializeOwned,
+    pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>, DeError>
+    where
+        T: ToCellDeserializer<'a>,
+        D: DeserializeOwned,
     {
         RangeDeserializerBuilder::new().from_range(self)
     }
@@ -710,33 +538,4 @@ impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
     }
-}
-
-#[test]
-fn test_parse_error() {
-    assert_eq!(
-        CellErrorType::from_str("#DIV/0!").unwrap(),
-        CellErrorType::Div0
-    );
-    assert_eq!(CellErrorType::from_str("#N/A").unwrap(), CellErrorType::NA);
-    assert_eq!(
-        CellErrorType::from_str("#NAME?").unwrap(),
-        CellErrorType::Name
-    );
-    assert_eq!(
-        CellErrorType::from_str("#NULL!").unwrap(),
-        CellErrorType::Null
-    );
-    assert_eq!(
-        CellErrorType::from_str("#NUM!").unwrap(),
-        CellErrorType::Num
-    );
-    assert_eq!(
-        CellErrorType::from_str("#REF!").unwrap(),
-        CellErrorType::Ref
-    );
-    assert_eq!(
-        CellErrorType::from_str("#VALUE!").unwrap(),
-        CellErrorType::Value
-    );
 }

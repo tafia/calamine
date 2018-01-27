@@ -1,74 +1,42 @@
-//! `Error` management module
-//!
-//! Provides all excel error conversion and description
-//! Also provides `Result` as a alias of `Result<_, Error>
+//! A module to provide a convenient wrapper around all error types
 
-#![allow(missing_docs)]
+/// A struct to handle any error and a message
+#[derive(Fail, Debug)]
+pub enum Error {
+    /// IO error
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
 
-use std::fmt;
+    /// Ods specific error
+    #[fail(display = "{}", _0)]
+    Ods(#[cause] ::ods::OdsError),
+    /// xls specific error
+    #[fail(display = "{}", _0)]
+    Xls(#[cause] ::xls::XlsError),
+    /// xlsb specific error
+    #[fail(display = "{}", _0)]
+    Xlsb(#[cause] ::xlsb::XlsbError),
+    /// xlsx specific error
+    #[fail(display = "{}", _0)]
+    Xlsx(#[cause] ::xlsx::XlsxError),
+    /// vba specific error
+    #[fail(display = "{}", _0)]
+    Vba(#[cause] ::vba::VbaError),
+    /// Auto error
+    /// cfb specific error
+    #[fail(display = "{}", _0)]
+    De(#[cause] ::de::DeError),
 
-use quick_xml::errors::Error as XmlError;
-use serde::de;
-
-use super::CellErrorType;
-
-error_chain! {
-    foreign_links {
-        Io(::std::io::Error);
-        Zip(::zip::result::ZipError);
-        ParseInt(::std::num::ParseIntError);
-        ParseFloat(::std::num::ParseFloatError);
-        Utf8(::std::str::Utf8Error);
-        FromUtf8(::std::string::FromUtf8Error);
-    }
-
-    errors {
-        Xml(err: XmlError) {
-            description("xml error")
-            display("an error occured while parsing xml: {:?}", err)
-        }
-        InvalidExtension(ext: String) {
-            description("invalid extension")
-            display("invalid extension: '{}'", ext)
-        }
-        CellOutOfRange(try_pos: (u32, u32), min_pos: (u32, u32)) {
-            description("no cell found at this position")
-            display("there is no cell at position '{:?}'. Minimum position is '{:?}'",
-                    try_pos, min_pos)
-        }
-        WorksheetName(name: String) {
-            description("invalid worksheet name")
-            display("invalid worksheet name: '{}'", name)
-        }
-        WorksheetIndex(idx: usize) {
-            description("invalid worksheet index")
-            display("invalid worksheet index: {}", idx)
-        }
-        UnexpectedEndOfRow(pos: (u32, u32)) {
-            description("unexpected end of row")
-            display("unexpected end of row at position '{:?}'", pos)
-        }
-        CellError(err: CellErrorType, pos: (u32, u32)) {
-            description("cell error")
-            display("cell error at position '{:?}'", pos)
-        }
-    }
+    /// General error message
+    #[fail(display = "{}", _0)]
+    Msg(&'static str),
 }
 
-impl From<XmlError> for Error {
-    fn from(err: XmlError) -> Error {
-        ErrorKind::Xml(err).into()
-    }
-}
-
-impl From<(XmlError, usize)> for Error {
-    fn from(err: (XmlError, usize)) -> Error {
-        ErrorKind::Xml(err.0).into()
-    }
-}
-
-impl de::Error for Error {
-    fn custom<T: fmt::Display>(msg: T) -> Self {
-        Error::from(msg.to_string())
-    }
-}
+from_err!(::std::io::Error, Error, Io);
+from_err!(::ods::OdsError, Error, Ods);
+from_err!(::xls::XlsError, Error, Xls);
+from_err!(::xlsb::XlsbError, Error, Xlsb);
+from_err!(::xlsx::XlsxError, Error, Xlsx);
+from_err!(::vba::VbaError, Error, Vba);
+from_err!(::de::DeError, Error, De);
+from_err!(&'static str, Error, Msg);

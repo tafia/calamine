@@ -1,6 +1,6 @@
 [package]
 name = "calamine"
-version = "0.12.1"
+version = "0.13.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/calamine"
@@ -16,8 +16,9 @@ appveyor = { repository = "tafia/calamine" }
 
 [dependencies]
 byteorder = "1.2.1"
-encoding_rs = "0.7.1"
-error-chain = "0.11.0"
+encoding_rs = "0.7.2"
+failure = "0.1.1"
+failure_derive = "0.1.1"
 log = "0.4"
 serde = "1.0.27"
 quick-xml = "0.11.0"
