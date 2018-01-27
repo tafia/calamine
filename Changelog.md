@@ -8,6 +8,13 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.13.0
+- feat: migrate from error-chain to failure
+- refactor: simplify Reader trait (enable direct Xlsx read etc ...)
+- refactor: always initialize at creation
+- feat: more documentation on error
+- feat: bump dependencies (calamine and encoding_rs)
+
 ## 0.12.1
 - feat: update dependencies
 

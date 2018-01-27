@@ -23,13 +23,13 @@ For anything else, please file an issue with a failing test or send a pull reque
 It is as simple as:
 
 ```rust
-use calamine::{Result, Sheets, RangeDeserializerBuilder};
-use std::io::File;
+use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
 
-fn example() -> Result<()> {
+fn example() -> Result<(), Error> {
     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut workbook = Sheets::<File>::open(path)?;
-    let range = workbook.worksheet_range("Sheet1")?;
+    let mut workbook: Xlsx<_> = open_workbook(path)?;
+    let range = workbook.worksheet_range("Sheet1")
+        .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
 
     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
 
@@ -45,38 +45,47 @@ fn example() -> Result<()> {
 ```
 
 ### Reader: Simple
-```rust
-use calamine::Sheets;
 
-let mut excel = Sheets::<File>::open("file.xlsx").unwrap();
-let r = excel.worksheet_range("Sheet1").unwrap();
-for row in r.rows() {
-    println!("row={:?}, row[0]={:?}", row, row[0]);
+```rust
+use calamine::{Reader, Xlsx, open_workbook};
+
+let mut excel: Xlsx<_> = open_workbook("file.xlsx").unwrap();
+if let Some(Ok(r)) = excel.worksheet_range("Sheet1") {i
+    for row in r.rows() {
+        println!("row={:?}, row[0]={:?}", row, row[0]);
+    }
 }
 ```
 
 ### Reader: More complex
 
+Let's assume
+- the file type (xls, xlsx ...) cannot be known at static time
+- we need to get all data from the workbook
+- we need to parse the vba
+- we need to see the defined names
+- and the formula!
+
 ```rust
-use calamine::{Sheets, Range, DataType};
+use calamine::{Reader, open_workbook_auto, Xlsx, DataType};
 
 // opens a new workbook
-let path = "/path/to/my/excel/file.xlsm";
-let mut workbook = Sheets::<File>::open(path).unwrap();
+let path = ...; // we do not know the file type
+let mut workbook = open_workbook_auto(path).expect("Cannot open file");
 
 // Read whole worksheet data and provide some statistics
-if let Ok(range) = workbook.worksheet_range("Sheet1") {
+if let Some(Ok(range)) = workbook.worksheet_range("Sheet1") {
     let total_cells = range.get_size().0 * range.get_size().1;
-    let non_empty_cells: usize = range.rows().map(|r| {
-        r.iter().filter(|cell| cell != &&DataType::Empty).count()
-    }).sum();
+    let non_empty_cells: usize = range.used_cells().count();
     println!("Found {} cells in 'Sheet1', including {} non empty cells",
              total_cells, non_empty_cells);
+    // alternatively, we can manually filter rows
+    assert_eq!(non_empty_cells, range.rows()
+        .flat_map(|r| r.iter().filter(|&c| c != &DataType::Empty)).count());
 }
 
 // Check if the workbook has a vba project
-if workbook.has_vba() {
-    let mut vba = workbook.vba_project().expect("Cannot find VbaProject");
+if let Some(Ok(mut vba)) = workbook.vba_project() {
     let vba = vba.to_mut();
     let module1 = vba.get_module("Module 1").unwrap();
     println!("Module 1 code:");
@@ -89,16 +98,17 @@ if workbook.has_vba() {
 }
 
 // You can also get defined names definition (string representation only)
-for &(ref name, ref formula) in excel.defined_names().expect("Cannot get defined names!") {
-    println!("name: {}, formula: {}", name, formula);
+for name in workbook.defined_names() {
+    println!("name: {}, formula: {}", name.0, name.1);
 }
 
 // Now get all formula!
-let sheets = workbook.sheet_names().expect("Cannot get sheet names");
+let sheets = workbook.sheet_names().to_owned();
 for s in sheets {
     println!("found {} formula in '{}'",
              workbook
                 .worksheet_formula(&s)
+                .expect("sheet not found")
                 .expect("error while getting formula")
                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
                 .count(),
@@ -129,6 +139,8 @@ The main unsupported items are:
 
 Thanks to [xlsx-js](https://github.com/SheetJS/js-xlsx) developers!
 This library is by far the simplest open source implementation I could find and helps making sense out of official documentation.
+
+Thanks also to all the contributors!
 
 ## License
 
