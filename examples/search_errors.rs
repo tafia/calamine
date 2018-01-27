@@ -7,14 +7,13 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
-use calamine::{DataType, Sheets};
-use calamine::errors::Error;
+use calamine::{AutoError, AutoReader, DataType, ExtensionReader, Sheets};
 
 #[derive(Debug)]
 enum FileStatus {
-    SheetsError(Error),
-    VbaError(Error),
-    RangeError(Error),
+    SheetsError(AutoError),
+    VbaError(AutoError),
+    RangeError(AutoError),
     Glob(GlobError),
 }
 
@@ -57,7 +56,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let f = f.map_err(FileStatus::Glob)?;
 
     println!("Analysing {:?}", f.display());
-    let mut xl = Sheets::<File>::open(&f).map_err(FileStatus::SheetsError)?;
+    let mut xl = Sheets::<AutoReader<_>>::new(ExtensionReader::open(&f).unwrap()).unwrap();
 
     let mut missing = None;
     let mut cell_errors = 0;
@@ -80,7 +79,9 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
         .collect::<Vec<_>>();
 
     for s in sheets {
-        let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
+        let range = xl.worksheet_range(&s)
+            .map_err(FileStatus::RangeError)?
+            .unwrap();
         cell_errors += range
             .rows()
             .flat_map(|r| {

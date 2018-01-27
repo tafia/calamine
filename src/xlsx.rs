@@ -19,41 +19,57 @@ type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 #[derive(Debug, Fail)]
 pub enum XlsxError {
     /// Io error
-    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
     /// Zip error
-    #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)]
+    Zip(#[cause] ::zip::result::ZipError),
     /// Vba error
-    #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
+    #[fail(display = "{}", _0)]
+    Vba(#[cause] ::vba::VbaError),
     /// Xml error
-    #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)]
+    Xml(#[cause] ::quick_xml::errors::Error),
     /// Parse error
-    #[fail(display = "{}", _0)] Parse(#[cause] ::std::string::ParseError),
+    #[fail(display = "{}", _0)]
+    Parse(#[cause] ::std::string::ParseError),
     /// Float error
-    #[fail(display = "{}", _0)] ParseFloat(#[cause] ::std::num::ParseFloatError),
+    #[fail(display = "{}", _0)]
+    ParseFloat(#[cause] ::std::num::ParseFloatError),
     /// ParseInt error
-    #[fail(display = "{}", _0)] ParseInt(#[cause] ::std::num::ParseIntError),
+    #[fail(display = "{}", _0)]
+    ParseInt(#[cause] ::std::num::ParseIntError),
 
     /// Unexpected end of xml
-    #[fail(display = "Unexpected end of xml, expecting '</{}>'", _0)] XmlEof(&'static str),
+    #[fail(display = "Unexpected end of xml, expecting '</{}>'", _0)]
+    XmlEof(&'static str),
     /// Unexpected node
-    #[fail(display = "Expecting '{}' node", _0)] UnexpectedNode(&'static str),
+    #[fail(display = "Expecting '{}' node", _0)]
+    UnexpectedNode(&'static str),
     /// File not found
-    #[fail(display = "File not found '{}'", _0)] FileNotFound(String),
+    #[fail(display = "File not found '{}'", _0)]
+    FileNotFound(String),
     /// Expecting alphanumeri character
-    #[fail(display = "Expecting alphanumeric character, got {:X}", _0)] Alphanumeric(u8),
+    #[fail(display = "Expecting alphanumeric character, got {:X}", _0)]
+    Alphanumeric(u8),
     /// Numeric column
     #[fail(display = "Numeric character is not allowed for column name, got {}", _0)]
     NumericColumn(u8),
     /// Wrong dimension count
-    #[fail(display = "Range dimension must be lower than 2. Got {}", _0)] DimensionCount(usize),
+    #[fail(display = "Range dimension must be lower than 2. Got {}", _0)]
+    DimensionCount(usize),
     /// Cell 't' attribute error
-    #[fail(display = "Unknown cell 't' attribute: {:?}", _0)] CellTAttribute(String),
+    #[fail(display = "Unknown cell 't' attribute: {:?}", _0)]
+    CellTAttribute(String),
     /// Cell 'r' attribute error
-    #[fail(display = "Cell missing 'r' attribute")] CellRAttribute,
+    #[fail(display = "Cell missing 'r' attribute")]
+    CellRAttribute,
     /// Unexpected error
-    #[fail(display = "{}", _0)] Unexpected(&'static str),
+    #[fail(display = "{}", _0)]
+    Unexpected(&'static str),
     /// Cell error
-    #[fail(display = "Unsupported cell error value '{}'", _0)] CellError(String),
+    #[fail(display = "Unsupported cell error value '{}'", _0)]
+    CellError(String),
 }
 
 from_err!(::std::io::Error, XlsxError, Io);

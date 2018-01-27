@@ -1,9 +1,8 @@
 extern crate calamine;
 
-use calamine::Sheets;
+use calamine::{Ods, Sheets, Xls, Xlsb, Xlsx};
 use calamine::DataType::{Bool, Empty, Error, Float, String};
 use calamine::CellErrorType::*;
-use std::fs::File;
 use std::io::Cursor;
 
 macro_rules! range_eq {
@@ -20,9 +19,9 @@ macro_rules! range_eq {
 #[test]
 fn issue_2() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<Xlsx>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap();
+    let range = excel.worksheet_range("issue2").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -37,9 +36,9 @@ fn issue_2() {
 fn issue_3() {
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("Sheet1").unwrap();
+    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
     range_eq!(range, [[Float(1.), String("a".to_string())]]);
 }
 
@@ -47,9 +46,9 @@ fn issue_3() {
 fn issue_4() {
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("issue5").unwrap();
+    let range = excel.worksheet_range("issue5").unwrap().unwrap();
     range_eq!(range, [[Float(0.5)]]);
 }
 
@@ -57,9 +56,9 @@ fn issue_4() {
 fn issue_6() {
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("issue6").unwrap();
+    let range = excel.worksheet_range("issue6").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -74,9 +73,9 @@ fn issue_6() {
 #[test]
 fn error_file() {
     let path = format!("{}/tests/errors.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("Feuil1").unwrap();
+    let range = excel.worksheet_range("Feuil1").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -94,9 +93,9 @@ fn error_file() {
 #[test]
 fn issue_9() {
     let path = format!("{}/tests/issue9.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("Feuil1").unwrap();
+    let range = excel.worksheet_range("Feuil1").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -111,7 +110,7 @@ fn issue_9() {
 #[test]
 fn vba() {
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
     let mut vba = excel.vba_project().unwrap();
     assert_eq!(
@@ -124,9 +123,9 @@ fn vba() {
 #[test]
 fn xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsb<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap();
+    let range = excel.worksheet_range("issue2").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -140,9 +139,9 @@ fn xlsb() {
 #[test]
 fn xls() {
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xls<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap();
+    let range = excel.worksheet_range("issue2").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -156,9 +155,9 @@ fn xls() {
 #[test]
 fn ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Ods<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("datatypes").unwrap();
+    let range = excel.worksheet_range("datatypes").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -171,7 +170,7 @@ fn ods() {
         ]
     );
 
-    let range = excel.worksheet_range("issue2").unwrap();
+    let range = excel.worksheet_range("issue2").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -181,16 +180,16 @@ fn ods() {
         ]
     );
 
-    let range = excel.worksheet_range("issue5").unwrap();
+    let range = excel.worksheet_range("issue5").unwrap().unwrap();
     range_eq!(range, [[Float(0.5)]]);
 }
 
 #[test]
 fn special_chrs_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("spc_chrs").unwrap();
+    let range = excel.worksheet_range("spc_chrs").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -209,9 +208,9 @@ fn special_chrs_xlsx() {
 #[test]
 fn special_chrs_xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsb<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("spc_chrs").unwrap();
+    let range = excel.worksheet_range("spc_chrs").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -230,9 +229,9 @@ fn special_chrs_xlsb() {
 #[test]
 fn special_chrs_ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Ods<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("spc_chrs").unwrap();
+    let range = excel.worksheet_range("spc_chrs").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -254,9 +253,9 @@ fn richtext_namespaced() {
         "{}/tests/richtext-namespaced.xlsx",
         env!("CARGO_MANIFEST_DIR")
     );
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
-    let range = excel.worksheet_range("Sheet1").unwrap();
+    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
     range_eq!(
         range,
         [
@@ -277,7 +276,7 @@ fn richtext_namespaced() {
 #[test]
 fn defined_names_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
     let mut defined_names = excel.defined_names().unwrap().to_vec();
     defined_names.sort();
@@ -294,7 +293,7 @@ fn defined_names_xlsx() {
 #[test]
 fn defined_names_xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let excel = Sheets::<Xlsb<_>>::open(&path).unwrap();
 
     let mut defined_names = excel.defined_names().unwrap().to_vec();
     defined_names.sort();
@@ -311,7 +310,7 @@ fn defined_names_xlsb() {
 #[test]
 fn defined_names_xls() {
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let excel = Sheets::<Xls<_>>::open(&path).unwrap();
 
     let mut defined_names = excel.defined_names().unwrap().to_vec();
     defined_names.sort();
@@ -328,7 +327,7 @@ fn defined_names_xls() {
 #[test]
 fn defined_names_ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let excel = Sheets::<Ods<_>>::open(&path).unwrap();
 
     let mut defined_names = excel.defined_names().unwrap().to_vec();
     defined_names.sort();
@@ -354,7 +353,7 @@ fn parse_sheet_names_in_xls() {
         "{}/tests/sheet_name_parsing.xls",
         env!("CARGO_MANIFEST_DIR")
     );
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let excel = Sheets::<Xls<_>>::open(&path).unwrap();
     assert_eq!(excel.sheet_names().unwrap(), vec!["Sheet1"]);
 }
 
@@ -362,14 +361,14 @@ fn parse_sheet_names_in_xls() {
 fn read_xls_from_memory() {
     const DATA_XLS: &[u8] = include_bytes!("sheet_name_parsing.xls");
     let reader = Cursor::new(DATA_XLS);
-    let mut excel = Sheets::new(reader, "xls").unwrap();
+    let excel = Sheets::<Xls<Cursor<&[u8]>>>::new(reader).unwrap();
     assert_eq!(excel.sheet_names().unwrap(), vec!["Sheet1"]);
 }
 
 #[test]
 fn search_references() {
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
     let vba = excel.vba_project().unwrap();
     let references = vba.get_references();
     let names = references.iter().map(|r| &*r.name).collect::<Vec<&str>>();
@@ -379,55 +378,55 @@ fn search_references() {
 #[test]
 fn formula_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsx<_>>::open(&path).unwrap();
 
     let sheets = excel.sheet_names().unwrap();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
 #[test]
 fn formula_xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xlsb<_>>::open(&path).unwrap();
 
     let sheets = excel.sheet_names().unwrap();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
 #[test]
 fn formula_xls() {
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Xls<_>>::open(&path).unwrap();
 
     let sheets = excel.sheet_names().unwrap();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
 #[test]
 fn formula_ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
-    let mut excel = Sheets::<File>::open(&path).expect("cannot open excel file");
+    let mut excel = Sheets::<Ods<_>>::open(&path).unwrap();
 
     let sheets = excel.sheet_names().unwrap();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
     range_eq!(formula, [["of:=[.B1]+$$OneRange".to_string()]]);
 }

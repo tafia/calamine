@@ -25,22 +25,30 @@ type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 #[derive(Debug, Fail)]
 pub enum OdsError {
     /// Io error
-    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
     /// Zip error
-    #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)]
+    Zip(#[cause] ::zip::result::ZipError),
     /// Xml error
-    #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)]
+    Xml(#[cause] ::quick_xml::errors::Error),
     /// Error while parsing string
-    #[fail(display = "{}", _0)] Parse(#[cause] ::std::string::ParseError),
+    #[fail(display = "{}", _0)]
+    Parse(#[cause] ::std::string::ParseError),
     /// Error while parsing float
-    #[fail(display = "{}", _0)] ParseFloat(#[cause] ::std::num::ParseFloatError),
+    #[fail(display = "{}", _0)]
+    ParseFloat(#[cause] ::std::num::ParseFloatError),
 
     /// Invalid MIME
-    #[fail(display = "Invalid MIME type: {:?}", _0)] InvalidMime(Vec<u8>),
+    #[fail(display = "Invalid MIME type: {:?}", _0)]
+    InvalidMime(Vec<u8>),
     /// File not found
-    #[fail(display = "Cannot find '{}' file", _0)] FileNotFound(&'static str),
+    #[fail(display = "Cannot find '{}' file", _0)]
+    FileNotFound(&'static str),
     /// Unexpected end of file
-    #[fail(display = "Expecting {} found EOF", _0)] Eof(&'static str),
+    #[fail(display = "Expecting {} found EOF", _0)]
+    Eof(&'static str),
     /// Unexpexted error
     #[fail(display = "Expecting {} found {}", expected, found)]
     Mismatch {

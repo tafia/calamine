@@ -72,7 +72,7 @@ impl<R: Seek> Seek for ExtensionReader<R> {
 }
 
 /// A reader wrapper based on file extension
-pub enum AutoSheets<RS>
+pub enum AutoReader<RS>
 where
     RS: Read + Seek,
 {
@@ -87,17 +87,23 @@ where
 }
 
 /// An error wrapper based on file extension
+#[derive(Debug, Fail)]
 pub enum AutoError {
     /// wrapper for extension .xls
-    Xls(::xls::XlsError),
+    #[fail(display = "{}", _0)]
+    Xls(#[cause] ::xls::XlsError),
     /// wrapper for extension .xlsx or .xlsm
-    Xlsx(::xlsx::XlsxError),
+    #[fail(display = "{}", _0)]
+    Xlsx(#[cause] ::xlsx::XlsxError),
     /// wrapper for extension .xlsb
-    Xlsb(::xlsb::XlsbError),
+    #[fail(display = "{}", _0)]
+    Xlsb(#[cause] ::xlsb::XlsbError),
     /// wrapper for extension .ods
-    Ods(::ods::OdsError),
+    #[fail(display = "{}", _0)]
+    Ods(#[cause] ::ods::OdsError),
     /// special io error
-    Io(::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
 }
 
 from_err!(IoError, AutoError, Io);
@@ -105,41 +111,41 @@ from_err!(IoError, AutoError, Io);
 macro_rules! auto {
     ($self:expr, $fn:tt $(, $arg:expr)*) => {
         match *$self {
-            AutoSheets::Xls(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Xls),
-            AutoSheets::Xlsx(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Xlsx),
-            AutoSheets::Xlsb(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Xlsb),
-            AutoSheets::Ods(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Ods),
+            AutoReader::Xls(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Xls),
+            AutoReader::Xlsx(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Xlsx),
+            AutoReader::Xlsb(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Xlsb),
+            AutoReader::Ods(ref mut e) => e.$fn($($arg,)*).map_err(AutoError::Ods),
         }
     }
 }
 
-impl<RS: Read + Seek> Reader for AutoSheets<RS> {
+impl<RS: Read + Seek> Reader for AutoReader<RS> {
     type Error = AutoError;
     type RS = ExtensionReader<RS>;
 
     fn new(reader: Self::RS) -> Result<Self, Self::Error> {
         Ok(match reader.extension {
             Extension::Xls => {
-                AutoSheets::Xls(::xls::Xls::new(reader.inner).map_err(AutoError::Xls)?)
+                AutoReader::Xls(::xls::Xls::new(reader.inner).map_err(AutoError::Xls)?)
             }
             Extension::Xlsx => {
-                AutoSheets::Xlsx(::xlsx::Xlsx::new(reader.inner).map_err(AutoError::Xlsx)?)
+                AutoReader::Xlsx(::xlsx::Xlsx::new(reader.inner).map_err(AutoError::Xlsx)?)
             }
             Extension::Xlsb => {
-                AutoSheets::Xlsb(::xlsb::Xlsb::new(reader.inner).map_err(AutoError::Xlsb)?)
+                AutoReader::Xlsb(::xlsb::Xlsb::new(reader.inner).map_err(AutoError::Xlsb)?)
             }
             Extension::Ods => {
-                AutoSheets::Ods(::ods::Ods::new(reader.inner).map_err(AutoError::Ods)?)
+                AutoReader::Ods(::ods::Ods::new(reader.inner).map_err(AutoError::Ods)?)
             }
         })
     }
 
     fn has_vba(&mut self) -> bool {
         match *self {
-            AutoSheets::Xls(ref mut e) => e.has_vba(),
-            AutoSheets::Xlsx(ref mut e) => e.has_vba(),
-            AutoSheets::Xlsb(ref mut e) => e.has_vba(),
-            AutoSheets::Ods(ref mut e) => e.has_vba(),
+            AutoReader::Xls(ref mut e) => e.has_vba(),
+            AutoReader::Xlsx(ref mut e) => e.has_vba(),
+            AutoReader::Xlsb(ref mut e) => e.has_vba(),
+            AutoReader::Ods(ref mut e) => e.has_vba(),
         }
     }
 

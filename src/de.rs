@@ -100,14 +100,14 @@ impl RangeDeserializerBuilder {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Sheets, RangeDeserializerBuilder};
+    /// # use calamine::{Sheets, Xlsx, RangeDeserializerBuilder};
     /// # use calamine::errors::Error;
-    /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<File>::open(path)?;
-    ///     let range = workbook.worksheet_range("Sheet1")?;
+    ///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+    ///     let range = workbook.worksheet_range("Sheet1")?
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
     ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
     ///
     ///     if let Some(result) = iter.next() {
@@ -137,14 +137,14 @@ impl RangeDeserializerBuilder {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{DataType, Sheets, RangeDeserializerBuilder};
+    /// # use calamine::{DataType, Sheets, Xlsx, RangeDeserializerBuilder};
     /// # use calamine::errors::Error;
-    /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<File>::open(path)?;
-    ///     let range = workbook.worksheet_range("Sheet1")?;
+    ///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+    ///     let range = workbook.worksheet_range("Sheet1")?
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
     ///
     ///     let mut iter = RangeDeserializerBuilder::new()
     ///         .has_headers(false)
@@ -178,14 +178,14 @@ impl RangeDeserializerBuilder {
 /// # Example
 ///
 /// ```
-/// # use calamine::{Sheets, RangeDeserializerBuilder};
+/// # use calamine::{Sheets, Xlsx, RangeDeserializerBuilder};
 /// # use calamine::errors::Error;
-/// # use std::fs::File;
 /// # fn main() { example().unwrap(); }
 /// fn example() -> Result<(), Error> {
 ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-///     let mut workbook = Sheets::<File>::open(path)?;
-///     let range = workbook.worksheet_range("Sheet1")?;
+///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+///     let range = workbook.worksheet_range("Sheet1")?
+///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
 ///
 ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
 ///

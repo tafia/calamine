@@ -8,15 +8,14 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Sheets, DataType};
-//! use std::fs::File;
+//! use calamine::{Sheets, Xlsx, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
+//! let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
-//! if let Ok(range) = workbook.worksheet_range("Sheet1") {
+//! if let Ok(Some(range)) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
@@ -52,6 +51,7 @@
 //!              workbook
 //!                 .worksheet_formula(&s)
 //!                 .expect("error while getting formula")
+//!                 .expect("sheet not found")
 //!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
 //!                 .count(),
 //!              s);
@@ -87,17 +87,20 @@ pub mod auto;
 
 use std::borrow::Cow;
 use std::fmt;
-use std::io::{Read, Seek};
+use std::io::{BufReader, Read, Seek};
 use std::ops::{Index, IndexMut};
+use std::fs::File;
+use std::path::Path;
 use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
 pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
-pub use errors::Error;
+use errors::Error;
 pub use xls::{Xls, XlsError};
 pub use xlsx::{Xlsx, XlsxError};
 pub use xlsb::{Xlsb, XlsbError};
 pub use ods::{Ods, OdsError};
+pub use auto::{AutoError, AutoReader, Extension, ExtensionReader};
 
 use vba::VbaProject;
 
@@ -157,7 +160,7 @@ pub trait Reader: Sized {
     /// Inner reader type
     type RS: Read + Seek;
     /// Error specific to file type
-    type Error: From<::std::io::Error>;
+    type Error: ::std::fmt::Debug + From<::std::io::Error>;
 
     /// Creates a new instance.
     fn new(reader: Self::RS) -> Result<Self, Self::Error>;
@@ -198,12 +201,13 @@ where
     ///
     /// # Examples
     /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
+    /// use calamine::{Sheets, Xlsx};
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
+    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_range("Sheet1")
+    ///     .expect("Error while parsing workbook")
+    ///     .expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
     pub fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, R::Error> {
@@ -214,12 +218,13 @@ where
     ///
     /// # Examples
     /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
+    /// use calamine::{Sheets, Xlsx};
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
+    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_formula("Sheet1")
+    ///     .expect("Error while parsing workbook")
+    ///     .expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
     pub fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, R::Error> {
@@ -230,12 +235,13 @@ where
     ///
     /// # Examples
     /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
+    /// use calamine::{Sheets, Xlsx};
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
+    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
+    /// let range = workbook.worksheet_range_by_index(0)
+    ///     .expect("Error while processing range")
+    ///     .expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
     pub fn worksheet_range_by_index(
@@ -257,11 +263,10 @@ where
     ///
     /// # Examples
     /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
+    /// use calamine::{Xlsx, Sheets};
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).unwrap();
+    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).unwrap();
     /// if workbook.has_vba() {
     ///     let vba = workbook.vba_project().expect("Cannot find vba project");
     ///     println!("References: {:?}", vba.get_references());
@@ -276,11 +281,10 @@ where
     ///
     /// # Examples
     /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
+    /// use calamine::{Xlsx, Sheets};
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<File>::open(path).unwrap();
+    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
     pub fn sheet_names(&self) -> Result<Vec<String>, R::Error> {
@@ -290,6 +294,17 @@ where
     /// Get all defined names (Ranges names etc)
     pub fn defined_names(&self) -> Result<&[(String, String)], R::Error> {
         Ok(&self.metadata.defined_names)
+    }
+}
+
+impl<R> Sheets<R>
+where
+    R: Reader<RS = BufReader<File>>,
+{
+    /// Convenient function to open a file with a BufReader<File>
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, R::Error> {
+        let file = BufReader::new(File::open(path)?);
+        Sheets::new(file)
     }
 }
 
@@ -541,14 +556,14 @@ impl<T: CellType> Range<T> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Sheets, RangeDeserializerBuilder};
+    /// # use calamine::{Sheets, Xlsx, RangeDeserializerBuilder};
     /// # use calamine::errors::Error;
-    /// # use std::fs::File;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<File>::open(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
+    ///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")?
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {

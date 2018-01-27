@@ -118,11 +118,10 @@ impl VbaProject {
     ///
     /// # Examples
     /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
+    /// use calamine::{Sheets, Xlsx};
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut xl = Sheets::<File>::open(path).expect("Cannot find excel file");
+    /// let mut xl = Sheets::<Xlsx<_>>::open(path).expect("Cannot find excel file");
     /// let mut vba = xl.vba_project().expect("Cannot find vba project");
     /// let vba = vba.to_mut();
     /// let modules = vba.get_module_names().into_iter()

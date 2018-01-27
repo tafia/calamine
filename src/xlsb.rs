@@ -18,13 +18,17 @@ use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
 #[derive(Debug, Fail)]
 pub enum XlsbError {
     /// Io error
-    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
     /// Zip error
-    #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)]
+    Zip(#[cause] ::zip::result::ZipError),
     /// Xml error
-    #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
+    #[fail(display = "{}", _0)]
+    Xml(#[cause] ::quick_xml::errors::Error),
     /// Vba error
-    #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
+    #[fail(display = "{}", _0)]
+    Vba(#[cause] ::vba::VbaError),
 
     /// Mismatch value
     #[fail(display = "Expecting {}, got {:X}", expected, found)]
@@ -35,22 +39,30 @@ pub enum XlsbError {
         found: u16,
     },
     /// File not found
-    #[fail(display = "File not found: '{}'", _0)] FileNotFound(String),
+    #[fail(display = "File not found: '{}'", _0)]
+    FileNotFound(String),
     /// Invalid formula, stack length too short
-    #[fail(display = "Invalid stack length")] StackLen,
+    #[fail(display = "Invalid stack length")]
+    StackLen,
 
     /// Unsupported type
-    #[fail(display = "Unsupported type {:X}", _0)] UnsupportedType(u16),
+    #[fail(display = "Unsupported type {:X}", _0)]
+    UnsupportedType(u16),
     /// Unsupported etpg
-    #[fail(display = "Unsupported etpg {:X}", _0)] Etpg(u8),
+    #[fail(display = "Unsupported etpg {:X}", _0)]
+    Etpg(u8),
     /// Unsupported iftab
-    #[fail(display = "Unsupported iftab {:X}", _0)] IfTab(usize),
+    #[fail(display = "Unsupported iftab {:X}", _0)]
+    IfTab(usize),
     /// Unsupported BErr
-    #[fail(display = "Unsupported BErr {:X}", _0)] BErr(u8),
+    #[fail(display = "Unsupported BErr {:X}", _0)]
+    BErr(u8),
     /// Unsupported Ptg
-    #[fail(display = "Unsupported Ptg {:X}", _0)] Ptg(u8),
+    #[fail(display = "Unsupported Ptg {:X}", _0)]
+    Ptg(u8),
     /// Unsupported cell error code
-    #[fail(display = "Unsupported Cell Error code {:X}", _0)] CellError(u8),
+    #[fail(display = "Unsupported Cell Error code {:X}", _0)]
+    CellError(u8),
     /// Wide str length too long
     #[fail(display = "Wide str length {} exceeds buffer length {}", ws_len, buf_len)]
     WideStr {
