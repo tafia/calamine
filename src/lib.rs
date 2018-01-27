@@ -94,6 +94,10 @@ use serde::de::DeserializeOwned;
 pub use datatype::DataType;
 pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use errors::Error;
+pub use xls::{Xls, XlsError};
+pub use xlsx::{Xlsx, XlsxError};
+pub use xlsb::{Xlsb, XlsbError};
+pub use ods::{Ods, OdsError};
 
 use vba::VbaProject;
 

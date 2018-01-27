@@ -14,30 +14,49 @@ use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
 
+/// A Xlsb specific error
 #[derive(Debug, Fail)]
 pub enum XlsbError {
+    /// Io error
     #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    /// Zip error
     #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    /// Xml error
     #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
+    /// Vba error
     #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
 
+    /// Mismatch value
     #[fail(display = "Expecting {}, got {:X}", expected, found)]
     Mismatch {
+        /// expected
         expected: &'static str,
+        /// found
         found: u16,
     },
+    /// File not found
     #[fail(display = "File not found: '{}'", _0)] FileNotFound(String),
+    /// Invalid formula, stack length too short
     #[fail(display = "Invalid stack length")] StackLen,
 
+    /// Unsupported type
     #[fail(display = "Unsupported type {:X}", _0)] UnsupportedType(u16),
+    /// Unsupported etpg
     #[fail(display = "Unsupported etpg {:X}", _0)] Etpg(u8),
+    /// Unsupported iftab
     #[fail(display = "Unsupported iftab {:X}", _0)] IfTab(usize),
+    /// Unsupported BErr
     #[fail(display = "Unsupported BErr {:X}", _0)] BErr(u8),
+    /// Unsupported Ptg
     #[fail(display = "Unsupported Ptg {:X}", _0)] Ptg(u8),
+    /// Unsupported cell error code
     #[fail(display = "Unsupported Cell Error code {:X}", _0)] CellError(u8),
+    /// Wide str length too long
     #[fail(display = "Wide str length {} exceeds buffer length {}", ws_len, buf_len)]
     WideStr {
+        /// wide str length
         ws_len: usize,
+        /// buffer length
         buf_len: usize,
     },
 }
@@ -46,6 +65,7 @@ from_err!(::std::io::Error, XlsbError, Io);
 from_err!(::zip::result::ZipError, XlsbError, Zip);
 from_err!(::quick_xml::errors::Error, XlsbError, Xml);
 
+/// A Xlsb reader
 pub struct Xlsb<RS>
 where
     RS: Read + Seek,

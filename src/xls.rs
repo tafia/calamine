@@ -12,33 +12,52 @@ use utils::{push_column, read_slice, read_u16, read_u32};
 #[derive(Fail, Debug)]
 /// An enum to handle Xls specific errors
 pub enum XlsError {
+    /// Io error
     #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    /// Cfb error
     #[fail(display = "{}", _0)] Cfb(#[cause] ::cfb::CfbError),
+    /// Vba error
     #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
 
+    /// Cannot parse formula, stack is too short
     #[fail(display = "Invalid stack length")] StackLen,
+    /// Unrecognized data
     #[fail(display = "Unrecognized {}: 0x{:0X}", typ, val)]
     Unrecognized {
+        /// data type
         typ: &'static str,
+        /// value found
         val: u8,
     },
+    /// Workook is password protected
     #[fail(display = "Workbook is password protected")] Password,
+    /// Invalid length
     #[fail(display = "Invalid {} length, expected {} maximum, found {}", typ, expected, found)]
     Len {
+        /// expected length
         expected: usize,
+        /// found length
         found: usize,
+        /// length type
         typ: &'static str,
     },
+    /// Continue Record is too short
     #[fail(display = "Continued record too short while reading extended string")]
     ContinueRecordTooShort,
+    /// End of stream
     #[fail(display = "End of stream for {}", _0)] EoStream(&'static str),
 
+    /// Invalid Formula
     #[fail(display = "Invalid formula (stack size: {})", stack_size)]
     InvalidFormula {
+        /// stack size
         stack_size: usize,
     },
+    /// Invalid or unknown iftab
     #[fail(display = "Invalid iftab {:X}", _0)] IfTab(usize),
+    /// Invalid etpg
     #[fail(display = "Invalid etpg {:X}", _0)] Etpg(u8),
+    /// No vba project
     #[fail(display = "No VBA project")] NoVba,
 }
 
