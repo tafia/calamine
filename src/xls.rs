@@ -3,6 +3,7 @@ use std::io::SeekFrom;
 use std::io::{Read, Seek};
 use std::borrow::Cow;
 use std::cmp::min;
+use std::marker::PhantomData;
 
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
@@ -74,15 +75,12 @@ from_err!(::std::io::Error, XlsError, Io);
 from_err!(::cfb::CfbError, XlsError, Cfb);
 from_err!(::vba::VbaError, XlsError, Vba);
 
-enum SheetsState<RS> {
-    NotParsed(RS, Cfb),
-    Parsed(HashMap<String, (Range<DataType>, Range<String>)>),
-}
-
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
-    sheets: SheetsState<RS>,
+    defined_names: Vec<(String, String)>,
+    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
     vba: Option<VbaProject>,
+    marker: PhantomData<RS>,
 }
 
 impl<RS: Read + Seek> Reader for Xls<RS> {
@@ -106,10 +104,15 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
             None
         };
 
-        Ok(Xls {
-            sheets: SheetsState::NotParsed(reader, cfb),
+        let mut xls = Xls {
+            sheets: HashMap::new(),
+            defined_names: Vec::new(),
             vba: vba,
-        })
+            marker: PhantomData,
+        };
+
+        xls.parse_workbook(reader, cfb)?;
+        Ok(xls)
     }
 
     fn has_vba(&mut self) -> bool {
@@ -125,11 +128,8 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
 
     /// Parses Workbook stream, no need for the relationships variable
     fn initialize(&mut self) -> Result<Metadata, XlsError> {
-        let defined_names = self.parse_workbook()?;
-        let sheets = match self.sheets {
-            SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => shs.keys().map(|k| k.to_string()).collect(),
-        };
+        let defined_names = self.defined_names.clone();
+        let sheets = self.sheets.keys().map(|k| k.to_string()).collect();
         Ok(Metadata {
             sheets: sheets,
             defined_names: defined_names,
@@ -137,32 +137,19 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
     }
 
     fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsError> {
-        let _ = self.parse_workbook()?;
-        match self.sheets {
-            SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => Ok(shs.get(name).map(|r| r.0.clone())),
-        }
+        Ok(self.sheets.get(name).map(|r| r.0.clone()))
     }
 
     fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsError> {
-        let _ = self.parse_workbook()?;
-        match self.sheets {
-            SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => Ok(shs.get(name).map(|r| r.1.clone())),
-        }
+        Ok(self.sheets.get(name).map(|r| r.1.clone()))
     }
 }
 
 impl<RS: Read + Seek> Xls<RS> {
-    fn parse_workbook(&mut self) -> Result<Vec<(String, String)>, XlsError> {
+    fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
         // gets workbook and worksheets stream, or early exit
-        let stream = match self.sheets {
-            SheetsState::NotParsed(ref mut reader, ref mut cfb) => {
-                cfb.get_stream("Workbook", reader)
-                    .or_else(|_| cfb.get_stream("Book", reader))?
-            }
-            SheetsState::Parsed(_) => return Ok(Vec::new()),
-        };
+        let stream = cfb.get_stream("Workbook", &mut reader)
+            .or_else(|_| cfb.get_stream("Book", &mut reader))?;
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
@@ -279,9 +266,10 @@ impl<RS: Read + Seek> Xls<RS> {
             sheets.insert(name, (range, formula));
         }
 
-        self.sheets = SheetsState::Parsed(sheets);
+        self.sheets = sheets;
+        self.defined_names = defined_names;
 
-        Ok(defined_names)
+        Ok(())
     }
 }
 
