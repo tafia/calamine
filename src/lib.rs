@@ -79,11 +79,11 @@ mod xlsx;
 mod xls;
 mod cfb;
 mod ods;
+mod auto;
 
 mod de;
-pub mod errors;
+mod errors;
 pub mod vba;
-pub mod auto;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -99,7 +99,8 @@ pub use xls::{Xls, XlsError};
 pub use xlsx::{Xlsx, XlsxError};
 pub use xlsb::{Xlsb, XlsbError};
 pub use ods::{Ods, OdsError};
-pub use auto::{AutoError, AutoReader, Extension, ExtensionReader};
+pub use auto::{open_workbook_auto, Sheets};
+pub use errors::Error;
 
 use vba::VbaProject;
 
@@ -449,8 +450,7 @@ impl<T: CellType> Range<T> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Reader, open_workbook, Xlsx, RangeDeserializerBuilder};
-    /// # use calamine::errors::Error;
+    /// # use calamine::{Reader, Error, open_workbook, Xlsx, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));

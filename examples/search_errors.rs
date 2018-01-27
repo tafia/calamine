@@ -7,12 +7,12 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
-use calamine::{AutoError, AutoReader, DataType, ExtensionReader, Reader};
+use calamine::{open_workbook_auto, DataType, Error, Reader};
 
 #[derive(Debug)]
 enum FileStatus {
-    VbaError(AutoError),
-    RangeError(AutoError),
+    VbaError(Error),
+    RangeError(Error),
     Glob(GlobError),
 }
 
@@ -55,7 +55,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let f = f.map_err(FileStatus::Glob)?;
 
     println!("Analysing {:?}", f.display());
-    let mut xl = AutoReader::new(ExtensionReader::open(&f).unwrap()).unwrap();
+    let mut xl = open_workbook_auto(&f).unwrap();
 
     let mut missing = None;
     let mut cell_errors = 0;

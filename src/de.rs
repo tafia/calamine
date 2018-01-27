@@ -100,8 +100,7 @@ impl RangeDeserializerBuilder {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
-    /// # use calamine::errors::Error;
+    /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
@@ -137,8 +136,7 @@ impl RangeDeserializerBuilder {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{DataType, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
-    /// # use calamine::errors::Error;
+    /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
@@ -178,8 +176,7 @@ impl RangeDeserializerBuilder {
 /// # Example
 ///
 /// ```
-/// # use calamine::{open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
-/// # use calamine::errors::Error;
+/// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
 /// # fn main() { example().unwrap(); }
 /// fn example() -> Result<(), Error> {
 ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));

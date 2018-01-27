@@ -23,8 +23,6 @@ pub enum Error {
     #[fail(display = "{}", _0)]
     Vba(#[cause] ::vba::VbaError),
     /// Auto error
-    #[fail(display = "{}", _0)]
-    Auto(#[cause] ::auto::AutoError),
     /// cfb specific error
     #[fail(display = "{}", _0)]
     De(#[cause] ::de::DeError),
@@ -40,6 +38,5 @@ from_err!(::xls::XlsError, Error, Xls);
 from_err!(::xlsb::XlsbError, Error, Xlsb);
 from_err!(::xlsx::XlsxError, Error, Xlsx);
 from_err!(::vba::VbaError, Error, Vba);
-from_err!(::auto::AutoError, Error, Auto);
 from_err!(::de::DeError, Error, De);
 from_err!(&'static str, Error, Msg);
