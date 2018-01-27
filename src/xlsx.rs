@@ -107,6 +107,8 @@ where
     strings: Vec<String>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
+    /// Metadata
+    metadata: Metadata,
 }
 
 impl<RS: Read + Seek> Xlsx<RS> {
@@ -133,12 +135,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_workbook(
-        &mut self,
-        relationships: &HashMap<Vec<u8>, String>,
-    ) -> Result<Vec<(String, String)>, XlsxError> {
+    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml") {
-            None => return Ok(Vec::new()),
+            None => return Ok(()),
             Some(x) => x?,
         };
         let mut defined_names = Vec::new();
@@ -192,7 +191,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 _ => (),
             }
         }
-        Ok(defined_names)
+        self.metadata.names = defined_names;
+        self.metadata.sheets = self.sheets.iter().map(|&(ref s, _)| s.clone()).collect();
+        Ok(())
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
@@ -236,7 +237,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(relationships)
     }
 
-    fn read_worksheet<T, F>(
+    fn worksheet<T, F>(
         &mut self,
         name: &str,
         read_data: &mut F,
@@ -303,11 +304,16 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
     where
         RS: Read + Seek,
     {
-        Ok(Xlsx {
+        let mut xlsx = Xlsx {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             sheets: Vec::new(),
-        })
+            metadata: Metadata::default(),
+        };
+        xlsx.read_shared_strings()?;
+        let relationships = xlsx.read_relationships()?;
+        xlsx.read_workbook(&relationships)?;
+        Ok(xlsx)
     }
 
     fn has_vba(&mut self) -> bool {
@@ -322,22 +328,16 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             .map_err(XlsxError::Vba)
     }
 
-    fn initialize(&mut self) -> Result<Metadata, XlsxError> {
-        self.read_shared_strings()?;
-        let relationships = self.read_relationships()?;
-        let defined_names = self.read_workbook(&relationships)?;
-        Ok(Metadata {
-            sheets: self.sheets.iter().map(|&(ref s, _)| s.clone()).collect(),
-            defined_names: defined_names,
-        })
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsxError> {
-        Ok(self.read_worksheet(name, &mut |s, xml, cells| read_sheet_data(xml, s, cells))?)
+    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsxError> {
+        Ok(self.worksheet(name, &mut |s, xml, cells| read_sheet_data(xml, s, cells))?)
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsxError> {
-        self.read_worksheet(name, &mut |_, xml, cells| {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsxError> {
+        self.worksheet(name, &mut |_, xml, cells| {
             read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
                 match e.local_name() {
                     b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,

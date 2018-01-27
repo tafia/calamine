@@ -4,7 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use calamine::{AutoReader, DataType, ExtensionReader, Range, Sheets};
+use calamine::{AutoReader, DataType, ExtensionReader, Range, Reader};
 
 fn main() {
     // converts first argument into a csv (same name, silently overrides
@@ -25,7 +25,7 @@ fn main() {
 
     let dest = sce.with_extension("csv");
     let mut dest = BufWriter::new(File::create(dest).unwrap());
-    let mut xl = Sheets::<AutoReader<_>>::new(ExtensionReader::open(&sce).unwrap()).unwrap();
+    let mut xl = AutoReader::new(ExtensionReader::open(&sce).unwrap()).unwrap();
     let range = xl.worksheet_range(&sheet).unwrap().unwrap();
 
     write_range(&mut dest, &range).unwrap();

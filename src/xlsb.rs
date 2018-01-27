@@ -86,7 +86,7 @@ where
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
     strings: Vec<String>,
-    defined_names: Vec<(String, String)>,
+    metadata: Metadata,
 }
 
 impl<RS: Read + Seek> Xlsb<RS> {
@@ -250,7 +250,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 }
                 0x009D | 0x0225 | 0x018D | 0x0180 | 0x009A | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
                     // record supposed to happen AFTER BrtNames
-                    self.defined_names = defined_names;
+                    self.metadata.names = defined_names;
                     return Ok(());
                 }
                 _ => debug!("Unsupported type {:X}", typ),
@@ -267,13 +267,19 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
     where
         RS: Read + Seek,
     {
-        Ok(Xlsb {
+        let mut xlsb = Xlsb {
             zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
-            defined_names: Vec::new(),
-        })
+            metadata: Metadata::default(),
+        };
+        xlsb.read_shared_strings()?;
+        let relationships = xlsb.read_relationships()?;
+        xlsb.read_workbook(&relationships)?;
+        xlsb.metadata.sheets = xlsb.sheets.iter().map(|s| s.0.clone()).collect();
+
+        Ok(xlsb)
     }
 
     fn has_vba(&mut self) -> bool {
@@ -288,18 +294,12 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
             .map_err(XlsbError::Vba)
     }
 
-    fn initialize(&mut self) -> Result<Metadata, XlsbError> {
-        self.read_shared_strings()?;
-        let relationships = self.read_relationships()?;
-        self.read_workbook(&relationships)?;
-        Ok(Metadata {
-            sheets: self.sheets.iter().map(|s| s.0.clone()).collect(),
-            defined_names: self.defined_names.clone(),
-        })
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsbError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsbError> {
         let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
             Some(&(_, ref path)) => path.clone(),
             None => return Ok(None),
@@ -404,7 +404,7 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsbError> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsbError> {
         let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
             Some(&(_, ref path)) => path.clone(),
             None => return Ok(None),
@@ -459,21 +459,21 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
                     let formula = &buf[14 + cch * 2..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.defined_names)?
+                    parse_formula(rgce, &self.extern_sheets, &self.metadata.names)?
                 }
                 0x0009 => {
                     // BrtFmlaNum
                     let formula = &buf[18..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.defined_names)?
+                    parse_formula(rgce, &self.extern_sheets, &self.metadata.names)?
                 }
                 0x000A | 0x000B => {
                     // BrtFmlaBool | BrtFmlaError
                     let formula = &buf[11..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.defined_names)?
+                    parse_formula(rgce, &self.extern_sheets, &self.metadata.names)?
                 }
                 0x0000 => {
                     // BrtRowHdr

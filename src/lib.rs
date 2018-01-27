@@ -8,11 +8,11 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Sheets, Xlsx, DataType};
+//! use calamine::{Reader, open_workbook, Xlsx, DataType};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-//! let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
+//! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(Some(range)) = workbook.worksheet_range("Sheet1") {
@@ -40,12 +40,12 @@
 //! }
 //!
 //! // You can also get defined names definition (string representation only)
-//! for &(ref name, ref formula) in workbook.defined_names().expect("Cannot get defined names!") {
-//!     println!("name: {}, formula: {}", name, formula);
+//! for name in workbook.defined_names() {
+//!     println!("name: {}, formula: {}", name.0, name.1);
 //! }
 //!
 //! // Now get all formula!
-//! let sheets = workbook.sheet_names().expect("Cannot get sheet names");
+//! let sheets = workbook.sheet_names().to_owned();
 //! for s in sheets {
 //!     println!("found {} formula in '{}'",
 //!              workbook
@@ -149,7 +149,7 @@ impl fmt::Display for CellErrorType {
 pub struct Metadata {
     sheets: Vec<String>,
     /// Map of sheet names/sheet path within zip archive
-    defined_names: Vec<(String, String)>,
+    names: Vec<(String, String)>,
 }
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
@@ -168,143 +168,40 @@ pub trait Reader: Sized {
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Result<Cow<VbaProject>, Self::Error>;
     /// Initialize
-    fn initialize(&mut self) -> Result<Metadata, Self::Error>;
+    fn metadata(&self) -> &Metadata;
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error>;
+    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error>;
     /// Read worksheet formula in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, _: &str) -> Result<Option<Range<String>>, Self::Error>;
-}
-
-/// A wrapper struct over the spreadsheet file to cache metadata
-pub struct Sheets<R> {
-    file: R,
-    metadata: Metadata,
-}
-
-impl<R> Sheets<R>
-where
-    R: Reader,
-    R::RS: Read + Seek,
-{
-    /// Creates a new workbook from a reader.
-    pub fn new<I: Into<R::RS>>(reader: I) -> Result<Sheets<R>, R::Error> {
-        let mut file = R::new(reader.into())?;
-        let metadata = file.initialize()?;
-        Ok(Sheets {
-            file: file,
-            metadata: metadata,
-        })
-    }
-
-    /// Get all data from worksheet
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::{Sheets, Xlsx};
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_range("Sheet1")
-    ///     .expect("Error while parsing workbook")
-    ///     .expect("Cannot find Sheet1");
-    /// println!("Used range size: {:?}", range.get_size());
-    /// ```
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, R::Error> {
-        self.file.read_worksheet_range(name)
-    }
-
-    /// Get all formula from worksheet
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::{Sheets, Xlsx};
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_formula("Sheet1")
-    ///     .expect("Error while parsing workbook")
-    ///     .expect("Cannot find Sheet1");
-    /// println!("Used range size: {:?}", range.get_size());
-    /// ```
-    pub fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, R::Error> {
-        self.file.read_worksheet_formula(name)
-    }
-
-    /// Get all data from `Worksheet` at index `idx` (0 based)
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::{Sheets, Xlsx};
-    ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).expect("Cannot open file");
-    /// let range = workbook.worksheet_range_by_index(0)
-    ///     .expect("Error while processing range")
-    ///     .expect("Cannot find first sheet");
-    /// println!("Used range size: {:?}", range.get_size());
-    /// ```
-    pub fn worksheet_range_by_index(
-        &mut self,
-        idx: usize,
-    ) -> Result<Option<Range<DataType>>, R::Error> {
-        match self.metadata.sheets.get(idx) {
-            Some(name) => self.file.read_worksheet_range(name),
-            None => Ok(None),
-        }
-    }
-
-    /// Does the workbook contain a vba project
-    pub fn has_vba(&mut self) -> bool {
-        self.file.has_vba()
-    }
-
-    /// Gets vba project
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::{Xlsx, Sheets};
-    ///
-    /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).unwrap();
-    /// if workbook.has_vba() {
-    ///     let vba = workbook.vba_project().expect("Cannot find vba project");
-    ///     println!("References: {:?}", vba.get_references());
-    ///     println!("Modules: {:?}", vba.get_module_names());
-    /// }
-    /// ```
-    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>, R::Error> {
-        self.file.vba_project()
-    }
+    fn worksheet_formula(&mut self, _: &str) -> Result<Option<Range<String>>, Self::Error>;
 
     /// Get all sheet names of this workbook
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Xlsx, Sheets};
+    /// use calamine::{Xlsx, open_workbook, Reader};
     ///
     /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
-    /// let mut workbook = Sheets::<Xlsx<_>>::open(path).unwrap();
+    /// let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&self) -> Result<Vec<String>, R::Error> {
-        Ok(self.metadata.sheets.clone())
+    fn sheet_names(&self) -> &[String] {
+        &self.metadata().sheets
     }
 
     /// Get all defined names (Ranges names etc)
-    pub fn defined_names(&self) -> Result<&[(String, String)], R::Error> {
-        Ok(&self.metadata.defined_names)
+    fn defined_names(&self) -> &[(String, String)] {
+        &self.metadata().names
     }
 }
 
-impl<R> Sheets<R>
+/// Convenient function to open a file with a BufReader<File>
+pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
 where
     R: Reader<RS = BufReader<File>>,
+    P: AsRef<Path>,
 {
-    /// Convenient function to open a file with a BufReader<File>
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, R::Error> {
-        let file = BufReader::new(File::open(path)?);
-        Sheets::new(file)
-    }
+    let file = BufReader::new(File::open(path)?);
+    R::new(file)
 }
 
 /// A trait to constrain cells
@@ -552,12 +449,12 @@ impl<T: CellType> Range<T> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Sheets, Xlsx, RangeDeserializerBuilder};
+    /// # use calamine::{Reader, open_workbook, Xlsx, RangeDeserializerBuilder};
     /// # use calamine::errors::Error;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let mut sheet = workbook.worksheet_range("Sheet1")?
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
     ///     let mut iter = sheet.deserialize()?;

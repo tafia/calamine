@@ -7,11 +7,10 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use glob::{glob, GlobError, GlobResult};
-use calamine::{AutoError, AutoReader, DataType, ExtensionReader, Sheets};
+use calamine::{AutoError, AutoReader, DataType, ExtensionReader, Reader};
 
 #[derive(Debug)]
 enum FileStatus {
-    SheetsError(AutoError),
     VbaError(AutoError),
     RangeError(AutoError),
     Glob(GlobError),
@@ -56,7 +55,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let f = f.map_err(FileStatus::Glob)?;
 
     println!("Analysing {:?}", f.display());
-    let mut xl = Sheets::<AutoReader<_>>::new(ExtensionReader::open(&f).unwrap()).unwrap();
+    let mut xl = AutoReader::new(ExtensionReader::open(&f).unwrap()).unwrap();
 
     let mut missing = None;
     let mut cell_errors = 0;
@@ -72,11 +71,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     }
 
     // get owned sheet names
-    let sheets = xl.sheet_names()
-        .map_err(FileStatus::SheetsError)?
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
+    let sheets = xl.sheet_names().to_owned();
 
     for s in sheets {
         let range = xl.worksheet_range(&s)

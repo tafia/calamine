@@ -100,12 +100,12 @@ impl RangeDeserializerBuilder {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Sheets, Xlsx, RangeDeserializerBuilder};
+    /// # use calamine::{open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
     /// # use calamine::errors::Error;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")?
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
     ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
@@ -137,12 +137,12 @@ impl RangeDeserializerBuilder {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{DataType, Sheets, Xlsx, RangeDeserializerBuilder};
+    /// # use calamine::{DataType, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
     /// # use calamine::errors::Error;
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")?
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
     ///
@@ -178,12 +178,12 @@ impl RangeDeserializerBuilder {
 /// # Example
 ///
 /// ```
-/// # use calamine::{Sheets, Xlsx, RangeDeserializerBuilder};
+/// # use calamine::{open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
 /// # use calamine::errors::Error;
 /// # fn main() { example().unwrap(); }
 /// fn example() -> Result<(), Error> {
 ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-///     let mut workbook = Sheets::<Xlsx<_>>::open(path)?;
+///     let mut workbook: Xlsx<_> = open_workbook(path)?;
 ///     let range = workbook.worksheet_range("Sheet1")?
 ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
 ///

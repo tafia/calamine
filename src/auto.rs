@@ -153,15 +153,20 @@ impl<RS: Read + Seek> Reader for AutoReader<RS> {
         auto!(self, vba_project)
     }
 
-    fn initialize(&mut self) -> Result<Metadata, Self::Error> {
-        auto!(self, initialize)
+    fn metadata(&self) -> &Metadata {
+        match *self {
+            AutoReader::Xls(ref e) => e.metadata(),
+            AutoReader::Xlsx(ref e) => e.metadata(),
+            AutoReader::Xlsb(ref e) => e.metadata(),
+            AutoReader::Ods(ref e) => e.metadata(),
+        }
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error> {
-        auto!(self, read_worksheet_range, name)
+    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error> {
+        auto!(self, worksheet_range, name)
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, Self::Error> {
-        auto!(self, read_worksheet_formula, name)
+    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, Self::Error> {
+        auto!(self, worksheet_formula, name)
     }
 }

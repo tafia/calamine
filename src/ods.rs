@@ -16,6 +16,7 @@ use quick_xml::events::attributes::Attributes;
 
 use {DataType, Metadata, Range, Reader};
 use vba::VbaProject;
+use std::marker::PhantomData;
 
 const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
@@ -65,14 +66,6 @@ from_err!(::quick_xml::errors::Error, OdsError, Xml);
 from_err!(::std::string::ParseError, OdsError, Parse);
 from_err!(::std::num::ParseFloatError, OdsError, ParseFloat);
 
-enum Content<RS>
-where
-    RS: Read + Seek,
-{
-    Zip(ZipArchive<RS>),
-    Sheets(HashMap<String, (Range<DataType>, Range<String>)>),
-}
-
 /// An OpenDocument Spreadsheet document parser
 ///
 /// # Reference
@@ -82,8 +75,9 @@ pub struct Ods<RS>
 where
     RS: Read + Seek,
 {
-    /// A zip package or an already parsed xml content
-    content: Content<RS>,
+    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
+    metadata: Metadata,
+    marker: PhantomData<RS>,
 }
 
 impl<RS: Read + Seek> Reader for Ods<RS> {
@@ -109,8 +103,16 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
             Err(e) => return Err(OdsError::Zip(e)),
         }
 
+        let (sheets, defined_names) = parse_content(zip)?;
+        let metadata = Metadata {
+            sheets: sheets.keys().map(|k| k.to_string()).collect(),
+            names: defined_names,
+        };
+
         Ok(Ods {
-            content: Content::Zip(zip),
+            sheets: sheets,
+            metadata: metadata,
+            marker: PhantomData,
         })
     }
 
@@ -126,91 +128,73 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn initialize(&mut self) -> Result<Metadata, OdsError> {
-        let defined_names = self.parse_content()?;
-        let sheets = if let Content::Sheets(ref s) = self.content {
-            s.keys().map(|k| k.to_string()).collect()
-        } else {
-            Vec::new()
-        };
-        Ok(Metadata {
-            sheets: sheets,
-            defined_names: defined_names,
-        })
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, OdsError> {
-        self.parse_content()?;
-        if let Content::Sheets(ref s) = self.content {
-            if let Some(r) = s.get(name) {
-                return Ok(Some(r.0.to_owned()));
-            }
+    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, OdsError> {
+        if let Some(r) = self.sheets.get(name) {
+            return Ok(Some(r.0.to_owned()));
         }
         Ok(None)
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, OdsError> {
-        self.parse_content()?;
-        if let Content::Sheets(ref s) = self.content {
-            if let Some(r) = s.get(name) {
-                return Ok(Some(r.1.to_owned()));
-            }
+    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, OdsError> {
+        if let Some(r) = self.sheets.get(name) {
+            return Ok(Some(r.1.to_owned()));
         }
         Ok(None)
     }
 }
 
-impl<RS> Ods<RS>
-where
-    RS: Read + Seek,
-{
-    /// Parses content.xml and store the result in `self.content`
-    fn parse_content(&mut self) -> Result<Vec<(String, String)>, OdsError> {
-        let (sheets, defined_names) = if let Content::Zip(ref mut zip) = self.content {
-            let mut reader = match zip.by_name("content.xml") {
-                Ok(f) => {
-                    let mut r = XmlReader::from_reader(BufReader::new(f));
-                    r.check_end_names(false)
-                        .trim_text(true)
-                        .check_comments(false)
-                        .expand_empty_elements(true);
-                    r
-                }
-                Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("content.xml")),
-                Err(e) => return Err(OdsError::Zip(e)),
-            };
-            let mut buf = Vec::new();
-            let mut sheets = HashMap::new();
-            let mut defined_names = Vec::new();
-            loop {
-                match reader.read_event(&mut buf) {
-                    Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) =
-                        e.attributes()
-                            .filter_map(|a| a.ok())
-                            .find(|a| a.key == b"table:name")
-                    {
-                        let name = a.unescape_and_decode_value(&reader).map_err(OdsError::Xml)?;
-                        let (range, formulas) = read_table(&mut reader)?;
-                        sheets.insert(name, (range, formulas));
-                    },
-                    Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
-                        defined_names = read_named_expressions(&mut reader)?;
-                    }
-                    Ok(Event::Eof) => break,
-                    Err(e) => return Err(OdsError::Xml(e)),
-                    _ => (),
-                }
-                buf.clear();
+/// Parses content.xml and store the result in `self.content`
+fn parse_content<RS: Read + Seek>(
+    mut zip: ZipArchive<RS>,
+) -> Result<
+    (
+        HashMap<String, (Range<DataType>, Range<String>)>,
+        Vec<(String, String)>,
+    ),
+    OdsError,
+> {
+    let mut reader = match zip.by_name("content.xml") {
+        Ok(f) => {
+            let mut r = XmlReader::from_reader(BufReader::new(f));
+            r.check_end_names(false)
+                .trim_text(true)
+                .check_comments(false)
+                .expand_empty_elements(true);
+            r
+        }
+        Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("content.xml")),
+        Err(e) => return Err(OdsError::Zip(e)),
+    };
+    let mut buf = Vec::new();
+    let mut sheets = HashMap::new();
+    let mut defined_names = Vec::new();
+    loop {
+        match reader.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) =
+                e.attributes()
+                    .filter_map(|a| a.ok())
+                    .find(|a| a.key == b"table:name")
+            {
+                let name = a.unescape_and_decode_value(&reader).map_err(OdsError::Xml)?;
+                let (range, formulas) = read_table(&mut reader)?;
+                sheets.insert(name, (range, formulas));
+            },
+            Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
+                defined_names = read_named_expressions(&mut reader)?;
             }
-            (sheets, defined_names)
-        } else {
-            return Ok(Vec::new());
-        };
-        self.content = Content::Sheets(sheets);
-        Ok(defined_names)
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(OdsError::Xml(e)),
+            _ => (),
+        }
+        buf.clear();
     }
+    Ok((sheets, defined_names))
 }
 
 fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>), OdsError> {

@@ -77,9 +77,9 @@ from_err!(::vba::VbaError, XlsError, Vba);
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
-    defined_names: Vec<(String, String)>,
     sheets: HashMap<String, (Range<DataType>, Range<String>)>,
     vba: Option<VbaProject>,
+    metadata: Metadata,
     marker: PhantomData<RS>,
 }
 
@@ -106,9 +106,9 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
 
         let mut xls = Xls {
             sheets: HashMap::new(),
-            defined_names: Vec::new(),
             vba: vba,
             marker: PhantomData,
+            metadata: Metadata::default(),
         };
 
         xls.parse_workbook(reader, cfb)?;
@@ -127,20 +127,15 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
     }
 
     /// Parses Workbook stream, no need for the relationships variable
-    fn initialize(&mut self) -> Result<Metadata, XlsError> {
-        let defined_names = self.defined_names.clone();
-        let sheets = self.sheets.keys().map(|k| k.to_string()).collect();
-        Ok(Metadata {
-            sheets: sheets,
-            defined_names: defined_names,
-        })
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsError> {
         Ok(self.sheets.get(name).map(|r| r.0.clone()))
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsError> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsError> {
         Ok(self.sheets.get(name).map(|r| r.1.clone()))
     }
 }
@@ -267,7 +262,8 @@ impl<RS: Read + Seek> Xls<RS> {
         }
 
         self.sheets = sheets;
-        self.defined_names = defined_names;
+        self.metadata.names = defined_names;
+        self.metadata.sheets = self.sheets.keys().map(|k| k.to_string()).collect();
 
         Ok(())
     }
