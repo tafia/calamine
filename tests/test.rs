@@ -112,7 +112,7 @@ fn vba() {
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let mut vba = excel.vba_project().unwrap();
+    let mut vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
         vba.to_mut().get_module("testVBA").unwrap(),
         "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
@@ -369,7 +369,7 @@ fn read_xls_from_memory() {
 fn search_references() {
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
-    let vba = excel.vba_project().unwrap();
+    let vba = excel.vba_project().unwrap().unwrap();
     let references = vba.get_references();
     let names = references.iter().map(|r| &*r.name).collect::<Vec<&str>>();
     assert_eq!(names, vec!["stdole", "Office"]);

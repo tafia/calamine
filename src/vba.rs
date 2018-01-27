@@ -122,14 +122,15 @@ impl VbaProject {
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut xl: Xlsx<_> = open_workbook(path).expect("Cannot find excel file");
-    /// let mut vba = xl.vba_project().expect("Cannot find vba project");
-    /// let vba = vba.to_mut();
-    /// let modules = vba.get_module_names().into_iter()
-    ///                  .map(|s| s.to_string()).collect::<Vec<_>>();
-    /// for m in modules {
-    ///     println!("Module {}:", m);
-    ///     println!("{}", vba.get_module(&m)
-    ///                       .expect(&format!("cannot read {:?} module", m)));
+    /// if let Some(Ok(mut vba)) = xl.vba_project() {
+    ///     let vba = vba.to_mut();
+    ///     let modules = vba.get_module_names().into_iter()
+    ///                      .map(|s| s.to_string()).collect::<Vec<_>>();
+    ///     for m in modules {
+    ///         println!("Module {}:", m);
+    ///         println!("{}", vba.get_module(&m)
+    ///                           .expect(&format!("cannot read {:?} module", m)));
+    ///     }
     /// }
     /// ```
     pub fn get_module(&self, name: &str) -> Result<String, VbaError> {

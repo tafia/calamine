@@ -44,23 +44,13 @@ impl Reader for Sheets {
         Err(Error::Msg("Sheets must be created from a Path"))
     }
 
-    /// Does the workbook contain a vba project
-    fn has_vba(&mut self) -> bool {
-        match *self {
-            Sheets::Xls(ref mut e) => e.has_vba(),
-            Sheets::Xlsx(ref mut e) => e.has_vba(),
-            Sheets::Xlsb(ref mut e) => e.has_vba(),
-            Sheets::Ods(ref mut e) => e.has_vba(),
-        }
-    }
-
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Self::Error> {
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, Self::Error>> {
         match *self {
-            Sheets::Xls(ref mut e) => e.vba_project().map_err(Error::Xls),
-            Sheets::Xlsx(ref mut e) => e.vba_project().map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.vba_project().map_err(Error::Xlsb),
-            Sheets::Ods(ref mut e) => e.vba_project().map_err(Error::Ods),
+            Sheets::Xls(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xls)),
+            Sheets::Xlsx(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsx)),
+            Sheets::Xlsb(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsb)),
+            Sheets::Ods(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Ods)),
         }
     }
 
@@ -75,22 +65,22 @@ impl Reader for Sheets {
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error> {
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>> {
         match *self {
-            Sheets::Xls(ref mut e) => e.worksheet_range(name).map_err(Error::Xls),
-            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsb),
-            Sheets::Ods(ref mut e) => e.worksheet_range(name).map_err(Error::Ods),
+            Sheets::Xls(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xls)),
+            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xlsx)),
+            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xlsb)),
+            Sheets::Ods(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Ods)),
         }
     }
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, Self::Error> {
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, Self::Error>> {
         match *self {
-            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map_err(Error::Xls),
-            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsb),
-            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map_err(Error::Ods),
+            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xls)),
+            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xlsx)),
+            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xlsb)),
+            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Ods)),
         }
     }
 }

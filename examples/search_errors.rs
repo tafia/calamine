@@ -59,15 +59,17 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
 
     let mut missing = None;
     let mut cell_errors = 0;
-
-    if xl.has_vba() {
-        let vba = xl.vba_project().map_err(FileStatus::VbaError)?;
-        missing = Some(
-            vba.get_references()
-                .iter()
-                .filter(|r| r.is_missing())
-                .count(),
-        );
+    match xl.vba_project() {
+        Some(Ok(vba)) => {
+            missing = Some(
+                vba.get_references()
+                    .iter()
+                    .filter(|r| r.is_missing())
+                    .count(),
+            );
+        }
+        Some(Err(e)) => return Err(FileStatus::VbaError(e)),
+        None => (),
     }
 
     // get owned sheet names
@@ -75,8 +77,8 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
 
     for s in sheets {
         let range = xl.worksheet_range(&s)
-            .map_err(FileStatus::RangeError)?
-            .unwrap();
+            .unwrap()
+            .map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
             .flat_map(|r| {

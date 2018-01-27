@@ -115,15 +115,8 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
         Ok(xls)
     }
 
-    fn has_vba(&mut self) -> bool {
-        self.vba.is_some()
-    }
-
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, XlsError> {
-        self.vba
-            .as_ref()
-            .map(|vba| Cow::Borrowed(vba))
-            .ok_or(XlsError::NoVba)
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsError>> {
+        self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
     }
 
     /// Parses Workbook stream, no need for the relationships variable
@@ -131,12 +124,12 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsError> {
-        Ok(self.sheets.get(name).map(|r| r.0.clone()))
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsError>> {
+        self.sheets.get(name).map(|r| Ok(r.0.clone()))
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsError> {
-        Ok(self.sheets.get(name).map(|r| r.1.clone()))
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
+        self.sheets.get(name).map(|r| Ok(r.1.clone()))
     }
 }
 

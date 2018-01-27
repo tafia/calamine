@@ -257,54 +257,8 @@ impl<RS: Read + Seek> Xlsb<RS> {
             }
         }
     }
-}
 
-impl<RS: Read + Seek> Reader for Xlsb<RS> {
-    type RS = RS;
-    type Error = XlsbError;
-
-    fn new(reader: RS) -> Result<Self, XlsbError>
-    where
-        RS: Read + Seek,
-    {
-        let mut xlsb = Xlsb {
-            zip: ZipArchive::new(reader)?,
-            sheets: Vec::new(),
-            strings: Vec::new(),
-            extern_sheets: Vec::new(),
-            metadata: Metadata::default(),
-        };
-        xlsb.read_shared_strings()?;
-        let relationships = xlsb.read_relationships()?;
-        xlsb.read_workbook(&relationships)?;
-        xlsb.metadata.sheets = xlsb.sheets.iter().map(|s| s.0.clone()).collect();
-
-        Ok(xlsb)
-    }
-
-    fn has_vba(&mut self) -> bool {
-        self.zip.by_name("xl/vbaProject.bin").is_ok()
-    }
-
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, XlsbError> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
-        let len = f.size() as usize;
-        VbaProject::new(&mut f, len)
-            .map(Cow::Owned)
-            .map_err(XlsbError::Vba)
-    }
-
-    fn metadata(&self) -> &Metadata {
-        &self.metadata
-    }
-
-    /// MS-XLSB 2.1.7.62
-    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsbError> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
-            None => return Ok(None),
-        };
-
+    fn worksheet_range_from_path(&mut self, path: String) -> Result<Range<DataType>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
         let mut buf = vec![0; 1024];
 
@@ -390,11 +344,11 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
                     // BrtRowHdr
                     row = read_u32(&buf);
                     if row > 0x00100000 {
-                        return Ok(Some(Range::from_sparse(cells))); // invalid row
+                        return Ok(Range::from_sparse(cells)); // invalid row
                     }
                     continue;
                 }
-                0x0092 => return Ok(Some(Range::from_sparse(cells))), // BrtEndSheetData
+                0x0092 => return Ok(Range::from_sparse(cells)), // BrtEndSheetData
                 _ => continue, // anything else, ignore and try next, without changing idx
             };
 
@@ -403,13 +357,7 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
         }
     }
 
-    /// MS-XLSB 2.1.7.62
-    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsbError> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
-            None => return Ok(None),
-        };
-
+    fn worksheet_formula_from_path(&mut self, path: String) -> Result<Range<String>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
         let mut buf = vec![0; 1024];
 
@@ -479,17 +427,72 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
                     // BrtRowHdr
                     row = read_u32(&buf);
                     if row > 0x00100000 {
-                        return Ok(Some(Range::from_sparse(cells))); // invalid row
+                        return Ok(Range::from_sparse(cells)); // invalid row
                     }
                     continue;
                 }
-                0x0092 => return Ok(Some(Range::from_sparse(cells))), // BrtEndSheetData
+                0x0092 => return Ok(Range::from_sparse(cells)), // BrtEndSheetData
                 _ => continue, // anything else, ignore and try next, without changing idx
             };
 
             let col = read_u32(&buf);
             cells.push(Cell::new((row, col), value));
         }
+    }
+}
+
+impl<RS: Read + Seek> Reader for Xlsb<RS> {
+    type RS = RS;
+    type Error = XlsbError;
+
+    fn new(reader: RS) -> Result<Self, XlsbError>
+    where
+        RS: Read + Seek,
+    {
+        let mut xlsb = Xlsb {
+            zip: ZipArchive::new(reader)?,
+            sheets: Vec::new(),
+            strings: Vec::new(),
+            extern_sheets: Vec::new(),
+            metadata: Metadata::default(),
+        };
+        xlsb.read_shared_strings()?;
+        let relationships = xlsb.read_relationships()?;
+        xlsb.read_workbook(&relationships)?;
+        xlsb.metadata.sheets = xlsb.sheets.iter().map(|s| s.0.clone()).collect();
+
+        Ok(xlsb)
+    }
+
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsbError>> {
+        self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
+            let len = f.size() as usize;
+            VbaProject::new(&mut f, len)
+                .map(Cow::Owned)
+                .map_err(XlsbError::Vba)
+        })
+    }
+
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
+    /// MS-XLSB 2.1.7.62
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsbError>> {
+        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
+            Some(&(_, ref path)) => path.clone(),
+            None => return None,
+        };
+        Some(self.worksheet_range_from_path(path))
+    }
+
+    /// MS-XLSB 2.1.7.62
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsbError>> {
+        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
+            Some(&(_, ref path)) => path.clone(),
+            None => return None,
+        };
+        Some(self.worksheet_formula_from_path(path))
     }
 }
 

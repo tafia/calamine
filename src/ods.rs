@@ -116,15 +116,9 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
         })
     }
 
-    /// Does the workbook contain a vba project
-    fn has_vba(&mut self) -> bool {
-        // TODO: implement code parsing
-        false
-    }
-
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, OdsError> {
-        unimplemented!();
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, OdsError>> {
+        None
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
@@ -133,19 +127,13 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, OdsError> {
-        if let Some(r) = self.sheets.get(name) {
-            return Ok(Some(r.0.to_owned()));
-        }
-        Ok(None)
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, OdsError>> {
+        self.sheets.get(name).map(|r| Ok(r.0.to_owned()))
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, OdsError> {
-        if let Some(r) = self.sheets.get(name) {
-            return Ok(Some(r.1.to_owned()));
-        }
-        Ok(None)
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
+        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
     }
 }
 

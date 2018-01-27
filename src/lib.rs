@@ -15,7 +15,7 @@
 //! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
-//! if let Ok(Some(range)) = workbook.worksheet_range("Sheet1") {
+//! if let Some(Ok(range)) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
@@ -26,8 +26,7 @@
 //! }
 //!
 //! // Check if the workbook has a vba project
-//! if workbook.has_vba() {
-//!     let mut vba = workbook.vba_project().expect("Cannot find VbaProject");
+//! if let Some(Ok(mut vba)) = workbook.vba_project() {
 //!     let vba = vba.to_mut();
 //!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
@@ -50,8 +49,8 @@
 //!     println!("found {} formula in '{}'",
 //!              workbook
 //!                 .worksheet_formula(&s)
-//!                 .expect("error while getting formula")
 //!                 .expect("sheet not found")
+//!                 .expect("error while getting formula")
 //!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
 //!                 .count(),
 //!              s);
@@ -164,16 +163,14 @@ pub trait Reader: Sized {
 
     /// Creates a new instance.
     fn new(reader: Self::RS) -> Result<Self, Self::Error>;
-    /// Does the workbook contain a vba project
-    fn has_vba(&mut self) -> bool;
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Self::Error>;
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, Self::Error>>;
     /// Initialize
     fn metadata(&self) -> &Metadata;
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error>;
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>>;
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, _: &str) -> Result<Option<Range<String>>, Self::Error>;
+    fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
 
     /// Get all sheet names of this workbook
     ///
@@ -455,8 +452,8 @@ impl<T: CellType> Range<T> {
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")?
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))?;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {

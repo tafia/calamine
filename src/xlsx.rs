@@ -236,64 +236,56 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
         Ok(relationships)
     }
+}
 
-    fn worksheet<T, F>(
-        &mut self,
-        name: &str,
-        read_data: &mut F,
-    ) -> Result<Option<Range<T>>, XlsxError>
-    where
-        T: Default + Clone + PartialEq,
-        F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
-    {
-        let &(_, ref path) = self.sheets
-            .iter()
-            .find(|&&(ref n, _)| n == name)
-            .ok_or_else(|| XlsxError::FileNotFound(name.to_string()))?;
-        let mut xml = match xml_reader(&mut self.zip, path) {
-            None => return Ok(None),
-            Some(x) => x?,
-        };
-        let mut cells = Vec::new();
-        let mut buf = Vec::new();
-        'xml: loop {
-            buf.clear();
-            match xml.read_event(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    match e.local_name() {
-                        b"dimension" => {
-                            for a in e.attributes() {
-                                if let Attribute {
-                                    key: b"ref",
-                                    value: rdim,
-                                } = a?
-                                {
-                                    let (start, end) = get_dimension(&rdim)?;
-                                    let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-                                    if len < 1_000_000 {
-                                        // it is unlikely to have more than that
-                                        // there may be of empty cells
-                                        cells.reserve(len as usize);
-                                    }
-                                    continue 'xml;
+fn worksheet<T, F>(
+    strings: &[String],
+    mut xml: XlsReader,
+    read_data: &mut F,
+) -> Result<Range<T>, XlsxError>
+where
+    T: Default + Clone + PartialEq,
+    F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
+{
+    let mut cells = Vec::new();
+    let mut buf = Vec::new();
+    'xml: loop {
+        buf.clear();
+        match xml.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                match e.local_name() {
+                    b"dimension" => {
+                        for a in e.attributes() {
+                            if let Attribute {
+                                key: b"ref",
+                                value: rdim,
+                            } = a?
+                            {
+                                let (start, end) = get_dimension(&rdim)?;
+                                let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
+                                if len < 1_000_000 {
+                                    // it is unlikely to have more than that
+                                    // there may be of empty cells
+                                    cells.reserve(len as usize);
                                 }
+                                continue 'xml;
                             }
-                            return Err(XlsxError::UnexpectedNode("dimension"));
                         }
-                        b"sheetData" => {
-                            read_data(&self.strings, &mut xml, &mut cells)?;
-                            break;
-                        }
-                        _ => (),
+                        return Err(XlsxError::UnexpectedNode("dimension"));
                     }
+                    b"sheetData" => {
+                        read_data(&strings, &mut xml, &mut cells)?;
+                        break;
+                    }
+                    _ => (),
                 }
-                Ok(Event::Eof) => break,
-                Err(e) => return Err(XlsxError::Xml(e)),
-                _ => (),
             }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
         }
-        Ok(Some(Range::from_sparse(cells)))
     }
+    Ok(Range::from_sparse(cells))
 }
 
 impl<RS: Read + Seek> Reader for Xlsx<RS> {
@@ -316,42 +308,63 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
         Ok(xlsx)
     }
 
-    fn has_vba(&mut self) -> bool {
-        self.zip.by_name("xl/vbaProject.bin").is_ok()
-    }
-
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, XlsxError> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
-        let len = f.size() as usize;
-        VbaProject::new(&mut f, len)
-            .map(Cow::Owned)
-            .map_err(XlsxError::Vba)
+    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsxError>> {
+        self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
+            let len = f.size() as usize;
+            VbaProject::new(&mut f, len)
+                .map(Cow::Owned)
+                .map_err(XlsxError::Vba)
+        })
     }
 
     fn metadata(&self) -> &Metadata {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsxError> {
-        Ok(self.worksheet(name, &mut |s, xml, cells| read_sheet_data(xml, s, cells))?)
+    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsxError>> {
+        let sheets = &self.sheets;
+        let strings = &self.strings;
+        let zip = &mut self.zip;
+        sheets
+            .iter()
+            .find(|&&(ref n, _)| n == name)
+            .and_then(|&(_, ref path)| xml_reader(zip, path))
+            .map(|xml| {
+                xml.and_then(|xml| {
+                    worksheet(strings, xml, &mut |s, xml, cells| {
+                        read_sheet_data(xml, s, cells)
+                    })
+                })
+            })
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsxError> {
-        self.worksheet(name, &mut |_, xml, cells| {
-            read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
-                match e.local_name() {
-                    b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
-                    b"f" => {
-                        let f = xml.read_text(e.name(), &mut Vec::new())?;
-                        if !f.is_empty() {
-                            cells.push(Cell::new(pos, f));
-                        }
-                    }
-                    _ => return Err(XlsxError::UnexpectedNode("v, f, or is")),
-                }
-                Ok(())
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsxError>> {
+        let sheets = &self.sheets;
+        let strings = &self.strings;
+        let zip = &mut self.zip;
+        sheets
+            .iter()
+            .find(|&&(ref n, _)| n == name)
+            .and_then(|&(_, ref path)| xml_reader(zip, path))
+            .map(|xml| {
+                xml.and_then(|xml| {
+                    worksheet(strings, xml, &mut |_, xml, cells| {
+                        read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
+                            match e.local_name() {
+                                b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
+                                b"f" => {
+                                    let f = xml.read_text(e.name(), &mut Vec::new())?;
+                                    if !f.is_empty() {
+                                        cells.push(Cell::new(pos, f));
+                                    }
+                                }
+                                _ => return Err(XlsxError::UnexpectedNode("v, f, or is")),
+                            }
+                            Ok(())
+                        })
+                    })
+                })
             })
-        })
     }
 }
 
