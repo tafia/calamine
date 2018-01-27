@@ -12,7 +12,6 @@ use quick_xml::events::attributes::{Attribute, Attributes};
 
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
-use errors::Error;
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -21,6 +20,7 @@ type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 pub enum XlsxError {
     #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
     #[fail(display = "{}", _0)] Zip(#[cause] ::zip::result::ZipError),
+    #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
     #[fail(display = "{}", _0)] Xml(#[cause] ::quick_xml::errors::Error),
     #[fail(display = "{}", _0)] Parse(#[cause] ::std::string::ParseError),
     #[fail(display = "{}", _0)] ParseFloat(#[cause] ::std::num::ParseFloatError),
@@ -41,6 +41,7 @@ pub enum XlsxError {
 
 from_err!(::std::io::Error, XlsxError, Io);
 from_err!(::zip::result::ZipError, XlsxError, Zip);
+from_err!(::vba::VbaError, XlsxError, Vba);
 from_err!(::quick_xml::errors::Error, XlsxError, Xml);
 from_err!(::std::string::ParseError, XlsxError, Parse);
 from_err!(::std::num::ParseFloatError, XlsxError, ParseFloat);
@@ -75,10 +76,7 @@ where
     sheets: Vec<(String, String)>,
 }
 
-impl<RS> Xlsx<RS>
-where
-    RS: Read + Seek,
-{
+impl<RS: Read + Seek> Xlsx<RS> {
     fn read_shared_strings(&mut self) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/sharedStrings.xml") {
             None => return Ok(()),
@@ -205,7 +203,11 @@ where
         Ok(relationships)
     }
 
-    fn read_worksheet<T, F>(&mut self, name: &str, read_data: &mut F) -> Result<Range<T>, XlsxError>
+    fn read_worksheet<T, F>(
+        &mut self,
+        name: &str,
+        read_data: &mut F,
+    ) -> Result<Option<Range<T>>, XlsxError>
     where
         T: Default + Clone + PartialEq,
         F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
@@ -215,7 +217,7 @@ where
             .find(|&&(ref n, _)| n == name)
             .ok_or_else(|| XlsxError::FileNotFound(name.to_string()))?;
         let mut xml = match xml_reader(&mut self.zip, path) {
-            None => return Err(XlsxError::FileNotFound(path.to_string())),
+            None => return Ok(None),
             Some(x) => x?,
         };
         let mut cells = Vec::new();
@@ -256,20 +258,20 @@ where
                 _ => (),
             }
         }
-        Ok(Range::from_sparse(cells))
+        Ok(Some(Range::from_sparse(cells)))
     }
 }
 
-impl<RS> Reader<RS> for Xlsx<RS>
-where
-    RS: Read + Seek,
-{
-    fn new(reader: RS) -> Result<Self, Error>
+impl<RS: Read + Seek> Reader for Xlsx<RS> {
+    type RS = RS;
+    type Error = XlsxError;
+
+    fn new(reader: RS) -> Result<Self, XlsxError>
     where
         RS: Read + Seek,
     {
         Ok(Xlsx {
-            zip: ZipArchive::new(reader).map_err(XlsxError::Zip)?,
+            zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             sheets: Vec::new(),
         })
@@ -279,15 +281,15 @@ where
         self.zip.by_name("xl/vbaProject.bin").is_ok()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
-        let mut f = self.zip
-            .by_name("xl/vbaProject.bin")
-            .map_err(XlsxError::Zip)?;
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, XlsxError> {
+        let mut f = self.zip.by_name("xl/vbaProject.bin")?;
         let len = f.size() as usize;
-        Ok(VbaProject::new(&mut f, len).map(Cow::Owned)?)
+        VbaProject::new(&mut f, len)
+            .map(Cow::Owned)
+            .map_err(XlsxError::Vba)
     }
 
-    fn initialize(&mut self) -> Result<Metadata, Error> {
+    fn initialize(&mut self) -> Result<Metadata, XlsxError> {
         self.read_shared_strings()?;
         let relationships = self.read_relationships()?;
         let defined_names = self.read_workbook(&relationships)?;
@@ -297,11 +299,11 @@ where
         })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsxError> {
         Ok(self.read_worksheet(name, &mut |s, xml, cells| read_sheet_data(xml, s, cells))?)
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsxError> {
         self.read_worksheet(name, &mut |_, xml, cells| {
             read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
                 match e.local_name() {
@@ -316,7 +318,7 @@ where
                 }
                 Ok(())
             })
-        }).map_err(Error::Xlsx)
+        })
     }
 }
 

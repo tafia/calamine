@@ -8,12 +8,13 @@ use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{push_column, read_slice, read_u16, read_u32};
-use errors::Error;
 
 #[derive(Fail, Debug)]
 /// An enum to handle Xls specific errors
 pub enum XlsError {
+    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
     #[fail(display = "{}", _0)] Cfb(#[cause] ::cfb::CfbError),
+    #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
 
     #[fail(display = "Invalid stack length")] StackLen,
     #[fail(display = "Unrecognized {}: 0x{:0X}", typ, val)]
@@ -41,37 +42,33 @@ pub enum XlsError {
     #[fail(display = "No VBA project")] NoVba,
 }
 
+from_err!(::std::io::Error, XlsError, Io);
 from_err!(::cfb::CfbError, XlsError, Cfb);
+from_err!(::vba::VbaError, XlsError, Vba);
 
-enum SheetsState<RS>
-where
-    RS: Read + Seek,
-{
+enum SheetsState<RS> {
     NotParsed(RS, Cfb),
     Parsed(HashMap<String, (Range<DataType>, Range<String>)>),
 }
 
 /// A struct representing an old xls format file (CFB)
-pub struct Xls<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Xls<RS> {
     sheets: SheetsState<RS>,
     vba: Option<VbaProject>,
 }
 
-impl<RS> Reader<RS> for Xls<RS>
-where
-    RS: Read + Seek,
-{
-    fn new(mut reader: RS) -> Result<Self, Error>
+impl<RS: Read + Seek> Reader for Xls<RS> {
+    type Error = XlsError;
+    type RS = RS;
+
+    fn new(mut reader: RS) -> Result<Self, XlsError>
     where
         RS: Read + Seek,
     {
         let mut cfb = {
             let offset_end = reader.seek(SeekFrom::End(0))? as usize;
             reader.seek(SeekFrom::Start(0))?;
-            Cfb::new(&mut reader, offset_end).map_err(XlsError::Cfb)?
+            Cfb::new(&mut reader, offset_end)?
         };
 
         // Reads vba once for all (better than reading all worksheets once for all)
@@ -91,15 +88,15 @@ where
         self.vba.is_some()
     }
 
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
-        Ok(self.vba
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, XlsError> {
+        self.vba
             .as_ref()
             .map(|vba| Cow::Borrowed(vba))
-            .ok_or(XlsError::NoVba)?)
+            .ok_or(XlsError::NoVba)
     }
 
     /// Parses Workbook stream, no need for the relationships variable
-    fn initialize(&mut self) -> Result<Metadata, Error> {
+    fn initialize(&mut self) -> Result<Metadata, XlsError> {
         let defined_names = self.parse_workbook()?;
         let sheets = match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
@@ -111,31 +108,24 @@ where
         })
     }
 
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, XlsError> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => shs.get(name)
-                .map(|r| r.0.clone())
-                .ok_or(Error::WorksheetName(name.into())),
+            SheetsState::Parsed(ref shs) => Ok(shs.get(name).map(|r| r.0.clone())),
         }
     }
 
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, XlsError> {
         let _ = self.parse_workbook()?;
         match self.sheets {
             SheetsState::NotParsed(_, _) => unreachable!(),
-            SheetsState::Parsed(ref shs) => shs.get(name)
-                .map(|r| r.1.clone())
-                .ok_or(Error::WorksheetName(name.into())),
+            SheetsState::Parsed(ref shs) => Ok(shs.get(name).map(|r| r.1.clone())),
         }
     }
 }
 
-impl<RS> Xls<RS>
-where
-    RS: Read + Seek,
-{
+impl<RS: Read + Seek> Xls<RS> {
     fn parse_workbook(&mut self) -> Result<Vec<(String, String)>, XlsError> {
         // gets workbook and worksheets stream, or early exit
         let stream = match self.sheets {

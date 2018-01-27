@@ -16,7 +16,6 @@ use quick_xml::events::attributes::Attributes;
 
 use {DataType, Metadata, Range, Reader};
 use vba::VbaProject;
-use errors::Error;
 
 const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
@@ -68,15 +67,15 @@ where
     content: Content<RS>,
 }
 
-impl<RS> Reader<RS> for Ods<RS>
-where
-    RS: Read + Seek,
-{
-    fn new(reader: RS) -> Result<Self, Error>
+impl<RS: Read + Seek> Reader for Ods<RS> {
+    type RS = RS;
+    type Error = OdsError;
+
+    fn new(reader: RS) -> Result<Self, OdsError>
     where
         RS: Read + Seek,
     {
-        let mut zip = ZipArchive::new(reader).map_err(OdsError::Zip)?;
+        let mut zip = ZipArchive::new(reader)?;
 
         // check mimetype
         match zip.by_name("mimetype") {
@@ -84,13 +83,11 @@ where
                 let mut buf = [0u8; 46];
                 f.read_exact(&mut buf)?;
                 if &buf[..] != MIMETYPE {
-                    return Err(Error::Ods(OdsError::InvalidMime(buf.to_vec())));
+                    return Err(OdsError::InvalidMime(buf.to_vec()));
                 }
             }
-            Err(ZipError::FileNotFound) => {
-                return Err(Error::Ods(OdsError::FileNotFound("mimetype")))
-            }
-            Err(e) => return Err(Error::Ods(OdsError::Zip(e))),
+            Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("mimetype")),
+            Err(e) => return Err(OdsError::Zip(e)),
         }
 
         Ok(Ods {
@@ -105,13 +102,13 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, OdsError> {
         unimplemented!();
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
-    fn initialize(&mut self) -> Result<Metadata, Error> {
-        let defined_names = self.parse_content().map_err(Error::Ods)?;
+    fn initialize(&mut self) -> Result<Metadata, OdsError> {
+        let defined_names = self.parse_content()?;
         let sheets = if let Content::Sheets(ref s) = self.content {
             s.keys().map(|k| k.to_string()).collect()
         } else {
@@ -124,25 +121,25 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
-        self.parse_content().map_err(Error::Ods)?;
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, OdsError> {
+        self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
-                return Ok(r.0.to_owned());
+                return Ok(Some(r.0.to_owned()));
             }
         }
-        Err(Error::WorksheetName(name.into()))
+        Ok(None)
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
-        self.parse_content().map_err(Error::Ods)?;
+    fn read_worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, OdsError> {
+        self.parse_content()?;
         if let Content::Sheets(ref s) = self.content {
             if let Some(r) = s.get(name) {
-                return Ok(r.1.to_owned());
+                return Ok(Some(r.1.to_owned()));
             }
         }
-        Err(Error::WorksheetName(name.into()))
+        Ok(None)
     }
 }
 

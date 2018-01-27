@@ -2,34 +2,57 @@
 //! Provides all excel error conversion and description
 //! Also provides `Result` as a alias of `Result<_, Error>
 
-#![allow(missing_docs)]
-
 /// A struct to handle calamine specific errors
 #[derive(Fail, Debug)]
 pub enum Error {
-    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    /// IO error
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
 
-    #[fail(display = "{}", _0)] Ods(#[cause] ::ods::OdsError),
-    #[fail(display = "{}", _0)] Xls(#[cause] ::xls::XlsError),
-    #[fail(display = "{}", _0)] Xlsb(#[cause] ::xlsb::XlsbError),
-    #[fail(display = "{}", _0)] Xlsx(#[cause] ::xlsx::XlsxError),
-    #[fail(display = "{}", _0)] Vba(#[cause] ::vba::VbaError),
-    #[fail(display = "{}", _0)] De(#[cause] ::de::DeError),
+    /// Ods specific error
+    #[fail(display = "{}", _0)]
+    Ods(#[cause] ::ods::OdsError),
+    /// xls specific error
+    #[fail(display = "{}", _0)]
+    Xls(#[cause] ::xls::XlsError),
+    /// xlsb specific error
+    #[fail(display = "{}", _0)]
+    Xlsb(#[cause] ::xlsb::XlsbError),
+    /// xlsx specific error
+    #[fail(display = "{}", _0)]
+    Xlsx(#[cause] ::xlsx::XlsxError),
+    /// vba specific error
+    #[fail(display = "{}", _0)]
+    Vba(#[cause] ::vba::VbaError),
+    /// cfb specific error
+    #[fail(display = "{}", _0)]
+    De(#[cause] ::de::DeError),
 
-    #[fail(display = "invalid extension: '{}'", _0)] InvalidExtension(String),
+    /// Invalid extension: unrecognized input file
+    #[fail(display = "invalid extension: '{}'", _0)]
+    InvalidExtension(String),
+    /// Cell out of range
     #[fail(display = "there is no cell at position '{:?}'.\
                       Minimum position is '{:?}'",
            try_pos, min_pos)]
     CellOutOfRange {
+        /// position tried
         try_pos: (u32, u32),
+        /// minimum position
         min_pos: (u32, u32),
     },
-    #[fail(display = "invalid worksheet name: '{}'", _0)] WorksheetName(String),
+    /// Worksheet does not exist
+    #[fail(display = "invalid worksheet name: '{}'", _0)]
+    WorksheetName(String),
+    /// Worksheet index does not exist
     #[fail(display = "invalid worksheet index: {}", idx)]
     WorksheetIndex {
+        /// worksheet index
         idx: usize,
     },
-    #[fail(display = "{}", _0)] StaticMsg(&'static str),
+    /// General error message
+    #[fail(display = "{}", _0)]
+    StaticMsg(&'static str),
 }
 
 from_err!(::std::io::Error, Error, Io);

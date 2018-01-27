@@ -58,7 +58,6 @@
 //! }
 //! ```
 #![deny(missing_docs)]
-#![recursion_limit = "128"]
 
 extern crate byteorder;
 extern crate encoding_rs;
@@ -84,13 +83,12 @@ mod ods;
 mod de;
 pub mod errors;
 pub mod vba;
+pub mod auto;
 
 use std::borrow::Cow;
 use std::fmt;
-use std::fs::File;
 use std::io::{Read, Seek};
 use std::ops::{Index, IndexMut};
-use std::path::Path;
 use serde::de::DeserializeOwned;
 
 pub use datatype::DataType;
@@ -137,105 +135,58 @@ impl fmt::Display for CellErrorType {
     }
 }
 
-/// File types
-enum FileType<RS>
-where
-    RS: Read + Seek,
-{
-    /// Compound File Binary Format [MS-CFB] (xls, xla)
-    Xls(xls::Xls<RS>),
-    /// Regular xml zipped file (xlsx, xlsm, xlam)
-    Xlsx(xlsx::Xlsx<RS>),
-    /// Binary zipped file (xlsb)
-    Xlsb(xlsb::Xlsb<RS>),
-    /// OpenDocument Spreadsheet Document
-    Ods(ods::Ods<RS>),
-}
-
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
 /// in the Reader implementations
 #[derive(Debug, Default)]
-struct Metadata {
+pub struct Metadata {
     sheets: Vec<String>,
     /// Map of sheet names/sheet path within zip archive
     defined_names: Vec<(String, String)>,
 }
 
-/// A wrapper struct over the spreadsheet file
-pub struct Sheets<RS>
-where
-    RS: Read + Seek,
-{
-    file: FileType<RS>,
+// FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
+// the kinds of readers (other) data in formats can be read from.
+/// A trait to share spreadsheets reader functions accross different `FileType`s
+pub trait Reader: Sized {
+    /// Inner reader type
+    type RS: Read + Seek;
+    /// Error specific to file type
+    type Error: From<::std::io::Error>;
+
+    /// Creates a new instance.
+    fn new(reader: Self::RS) -> Result<Self, Self::Error>;
+    /// Does the workbook contain a vba project
+    fn has_vba(&mut self) -> bool;
+    /// Gets `VbaProject`
+    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Self::Error>;
+    /// Initialize
+    fn initialize(&mut self) -> Result<Metadata, Self::Error>;
+    /// Read worksheet data in corresponding worksheet path
+    fn read_worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, Self::Error>;
+    /// Read worksheet formula in corresponding worksheet path
+    fn read_worksheet_formula(&mut self, _: &str) -> Result<Option<Range<String>>, Self::Error>;
+}
+
+/// A wrapper struct over the spreadsheet file to cache metadata
+pub struct Sheets<R> {
+    file: R,
     metadata: Metadata,
 }
 
-macro_rules! inner {
-    ($s:expr, $func:ident()) => {{
-        match $s.file {
-            FileType::Xls(ref mut f) => f.$func(),
-            FileType::Xlsx(ref mut f) => f.$func(),
-            FileType::Xlsb(ref mut f) => f.$func(),
-            FileType::Ods(ref mut f) => f.$func(),
-        }
-    }};
-    ($s:expr, $func:ident($first_arg:expr $(, $args:expr)*)) => {{
-        match $s.file {
-            FileType::Xls(ref mut f) => f.$func($first_arg $(, $args)*),
-            FileType::Xlsx(ref mut f) => f.$func($first_arg $(, $args)*),
-            FileType::Xlsb(ref mut f) => f.$func($first_arg $(, $args)*),
-            FileType::Ods(ref mut f) => f.$func($first_arg $(, $args)*),
-        }
-    }};
-}
-
-impl<RS> Sheets<RS>
+impl<R> Sheets<R>
 where
-    RS: Read + Seek,
+    R: Reader,
+    R::RS: Read + Seek,
 {
-    /// Opens a new workbook from a file.
-    ///
-    /// # Examples
-    /// ```
-    /// use calamine::Sheets;
-    /// use std::fs::File;
-    ///
-    /// # let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
-    /// assert!(Sheets::<File>::open(path).is_ok());
-    /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Sheets<File>, Error> {
-        let f: File = File::open(&path)?;
-        let file: FileType<File> = match path.as_ref().extension().and_then(|s| s.to_str()) {
-            Some("xls") | Some("xla") => FileType::Xls(xls::Xls::new(f)?),
-            Some("xlsx") | Some("xlsm") | Some("xlam") => FileType::Xlsx(xlsx::Xlsx::new(f)?),
-            Some("xlsb") => FileType::Xlsb(xlsb::Xlsb::new(f)?),
-            Some("ods") => FileType::Ods(ods::Ods::new(f)?),
-            Some(e) => return Err(Error::InvalidExtension(e.to_string())),
-            None => return Err(Error::InvalidExtension("".to_string())),
-        };
+    /// Creates a new workbook from a reader.
+    pub fn new<I: Into<R::RS>>(reader: I) -> Result<Sheets<R>, R::Error> {
+        let mut file = R::new(reader.into())?;
+        let metadata = file.initialize()?;
         Ok(Sheets {
             file: file,
-            metadata: Metadata::default(),
-        })
-    }
-
-    /// Creates a new workbook from a reader.
-    pub fn new(reader: RS, extension: &str) -> Result<Sheets<RS>, Error>
-    where
-        RS: Read + Seek,
-    {
-        let filetype = match extension {
-            "xls" | "xla" => FileType::Xls(xls::Xls::new(reader)?),
-            "xlsx" | "xlsm" | "xlam" => FileType::Xlsx(xlsx::Xlsx::new(reader)?),
-            "xlsb" => FileType::Xlsb(xlsb::Xlsb::new(reader)?),
-            "ods" => FileType::Ods(ods::Ods::new(reader)?),
-            _ => return Err(Error::InvalidExtension("".to_string())),
-        };
-        Ok(Sheets {
-            file: filetype,
-            metadata: Metadata::default(),
+            metadata: metadata,
         })
     }
 
@@ -251,9 +202,8 @@ where
     /// let range = workbook.worksheet_range("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error> {
-        self.initialize()?;
-        inner!(self, read_worksheet_range(name))
+    pub fn worksheet_range(&mut self, name: &str) -> Result<Option<Range<DataType>>, R::Error> {
+        self.file.read_worksheet_range(name)
     }
 
     /// Get all formula from worksheet
@@ -268,9 +218,8 @@ where
     /// let range = workbook.worksheet_formula("Sheet1").expect("Cannot find Sheet1");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Error> {
-        self.initialize()?;
-        inner!(self, read_worksheet_formula(name))
+    pub fn worksheet_formula(&mut self, name: &str) -> Result<Option<Range<String>>, R::Error> {
+        self.file.read_worksheet_formula(name)
     }
 
     /// Get all data from `Worksheet` at index `idx` (0 based)
@@ -285,25 +234,19 @@ where
     /// let range = workbook.worksheet_range_by_index(0).expect("Cannot find first sheet");
     /// println!("Used range size: {:?}", range.get_size());
     /// ```
-    pub fn worksheet_range_by_index(&mut self, idx: usize) -> Result<Range<DataType>, Error> {
-        self.initialize()?;
-        let name = self.metadata
-            .sheets
-            .get(idx)
-            .ok_or_else(|| Error::WorksheetIndex { idx: idx })?;
-        inner!(self, read_worksheet_range(name))
-    }
-
-    fn initialize(&mut self) -> Result<(), Error> {
-        if self.metadata.sheets.is_empty() {
-            self.metadata = inner!(self, initialize())?;
+    pub fn worksheet_range_by_index(
+        &mut self,
+        idx: usize,
+    ) -> Result<Option<Range<DataType>>, R::Error> {
+        match self.metadata.sheets.get(idx) {
+            Some(name) => self.file.read_worksheet_range(name),
+            None => Ok(None),
         }
-        Ok(())
     }
 
     /// Does the workbook contain a vba project
     pub fn has_vba(&mut self) -> bool {
-        inner!(self, has_vba())
+        self.file.has_vba()
     }
 
     /// Gets vba project
@@ -321,8 +264,8 @@ where
     ///     println!("Modules: {:?}", vba.get_module_names());
     /// }
     /// ```
-    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error> {
-        inner!(self, vba_project())
+    pub fn vba_project(&mut self) -> Result<Cow<VbaProject>, R::Error> {
+        self.file.vba_project()
     }
 
     /// Get all sheet names of this workbook
@@ -336,37 +279,14 @@ where
     /// let mut workbook = Sheets::<File>::open(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    pub fn sheet_names(&mut self) -> Result<Vec<String>, Error> {
-        self.initialize()?;
+    pub fn sheet_names(&self) -> Result<Vec<String>, R::Error> {
         Ok(self.metadata.sheets.clone())
     }
 
     /// Get all defined names (Ranges names etc)
-    pub fn defined_names(&mut self) -> Result<&[(String, String)], Error> {
-        self.initialize()?;
+    pub fn defined_names(&self) -> Result<&[(String, String)], R::Error> {
         Ok(&self.metadata.defined_names)
     }
-}
-
-// FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
-// the kinds of readers (other) data in formats can be read from.
-/// A trait to share spreadsheets reader functions accross different `FileType`s
-trait Reader<RS>: Sized
-where
-    RS: Read + Seek,
-{
-    /// Creates a new instance.
-    fn new(reader: RS) -> Result<Self, Error>;
-    /// Does the workbook contain a vba project
-    fn has_vba(&mut self) -> bool;
-    /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Cow<VbaProject>, Error>;
-    /// Initialize
-    fn initialize(&mut self) -> Result<Metadata, Error>;
-    /// Read worksheet data in corresponding worksheet path
-    fn read_worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Error>;
-    /// Read worksheet formula in corresponding worksheet path
-    fn read_worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Error>;
 }
 
 /// A trait to constrain cells
