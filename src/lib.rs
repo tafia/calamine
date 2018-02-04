@@ -407,9 +407,12 @@ impl<T: CellType> Range<T> {
     ///
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
+        assert!(self.inner.len() > 0);
         assert!(absolute_position <= self.end);
-        let idx = (absolute_position.0 - self.start.0) as usize * self.width()
-            + (absolute_position.1 - self.start.1) as usize;
+        let idx_row = absolute_position.0.checked_sub(self.start.0).unwrap_or_else(|| panic!("{} - {} is out of bounds.", absolute_position.0, self.start.0)) as usize;
+        let idx_col = absolute_position.1.checked_sub(self.start.1).unwrap_or_else(|| panic!("{} - {} is out of bounds.", absolute_position.1, self.start.1)) as usize;
+        let idx = idx_row.checked_mul(self.width()).unwrap_or_else(|| panic!("{} * {} is out of bounds.", idx_row, self.width()))
+            .checked_add(idx_col).unwrap_or_else(|| panic!("{} + {} is out of bounds.", idx_row, idx_col)) as usize;
         &self.inner[idx]
     }
 
