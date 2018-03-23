@@ -4,8 +4,8 @@ extern crate calamine;
 extern crate test;
 
 use test::Bencher;
-use calamine::{Xls, Xlsx, Xlsb, Ods, Reader, open_workbook};
-use std::io::{BufReader};
+use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};
+use std::io::BufReader;
 use std::fs::File;
 
 fn count<R: Reader<RS = BufReader<File>>>(path: &str) -> usize {
