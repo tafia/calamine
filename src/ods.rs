@@ -10,7 +10,7 @@ use std::borrow::Cow;
 
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
-use quick_xml::reader::Reader as XmlReader;
+use quick_xml::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attributes;
 
@@ -33,7 +33,7 @@ pub enum OdsError {
     Zip(#[cause] ::zip::result::ZipError),
     /// Xml error
     #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::errors::Error),
+    Xml(#[cause] ::quick_xml::Error),
     /// Error while parsing string
     #[fail(display = "{}", _0)]
     Parse(#[cause] ::std::string::ParseError),
@@ -62,7 +62,7 @@ pub enum OdsError {
 
 from_err!(::std::io::Error, OdsError, Io);
 from_err!(::zip::result::ZipError, OdsError, Zip);
-from_err!(::quick_xml::errors::Error, OdsError, Xml);
+from_err!(::quick_xml::Error, OdsError, Xml);
 from_err!(::std::string::ParseError, OdsError, Parse);
 from_err!(::std::num::ParseFloatError, OdsError, ParseFloat);
 

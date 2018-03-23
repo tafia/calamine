@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
-use quick_xml::reader::Reader as XmlReader;
+use quick_xml::Reader as XmlReader;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::events::attributes::{Attribute, Attributes};
 
@@ -29,7 +29,7 @@ pub enum XlsxError {
     Vba(#[cause] ::vba::VbaError),
     /// Xml error
     #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::errors::Error),
+    Xml(#[cause] ::quick_xml::Error),
     /// Parse error
     #[fail(display = "{}", _0)]
     Parse(#[cause] ::std::string::ParseError),
@@ -75,7 +75,7 @@ pub enum XlsxError {
 from_err!(::std::io::Error, XlsxError, Io);
 from_err!(::zip::result::ZipError, XlsxError, Zip);
 from_err!(::vba::VbaError, XlsxError, Vba);
-from_err!(::quick_xml::errors::Error, XlsxError, Xml);
+from_err!(::quick_xml::Error, XlsxError, Xml);
 from_err!(::std::string::ParseError, XlsxError, Parse);
 from_err!(::std::num::ParseFloatError, XlsxError, ParseFloat);
 from_err!(::std::num::ParseIntError, XlsxError, ParseInt);

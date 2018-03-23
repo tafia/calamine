@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
-use quick_xml::reader::Reader as XmlReader;
+use quick_xml::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::events::attributes::Attribute;
 use encoding_rs::UTF_16LE;
@@ -25,7 +25,7 @@ pub enum XlsbError {
     Zip(#[cause] ::zip::result::ZipError),
     /// Xml error
     #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::errors::Error),
+    Xml(#[cause] ::quick_xml::Error),
     /// Vba error
     #[fail(display = "{}", _0)]
     Vba(#[cause] ::vba::VbaError),
@@ -75,7 +75,7 @@ pub enum XlsbError {
 
 from_err!(::std::io::Error, XlsbError, Io);
 from_err!(::zip::result::ZipError, XlsbError, Zip);
-from_err!(::quick_xml::errors::Error, XlsbError, Xml);
+from_err!(::quick_xml::Error, XlsbError, Xml);
 
 /// A Xlsb reader
 pub struct Xlsb<RS>
