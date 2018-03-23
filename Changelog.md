@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.13.1
+- refactor: bump dependencies
+- feat: make `Range::from_sparse` public
+
 ## 0.13.0
 - feat: migrate from error-chain to failure
 - refactor: simplify Reader trait (enable direct Xlsx read etc ...)
