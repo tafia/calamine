@@ -266,7 +266,7 @@ impl<T: CellType> Range<T> {
         Range {
             start: (0, 0),
             end: (0, 0),
-            inner: Vec::new()
+            inner: Vec::new(),
         }
     }
 
@@ -440,8 +440,14 @@ impl<T: CellType> Range<T> {
     ///
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
-        assert!(absolute_position <= self.end, "absolute_position out of range boundary");
-        assert!(absolute_position >= self.start, "absolute_position out of range boundary");
+        assert!(
+            absolute_position <= self.end,
+            "absolute_position out of range boundary"
+        );
+        assert!(
+            absolute_position >= self.start,
+            "absolute_position out of range boundary"
+        );
         let idx = (absolute_position.0 - self.start.0) as usize * self.width()
             + (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]
