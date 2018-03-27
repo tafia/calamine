@@ -244,10 +244,15 @@ pub struct Range<T: CellType> {
 }
 
 impl<T: CellType> Range<T> {
-    /// Creates a new `Range`
+    /// Creates a new non-empty `Range`
     ///
     /// When possible, prefer the more efficient `Range::from_sparse`
+    ///
+    /// # Panics
+    ///
+    /// Panics if start.0 > end.0 or start.1 > end.1
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Range<T> {
+        assert!(start <= end, "invalid range bounds");
         Range {
             start: start,
             end: end,
@@ -255,34 +260,66 @@ impl<T: CellType> Range<T> {
         }
     }
 
+    /// Creates a new empty range
+    #[inline]
+    pub fn empty() -> Range<T> {
+        Range {
+            start: (0, 0),
+            end: (0, 0),
+            inner: Vec::new()
+        }
+    }
+
     /// Get top left cell position (row, column)
-    pub fn start(&self) -> (u32, u32) {
-        self.start
+    #[inline]
+    pub fn start(&self) -> Option<(u32, u32)> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.start)
+        }
     }
 
     /// Get bottom right cell position (row, column)
-    pub fn end(&self) -> (u32, u32) {
-        self.end
+    #[inline]
+    pub fn end(&self) -> Option<(u32, u32)> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.end)
+        }
     }
 
     /// Get column width
+    #[inline]
     pub fn width(&self) -> usize {
-        (self.end.1 - self.start.1 + 1) as usize
+        if self.is_empty() {
+            0
+        } else {
+            (self.end.1 - self.start.1 + 1) as usize
+        }
     }
 
     /// Get column width
+    #[inline]
     pub fn height(&self) -> usize {
-        (self.end.0 - self.start.0 + 1) as usize
+        if self.is_empty() {
+            0
+        } else {
+            (self.end.0 - self.start.0 + 1) as usize
+        }
     }
 
     /// Get size in (height, width) format
+    #[inline]
     pub fn get_size(&self) -> (usize, usize) {
         (self.height(), self.width())
     }
 
     /// Is range empty
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.start.0 > self.end.0 || self.start.1 > self.end.1
+        self.inner.is_empty()
     }
 
     /// Creates a `Range` from a coo sparse vector of `Cell`s.
@@ -298,11 +335,7 @@ impl<T: CellType> Range<T> {
     /// bigger than the last `Cell` row.
     pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
         if cells.is_empty() {
-            Range {
-                start: (0, 0),
-                end: (0, 0),
-                inner: Vec::new(),
-            }
+            Range::empty()
         } else {
             // search bounds
             let row_start = cells.first().unwrap().pos.0;
@@ -407,7 +440,8 @@ impl<T: CellType> Range<T> {
     ///
     /// Panics if indexes are out of range bounds
     pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
-        assert!(absolute_position <= self.end);
+        assert!(absolute_position <= self.end, "absolute_position out of range boundary");
+        assert!(absolute_position >= self.start, "absolute_position out of range boundary");
         let idx = (absolute_position.0 - self.start.0) as usize * self.width()
             + (absolute_position.1 - self.start.1) as usize;
         &self.inner[idx]

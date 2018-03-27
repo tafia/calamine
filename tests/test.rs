@@ -429,3 +429,15 @@ fn formula_ods() {
     let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
     range_eq!(formula, [["of:=[.B1]+$$OneRange".to_string()]]);
 }
+
+#[test]
+fn empty_sheet() {
+    let path = format!("{}/tests/empty_sheet.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    for s in excel.sheet_names().to_owned() {
+        let range = excel.worksheet_range(&s).unwrap().unwrap();
+        assert_eq!(range.start(), None, "wrong start");
+        assert_eq!(range.end(), None, "wrong end");
+        assert_eq!(range.get_size(), (0, 0), "wrong size");
+    }
+}
