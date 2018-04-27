@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.0
+- feat: have Range `start`/`end` return None if the range is actually empty
+- feat: Have `Range::get_value` return an Option if the index is out of range
+
 ## 0.13.1
 - refactor: bump dependencies
 - feat: make `Range::from_sparse` public
