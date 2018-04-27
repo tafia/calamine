@@ -216,8 +216,8 @@ where
     fn new(builder: &RangeDeserializerBuilder, range: &'cell Range<T>) -> Result<Self, DeError> {
         let mut rows = range.rows();
 
-        let mut current_pos = range.start();
-        let end_pos = range.end();
+        let mut current_pos = range.start().unwrap_or((0, 0));
+        let end_pos = range.end().unwrap_or((0, 0));
 
         let headers = if builder.has_headers {
             if let Some(row) = rows.next() {

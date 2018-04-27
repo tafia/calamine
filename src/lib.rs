@@ -244,10 +244,15 @@ pub struct Range<T: CellType> {
 }
 
 impl<T: CellType> Range<T> {
-    /// Creates a new `Range`
+    /// Creates a new non-empty `Range`
     ///
     /// When possible, prefer the more efficient `Range::from_sparse`
+    ///
+    /// # Panics
+    ///
+    /// Panics if start.0 > end.0 or start.1 > end.1
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Range<T> {
+        assert!(start <= end, "invalid range bounds");
         Range {
             start: start,
             end: end,
@@ -255,34 +260,66 @@ impl<T: CellType> Range<T> {
         }
     }
 
+    /// Creates a new empty range
+    #[inline]
+    pub fn empty() -> Range<T> {
+        Range {
+            start: (0, 0),
+            end: (0, 0),
+            inner: Vec::new(),
+        }
+    }
+
     /// Get top left cell position (row, column)
-    pub fn start(&self) -> (u32, u32) {
-        self.start
+    #[inline]
+    pub fn start(&self) -> Option<(u32, u32)> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.start)
+        }
     }
 
     /// Get bottom right cell position (row, column)
-    pub fn end(&self) -> (u32, u32) {
-        self.end
+    #[inline]
+    pub fn end(&self) -> Option<(u32, u32)> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.end)
+        }
     }
 
     /// Get column width
+    #[inline]
     pub fn width(&self) -> usize {
-        (self.end.1 - self.start.1 + 1) as usize
+        if self.is_empty() {
+            0
+        } else {
+            (self.end.1 - self.start.1 + 1) as usize
+        }
     }
 
     /// Get column width
+    #[inline]
     pub fn height(&self) -> usize {
-        (self.end.0 - self.start.0 + 1) as usize
+        if self.is_empty() {
+            0
+        } else {
+            (self.end.0 - self.start.0 + 1) as usize
+        }
     }
 
     /// Get size in (height, width) format
+    #[inline]
     pub fn get_size(&self) -> (usize, usize) {
         (self.height(), self.width())
     }
 
     /// Is range empty
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.start.0 > self.end.0 || self.start.1 > self.end.1
+        self.inner.is_empty()
     }
 
     /// Creates a `Range` from a coo sparse vector of `Cell`s.
@@ -298,11 +335,7 @@ impl<T: CellType> Range<T> {
     /// bigger than the last `Cell` row.
     pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
         if cells.is_empty() {
-            Range {
-                start: (0, 0),
-                end: (0, 0),
-                inner: Vec::new(),
-            }
+            Range::empty()
         } else {
             // search bounds
             let row_start = cells.first().unwrap().pos.0;
@@ -335,11 +368,13 @@ impl<T: CellType> Range<T> {
 
     /// Set inner value from absolute position
     ///
+    /// # Remarks
+    ///
     /// Will try to resize inner structure if the value is out of bounds.
     /// For relative positions, use Index trait
     ///
     /// Try to avoid this method as much as possible and prefer initializing
-    /// the `Range` with `from_sparce` constructor.
+    /// the `Range` with `from_sparse` constructor.
     ///
     /// # Panics
     ///
@@ -350,9 +385,9 @@ impl<T: CellType> Range<T> {
     /// use calamine::{Range, DataType};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
-    /// assert_eq!(range.get_value((2, 1)), &DataType::Empty);
+    /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Empty));
     /// range.set_value((2, 1), DataType::Float(1.0));
-    /// assert_eq!(range.get_value((2, 1)), &DataType::Float(1.0));
+    /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Float(1.0)));
     /// ```
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
         assert!(self.start <= absolute_position);
@@ -401,16 +436,38 @@ impl<T: CellType> Range<T> {
         self.inner[idx] = value;
     }
 
-    /// Get cell value from absolute position
+    /// Get cell value from **absolute position**.
     ///
-    /// The coordinate format is (row, column). For relative positions, use Index trait
+    /// If the `absolute_position` is out of range, returns `None`, else returns the cell value.
+    /// The coordinate format is (row, column).
     ///
-    /// Panics if indexes are out of range bounds
-    pub fn get_value(&self, absolute_position: (u32, u32)) -> &T {
-        assert!(absolute_position <= self.end);
+    /// # Warnings
+    ///
+    /// For relative positions, use Index trait
+    ///
+    /// # Remarks
+    ///
+    /// Absolute position is in *sheet* referential while relative position is in *range* referential.
+    ///
+    /// For instance if we consider range *C2:H38*:
+    /// - `(0, 0)` absolute is "A1" and thus this function returns `None`
+    /// - `(0, 0)` relative is "C2" and is returned by the `Index` trait (i.e `my_range[(0, 0)]`)
+    ///
+    /// # Examples
+    /// ```
+    /// use calamine::{Range, DataType};
+    ///
+    /// let range: Range<usize> = Range::new((1, 0), (5, 2));
+    /// assert_eq!(range.get_value((0, 0)), None);
+    /// assert_eq!(range[(0, 0)], 0);
+    /// ```
+    pub fn get_value(&self, absolute_position: (u32, u32)) -> Option<&T> {
+        if absolute_position > self.end || absolute_position < self.start {
+            return None;
+        }
         let idx = (absolute_position.0 - self.start.0) as usize * self.width()
             + (absolute_position.1 - self.start.1) as usize;
-        &self.inner[idx]
+        Some(&self.inner[idx])
     }
 
     /// Get an iterator over inner rows
