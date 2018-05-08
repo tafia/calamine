@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.1
+- fix: possibility of index out of bound in get_value and eventually in Index<(usize, usize)>
+
 ## 0.14.0
 - feat: have Range `start`/`end` return None if the range is actually empty
 - feat: Have `Range::get_value` return an Option if the index is out of range
