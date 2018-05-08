@@ -462,12 +462,13 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range[(0, 0)], 0);
     /// ```
     pub fn get_value(&self, absolute_position: (u32, u32)) -> Option<&T> {
-        if absolute_position > self.end || absolute_position < self.start {
-            return None;
+        let p = absolute_position;
+        if p.0 >= self.start.0 && p.0 <= self.end.0 && p.1 >= self.start.1 && p.1 <= self.end.1 {
+            let idx = (absolute_position.0 - self.start.0) as usize * self.width()
+                + (absolute_position.1 - self.start.1) as usize;
+            return Some(&self.inner[idx]);
         }
-        let idx = (absolute_position.0 - self.start.0) as usize * self.width()
-            + (absolute_position.1 - self.start.1) as usize;
-        Some(&self.inner[idx])
+        None
     }
 
     /// Get an iterator over inner rows
