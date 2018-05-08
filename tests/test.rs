@@ -137,6 +137,22 @@ fn xlsb() {
 }
 
 #[test]
+fn xlsx() {
+    let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [Float(1.), String("a".to_string())],
+            [Float(2.), String("b".to_string())],
+            [Float(3.), String("c".to_string())]
+        ]
+    );
+}
+
+#[test]
 fn xls() {
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xls<_> = open_workbook(&path).unwrap();
@@ -440,4 +456,19 @@ fn empty_sheet() {
         assert_eq!(range.end(), None, "wrong end");
         assert_eq!(range.get_size(), (0, 0), "wrong size");
     }
+}
+
+#[test]
+fn issue_120() {
+    let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let end = range.end().unwrap();
+
+    let a = range.get_value((0, end.1 + 1));
+    assert_eq!(None, a);
+
+    let b = range.get_value((0, 0));
+    assert_eq!(Some(&Float(1.)), b);
 }
