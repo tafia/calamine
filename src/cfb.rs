@@ -15,18 +15,23 @@ const RESERVED_SECTORS: u32 = 0xFFFFFFFA;
 /// A Cfb specific error enum
 #[derive(Debug, Fail)]
 pub enum CfbError {
-    #[fail(display = "{}", _0)] Io(#[cause] ::std::io::Error),
+    #[fail(display = "{}", _0)]
+    Io(#[cause] ::std::io::Error),
 
-    #[fail(display = "Invalid OLE signature (not an office document?)")] Ole,
-    #[fail(display = "Empty Root directory")] EmptyRootDir,
-    #[fail(display = "Cannot find {} stream", _0)] StreamNotFound(String),
+    #[fail(display = "Invalid OLE signature (not an office document?)")]
+    Ole,
+    #[fail(display = "Empty Root directory")]
+    EmptyRootDir,
+    #[fail(display = "Cannot find {} stream", _0)]
+    StreamNotFound(String),
     #[fail(display = "Invalid {}, expecting {} found {:X}", name, expected, found)]
     Invalid {
         name: &'static str,
         expected: &'static str,
         found: u16,
     },
-    #[fail(display = "Codepage {:X} not found", _0)] CodePageNotFound(u16),
+    #[fail(display = "Codepage {:X} not found", _0)]
+    CodePageNotFound(u16),
 }
 
 /// A struct for managing Compound File Binary format

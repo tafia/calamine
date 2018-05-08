@@ -251,6 +251,7 @@ impl<T: CellType> Range<T> {
     /// # Panics
     ///
     /// Panics if start.0 > end.0 or start.1 > end.1
+    #[inline]
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Range<T> {
         assert!(start <= end, "invalid range bounds");
         Range {
@@ -390,7 +391,10 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Float(1.0)));
     /// ```
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
-        assert!(self.start <= absolute_position);
+        assert!(
+            self.start.0 <= absolute_position.0 && self.start.1 <= absolute_position.1,
+            "absolute_position out of bounds"
+        );
 
         // check if we need to change range dimension (strangely happens sometimes ...)
         match (
@@ -462,12 +466,13 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range[(0, 0)], 0);
     /// ```
     pub fn get_value(&self, absolute_position: (u32, u32)) -> Option<&T> {
-        if absolute_position > self.end || absolute_position < self.start {
-            return None;
+        let p = absolute_position;
+        if p.0 >= self.start.0 && p.0 <= self.end.0 && p.1 >= self.start.1 && p.1 <= self.end.1 {
+            let idx = (absolute_position.0 - self.start.0) as usize * self.width()
+                + (absolute_position.1 - self.start.1) as usize;
+            return Some(&self.inner[idx]);
         }
-        let idx = (absolute_position.0 - self.start.0) as usize * self.width()
-            + (absolute_position.1 - self.start.1) as usize;
-        Some(&self.inner[idx])
+        None
     }
 
     /// Get an iterator over inner rows
@@ -544,7 +549,8 @@ impl<T: CellType> Index<usize> for Range<T> {
 impl<T: CellType> Index<(usize, usize)> for Range<T> {
     type Output = T;
     fn index(&self, index: (usize, usize)) -> &T {
-        let width = self.width();
+        let (height, width) = self.get_size();
+        assert!(index.1 < width && index.0 < height, "index out of bounds");
         &self.inner[index.0 * width + index.1]
     }
 }
@@ -558,7 +564,8 @@ impl<T: CellType> IndexMut<usize> for Range<T> {
 
 impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut T {
-        let width = self.width();
+        let (height, width) = self.get_size();
+        assert!(index.1 < width && index.0 < height, "index out of bounds");
         &mut self.inner[index.0 * width + index.1]
     }
 }
