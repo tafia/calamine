@@ -264,7 +264,21 @@ fn special_chrs_ods() {
 }
 
 #[test]
-fn richtext_namespaced() {
+fn partial_richtext_ods() {
+    let path = format!("{}/tests/richtext_issue.ods", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Ods<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("datatypes").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("abc".to_string())]
+        ]
+    );
+}
+
+#[test]
+fn xlsx_richtext_namespaced() {
     let path = format!(
         "{}/tests/richtext-namespaced.xlsx",
         env!("CARGO_MANIFEST_DIR")
