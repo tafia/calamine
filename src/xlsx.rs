@@ -322,49 +322,42 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsxError>> {
-        let sheets = &self.sheets;
+        let xml = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
+            Some(&(_, ref path)) => xml_reader(&mut self.zip, path),
+            None => return None,
+        };
         let strings = &self.strings;
-        let zip = &mut self.zip;
-        sheets
-            .iter()
-            .find(|&&(ref n, _)| n == name)
-            .and_then(|&(_, ref path)| xml_reader(zip, path))
-            .map(|xml| {
-                xml.and_then(|xml| {
-                    worksheet(strings, xml, &mut |s, xml, cells| {
-                        read_sheet_data(xml, s, cells)
-                    })
-                })
+        xml.map(|xml| {
+            worksheet(strings, xml?, &mut |s, xml, cells| {
+                read_sheet_data(xml, s, cells)
             })
+        })
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsxError>> {
-        let sheets = &self.sheets;
+        let xml = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
+            Some(&(_, ref path)) => xml_reader(&mut self.zip, path),
+            None => return None,
+        };
+
         let strings = &self.strings;
-        let zip = &mut self.zip;
-        sheets
-            .iter()
-            .find(|&&(ref n, _)| n == name)
-            .and_then(|&(_, ref path)| xml_reader(zip, path))
-            .map(|xml| {
-                xml.and_then(|xml| {
-                    worksheet(strings, xml, &mut |_, xml, cells| {
-                        read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
-                            match e.local_name() {
-                                b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
-                                b"f" => {
-                                    let f = xml.read_text(e.name(), &mut Vec::new())?;
-                                    if !f.is_empty() {
-                                        cells.push(Cell::new(pos, f));
-                                    }
-                                }
-                                _ => return Err(XlsxError::UnexpectedNode("v, f, or is")),
+        xml.map(|xml| {
+            worksheet(strings, xml?, &mut |_, xml, cells| {
+                read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
+                    match e.local_name() {
+                        b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
+                        b"f" => {
+                            let f = xml.read_text(e.name(), &mut Vec::new())?;
+                            if !f.is_empty() {
+                                cells.push(Cell::new(pos, f));
                             }
-                            Ok(())
-                        })
-                    })
+                        }
+                        _ => return Err(XlsxError::UnexpectedNode("v, f, or is")),
+                    }
+                    Ok(())
                 })
             })
+        })
     }
 }
 
