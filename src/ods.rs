@@ -37,6 +37,9 @@ pub enum OdsError {
     /// Error while parsing string
     #[fail(display = "{}", _0)]
     Parse(#[cause] ::std::string::ParseError),
+    /// Error while parsing integer
+    #[fail(display = "{}", _0)]
+    ParseInt(#[cause] ::std::num::ParseIntError),
     /// Error while parsing float
     #[fail(display = "{}", _0)]
     ParseFloat(#[cause] ::std::num::ParseFloatError),
@@ -280,9 +283,22 @@ fn read_row(
         row_buf.clear();
         match reader.read_event(row_buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" => {
+                let mut repeats = 1;
+                for a in e.attributes() {
+                    let a = a?;
+                    if a.key == b"table:number-columns-repeated" {
+                        repeats = reader.decode(&a.value)
+                            .parse()
+                            .map_err(OdsError::ParseInt)?;
+                        break;
+                    }
+                }
+
                 let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
-                cells.push(value);
-                formulas.push(formula);
+                for _ in 0..repeats {
+                    cells.push(value.clone());
+                    formulas.push(formula.clone());
+                }
                 if !is_closed {
                     reader.read_to_end(b"table:table-cell", cell_buf)?;
                 }
@@ -327,7 +343,8 @@ fn get_datatype(
                 is_value_set = true;
             }
             b"office:boolean-value" if !is_value_set => {
-                val = DataType::Bool(&*a.value == b"TRUE");
+                let b = &*a.value == b"TRUE" || &*a.value == b"true";
+                val = DataType::Bool(b);
                 is_value_set = true;
             }
             b"office:value-type" if !is_value_set => is_string = &*a.value == b"string",
