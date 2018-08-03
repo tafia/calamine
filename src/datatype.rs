@@ -1,7 +1,7 @@
 use std::fmt;
 
-use serde::{self, Deserialize};
 use serde::de::Visitor;
+use serde::{self, Deserialize};
 
 use super::CellErrorType;
 
@@ -120,7 +120,7 @@ macro_rules! define_from {
                 $variant(v)
             }
         }
-    }
+    };
 }
 
 define_from!(DataType::Int, i64);

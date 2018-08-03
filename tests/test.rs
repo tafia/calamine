@@ -1,13 +1,17 @@
 extern crate calamine;
 
-use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};
-use calamine::DataType::{Bool, Empty, Error, Float, String};
 use calamine::CellErrorType::*;
+use calamine::DataType::{Bool, Empty, Error, Float, String};
+use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
 
 macro_rules! range_eq {
     ($range:expr, $right:expr) => {
-        assert_eq!($range.get_size(), ($right.len(), $right[0].len()), "Size mismatch");
+        assert_eq!(
+            $range.get_size(),
+            ($right.len(), $right[0].len()),
+            "Size mismatch"
+        );
         for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
             for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
                 assert_eq!(cl, cr, "Mismatch at position ({}, {})", i, j);
@@ -274,18 +278,16 @@ fn richtext_namespaced() {
     let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
     range_eq!(
         range,
-        [
-            [
-                String("inline string\r\nLine 2\r\nLine 3".to_string()),
-                Empty,
-                Empty,
-                Empty,
-                Empty,
-                Empty,
-                Empty,
-                String("shared string\r\nLine 2\r\nLine 3".to_string())
-            ]
-        ]
+        [[
+            String("inline string\r\nLine 2\r\nLine 3".to_string()),
+            Empty,
+            Empty,
+            Empty,
+            Empty,
+            Empty,
+            Empty,
+            String("shared string\r\nLine 2\r\nLine 3".to_string())
+        ]]
     );
 }
 

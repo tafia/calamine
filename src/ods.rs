@@ -4,19 +4,19 @@
 //! OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 //! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 
-use std::io::{BufReader, Read, Seek};
-use std::collections::HashMap;
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::io::{BufReader, Read, Seek};
 
+use quick_xml::events::attributes::Attributes;
+use quick_xml::events::Event;
+use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
-use quick_xml::Reader as XmlReader;
-use quick_xml::events::Event;
-use quick_xml::events::attributes::Attributes;
 
-use {DataType, Metadata, Range, Reader};
-use vba::VbaProject;
 use std::marker::PhantomData;
+use vba::VbaProject;
+use {DataType, Metadata, Range, Reader};
 
 const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
@@ -167,10 +167,10 @@ fn parse_content<RS: Read + Seek>(
     let mut defined_names = Vec::new();
     loop {
         match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) =
-                e.attributes()
-                    .filter_map(|a| a.ok())
-                    .find(|a| a.key == b"table:name")
+            Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) = e
+                .attributes()
+                .filter_map(|a| a.ok())
+                .find(|a| a.key == b"table:name")
             {
                 let name = a.unescape_and_decode_value(&reader).map_err(OdsError::Xml)?;
                 let (range, formulas) = read_table(&mut reader)?;
@@ -287,9 +287,7 @@ fn read_row(
                 for a in e.attributes() {
                     let a = a?;
                     if a.key == b"table:number-columns-repeated" {
-                        repeats = reader.decode(&a.value)
-                            .parse()
-                            .map_err(OdsError::ParseInt)?;
+                        repeats = reader.decode(&a.value).parse().map_err(OdsError::ParseInt)?;
                         break;
                     }
                 }

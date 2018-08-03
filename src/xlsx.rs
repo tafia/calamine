@@ -1,17 +1,17 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
-use std::collections::HashMap;
-use std::borrow::Cow;
 use std::str::FromStr;
 
+use quick_xml::events::attributes::{Attribute, Attributes};
+use quick_xml::events::{BytesStart, Event};
+use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
-use quick_xml::Reader as XmlReader;
-use quick_xml::events::{BytesStart, Event};
-use quick_xml::events::attributes::{Attribute, Attributes};
 
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 use vba::VbaProject;
+use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -53,7 +53,10 @@ pub enum XlsxError {
     #[fail(display = "Expecting alphanumeric character, got {:X}", _0)]
     Alphanumeric(u8),
     /// Numeric column
-    #[fail(display = "Numeric character is not allowed for column name, got {}", _0)]
+    #[fail(
+        display = "Numeric character is not allowed for column name, got {}",
+        _0
+    )]
     NumericColumn(u8),
     /// Wrong dimension count
     #[fail(display = "Range dimension must be lower than 2. Got {}", _0)]
@@ -175,10 +178,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                     self.sheets.push((name, path));
                 }
-                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => if let Some(a) =
-                    e.attributes()
-                        .filter_map(|a| a.ok())
-                        .find(|a| a.key == b"name")
+                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => if let Some(a) = e
+                    .attributes()
+                    .filter_map(|a| a.ok())
+                    .find(|a| a.key == b"name")
                 {
                     let name = a.unescape_and_decode_value(&xml)?;
                     val_buf.clear();
@@ -390,7 +393,8 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
             Ok(Attribute {
                 key,
                 value: Cow::Borrowed(value),
-            }) if key == n =>
+            })
+                if key == n =>
             {
                 return Ok(Some(value))
             }

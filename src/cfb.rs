@@ -24,7 +24,12 @@ pub enum CfbError {
     EmptyRootDir,
     #[fail(display = "Cannot find {} stream", _0)]
     StreamNotFound(String),
-    #[fail(display = "Invalid {}, expecting {} found {:X}", name, expected, found)]
+    #[fail(
+        display = "Invalid {}, expecting {} found {:X}",
+        name,
+        expected,
+        found
+    )]
     Invalid {
         name: &'static str,
         expected: &'static str,
@@ -71,7 +76,8 @@ impl Cfb {
         // get the list of directory sectors
         debug!("load directories");
         let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * h.sector_size)?;
-        let dirs = dirs.chunks(128)
+        let dirs = dirs
+            .chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
             .collect::<Vec<_>>();
 

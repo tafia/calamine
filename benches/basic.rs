@@ -3,10 +3,10 @@
 extern crate calamine;
 extern crate test;
 
-use test::Bencher;
 use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};
-use std::io::BufReader;
 use std::fs::File;
+use std::io::BufReader;
+use test::Bencher;
 
 fn count<R: Reader<RS = BufReader<File>>>(path: &str) -> usize {
     let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);

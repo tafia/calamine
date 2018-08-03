@@ -3,9 +3,9 @@
 //! Retranscription from:
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
-use std::collections::HashMap;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use log::Level;
@@ -38,7 +38,11 @@ pub enum VbaError {
     #[fail(display = "Unexpected libid format")]
     LibId,
     /// Invalid record id
-    #[fail(display = "Invalid record id: expecting {:X} found {:X}", expected, found)]
+    #[fail(
+        display = "Invalid record id: expecting {:X} found {:X}",
+        expected,
+        found
+    )]
     InvalidRecordId {
         /// expected record id
         expected: u16,
@@ -85,7 +89,8 @@ impl VbaProject {
         let mods: Vec<Module> = read_modules(stream, &encoding)?;
 
         // read all modules
-        let modules: HashMap<String, Vec<u8>> = mods.into_iter()
+        let modules: HashMap<String, Vec<u8>> = mods
+            .into_iter()
             .map(|m| {
                 cfb.get_stream(&m.stream_name, r).and_then(|s| {
                     ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))

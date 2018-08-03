@@ -2,12 +2,12 @@ extern crate calamine;
 extern crate glob;
 
 use std::env;
-use std::io::{BufWriter, Write};
 use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-use glob::{glob, GlobError, GlobResult};
 use calamine::{open_workbook_auto, DataType, Error, Reader};
+use glob::{glob, GlobError, GlobResult};
 
 #[derive(Debug)]
 enum FileStatus {
@@ -76,7 +76,8 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let sheets = xl.sheet_names().to_owned();
 
     for s in sheets {
-        let range = xl.worksheet_range(&s)
+        let range = xl
+            .worksheet_range(&s)
             .unwrap()
             .map_err(FileStatus::RangeError)?;
         cell_errors += range

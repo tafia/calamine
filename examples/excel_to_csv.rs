@@ -1,10 +1,10 @@
 extern crate calamine;
 
+use calamine::{open_workbook_auto, DataType, Range, Reader};
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use calamine::{open_workbook_auto, DataType, Range, Reader};
 
 fn main() {
     // converts first argument into a csv (same name, silently overrides

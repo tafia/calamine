@@ -9,7 +9,7 @@ macro_rules! from_err {
                 $to::$var(e)
             }
         }
-    }
+    };
 }
 
 /// Converts a &[u8] into a &[u32]

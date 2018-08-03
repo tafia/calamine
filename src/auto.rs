@@ -1,12 +1,12 @@
 //! A module to convert file extension to reader
 
+use errors::Error;
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use vba::VbaProject;
 use {open_workbook, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx};
-use errors::Error;
 
 /// A wrapper over all sheets when the file type is not known at static time
 pub enum Sheets {

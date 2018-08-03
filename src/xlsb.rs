@@ -1,18 +1,18 @@
-use std::string::String;
-use std::io::{BufReader, Read, Seek};
-use std::collections::HashMap;
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::io::{BufReader, Read, Seek};
+use std::string::String;
 
+use encoding_rs::UTF_16LE;
+use quick_xml::events::attributes::Attribute;
+use quick_xml::events::Event;
+use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
-use quick_xml::Reader as XmlReader;
-use quick_xml::events::Event;
-use quick_xml::events::attributes::Attribute;
-use encoding_rs::UTF_16LE;
 
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use utils::{push_column, read_slice, read_u16, read_u32, read_usize};
 use vba::VbaProject;
-use utils::{push_column, read_slice, read_usize, read_u16, read_u32};
+use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 /// A Xlsb specific error
 #[derive(Debug, Fail)]
@@ -64,7 +64,11 @@ pub enum XlsbError {
     #[fail(display = "Unsupported Cell Error code {:X}", _0)]
     CellError(u8),
     /// Wide str length too long
-    #[fail(display = "Wide str length {} exceeds buffer length {}", ws_len, buf_len)]
+    #[fail(
+        display = "Wide str length {} exceeds buffer length {}",
+        ws_len,
+        buf_len
+    )]
     WideStr {
         /// wide str length
         ws_len: usize,

@@ -72,34 +72,34 @@ extern crate log;
 
 #[macro_use]
 mod utils;
+mod auto;
+mod cfb;
 mod datatype;
+mod ods;
+mod xls;
 mod xlsb;
 mod xlsx;
-mod xls;
-mod cfb;
-mod ods;
-mod auto;
 
 mod de;
 mod errors;
 pub mod vba;
 
+use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::fmt;
+use std::fs::File;
 use std::io::{BufReader, Read, Seek};
 use std::ops::{Index, IndexMut};
-use std::fs::File;
 use std::path::Path;
-use serde::de::DeserializeOwned;
 
+pub use auto::{open_workbook_auto, Sheets};
 pub use datatype::DataType;
 pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
-pub use xls::{Xls, XlsError};
-pub use xlsx::{Xlsx, XlsxError};
-pub use xlsb::{Xlsb, XlsbError};
-pub use ods::{Ods, OdsError};
-pub use auto::{open_workbook_auto, Sheets};
 pub use errors::Error;
+pub use ods::{Ods, OdsError};
+pub use xls::{Xls, XlsError};
+pub use xlsb::{Xlsb, XlsbError};
+pub use xlsx::{Xlsx, XlsxError};
 
 use vba::VbaProject;
 

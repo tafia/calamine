@@ -1,14 +1,14 @@
+use std::borrow::Cow;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::io::SeekFrom;
 use std::io::{Read, Seek};
-use std::borrow::Cow;
-use std::cmp::min;
 use std::marker::PhantomData;
 
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
-use vba::VbaProject;
 use cfb::{Cfb, XlsEncoding};
 use utils::{push_column, read_slice, read_u16, read_u32};
+use vba::VbaProject;
+use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 #[derive(Fail, Debug)]
 /// An enum to handle Xls specific errors
@@ -38,7 +38,12 @@ pub enum XlsError {
     #[fail(display = "Workbook is password protected")]
     Password,
     /// Invalid length
-    #[fail(display = "Invalid {} length, expected {} maximum, found {}", typ, expected, found)]
+    #[fail(
+        display = "Invalid {} length, expected {} maximum, found {}",
+        typ,
+        expected,
+        found
+    )]
     Len {
         /// expected length
         expected: usize,
@@ -136,7 +141,8 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
 impl<RS: Read + Seek> Xls<RS> {
     fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
         // gets workbook and worksheets stream, or early exit
-        let stream = cfb.get_stream("Workbook", &mut reader)
+        let stream = cfb
+            .get_stream("Workbook", &mut reader)
             .or_else(|_| cfb.get_stream("Book", &mut reader))?;
 
         let mut sheet_names = Vec::new();
