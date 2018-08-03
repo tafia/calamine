@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.2
+- fix: boolean detection and missing repeated cells in ODS
+- refactor: bump dependencies
+
 ## 0.14.1
 - fix: possibility of index out of bound in get_value and eventually in Index<(usize, usize)>
 
