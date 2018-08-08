@@ -282,7 +282,7 @@ fn read_row(
     loop {
         row_buf.clear();
         match reader.read_event(row_buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" => {
+            Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" || e.name() == b"table:covered-table-cell" => {
                 let mut repeats = 1;
                 for a in e.attributes() {
                     let a = a?;
@@ -298,7 +298,7 @@ fn read_row(
                     formulas.push(formula.clone());
                 }
                 if !is_closed {
-                    reader.read_to_end(b"table:table-cell", cell_buf)?;
+                    reader.read_to_end(e.name(), cell_buf)?;
                 }
             }
             Ok(Event::End(ref e)) if e.name() == b"table:table-row" => break,

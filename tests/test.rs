@@ -205,6 +205,22 @@ fn ods() {
 }
 
 #[test]
+fn ods_covered() {
+    let path = format!("{}/tests/covered.ods", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Ods<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("sheet1").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("a1".to_string())],
+            [String("a2".to_string())],
+            [String("a3".to_string())],
+        ]
+    );
+}
+
+#[test]
 fn special_chrs_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
