@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.3
+- feat: handle 'covered cells' which are behind merge-cells in ODS
+
 ## 0.14.2
 - fix: boolean detection and missing repeated cells in ODS
 - refactor: bump dependencies
