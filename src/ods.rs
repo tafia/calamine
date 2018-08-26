@@ -106,9 +106,9 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
             Err(e) => return Err(OdsError::Zip(e)),
         }
 
-        let (sheets, defined_names) = parse_content(zip)?;
+        let (sheets, sheet_names, defined_names) = parse_content(zip)?;
         let metadata = Metadata {
-            sheets: sheets.keys().map(|k| k.to_string()).collect(),
+            sheets: sheet_names,
             names: defined_names,
         };
 
@@ -146,6 +146,7 @@ fn parse_content<RS: Read + Seek>(
 ) -> Result<
     (
         HashMap<String, (Range<DataType>, Range<String>)>,
+        Vec<String>,
         Vec<(String, String)>,
     ),
     OdsError,
@@ -165,6 +166,7 @@ fn parse_content<RS: Read + Seek>(
     let mut buf = Vec::new();
     let mut sheets = HashMap::new();
     let mut defined_names = Vec::new();
+    let mut sheet_names = Vec::new();
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) = e
@@ -174,6 +176,7 @@ fn parse_content<RS: Read + Seek>(
             {
                 let name = a.unescape_and_decode_value(&reader).map_err(OdsError::Xml)?;
                 let (range, formulas) = read_table(&mut reader)?;
+                sheet_names.push(name.clone());
                 sheets.insert(name, (range, formulas));
             },
             Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
@@ -185,7 +188,7 @@ fn parse_content<RS: Read + Seek>(
         }
         buf.clear();
     }
-    Ok((sheets, defined_names))
+    Ok((sheets, sheet_names, defined_names))
 }
 
 fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>), OdsError> {
