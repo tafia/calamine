@@ -38,12 +38,7 @@ pub enum XlsError {
     #[fail(display = "Workbook is password protected")]
     Password,
     /// Invalid length
-    #[fail(
-        display = "Invalid {} length, expected {} maximum, found {}",
-        typ,
-        expected,
-        found
-    )]
+    #[fail(display = "Invalid {} length, expected {} maximum, found {}", typ, expected, found)]
     Len {
         /// expected length
         expected: usize,

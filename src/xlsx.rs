@@ -53,10 +53,7 @@ pub enum XlsxError {
     #[fail(display = "Expecting alphanumeric character, got {:X}", _0)]
     Alphanumeric(u8),
     /// Numeric column
-    #[fail(
-        display = "Numeric character is not allowed for column name, got {}",
-        _0
-    )]
+    #[fail(display = "Numeric character is not allowed for column name, got {}", _0)]
     NumericColumn(u8),
     /// Wrong dimension count
     #[fail(display = "Range dimension must be lower than 2. Got {}", _0)]
@@ -393,8 +390,7 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
             Ok(Attribute {
                 key,
                 value: Cow::Borrowed(value),
-            })
-                if key == n =>
+            }) if key == n =>
             {
                 return Ok(Some(value))
             }
