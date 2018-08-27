@@ -38,11 +38,7 @@ pub enum VbaError {
     #[fail(display = "Unexpected libid format")]
     LibId,
     /// Invalid record id
-    #[fail(
-        display = "Invalid record id: expecting {:X} found {:X}",
-        expected,
-        found
-    )]
+    #[fail(display = "Invalid record id: expecting {:X} found {:X}", expected, found)]
     InvalidRecordId {
         /// expected record id
         expected: u16,

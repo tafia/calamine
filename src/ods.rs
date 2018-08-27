@@ -282,7 +282,9 @@ fn read_row(
     loop {
         row_buf.clear();
         match reader.read_event(row_buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table-cell" || e.name() == b"table:covered-table-cell" => {
+            Ok(Event::Start(ref e))
+                if e.name() == b"table:table-cell" || e.name() == b"table:covered-table-cell" =>
+            {
                 let mut repeats = 1;
                 for a in e.attributes() {
                     let a = a?;
