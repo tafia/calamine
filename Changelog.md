@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.5
+- fix: properly parse richtext ods files
+- refactor: bump dependencies
+
 ## 0.14.4
 - feat: ods: display sheet names in order.
 
