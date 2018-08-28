@@ -1,6 +1,6 @@
 [package]
 name = "calamine"
-version = "0.14.4"
+version = "0.14.5"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/calamine"
@@ -15,13 +15,13 @@ travis-ci = { repository = "tafia/calamine" }
 appveyor = { repository = "tafia/calamine" }
 
 [dependencies]
-byteorder = "1.2.4"
-encoding_rs = "0.8.4"
+byteorder = "1.2.6"
+encoding_rs = "0.8.6"
 failure = "0.1.2"
 failure_derive = "0.1.2"
-log = "0.4.3"
-serde = "1.0.70"
-quick-xml = "0.12.1"
+log = "0.4.4"
+serde = "1.0.75"
+quick-xml = "0.12.2"
 zip = { version = "0.4.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
