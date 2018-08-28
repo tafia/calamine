@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.4
+- feat: ods: display sheet names in order.
+
 ## 0.14.3
 - feat: handle 'covered cells' which are behind merge-cells in ODS
 
