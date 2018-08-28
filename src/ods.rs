@@ -360,18 +360,18 @@ fn get_datatype(
     if !is_value_set && is_string {
         // If the value type is string and the office:string-value attribute
         // is not present, the element content defines the value.
+        let mut s = String::new();
         loop {
             buf.clear();
             match reader.read_event(buf) {
                 Ok(Event::Text(ref e)) => {
-                    return Ok((
-                        DataType::String(e.unescape_and_decode(reader).map_err(OdsError::Xml)?),
-                        formula,
-                        false,
-                    ));
+                    s.push_str(&e.unescape_and_decode(reader)?);
                 }
-                Ok(Event::End(ref e)) if e.name() == b"table:table-cell" => {
-                    return Ok((DataType::String("".to_string()), formula, true));
+                Ok(Event::End(ref e))
+                    if e.name() == b"table:table-cell"
+                        || e.name() == b"table:covered-table-cell" =>
+                {
+                    return Ok((DataType::String(s), formula, true));
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),

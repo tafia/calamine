@@ -289,12 +289,7 @@ fn partial_richtext_ods() {
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
     let range = excel.worksheet_range("datatypes").unwrap().unwrap();
-    range_eq!(
-        range,
-        [
-            [String("abc".to_string())]
-        ]
-    );
+    range_eq!(range, [[String("abc".to_string())]]);
 }
 
 #[test]
