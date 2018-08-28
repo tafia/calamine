@@ -497,9 +497,11 @@ fn issue_127() {
     let path = format!("{}/tests/issue127.ods", env!("CARGO_MANIFEST_DIR"));
     let ods: Ods<_> = open_workbook(&path).unwrap();
 
-    let ordered_names: Vec<std::string::String> =
-        vec!{"Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8"}
-        .iter().map(|&s| s.to_owned()).collect();
+    let ordered_names: Vec<std::string::String> = vec![
+        "Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8",
+    ].iter()
+        .map(|&s| s.to_owned())
+        .collect();
 
     assert_eq!(ods.sheet_names(), &ordered_names[..]);
 }
