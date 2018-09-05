@@ -366,6 +366,7 @@ fn get_datatype(
         // If the value type is string and the office:string-value attribute
         // is not present, the element content defines the value.
         let mut s = String::new();
+        let mut first_paragraph = true;
         loop {
             buf.clear();
             match reader.read_event(buf) {
@@ -377,6 +378,16 @@ fn get_datatype(
                         || e.name() == b"table:covered-table-cell" =>
                 {
                     return Ok((DataType::String(s), formula, true));
+                }
+                Ok(Event::Start(ref e)) if e.name() == b"text:p" => {
+                    if first_paragraph {
+                        first_paragraph = false;
+                    } else {
+                        s.push_str("\n");
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.name() == b"text:s" => {
+                    s.push_str(" ");
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),
