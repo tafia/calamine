@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
-use std::io::{SeekFrom, Read, Seek};
+use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
 use cfb::{Cfb, XlsEncoding};
@@ -220,22 +220,22 @@ impl<RS: Read + Seek> Xls<RS> {
             for record in records {
                 let r = record?;
                 match r.typ {
+                    // 512: Dimensions
                     0x0200 => {
                         let (start, end) = parse_dimensions(r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
                     }
-                    // Dimensions
-                    0x0203 => cells.push(parse_number(r.data)?), // Number
-                    0x0205 => cells.push(parse_bool_err(r.data)?), // BoolErr
-                    0x027E => cells.push(parse_rk(r.data)?),     // RK
+                    //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
+                    0x0203 => cells.push(parse_number(r.data)?), // 515: Number
+                    0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
+                    0x027E => cells.push(parse_rk(r.data)?),     // 636: Rk
                     0x00FD => cells.push(parse_label_sst(r.data, &strings)?), // LabelSst
-                    0x000A => break,                             // EOF,
+                    0x00BD => parse_mul_rk(r.data, &mut cells)?, // 189: MulRk
+                    0x000A => break,                             // 10: EOF,
                     0x0006 => {
-                        // Formula
+                        // 6: Formula
                         let row = read_u16(r.data);
                         let col = read_u16(&r.data[2..]);
-
-                        // Formula
                         let fmla = parse_formula(
                             &r.data[20..],
                             &fmla_sheet_names,
@@ -338,21 +338,54 @@ fn parse_rk(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
+    Ok(Cell::new((row as u32, col as u32), rk_num(&r[6..10])))
+}
 
-    let d100 = (r[6] & 1) != 0;
-    let is_int = (r[6] & 2) != 0;
+fn parse_mul_rk(r: &[u8], cells: &mut Vec<Cell<DataType>>) -> Result<(), XlsError> {
+    if r.len() < 6 {
+        return Err(XlsError::Len {
+            typ: "rk",
+            expected: 6,
+            found: r.len(),
+        });
+    }
+
+    let row = read_u16(r);
+    let col_first = read_u16(&r[2..]);
+    let col_last = read_u16(&r[r.len() - 2..]);
+
+    if r.len() != 6 + 6 * (col_last - col_first + 1) as usize {
+        return Err(XlsError::Len {
+            typ: "rk",
+            expected: 6 + 6 * (col_last - col_first + 1) as usize,
+            found: r.len(),
+        });
+    }
+
+    let mut col = col_first as u32;
+
+    for rk in r[4..r.len() - 2].chunks(6) {
+        // ignore ixfe format on the 2 first bytes
+        cells.push(Cell::new((row as u32, col), rk_num(&rk[2..])));
+        col += 1;
+    }
+    Ok(())
+}
+
+fn rk_num(rk: &[u8]) -> DataType {
+    let d100 = (rk[0] & 1) != 0;
+    let is_int = (rk[0] & 2) != 0;
 
     let mut v = [0u8; 8];
-    v[4..].copy_from_slice(&r[6..10]);
+    v[4..].copy_from_slice(rk);
     v[0] &= 0xFC;
-    let v = if is_int {
+    if is_int {
         let v = (read_slice::<i32>(&v[4..]) >> 2) as i64;
         DataType::Int(if d100 { v / 100 } else { v })
     } else {
         let v = read_slice(&v);
         DataType::Float(if d100 { v / 100.0 } else { v })
-    };
-    Ok(Cell::new((row as u32, col as u32), v))
+    }
 }
 
 /// ShortXLUnicodeString [MS-XLS 2.5.240]

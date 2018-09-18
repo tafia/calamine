@@ -589,10 +589,9 @@ fn issue_127() {
 }
 
 #[test]
-fn issue_134() {
+fn mul_rk() {
     setup();
 
-    //Ods::sheet_names should now return sheet names in their correct order
     let path = format!(
         "{}/tests/adhocallbabynames1996to2016.xls",
         env!("CARGO_MANIFEST_DIR")
