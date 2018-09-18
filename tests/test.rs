@@ -509,8 +509,20 @@ fn issue_127() {
     let ordered_names: Vec<std::string::String> = vec![
         "Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8",
     ].iter()
-        .map(|&s| s.to_owned())
-        .collect();
+    .map(|&s| s.to_owned())
+    .collect();
 
     assert_eq!(ods.sheet_names(), &ordered_names[..]);
+}
+
+#[test]
+fn issue_134() {
+    //Ods::sheet_names should now return sheet names in their correct order
+    let path = format!(
+        "{}/tests/adhocallbabynames1996to2016.xls",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut xls: Xls<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range("Boys").unwrap().unwrap();
+    assert_eq!(range.get_value((6, 2)), Some(&Float(9.)));
 }

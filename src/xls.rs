@@ -38,7 +38,12 @@ pub enum XlsError {
     #[fail(display = "Workbook is password protected")]
     Password,
     /// Invalid length
-    #[fail(display = "Invalid {} length, expected {} maximum, found {}", typ, expected, found)]
+    #[fail(
+        display = "Invalid {} length, expected {} maximum, found {}",
+        typ,
+        expected,
+        found
+    )]
     Len {
         /// expected length
         expected: usize,
@@ -201,8 +206,7 @@ impl<RS: Read + Seek> Xls<RS> {
                 } else {
                     (name, f)
                 }
-            })
-            .collect::<Vec<_>>();
+            }).collect::<Vec<_>>();
 
         let mut sheets = HashMap::with_capacity(sheet_names.len());
         let fmla_sheet_names = sheet_names
