@@ -1,8 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
-use std::io::SeekFrom;
-use std::io::{Read, Seek};
+use std::io::{SeekFrom, Read, Seek};
 use std::marker::PhantomData;
 
 use cfb::{Cfb, XlsEncoding};

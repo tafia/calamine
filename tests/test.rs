@@ -1,9 +1,20 @@
 extern crate calamine;
+extern crate env_logger;
 
 use calamine::CellErrorType::*;
 use calamine::DataType::{Bool, Empty, Error, Float, String};
 use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
+use std::sync::{Once, ONCE_INIT};
+
+static INIT: Once = ONCE_INIT;
+
+/// Setup function that is only run once, even if called multiple times.
+fn setup() {
+    INIT.call_once(|| {
+        ::env_logger::init();
+    });
+}
 
 macro_rules! range_eq {
     ($range:expr, $right:expr) => {
@@ -22,6 +33,8 @@ macro_rules! range_eq {
 
 #[test]
 fn issue_2() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -38,6 +51,8 @@ fn issue_2() {
 
 #[test]
 fn issue_3() {
+    setup();
+
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
@@ -48,6 +63,8 @@ fn issue_3() {
 
 #[test]
 fn issue_4() {
+    setup();
+
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
@@ -58,6 +75,8 @@ fn issue_4() {
 
 #[test]
 fn issue_6() {
+    setup();
+
     // test if sheet is resolved with only one row
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
@@ -76,6 +95,8 @@ fn issue_6() {
 
 #[test]
 fn error_file() {
+    setup();
+
     let path = format!("{}/tests/errors.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -96,6 +117,8 @@ fn error_file() {
 
 #[test]
 fn issue_9() {
+    setup();
+
     let path = format!("{}/tests/issue9.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -113,6 +136,8 @@ fn issue_9() {
 
 #[test]
 fn vba() {
+    setup();
+
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -126,6 +151,8 @@ fn vba() {
 
 #[test]
 fn xlsb() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
@@ -142,6 +169,8 @@ fn xlsb() {
 
 #[test]
 fn xlsx() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -158,6 +187,8 @@ fn xlsx() {
 
 #[test]
 fn xls() {
+    setup();
+
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xls<_> = open_workbook(&path).unwrap();
 
@@ -174,6 +205,8 @@ fn xls() {
 
 #[test]
 fn ods() {
+    setup();
+
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
@@ -206,6 +239,8 @@ fn ods() {
 
 #[test]
 fn ods_covered() {
+    setup();
+
     let path = format!("{}/tests/covered.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
@@ -222,6 +257,8 @@ fn ods_covered() {
 
 #[test]
 fn special_chrs_xlsx() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -243,6 +280,8 @@ fn special_chrs_xlsx() {
 
 #[test]
 fn special_chrs_xlsb() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
@@ -264,6 +303,8 @@ fn special_chrs_xlsb() {
 
 #[test]
 fn special_chrs_ods() {
+    setup();
+
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
@@ -285,6 +326,8 @@ fn special_chrs_ods() {
 
 #[test]
 fn partial_richtext_ods() {
+    setup();
+
     let path = format!("{}/tests/richtext_issue.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
@@ -294,6 +337,8 @@ fn partial_richtext_ods() {
 
 #[test]
 fn xlsx_richtext_namespaced() {
+    setup();
+
     let path = format!(
         "{}/tests/richtext-namespaced.xlsx",
         env!("CARGO_MANIFEST_DIR")
@@ -318,6 +363,8 @@ fn xlsx_richtext_namespaced() {
 
 #[test]
 fn defined_names_xlsx() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -335,6 +382,8 @@ fn defined_names_xlsx() {
 
 #[test]
 fn defined_names_xlsb() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
     let excel: Xlsb<_> = open_workbook(&path).unwrap();
 
@@ -352,6 +401,8 @@ fn defined_names_xlsb() {
 
 #[test]
 fn defined_names_xls() {
+    setup();
+
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
     let excel: Xls<_> = open_workbook(&path).unwrap();
 
@@ -369,6 +420,8 @@ fn defined_names_xls() {
 
 #[test]
 fn defined_names_ods() {
+    setup();
+
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let excel: Ods<_> = open_workbook(&path).unwrap();
 
@@ -392,6 +445,8 @@ fn defined_names_ods() {
 
 #[test]
 fn parse_sheet_names_in_xls() {
+    setup();
+
     let path = format!(
         "{}/tests/sheet_name_parsing.xls",
         env!("CARGO_MANIFEST_DIR")
@@ -402,6 +457,8 @@ fn parse_sheet_names_in_xls() {
 
 #[test]
 fn read_xls_from_memory() {
+    setup();
+
     const DATA_XLS: &[u8] = include_bytes!("sheet_name_parsing.xls");
     let reader = Cursor::new(DATA_XLS);
     let excel = Xls::new(reader).unwrap();
@@ -410,6 +467,8 @@ fn read_xls_from_memory() {
 
 #[test]
 fn search_references() {
+    setup();
+
     let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
     let vba = excel.vba_project().unwrap().unwrap();
@@ -420,6 +479,8 @@ fn search_references() {
 
 #[test]
 fn formula_xlsx() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -434,6 +495,8 @@ fn formula_xlsx() {
 
 #[test]
 fn formula_xlsb() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
@@ -448,6 +511,8 @@ fn formula_xlsb() {
 
 #[test]
 fn formula_xls() {
+    setup();
+
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xls<_> = open_workbook(&path).unwrap();
 
@@ -462,6 +527,8 @@ fn formula_xls() {
 
 #[test]
 fn formula_ods() {
+    setup();
+
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
@@ -475,6 +542,8 @@ fn formula_ods() {
 
 #[test]
 fn empty_sheet() {
+    setup();
+
     let path = format!("{}/tests/empty_sheet.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
     for s in excel.sheet_names().to_owned() {
@@ -487,6 +556,8 @@ fn empty_sheet() {
 
 #[test]
 fn issue_120() {
+    setup();
+
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
@@ -502,6 +573,8 @@ fn issue_120() {
 
 #[test]
 fn issue_127() {
+    setup();
+
     //Ods::sheet_names should now return sheet names in their correct order
     let path = format!("{}/tests/issue127.ods", env!("CARGO_MANIFEST_DIR"));
     let ods: Ods<_> = open_workbook(&path).unwrap();
@@ -517,6 +590,8 @@ fn issue_127() {
 
 #[test]
 fn issue_134() {
+    setup();
+
     //Ods::sheet_names should now return sheet names in their correct order
     let path = format!(
         "{}/tests/adhocallbabynames1996to2016.xls",

@@ -26,3 +26,4 @@ zip = { version = "0.4.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 glob = "0.2.11"
+env_logger = "0.5.13"
