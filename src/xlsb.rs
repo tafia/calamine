@@ -64,7 +64,11 @@ pub enum XlsbError {
     #[fail(display = "Unsupported Cell Error code {:X}", _0)]
     CellError(u8),
     /// Wide str length too long
-    #[fail(display = "Wide str length {} exceeds buffer length {}", ws_len, buf_len)]
+    #[fail(
+        display = "Wide str length {} exceeds buffer length {}",
+        ws_len,
+        buf_len
+    )]
     WideStr {
         /// wide str length
         ws_len: usize,
@@ -233,8 +237,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                                 p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
                                 _ => "#Unknown",
                             }.to_string()
-                        })
-                        .take(cxti)
+                        }).take(cxti)
                         .collect();
                     self.extern_sheets = extern_sheets;
                 }

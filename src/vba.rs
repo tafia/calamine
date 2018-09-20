@@ -38,7 +38,11 @@ pub enum VbaError {
     #[fail(display = "Unexpected libid format")]
     LibId,
     /// Invalid record id
-    #[fail(display = "Invalid record id: expecting {:X} found {:X}", expected, found)]
+    #[fail(
+        display = "Invalid record id: expecting {:X} found {:X}",
+        expected,
+        found
+    )]
     InvalidRecordId {
         /// expected record id
         expected: u16,
@@ -91,8 +95,7 @@ impl VbaProject {
                 cfb.get_stream(&m.stream_name, r).and_then(|s| {
                     ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
                 })
-            })
-            .collect::<Result<HashMap<_, _>, _>>()?;
+            }).collect::<Result<HashMap<_, _>, _>>()?;
 
         Ok(VbaProject {
             references: refs,

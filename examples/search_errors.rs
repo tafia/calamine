@@ -30,8 +30,7 @@ fn main() {
             ':' => None,
             '/' | '\\' | ' ' => Some('_'),
             c => Some(c),
-        })
-        .collect::<String>();
+        }).collect::<String>();
     output.push_str("_errors.csv");
     let mut output = BufWriter::new(File::create(output).unwrap());
 
@@ -90,8 +89,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
                         false
                     }
                 })
-            })
-            .count();
+            }).count();
     }
 
     Ok((f, missing, cell_errors))

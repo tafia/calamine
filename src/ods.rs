@@ -174,7 +174,9 @@ fn parse_content<RS: Read + Seek>(
                 .filter_map(|a| a.ok())
                 .find(|a| a.key == b"table:name")
             {
-                let name = a.unescape_and_decode_value(&reader).map_err(OdsError::Xml)?;
+                let name = a
+                    .unescape_and_decode_value(&reader)
+                    .map_err(OdsError::Xml)?;
                 let (range, formulas) = read_table(&mut reader)?;
                 sheet_names.push(name.clone());
                 sheets.insert(name, (range, formulas));
@@ -292,7 +294,10 @@ fn read_row(
                 for a in e.attributes() {
                     let a = a?;
                     if a.key == b"table:number-columns-repeated" {
-                        repeats = reader.decode(&a.value).parse().map_err(OdsError::ParseInt)?;
+                        repeats = reader
+                            .decode(&a.value)
+                            .parse()
+                            .map_err(OdsError::ParseInt)?;
                         break;
                     }
                 }
