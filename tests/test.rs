@@ -256,6 +256,21 @@ fn ods_covered() {
 }
 
 #[test]
+fn special_cells() {
+    let path = format!("{}/tests/special_cells.ods", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Ods<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("sheet1").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("Split\nLine".to_string())],
+            [String("Value With spaces".to_string())],
+        ]
+    );
+}
+
+#[test]
 fn special_chrs_xlsx() {
     setup();
 
