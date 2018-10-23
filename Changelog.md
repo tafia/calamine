@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.7
+- feat: ods, support *text:s* and *text:p*
+
 ## 0.14.6
 - fix: support MulRk for xls files
 
