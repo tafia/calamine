@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+# 0.14.10
+- fix: serde map do not stop at first empty value
+
 ## 0.14.9
 - fix: do not return map keys for empty cells. Fixes not working `#[serde(default)]`
 
