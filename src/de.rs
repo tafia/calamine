@@ -1,6 +1,7 @@
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{self, DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
 use serde::{self, Deserialize};
+use std::iter::Peekable;
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
@@ -28,6 +29,8 @@ pub enum DeError {
         /// Cell position
         pos: (u32, u32),
     },
+    /// Required header not found
+    HeaderNotFound(String),
     /// Serde specific error
     Custom(String),
 }
@@ -49,6 +52,9 @@ impl fmt::Display for DeError {
             DeError::UnexpectedEndOfRow { ref pos } => {
                 write!(f, "Unexpected end of row at position '{:?}'", pos)
             }
+            DeError::HeaderNotFound(ref header) => {
+                write!(f, "Cannot find header named '{}'", header)
+            }
             DeError::Custom(ref s) => write!(f, "{}", s),
         }
     }
@@ -60,6 +66,7 @@ impl ::std::error::Error for DeError {
             DeError::CellOutOfRange { .. } => "cell out of range",
             DeError::CellError { .. } => "error in cell value",
             DeError::UnexpectedEndOfRow { .. } => "unexpected end of row",
+            DeError::HeaderNotFound { .. } => "header not found",
             DeError::Custom(ref s) => &**s,
         }
     }
@@ -74,25 +81,110 @@ impl de::Error for DeError {
     }
 }
 
+#[derive(Clone)]
+pub enum Headers<'h, H: 'h> {
+    None,
+    All,
+    Custom(&'h [H]),
+}
+
 /// Builds a `Range` deserializer with some configuration options.
 ///
 /// This can be used to optionally parse the first row as a header. Once built,
 /// a `RangeDeserializer`s cannot be changed.
 #[derive(Clone)]
-pub struct RangeDeserializerBuilder {
-    has_headers: bool,
+pub struct RangeDeserializerBuilder<'h, H: 'h> {
+    headers: Headers<'h, H>,
 }
 
-impl Default for RangeDeserializerBuilder {
+impl Default for RangeDeserializerBuilder<'static, &'static str> {
     fn default() -> Self {
-        RangeDeserializerBuilder { has_headers: true }
+        RangeDeserializerBuilder {
+            headers: Headers::All,
+        }
     }
 }
 
-impl RangeDeserializerBuilder {
+impl RangeDeserializerBuilder<'static, &'static str> {
     /// Constructs a new builder for configuring `Range` deserialization.
     pub fn new() -> Self {
         Default::default()
+    }
+
+    /// Decide whether to treat the first row as a special header row.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
+    /// # fn main() { example().unwrap(); }
+    /// fn example() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///     let range = workbook.worksheet_range("Sheet1")
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///
+    ///     let mut iter = RangeDeserializerBuilder::new()
+    ///         .has_headers(false)
+    ///         .from_range(&range)?;
+    ///
+    ///     if let Some(result) = iter.next() {
+    ///         let row: Vec<DataType> = result?;
+    ///         assert_eq!(row, [DataType::from("label"), DataType::from("value")]);
+    ///     } else {
+    ///         return Err(From::from("expected at least three records but got none"));
+    ///     }
+    ///
+    ///     if let Some(result) = iter.next() {
+    ///         let row: Vec<DataType> = result?;
+    ///         assert_eq!(row, [DataType::from("celcius"), DataType::from(22.2222)]);
+    ///     } else {
+    ///         return Err(From::from("expected at least three records but got one"));
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn has_headers(&mut self, yes: bool) -> &mut Self {
+        if yes {
+            self.headers = Headers::All;
+        } else {
+            self.headers = Headers::None;
+        }
+        self
+    }
+}
+
+impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
+    /// Build a `RangeDeserializer` from this configuration and keep only selected headers.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
+    /// # fn main() { example().unwrap(); }
+    /// fn example() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///     let range = workbook.worksheet_range("Sheet1")
+    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let mut iter = RangeDeserializerBuilder::with_headers(&["value", "label"]).from_range(&range)?;
+    ///
+    ///     if let Some(result) = iter.next() {
+    ///         let (value, label): (f64, String) = result?;
+    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(value, 22.2222);
+    ///
+    ///         Ok(())
+    ///     } else {
+    ///         return Err(From::from("expected at least one record but got none"));
+    ///     }
+    /// }
+    /// ```
+    pub fn with_headers(headers: &'h [H]) -> Self {
+        RangeDeserializerBuilder {
+            headers: Headers::Custom(headers),
+        }
     }
 
     /// Build a `RangeDeserializer` from this configuration.
@@ -130,45 +222,6 @@ impl RangeDeserializerBuilder {
     {
         RangeDeserializer::new(self, range)
     }
-
-    /// Decide whether to treat the first row as a special header row.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
-    /// # fn main() { example().unwrap(); }
-    /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let range = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
-    ///
-    ///     let mut iter = RangeDeserializerBuilder::new()
-    ///         .has_headers(false)
-    ///         .from_range(&range)?;
-    ///
-    ///     if let Some(result) = iter.next() {
-    ///         let row: Vec<DataType> = result?;
-    ///         assert_eq!(row, [DataType::from("label"), DataType::from("value")]);
-    ///     } else {
-    ///         return Err(From::from("expected at least three records but got none"));
-    ///     }
-    ///
-    ///     if let Some(result) = iter.next() {
-    ///         let row: Vec<DataType> = result?;
-    ///         assert_eq!(row, [DataType::from("celcius"), DataType::from(22.2222)]);
-    ///     } else {
-    ///         return Err(From::from("expected at least three records but got one"));
-    ///     }
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    pub fn has_headers(&mut self, yes: bool) -> &mut RangeDeserializerBuilder {
-        self.has_headers = yes;
-        self
-    }
 }
 
 /// A configured `Range` deserializer.
@@ -201,6 +254,7 @@ where
     T: 'cell + ToCellDeserializer<'cell>,
     D: DeserializeOwned,
 {
+    column_indexes: Vec<usize>,
     headers: Option<Vec<String>>,
     rows: Rows<'cell, T>,
     current_pos: (u32, u32),
@@ -213,29 +267,58 @@ where
     T: ToCellDeserializer<'cell>,
     D: DeserializeOwned,
 {
-    fn new(builder: &RangeDeserializerBuilder, range: &'cell Range<T>) -> Result<Self, DeError> {
+    fn new<'h, H: AsRef<str> + Clone + 'h>(
+        builder: &RangeDeserializerBuilder<'h, H>,
+        range: &'cell Range<T>,
+    ) -> Result<Self, DeError> {
         let mut rows = range.rows();
 
         let mut current_pos = range.start().unwrap_or((0, 0));
         let end_pos = range.end().unwrap_or((0, 0));
 
-        let headers = if builder.has_headers {
-            if let Some(row) = rows.next() {
-                let de = RowDeserializer::new(None, row, current_pos);
-                current_pos.0 += 1;
-                Some(Deserialize::deserialize(de)?)
-            } else {
-                None
+        let (column_indexes, headers) = match builder.headers {
+            Headers::None => ((0..range.width()).collect(), None),
+            Headers::All => {
+                if let Some(row) = rows.next() {
+                    let all_indexes = (0..row.len()).collect::<Vec<_>>();
+                    let all_headers = {
+                        let de = RowDeserializer::new(&all_indexes, None, row, current_pos);
+                        current_pos.0 += 1;
+                        Deserialize::deserialize(de)?
+                    };
+                    (all_indexes, Some(all_headers))
+                } else {
+                    (Vec::new(), None)
+                }
             }
-        } else {
-            None
+            Headers::Custom(headers) => {
+                if let Some(row) = rows.next() {
+                    let all_indexes = (0..row.len()).collect::<Vec<_>>();
+                    let de = RowDeserializer::new(&all_indexes, None, row, current_pos);
+                    current_pos.0 += 1;
+                    let all_headers: Vec<String> = Deserialize::deserialize(de)?;
+                    let custom_indexes = headers
+                        .iter()
+                        .map(|h| h.as_ref().trim())
+                        .map(|h| {
+                            all_headers
+                                .iter()
+                                .position(|header| header.trim() == h)
+                                .ok_or_else(|| DeError::HeaderNotFound(h.to_owned()))
+                        }).collect::<Result<Vec<_>, DeError>>()?;
+                    (custom_indexes, Some(all_headers))
+                } else {
+                    (Vec::new(), None)
+                }
+            }
         };
 
         Ok(RangeDeserializer {
-            headers: headers,
-            rows: rows,
-            current_pos: current_pos,
-            end_pos: end_pos,
+            column_indexes,
+            headers,
+            rows,
+            current_pos,
+            end_pos,
             _priv: PhantomData,
         })
     }
@@ -250,6 +333,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let RangeDeserializer {
+            ref column_indexes,
             ref headers,
             ref mut rows,
             mut current_pos,
@@ -258,9 +342,8 @@ where
 
         if let Some(row) = rows.next() {
             current_pos.0 += 1;
-
-            let headers = headers.as_ref();
-            let de = RowDeserializer::new(headers, row, current_pos);
+            let headers = headers.as_ref().map(|h| &**h);
+            let de = RowDeserializer::new(column_indexes, headers, row, current_pos);
             Some(Deserialize::deserialize(de))
         } else {
             None
@@ -278,8 +361,9 @@ struct RowDeserializer<'header, 'cell, T>
 where
     T: 'cell + ToCellDeserializer<'cell>,
 {
-    headers: Option<slice::Iter<'header, String>>,
-    iter: slice::Iter<'cell, T>,
+    cells: &'cell [T],
+    headers: Option<&'header [String]>,
+    iter: Peekable<slice::Iter<'header, usize>>, // iterator over column indexes
     pos: (u32, u32),
 }
 
@@ -287,31 +371,22 @@ impl<'header, 'cell, T> RowDeserializer<'header, 'cell, T>
 where
     T: 'cell + ToCellDeserializer<'cell>,
 {
-    fn new(headers: Option<&'header Vec<String>>, record: &'cell [T], pos: (u32, u32)) -> Self {
+    fn new(
+        column_indexes: &'header [usize],
+        headers: Option<&'header [String]>,
+        cells: &'cell [T],
+        pos: (u32, u32),
+    ) -> Self {
         RowDeserializer {
-            iter: record.into_iter(),
-            headers: headers.map(|headers| headers.into_iter()),
+            iter: column_indexes.iter().peekable(),
+            headers,
+            cells,
             pos: pos,
         }
     }
 
     fn has_headers(&self) -> bool {
         self.headers.is_some()
-    }
-
-    fn next_header(&mut self) -> Option<&'header str> {
-        self.headers
-            .as_mut()
-            .and_then(|it| it.next().map(|header| &**header))
-    }
-
-    fn next_cell(&mut self) -> Result<&'cell T, DeError> {
-        if let Some(cell) = self.iter.next() {
-            self.pos.1 += 1;
-            Ok(cell)
-        } else {
-            return Err(DeError::UnexpectedEndOfRow { pos: self.pos });
-        }
     }
 }
 
@@ -370,7 +445,7 @@ where
     where
         D: DeserializeSeed<'de>,
     {
-        match self.iter.next() {
+        match self.iter.next().map(|i| &self.cells[*i]) {
             Some(value) => {
                 let de = value.to_cell_deserializer(self.pos);
                 seed.deserialize(de).map(Some)
@@ -399,9 +474,11 @@ where
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Self::Error> {
-        assert!(self.has_headers());
+        let headers = self
+            .headers
+            .expect("Cannot map-deserialize range without headers");
 
-        if let Some(header) = self.next_header() {
+        if let Some(header) = self.iter.peek().map(|i| &headers[**i]) {
             let de = BorrowedStrDeserializer::<Self::Error>::new(header);
             seed.deserialize(de).map(Some)
         } else {
@@ -413,7 +490,11 @@ where
         &mut self,
         seed: K,
     ) -> Result<K::Value, Self::Error> {
-        let cell = self.next_cell()?;
+        let cell = self
+            .iter
+            .next()
+            .map(|i| &self.cells[*i])
+            .ok_or(DeError::UnexpectedEndOfRow { pos: self.pos })?;
         let de = cell.to_cell_deserializer(self.pos);
         seed.deserialize(de)
     }
