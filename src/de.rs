@@ -478,7 +478,7 @@ where
         let headers = self
             .headers
             .expect("Cannot map-deserialize range without headers");
-        
+
         while let Some(i) = self.iter.next() {
             if !self.cells[*i].is_empty() {
                 self.peek = Some(*i);
