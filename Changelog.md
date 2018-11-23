@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.14.8
+- feat: bump dependencies
+- feat: add a `RangeDeserializerBuilder::with_headers` fn to improve serde deserializer
+
 ## 0.14.7
 - feat: ods, support *text:s* and *text:p*
 
