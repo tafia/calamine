@@ -1,7 +1,6 @@
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{self, DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
 use serde::{self, Deserialize};
-use std::iter::Peekable;
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
@@ -363,7 +362,8 @@ where
 {
     cells: &'cell [T],
     headers: Option<&'header [String]>,
-    iter: Peekable<slice::Iter<'header, usize>>, // iterator over column indexes
+    iter: slice::Iter<'header, usize>, // iterator over column indexes
+    peek: Option<usize>,
     pos: (u32, u32),
 }
 
@@ -378,10 +378,11 @@ where
         pos: (u32, u32),
     ) -> Self {
         RowDeserializer {
-            iter: column_indexes.iter().peekable(),
+            iter: column_indexes.iter(),
             headers,
             cells,
             pos: pos,
+            peek: None,
         }
     }
 
@@ -478,16 +479,14 @@ where
             .headers
             .expect("Cannot map-deserialize range without headers");
 
-        if let Some(i) = self.iter.peek() {
-            if self.cells[**i].is_empty() {
-                Ok(None)
-            } else {
-                let de = BorrowedStrDeserializer::<Self::Error>::new(&headers[**i]);
-                seed.deserialize(de).map(Some)
+        while let Some(i) = self.iter.next() {
+            if !self.cells[*i].is_empty() {
+                self.peek = Some(*i);
+                let de = BorrowedStrDeserializer::<Self::Error>::new(&headers[*i]);
+                return seed.deserialize(de).map(Some);
             }
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
     fn next_value_seed<K: DeserializeSeed<'de>>(
@@ -495,9 +494,9 @@ where
         seed: K,
     ) -> Result<K::Value, Self::Error> {
         let cell = self
-            .iter
-            .next()
-            .map(|i| &self.cells[*i])
+            .peek
+            .take()
+            .map(|i| &self.cells[i])
             .ok_or(DeError::UnexpectedEndOfRow { pos: self.pos })?;
         let de = cell.to_cell_deserializer(self.pos);
         seed.deserialize(de)
