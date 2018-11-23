@@ -478,9 +478,13 @@ where
             .headers
             .expect("Cannot map-deserialize range without headers");
 
-        if let Some(header) = self.iter.peek().map(|i| &headers[**i]) {
-            let de = BorrowedStrDeserializer::<Self::Error>::new(header);
-            seed.deserialize(de).map(Some)
+        if let Some(i) = self.iter.peek() {
+            if self.cells[**i].is_empty() {
+                Ok(None)
+            } else {
+                let de = BorrowedStrDeserializer::<Self::Error>::new(&headers[**i]);
+                seed.deserialize(de).map(Some)
+            }
         } else {
             Ok(None)
         }
@@ -507,6 +511,9 @@ pub trait ToCellDeserializer<'a>: CellType {
 
     /// Construct a `CellType` deserializer at the specified position.
     fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> Self::Deserializer;
+
+    /// Assess if the cell is empty.
+    fn is_empty(&self) -> bool;
 }
 
 impl<'a> ToCellDeserializer<'a> for DataType {
@@ -516,6 +523,15 @@ impl<'a> ToCellDeserializer<'a> for DataType {
         DataTypeDeserializer {
             data_type: self,
             pos: pos,
+        }
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        if let DataType::Empty = self {
+            true
+        } else {
+            false
         }
     }
 }
@@ -534,11 +550,11 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match *self.data_type {
-            DataType::Empty => visitor.visit_unit(),
+            DataType::String(ref v) => visitor.visit_str(v),
+            DataType::Float(v) => visitor.visit_f64(v),
             DataType::Bool(v) => visitor.visit_bool(v),
             DataType::Int(v) => visitor.visit_i64(v),
-            DataType::Float(v) => visitor.visit_f64(v),
-            DataType::String(ref v) => visitor.visit_str(v),
+            DataType::Empty => visitor.visit_unit(),
             DataType::Error(ref err) => {
                 return Err(DeError::CellError {
                     err: err.clone(),
