@@ -16,6 +16,7 @@ appveyor = { repository = "tafia/calamine" }
 
 [dependencies]
 byteorder = "1.2.7"
+codepage = "0.1.1"
 encoding_rs = "0.8.12"
 failure = "0.1.3"
 failure_derive = "0.1.3"

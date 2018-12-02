@@ -59,6 +59,7 @@
 #![deny(missing_docs)]
 
 extern crate byteorder;
+extern crate codepage;
 extern crate encoding_rs;
 #[macro_use]
 extern crate failure;
