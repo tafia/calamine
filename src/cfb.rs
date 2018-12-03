@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Read;
 
-use encoding_rs::{Encoding, UTF_16LE};
+use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
 use utils::*;
 
@@ -397,20 +397,12 @@ pub struct XlsEncoding {
 
 impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
-        let e = encoding_from_windows_code_page(codepage as usize)
-            .ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
-        let high_byte = match codepage {
-            20127
-            | 65000
-            | 65001
-            | 20866
-            | 21866
-            | 10000
-            | 10007
-            | 874
-            | 1250...1258
-            | 28591...28605 => None, // SingleByte encodings
-            _ => Some(false),
+        let e =
+            codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
+        let high_byte = if e == UTF_8 || e.is_single_byte() {
+            None
+        } else {
+            Some(false)
         };
 
         Ok(XlsEncoding {
