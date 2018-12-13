@@ -39,9 +39,7 @@ pub enum XlsError {
     /// Invalid length
     #[fail(
         display = "Invalid {} length, expected {} maximum, found {}",
-        typ,
-        expected,
-        found
+        typ, expected, found
     )]
     Len {
         /// expected length
@@ -205,7 +203,8 @@ impl<RS: Read + Seek> Xls<RS> {
                 } else {
                     (name, f)
                 }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         let mut sheets = HashMap::with_capacity(sheet_names.len());
         let fmla_sheet_names = sheet_names
@@ -241,7 +240,8 @@ impl<RS: Read + Seek> Xls<RS> {
                             &fmla_sheet_names,
                             &defined_names,
                             &mut encoding,
-                        ).unwrap_or_else(|e| {
+                        )
+                        .unwrap_or_else(|e| {
                             format!(
                                 "Unrecognised formula \
                                  for cell ({}, {}): {:?}",
@@ -565,12 +565,14 @@ impl<'a> Record<'a> {
     fn continue_record(&mut self) -> bool {
         match self.cont {
             None => false,
-            Some(ref mut v) => if v.is_empty() {
-                false
-            } else {
-                self.data = v.remove(0);
-                true
-            },
+            Some(ref mut v) => {
+                if v.is_empty() {
+                    false
+                } else {
+                    self.data = v.remove(0);
+                    true
+                }
+            }
         }
     }
 }

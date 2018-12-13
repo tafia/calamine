@@ -169,18 +169,20 @@ fn parse_content<RS: Read + Seek>(
     let mut sheet_names = Vec::new();
     loop {
         match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table" => if let Some(ref a) = e
-                .attributes()
-                .filter_map(|a| a.ok())
-                .find(|a| a.key == b"table:name")
-            {
-                let name = a
-                    .unescape_and_decode_value(&reader)
-                    .map_err(OdsError::Xml)?;
-                let (range, formulas) = read_table(&mut reader)?;
-                sheet_names.push(name.clone());
-                sheets.insert(name, (range, formulas));
-            },
+            Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
+                if let Some(ref a) = e
+                    .attributes()
+                    .filter_map(|a| a.ok())
+                    .find(|a| a.key == b"table:name")
+                {
+                    let name = a
+                        .unescape_and_decode_value(&reader)
+                        .map_err(OdsError::Xml)?;
+                    let (range, formulas) = read_table(&mut reader)?;
+                    sheet_names.push(name.clone());
+                    sheets.insert(name, (range, formulas));
+                }
+            }
             Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
                 defined_names = read_named_expressions(&mut reader)?;
             }

@@ -24,12 +24,7 @@ pub enum CfbError {
     EmptyRootDir,
     #[fail(display = "Cannot find {} stream", _0)]
     StreamNotFound(String),
-    #[fail(
-        display = "Invalid {}, expecting {} found {:X}",
-        name,
-        expected,
-        found
-    )]
+    #[fail(display = "Invalid {}, expecting {} found {:X}", name, expected, found)]
     Invalid {
         name: &'static str,
         expected: &'static str,
@@ -226,12 +221,18 @@ impl Sectors {
         let start = id as usize * self.size;
         let end = start + self.size;
         if end > self.data.len() {
-            let len = self.data.len();
+            let mut len = self.data.len();
             unsafe {
                 self.data.set_len(end);
             }
-            r.read_exact(&mut self.data[len..end])
-                .map_err(CfbError::Io)?;
+            // read_exact or stop if EOF
+            while len < end {
+                let read = r.read(&mut self.data[len..end]).map_err(CfbError::Io)?;
+                if read == 0 {
+                    return Ok(&self.data[start..len]);
+                }
+                len += read;
+            }
         }
         Ok(&self.data[start..end])
     }

@@ -596,7 +596,8 @@ fn issue_127() {
 
     let ordered_names: Vec<std::string::String> = vec![
         "Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8",
-    ].iter()
+    ]
+    .iter()
     .map(|&s| s.to_owned())
     .collect();
 
