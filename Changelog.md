@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+# 0.15.1
+- fix: xls - allow sectors ending after eof (truncate them!)
+
 # 0.15.0
 - feat: codepage/encoding_rs for codpage mapping 
 
