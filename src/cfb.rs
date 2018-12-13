@@ -24,12 +24,7 @@ pub enum CfbError {
     EmptyRootDir,
     #[fail(display = "Cannot find {} stream", _0)]
     StreamNotFound(String),
-    #[fail(
-        display = "Invalid {}, expecting {} found {:X}",
-        name,
-        expected,
-        found
-    )]
+    #[fail(display = "Invalid {}, expecting {} found {:X}", name, expected, found)]
     Invalid {
         name: &'static str,
         expected: &'static str,

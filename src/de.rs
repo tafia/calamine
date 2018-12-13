@@ -304,7 +304,8 @@ where
                                 .iter()
                                 .position(|header| header.trim() == h)
                                 .ok_or_else(|| DeError::HeaderNotFound(h.to_owned()))
-                        }).collect::<Result<Vec<_>, DeError>>()?;
+                        })
+                        .collect::<Result<Vec<_>, DeError>>()?;
                     (custom_indexes, Some(all_headers))
                 } else {
                     (Vec::new(), None)

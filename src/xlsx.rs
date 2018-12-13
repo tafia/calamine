@@ -178,16 +178,18 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                     self.sheets.push((name, path));
                 }
-                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => if let Some(a) = e
-                    .attributes()
-                    .filter_map(|a| a.ok())
-                    .find(|a| a.key == b"name")
-                {
-                    let name = a.unescape_and_decode_value(&xml)?;
-                    val_buf.clear();
-                    let value = xml.read_text(b"definedName", &mut val_buf)?;
-                    defined_names.push((name, value));
-                },
+                Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => {
+                    if let Some(a) = e
+                        .attributes()
+                        .filter_map(|a| a.ok())
+                        .find(|a| a.key == b"name")
+                    {
+                        let name = a.unescape_and_decode_value(&xml)?;
+                        val_buf.clear();
+                        let value = xml.read_text(b"definedName", &mut val_buf)?;
+                        defined_names.push((name, value));
+                    }
+                }
                 Ok(Event::End(ref e)) if e.local_name() == b"workbook" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("workbook")),
                 Err(e) => return Err(XlsxError::Xml(e)),
@@ -393,11 +395,7 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
             Ok(Attribute {
                 key,
                 value: Cow::Borrowed(value),
-            })
-                if key == n =>
-            {
-                return Ok(Some(value))
-            }
+            }) if key == n => return Ok(Some(value)),
             Err(e) => return Err(XlsxError::Xml(e)),
             _ => {} // ignore other attributes
         }
@@ -412,8 +410,13 @@ fn read_sheet<T, F>(
 ) -> Result<(), XlsxError>
 where
     T: Clone + Default + PartialEq,
-    F: FnMut(&mut Vec<Cell<T>>, &mut XlsReader, &BytesStart, (u32, u32), &BytesStart)
-        -> Result<(), XlsxError>,
+    F: FnMut(
+        &mut Vec<Cell<T>>,
+        &mut XlsReader,
+        &BytesStart,
+        (u32, u32),
+        &BytesStart,
+    ) -> Result<(), XlsxError>,
 {
     let mut buf = Vec::new();
     let mut cell_buf = Vec::new();
@@ -568,12 +571,14 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
     let mut readrow = true;
     for c in range.iter().rev() {
         match *c {
-            c @ b'0'...b'9' => if readrow {
-                row += ((c - b'0') as u32) * pow;
-                pow *= 10;
-            } else {
-                return Err(XlsxError::NumericColumn(c));
-            },
+            c @ b'0'...b'9' => {
+                if readrow {
+                    row += ((c - b'0') as u32) * pow;
+                    pow *= 10;
+                } else {
+                    return Err(XlsxError::NumericColumn(c));
+                }
+            }
             c @ b'A'...b'Z' => {
                 if readrow {
                     pow = 1;
