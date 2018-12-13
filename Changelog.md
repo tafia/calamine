@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+# 0.15.0
+- feat: codepage/encoding_rs for codpage mapping 
+
 # 0.14.10
 - fix: serde map do not stop at first empty value
 
