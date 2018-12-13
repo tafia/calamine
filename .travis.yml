@@ -9,7 +9,7 @@ rust:
 
 before_script:
   - export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH
-  - rustup component add rustfmt
+  - if [[ $(rustup show active-toolchain) == stable* ]]; then rustup component add rustfmt; fi;
 
 script:
   - cargo build
