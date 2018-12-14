@@ -709,3 +709,9 @@ impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
             .map_or((0, Some(0)), |ch| ch.size_hint())
     }
 }
+
+impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.as_mut().and_then(|c| c.next_back())
+    }
+}
