@@ -549,26 +549,46 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
     where
         V: Visitor<'de>,
     {
-        match *self.data_type {
+        match self.data_type {
             DataType::String(ref v) => visitor.visit_str(v),
-            DataType::Float(v) => visitor.visit_f64(v),
-            DataType::Bool(v) => visitor.visit_bool(v),
-            DataType::Int(v) => visitor.visit_i64(v),
+            DataType::Float(v) => visitor.visit_f64(*v),
+            DataType::Bool(v) => visitor.visit_bool(*v),
+            DataType::Int(v) => visitor.visit_i64(*v),
             DataType::Empty => visitor.visit_unit(),
-            DataType::Error(ref err) => {
-                return Err(DeError::CellError {
-                    err: err.clone(),
-                    pos: self.pos,
-                })
-            }
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
         }
+    }
+
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.data_type {
+            DataType::String(ref v) => visitor.visit_str(v),
+            DataType::Empty => visitor.visit_str(""),
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+            ref d => Err(DeError::Custom(format!("Expecting str, got {:?}", d))),
+        }
+    }
+
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_str(visitor)
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        match *self.data_type {
+        match self.data_type {
             DataType::Empty => visitor.visit_none(),
             _ => visitor.visit_some(self),
         }
@@ -586,7 +606,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
     }
 
     forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string bytes
+        bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char bytes
         byte_buf unit unit_struct seq tuple
         tuple_struct map struct enum identifier ignored_any
     }
