@@ -506,6 +506,14 @@ impl<T: CellType> Range<T> {
         }
     }
 
+    /// Get an iterator over all cells in this range
+    pub fn cells(&self) -> Cells<T> {
+        Cells {
+            width: self.width(),
+            inner: self.inner.iter().enumerate(),
+        }
+    }
+
     /// Build a `RangeDeserializer` from this configuration.
     ///
     /// # Example
@@ -654,6 +662,39 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
     }
 }
 
+/// A struct to iterate over all cells
+#[derive(Debug)]
+pub struct Cells<'a, T: 'a + CellType> {
+    width: usize,
+    inner: ::std::iter::Enumerate<::std::slice::Iter<'a, T>>,
+}
+
+impl<'a, T: 'a + CellType> Iterator for Cells<'a, T> {
+    type Item = (usize, usize, &'a T);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(i, v)| {
+            let row = i / self.width;
+            let col = i % self.width;
+            (row, col, v)
+        })
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<'a, T: 'a + CellType> DoubleEndedIterator for Cells<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back().map(|(i, v)| {
+            let row = i / self.width;
+            let col = i % self.width;
+            (row, col, v)
+        })
+    }
+}
+
+impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
+
 /// A struct to iterate over used cells
 #[derive(Debug)]
 pub struct UsedCells<'a, T: 'a + CellType> {
@@ -715,3 +756,5 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
         self.inner.as_mut().and_then(|c| c.next_back())
     }
 }
+
+impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
