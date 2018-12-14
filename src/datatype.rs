@@ -29,6 +29,49 @@ impl Default for DataType {
     }
 }
 
+impl DataType {
+    /// Assess if `self == DataType::Empty`
+    pub fn is_empty(&self) -> bool {
+        *self == DataType::Empty
+    }
+}
+
+impl PartialEq<str> for DataType {
+    fn eq(&self, other: &str) -> bool {
+        match *self {
+            DataType::String(ref s) if s == other => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<f64> for DataType {
+    fn eq(&self, other: &f64) -> bool {
+        match *self {
+            DataType::Float(ref s) if *s == *other => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<bool> for DataType {
+    fn eq(&self, other: &bool) -> bool {
+        match *self {
+            DataType::Bool(ref s) if *s == *other => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<i64> for DataType {
+    fn eq(&self, other: &i64) -> bool {
+        match *self {
+            DataType::Int(ref s) if *s == *other => true,
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
         match *self {
