@@ -8,6 +8,15 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+# 0.15.3
+- feat: add several new convenient fn to `DataType`
+- feat: add a `Range::range` fn to get subranges
+- feat: add a new `Range::cells` iterator
+- feat: impl DoubleEndedIterator when possible
+- perf: add some missing `size_hint` impl in iterators
+- feat: add a `Range::get` fn (similar to slice's)
+- perf: add some `ExactSizeIterator`
+
 # 0.15.2
 - feat: consider empty cell as empty str if deserializing to str or String
 

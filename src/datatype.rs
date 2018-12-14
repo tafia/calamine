@@ -29,6 +29,114 @@ impl Default for DataType {
     }
 }
 
+impl DataType {
+    /// Assess if datatype is empty
+    pub fn is_empty(&self) -> bool {
+        *self == DataType::Empty
+    }
+    /// Assess if datatype is a int
+    pub fn is_int(&self) -> bool {
+        if let DataType::Int(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+    /// Assess if datatype is a float
+    pub fn is_float(&self) -> bool {
+        if let DataType::Float(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+    /// Assess if datatype is a bool
+    pub fn is_bool(&self) -> bool {
+        if let DataType::Bool(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+    /// Assess if datatype is a string
+    pub fn is_string(&self) -> bool {
+        if let DataType::String(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Try getting int value
+    pub fn get_int(&self) -> Option<i64> {
+        if let DataType::Int(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting float value
+    pub fn get_float(&self) -> Option<f64> {
+        if let DataType::Float(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting bool value
+    pub fn get_bool(&self) -> Option<bool> {
+        if let DataType::Bool(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting string value
+    pub fn get_string(&self) -> Option<&str> {
+        if let DataType::String(v) = self {
+            Some(&**v)
+        } else {
+            None
+        }
+    }
+}
+
+impl PartialEq<str> for DataType {
+    fn eq(&self, other: &str) -> bool {
+        match *self {
+            DataType::String(ref s) if s == other => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<f64> for DataType {
+    fn eq(&self, other: &f64) -> bool {
+        match *self {
+            DataType::Float(ref s) if *s == *other => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<bool> for DataType {
+    fn eq(&self, other: &bool) -> bool {
+        match *self {
+            DataType::Bool(ref s) if *s == *other => true,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<i64> for DataType {
+    fn eq(&self, other: &i64) -> bool {
+        match *self {
+            DataType::Int(ref s) if *s == *other => true,
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
         match *self {
