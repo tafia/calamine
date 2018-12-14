@@ -30,9 +30,41 @@ impl Default for DataType {
 }
 
 impl DataType {
-    /// Assess if `self == DataType::Empty`
+    /// Assess if datatype is empty
     pub fn is_empty(&self) -> bool {
         *self == DataType::Empty
+    }
+    /// Assess if datatype is a int
+    pub fn is_int(&self) -> bool {
+        if let DataType::Int(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+    /// Assess if datatype is a float
+    pub fn is_float(&self) -> bool {
+        if let DataType::Float(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+    /// Assess if datatype is a bool
+    pub fn is_bool(&self) -> bool {
+        if let DataType::Bool(_) = *self {
+            true
+        } else {
+            false
+        }
+    }
+    /// Assess if datatype is a string
+    pub fn is_string(&self) -> bool {
+        if let DataType::String(_) = *self {
+            true
+        } else {
+            false
+        }
     }
 }
 
