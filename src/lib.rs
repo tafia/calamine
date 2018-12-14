@@ -470,11 +470,18 @@ impl<T: CellType> Range<T> {
     pub fn get_value(&self, absolute_position: (u32, u32)) -> Option<&T> {
         let p = absolute_position;
         if p.0 >= self.start.0 && p.0 <= self.end.0 && p.1 >= self.start.1 && p.1 <= self.end.1 {
-            let idx = (absolute_position.0 - self.start.0) as usize * self.width()
-                + (absolute_position.1 - self.start.1) as usize;
-            return Some(&self.inner[idx]);
+            return self.get((
+                (absolute_position.0 - self.start.0) as usize,
+                (absolute_position.1 - self.start.1) as usize,
+            ));
         }
         None
+    }
+
+    /// Get cell value from **relative position**.
+    pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
+        let (row, col) = relative_position;
+        self.inner.get(row * self.width() + col)
     }
 
     /// Get an iterator over inner rows
