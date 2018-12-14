@@ -87,6 +87,7 @@ pub mod vba;
 
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
+use std::cmp::{max, min};
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -536,6 +537,88 @@ impl<T: CellType> Range<T> {
         D: DeserializeOwned,
     {
         RangeDeserializerBuilder::new().from_range(self)
+    }
+
+    /// Build a new `Range` out of this range
+    ///
+    /// # Remarks
+    ///
+    /// Cells within this range will be cloned, cells out of it will be set to Empty
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use calamine::{Range, DataType};
+    ///
+    /// fn example() {
+    ///     let mut a = Range::new((1, 1), (3, 3));
+    ///     a.set_value((1, 1), DataType::Bool(true));
+    ///     a.set_value((2, 2), DataType::Bool(true));
+    ///
+    ///     let b = a.range((2, 2), (5, 5));
+    ///     assert_eq!(b.get_value((2, 2)), Some(&DataType::Bool(true)));
+    ///     assert_eq!(b.get_value((3, 3)), Some(&DataType::Empty));
+    ///
+    ///     let c = a.range((0, 0), (2, 2));
+    ///     assert_eq!(c.get_value((0, 0)), Some(&DataType::Empty));
+    ///     assert_eq!(c.get_value((1, 1)), Some(&DataType::Bool(true)));
+    ///     assert_eq!(c.get_value((2, 2)), Some(&DataType::Bool(true)));
+    /// }
+    pub fn range(&self, start: (u32, u32), end: (u32, u32)) -> Range<T> {
+        let mut other = Range::new(start, end);
+        let (self_start_row, self_start_col) = self.start;
+        let (self_end_row, self_end_col) = self.end;
+        let (other_start_row, other_start_col) = other.start;
+        let (other_end_row, other_end_col) = other.end;
+
+        // copy data from self to other
+        let start_row = max(self_start_row, other_start_row);
+        let end_row = min(self_end_row, other_end_row);
+        let start_col = max(self_start_col, other_start_col);
+        let end_col = min(self_end_col, other_end_col);
+
+        if start_row > end_row || start_col > end_col {
+            return other;
+        }
+
+        let self_width = self.width();
+        let other_width = other.width();
+
+        // change referential
+        //
+        // we want to copy range: start_row..(end_row + 1)
+        // In self referencial it is (start_row - self_start_row)..(end_row + 1 - self_start_row)
+        let self_row_start = (start_row - self_start_row) as usize;
+        let self_row_end = (end_row + 1 - self_start_row) as usize;
+        let self_col_start = (start_col - self_start_col) as usize;
+        let self_col_end = (end_col + 1 - self_start_col) as usize;
+
+        let other_row_start = (start_row - other_start_row) as usize;
+        let other_row_end = (end_row + 1 - other_start_row) as usize;
+        let other_col_start = (start_col - other_start_col) as usize;
+        let other_col_end = (end_col + 1 - other_start_col) as usize;
+
+        {
+            let self_rows = self
+                .inner
+                .chunks(self_width)
+                .take(self_row_end)
+                .skip(self_row_start);
+
+            let other_rows = other
+                .inner
+                .chunks_mut(other_width)
+                .take(other_row_end)
+                .skip(other_row_start);
+
+            for (self_row, other_row) in self_rows.zip(other_rows) {
+                let self_cols = &self_row[self_col_start..self_col_end];
+                let other_cols = &mut other_row[other_col_start..other_col_end];
+                other_cols.clone_from_slice(self_cols);
+            }
+        }
+
+        other
     }
 }
 
