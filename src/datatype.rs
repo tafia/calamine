@@ -66,6 +66,39 @@ impl DataType {
             false
         }
     }
+
+    /// Try getting int value
+    pub fn get_int(&self) -> Option<i64> {
+        if let DataType::Int(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting float value
+    pub fn get_float(&self) -> Option<f64> {
+        if let DataType::Float(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting bool value
+    pub fn get_bool(&self) -> Option<bool> {
+        if let DataType::Bool(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting string value
+    pub fn get_string(&self) -> Option<&str> {
+        if let DataType::String(v) = self {
+            Some(&**v)
+        } else {
+            None
+        }
+    }
 }
 
 impl PartialEq<str> for DataType {
