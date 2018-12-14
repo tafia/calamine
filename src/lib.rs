@@ -590,6 +590,23 @@ impl<'a, T: 'a + CellType> Iterator for UsedCells<'a, T> {
                 (row, col, v)
             })
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, up) = self.inner.size_hint();
+        (0, up)
+    }
+}
+
+impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner
+            .by_ref()
+            .rfind(|&(_, v)| v != &T::default())
+            .map(|(i, v)| {
+                let row = i / self.width;
+                let col = i % self.width;
+                (row, col, v)
+            })
+    }
 }
 
 /// An iterator to read `Range` struct row by row
@@ -602,5 +619,10 @@ impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     type Item = &'a [T];
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.as_mut().and_then(|c| c.next())
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner
+            .as_ref()
+            .map_or((0, Some(0)), |ch| ch.size_hint())
     }
 }
