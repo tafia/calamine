@@ -118,7 +118,7 @@ impl RangeDeserializerBuilder<'static, &'static str> {
     /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -163,7 +163,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -194,7 +194,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -231,7 +231,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
 /// # fn main() { example().unwrap(); }
 /// fn example() -> Result<(), Error> {
-///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
 ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
 ///     let range = workbook.worksheet_range("Sheet1")
 ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;

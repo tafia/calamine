@@ -529,7 +529,7 @@ impl<T: CellType> Range<T> {
     /// # use calamine::{Reader, Error, open_workbook, Xlsx, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let mut sheet = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
