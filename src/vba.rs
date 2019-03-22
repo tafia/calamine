@@ -226,7 +226,7 @@ impl Reference {
                             return Err(VbaError::Unknown {
                                 typ: "token in reference control",
                                 val: e,
-                            })
+                            });
                         }
                     }
                     *stream = &stream[4..];
@@ -258,7 +258,7 @@ impl Reference {
                     return Err(VbaError::Unknown {
                         typ: "check id",
                         val: c,
-                    })
+                    });
                 }
             }
         }

@@ -209,7 +209,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     return Err(XlsbError::Mismatch {
                         expected: "end of sheet",
                         found: typ,
-                    })
+                    });
                 }
             }
         }

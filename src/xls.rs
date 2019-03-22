@@ -315,14 +315,14 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
                 return Err(XlsError::Unrecognized {
                     typ: "error",
                     val: e,
-                })
+                });
             }
         },
         e => {
             return Err(XlsError::Unrecognized {
                 typ: "fError",
                 val: e,
-            })
+            });
         }
     };
     Ok(Cell::new((row as u32, col as u32), v))
@@ -443,7 +443,7 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsError> {
                 typ: "dimensions",
                 expected: 14,
                 found: r.len(),
-            })
+            });
         }
     };
     if (1, 1) <= (rl, cl) {
@@ -835,7 +835,7 @@ fn parse_formula(
                         return Err(XlsError::Unrecognized {
                             typ: "BErr",
                             val: e,
-                        })
+                        });
                     }
                 }
             }
@@ -951,7 +951,7 @@ fn parse_formula(
                 return Err(XlsError::Unrecognized {
                     typ: "ptg",
                     val: ptg,
-                })
+                });
             }
         }
     }
