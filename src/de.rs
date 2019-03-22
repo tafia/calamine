@@ -136,7 +136,7 @@ impl RangeDeserializerBuilder<'static, &'static str> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let row: Vec<DataType> = result?;
-    ///         assert_eq!(row, [DataType::from("celcius"), DataType::from(22.2222)]);
+    ///         assert_eq!(row, [DataType::from("celsius"), DataType::from(22.2222)]);
     ///     } else {
     ///         return Err(From::from("expected at least three records but got one"));
     ///     }
@@ -171,7 +171,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let (value, label): (f64, String) = result?;
-    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())
@@ -202,7 +202,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let (label, value): (String, f64) = result?;
-    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())
@@ -240,7 +240,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 ///
 ///     if let Some(result) = iter.next() {
 ///         let (label, value): (String, f64) = result?;
-///         assert_eq!(label, "celcius");
+///         assert_eq!(label, "celsius");
 ///         assert_eq!(value, 22.2222);
 ///         Ok(())
 ///     } else {

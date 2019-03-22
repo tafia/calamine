@@ -537,7 +537,7 @@ impl<T: CellType> Range<T> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let (label, value): (String, f64) = result?;
-    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())
