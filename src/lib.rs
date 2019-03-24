@@ -529,7 +529,7 @@ impl<T: CellType> Range<T> {
     /// # use calamine::{Reader, Error, open_workbook, Xlsx, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let mut sheet = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -537,7 +537,7 @@ impl<T: CellType> Range<T> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let (label, value): (String, f64) = result?;
-    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())

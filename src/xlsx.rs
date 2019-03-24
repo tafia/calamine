@@ -206,7 +206,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             None => {
                 return Err(XlsxError::FileNotFound(
                     "xl/_rels/workbook.xml.rels".to_string(),
-                ))
+                ));
             }
             Some(x) => x?,
         };

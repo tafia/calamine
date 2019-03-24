@@ -319,7 +319,7 @@ fn read_row(
                 return Err(OdsError::Mismatch {
                     expected: "table-cell",
                     found: format!("{:?}", e),
-                })
+                });
             }
         }
     }
@@ -434,7 +434,7 @@ fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)
                 return Err(OdsError::Mismatch {
                     expected: "table:named-expressions",
                     found: format!("{:?}", e),
-                })
+                });
             }
         }
     }

@@ -161,7 +161,7 @@ impl Header {
                     name: "sector shift",
                     expected: "0x09 or 0x0C",
                     found: s,
-                })
+                });
             }
         };
 

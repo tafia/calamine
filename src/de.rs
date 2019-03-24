@@ -118,7 +118,7 @@ impl RangeDeserializerBuilder<'static, &'static str> {
     /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -136,7 +136,7 @@ impl RangeDeserializerBuilder<'static, &'static str> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let row: Vec<DataType> = result?;
-    ///         assert_eq!(row, [DataType::from("celcius"), DataType::from(22.2222)]);
+    ///         assert_eq!(row, [DataType::from("celsius"), DataType::from(22.2222)]);
     ///     } else {
     ///         return Err(From::from("expected at least three records but got one"));
     ///     }
@@ -163,7 +163,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -171,7 +171,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let (value, label): (f64, String) = result?;
-    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())
@@ -194,7 +194,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
     /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let range = workbook.worksheet_range("Sheet1")
     ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -202,7 +202,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     ///     if let Some(result) = iter.next() {
     ///         let (label, value): (String, f64) = result?;
-    ///         assert_eq!(label, "celcius");
+    ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())
@@ -231,7 +231,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
 /// # fn main() { example().unwrap(); }
 /// fn example() -> Result<(), Error> {
-///     let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
 ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
 ///     let range = workbook.worksheet_range("Sheet1")
 ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -240,7 +240,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 ///
 ///     if let Some(result) = iter.next() {
 ///         let (label, value): (String, f64) = result?;
-///         assert_eq!(label, "celcius");
+///         assert_eq!(label, "celsius");
 ///         assert_eq!(value, 22.2222);
 ///         Ok(())
 ///     } else {
