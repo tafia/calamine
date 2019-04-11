@@ -536,6 +536,31 @@ impl<'a> ToCellDeserializer<'a> for DataType {
     }
 }
 
+macro_rules! deserialize_num {
+    ($typ:ty, $method:ident, $visit:ident) => {
+        fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: Visitor<'de>,
+        {
+            match self.data_type {
+                DataType::Float(v) => visitor.$visit(*v as $typ),
+                DataType::Int(v) => visitor.$visit(*v as $typ),
+                DataType::String(ref s) => {
+                    let v = s.parse().map_err(|_| {
+                        DeError::Custom(format!("Expecting {}, got '{}'", stringify!($typ), s))
+                    })?;
+                    visitor.$visit(v)
+                }
+                DataType::Error(ref err) => Err(DeError::CellError {
+                    err: err.clone(),
+                    pos: self.pos,
+                }),
+                ref d => Err(DeError::Custom(format!("Expecting {}, got {:?}", stringify!($typ), d))),
+            }
+        }
+    }
+}
+
 /// A deserializer for the `DataType` type.
 pub struct DataTypeDeserializer<'a> {
     data_type: &'a DataType,
@@ -550,7 +575,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::String(ref v) => visitor.visit_str(v),
+            DataType::String(v) => visitor.visit_str(v),
             DataType::Float(v) => visitor.visit_f64(*v),
             DataType::Bool(v) => visitor.visit_bool(*v),
             DataType::Int(v) => visitor.visit_i64(*v),
@@ -567,14 +592,38 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::String(ref v) => visitor.visit_str(v),
+            DataType::String(v) => visitor.visit_str(v),
             DataType::Empty => visitor.visit_str(""),
+            DataType::Float(v) => visitor.visit_str(&v.to_string()),
+            DataType::Int(v) => visitor.visit_str(&v.to_string()),
+            DataType::Bool(v) => visitor.visit_str(&v.to_string()),
             DataType::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
-            ref d => Err(DeError::Custom(format!("Expecting str, got {:?}", d))),
         }
+    }
+
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.data_type {
+            DataType::String(v) => visitor.visit_bytes(v.as_bytes()),
+            DataType::Empty => visitor.visit_bytes(&[]),
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+            ref d => Err(DeError::Custom(format!("Expecting bytes, got {:?}", d))),
+        }
+    }
+
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_bytes(visitor)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -582,6 +631,57 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         self.deserialize_str(visitor)
+    }
+
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.data_type {
+            DataType::Bool(v) => visitor.visit_bool(*v),
+            DataType::String(ref v) => match &**v {
+                "TRUE" | "true" | "True" => visitor.visit_bool(true),
+                "FALSE" | "false" | "False" => visitor.visit_bool(false),
+                d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),
+            },
+            DataType::Empty => visitor.visit_bool(false),
+            DataType::Float(v) => visitor.visit_bool(*v != 0.),
+            DataType::Int(v) => visitor.visit_bool(*v != 0),
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+        }
+    }
+
+    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.data_type {
+            DataType::String(ref s) if s.len() == 1 => {
+                visitor.visit_char(s.chars().next().expect("s not empty"))
+            }
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+            ref d => Err(DeError::Custom(format!("Expecting unit, got {:?}", d))),
+        }
+    }
+
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.data_type {
+            DataType::Empty => visitor.visit_unit(),
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+            ref d => Err(DeError::Custom(format!("Expecting unit, got {:?}", d))),
+        }
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -605,9 +705,18 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         visitor.visit_newtype_struct(self)
     }
 
+    deserialize_num!(i64, deserialize_i64, visit_i64);
+    deserialize_num!(i32, deserialize_i32, visit_i32);
+    deserialize_num!(i16, deserialize_i16, visit_i16);
+    deserialize_num!(i8, deserialize_i8, visit_i8);
+    deserialize_num!(u64, deserialize_u64, visit_u64);
+    deserialize_num!(u32, deserialize_u32, visit_u32);
+    deserialize_num!(u16, deserialize_u16, visit_u16);
+    deserialize_num!(u8, deserialize_u8, visit_u8);
+    deserialize_num!(f64, deserialize_f64, visit_f64);
+    deserialize_num!(f32, deserialize_f32, visit_f32);
+
     forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char bytes
-        byte_buf unit unit_struct seq tuple
-        tuple_struct map struct enum identifier ignored_any
+        unit_struct seq tuple tuple_struct map struct enum identifier ignored_any
     }
 }
