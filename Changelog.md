@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+# 0.15.4
+- feat: improve deserializer
+- feat: bump dependencies
+
 # 0.15.3
 - feat: add several new convenient fn to `DataType`
 - feat: add a `Range::range` fn to get subranges
