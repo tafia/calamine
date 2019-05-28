@@ -446,7 +446,7 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsError> {
             });
         }
     };
-    if (1, 1) <= (rl, cl) {
+    if 1 <= rl && 1 <= cl {
         Ok(((rf, cf), (rl - 1, cl - 1)))
     } else {
         Ok(((rf, cf), (rf, cf)))
