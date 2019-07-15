@@ -8,11 +8,14 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
-# 0.15.4
+## 0.15.5
+- fix: wrong bound comparisons
+
+## 0.15.4
 - feat: improve deserializer
 - feat: bump dependencies
 
-# 0.15.3
+## 0.15.3
 - feat: add several new convenient fn to `DataType`
 - feat: add a `Range::range` fn to get subranges
 - feat: add a new `Range::cells` iterator
@@ -21,16 +24,16 @@
 - feat: add a `Range::get` fn (similar to slice's)
 - perf: add some `ExactSizeIterator`
 
-# 0.15.2
+## 0.15.2
 - feat: consider empty cell as empty str if deserializing to str or String
 
-# 0.15.1
+## 0.15.1
 - fix: xls - allow sectors ending after eof (truncate them!)
 
-# 0.15.0
+## 0.15.0
 - feat: codepage/encoding_rs for codpage mapping 
 
-# 0.14.10
+## 0.14.10
 - fix: serde map do not stop at first empty value
 
 ## 0.14.9
