@@ -389,7 +389,6 @@ where
 
 /// search through an Element's attributes for the named one
 fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>, XlsxError> {
-    use std::borrow::Cow;
     for a in atts {
         match a {
             Ok(Attribute {
