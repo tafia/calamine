@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.15.6
+- feat: update dependencies
+
 ## 0.15.5
 - fix: wrong bound comparisons
 
