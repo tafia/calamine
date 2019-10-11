@@ -8,6 +8,9 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.16.0
+- feat: deprecate failure and impl `std::error::Error` for all errors.
+
 ## 0.15.6
 - feat: update dependencies
 
