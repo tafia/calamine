@@ -22,7 +22,12 @@ log = "0.4.8"
 serde = "1.0.99"
 quick-xml = { version = "0.17", features = ["encoding"] }
 zip = { version = "0.5.3", default-features = false, features = ["deflate"] }
+chrono = { version = "0.4.9", features = ["serde"], optional = true }
 
 [dev-dependencies]
 glob = "0.3"
 env_logger = "0.7"
+
+[features]
+default = []
+dates = ["chrono"]

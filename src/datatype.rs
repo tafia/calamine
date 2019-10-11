@@ -99,6 +99,30 @@ impl DataType {
             None
         }
     }
+
+    /// Try converting data type into a date
+    #[cfg(feature = "dates")]
+    pub fn as_date(&self) -> Option<chrono::NaiveDate> {
+        self.as_datetime().map(|dt| dt.date())
+    }
+
+    /// Try converting data type into a time
+    #[cfg(feature = "dates")]
+    pub fn as_time(&self) -> Option<chrono::NaiveTime> {
+        self.as_datetime().map(|dt| dt.time())
+    }
+
+    /// Try converting data type into a datetime
+    #[cfg(feature = "dates")]
+    pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+        self.get_float().and_then(|f| {
+            let unix_days = f - 25569.;
+            let unix_secs = unix_days * 86400.;
+            let secs = unix_secs.trunc() as i64;
+            let nsecs = (unix_secs.fract().abs() * 1e9) as u32;
+            chrono::NaiveDateTime::from_timestamp_opt(secs, nsecs)
+        })
+    }
 }
 
 impl PartialEq<str> for DataType {
@@ -258,5 +282,36 @@ where
             Some(v) => From::from(v),
             None => DataType::Empty,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "dates")]
+    extern crate chrono;
+
+    use super::*;
+
+    #[cfg(feature = "dates")]
+    #[test]
+    fn test_dates() {
+        use self::chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+
+        let unix_epoch = DataType::Float(25569.);
+        assert_eq!(
+            unix_epoch.as_datetime(),
+            Some(NaiveDateTime::new(
+                NaiveDate::from_ymd(1970, 1, 1),
+                NaiveTime::from_hms(0, 0, 0)
+            ))
+        );
+
+        let unix_epoch_15h30m = DataType::Float(25569.645833333333333);
+        let chrono_dt = NaiveDateTime::new(
+            NaiveDate::from_ymd(1970, 1, 1),
+            NaiveTime::from_hms(15, 30, 0),
+        );
+        let micro = Duration::microseconds(1);
+        assert!(unix_epoch_15h30m.as_datetime().unwrap() - chrono_dt < micro);
     }
 }
