@@ -59,17 +59,8 @@ impl fmt::Display for DeError {
     }
 }
 
-impl ::std::error::Error for DeError {
-    fn description(&self) -> &str {
-        match *self {
-            DeError::CellOutOfRange { .. } => "cell out of range",
-            DeError::CellError { .. } => "error in cell value",
-            DeError::UnexpectedEndOfRow { .. } => "unexpected end of row",
-            DeError::HeaderNotFound { .. } => "header not found",
-            DeError::Custom(ref s) => &**s,
-        }
-    }
-    fn cause(&self) -> Option<&::std::error::Error> {
+impl std::error::Error for DeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }
 }

@@ -14,20 +14,16 @@ use cfb::{Cfb, XlsEncoding};
 use utils::read_u16;
 
 /// A VBA specific error enum
-#[derive(Debug, Fail)]
+#[derive(Debug)]
 pub enum VbaError {
     /// Error comes from a cfb parsing
-    #[fail(display = "{}", _0)]
-    Cfb(#[cause] ::cfb::CfbError),
+    Cfb(::cfb::CfbError),
     /// Io error
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
+    Io(::std::io::Error),
 
     /// Cannot find module
-    #[fail(display = "Cannot find module '{}'", _0)]
     ModuleNotFound(String),
     /// Generic unknown u16 value
-    #[fail(display = "Unknown {} '{:X}'", typ, val)]
     Unknown {
         /// error type
         typ: &'static str,
@@ -35,13 +31,8 @@ pub enum VbaError {
         val: u16,
     },
     /// Invalid libid format
-    #[fail(display = "Unexpected libid format")]
     LibId,
     /// Invalid record id
-    #[fail(
-        display = "Invalid record id: expecting {:X} found {:X}",
-        expected, found
-    )]
     InvalidRecordId {
         /// expected record id
         expected: u16,
@@ -52,6 +43,34 @@ pub enum VbaError {
 
 from_err!(::cfb::CfbError, VbaError, Cfb);
 from_err!(::std::io::Error, VbaError, Io);
+
+impl std::fmt::Display for VbaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            VbaError::Io(e) => write!(f, "I/O error: {}", e),
+            VbaError::Cfb(e) => write!(f, "Cfb error: {}", e),
+
+            VbaError::ModuleNotFound(e) => write!(f, "Cannot find module '{}'", e),
+            VbaError::Unknown { typ, val } => write!(f, "Unknown {} '{:X}'", typ, val),
+            VbaError::LibId => write!(f, "Unexpected libid format"),
+            VbaError::InvalidRecordId { expected, found } => write!(
+                f,
+                "Invalid record id: expecting {:X} found {:X}",
+                expected, found
+            ),
+        }
+    }
+}
+
+impl std::error::Error for VbaError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            VbaError::Io(e) => Some(e),
+            VbaError::Cfb(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// A struct for managing VBA reading
 #[allow(dead_code)]

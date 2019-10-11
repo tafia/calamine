@@ -15,23 +15,18 @@ use vba::VbaProject;
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 /// A Xlsb specific error
-#[derive(Debug, Fail)]
+#[derive(Debug)]
 pub enum XlsbError {
     /// Io error
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
+    Io(::std::io::Error),
     /// Zip error
-    #[fail(display = "{}", _0)]
-    Zip(#[cause] ::zip::result::ZipError),
+    Zip(::zip::result::ZipError),
     /// Xml error
-    #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::Error),
+    Xml(::quick_xml::Error),
     /// Vba error
-    #[fail(display = "{}", _0)]
-    Vba(#[cause] ::vba::VbaError),
+    Vba(::vba::VbaError),
 
     /// Mismatch value
-    #[fail(display = "Expecting {}, got {:X}", expected, found)]
     Mismatch {
         /// expected
         expected: &'static str,
@@ -39,35 +34,23 @@ pub enum XlsbError {
         found: u16,
     },
     /// File not found
-    #[fail(display = "File not found: '{}'", _0)]
     FileNotFound(String),
     /// Invalid formula, stack length too short
-    #[fail(display = "Invalid stack length")]
     StackLen,
 
     /// Unsupported type
-    #[fail(display = "Unsupported type {:X}", _0)]
     UnsupportedType(u16),
     /// Unsupported etpg
-    #[fail(display = "Unsupported etpg {:X}", _0)]
     Etpg(u8),
     /// Unsupported iftab
-    #[fail(display = "Unsupported iftab {:X}", _0)]
     IfTab(usize),
     /// Unsupported BErr
-    #[fail(display = "Unsupported BErr {:X}", _0)]
     BErr(u8),
     /// Unsupported Ptg
-    #[fail(display = "Unsupported Ptg {:X}", _0)]
     Ptg(u8),
     /// Unsupported cell error code
-    #[fail(display = "Unsupported Cell Error code {:X}", _0)]
     CellError(u8),
     /// Wide str length too long
-    #[fail(
-        display = "Wide str length {} exceeds buffer length {}",
-        ws_len, buf_len
-    )]
     WideStr {
         /// wide str length
         ws_len: usize,
@@ -79,6 +62,45 @@ pub enum XlsbError {
 from_err!(::std::io::Error, XlsbError, Io);
 from_err!(::zip::result::ZipError, XlsbError, Zip);
 from_err!(::quick_xml::Error, XlsbError, Xml);
+
+impl std::fmt::Display for XlsbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            XlsbError::Io(e) => write!(f, "I/O error: {}", e),
+            XlsbError::Zip(e) => write!(f, "Zip error: {}", e),
+            XlsbError::Xml(e) => write!(f, "Xml error: {}", e),
+            XlsbError::Vba(e) => write!(f, "Vba error: {}", e),
+            XlsbError::Mismatch { expected, found } => {
+                write!(f, "Expecting {}, got {:X}", expected, found)
+            }
+            XlsbError::FileNotFound(file) => write!(f, "File not found: '{}'", file),
+            XlsbError::StackLen => write!(f, "Invalid stack length"),
+            XlsbError::UnsupportedType(t) => write!(f, "Unsupported type {:X}", t),
+            XlsbError::Etpg(t) => write!(f, "Unsupported etpg {:X}", t),
+            XlsbError::IfTab(t) => write!(f, "Unsupported iftab {:X}", t),
+            XlsbError::BErr(t) => write!(f, "Unsupported BErr {:X}", t),
+            XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {:X}", t),
+            XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {:X}", t),
+            XlsbError::WideStr { ws_len, buf_len } => write!(
+                f,
+                "Wide str length exceeds buffer length ({} > {})",
+                ws_len, buf_len
+            ),
+        }
+    }
+}
+
+impl std::error::Error for XlsbError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            XlsbError::Io(e) => Some(e),
+            XlsbError::Zip(e) => Some(e),
+            XlsbError::Xml(e) => Some(e),
+            XlsbError::Vba(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// A Xlsb reader
 pub struct Xlsb<RS>
@@ -673,7 +695,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 rgce = &rgce[4..];
             }
-            0x03...0x11 => {
+            0x03..=0x11 => {
                 // binary operation
                 let e2 = stack.pop().ok_or(XlsbError::StackLen)?;
                 let e2 = formula.split_off(e2);
