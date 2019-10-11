@@ -23,38 +23,28 @@ const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet
 type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
 /// An enum for ods specific errors
-#[derive(Debug, Fail)]
+#[derive(Debug)]
 pub enum OdsError {
     /// Io error
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
+    Io(::std::io::Error),
     /// Zip error
-    #[fail(display = "{}", _0)]
-    Zip(#[cause] ::zip::result::ZipError),
+    Zip(::zip::result::ZipError),
     /// Xml error
-    #[fail(display = "{}", _0)]
-    Xml(#[cause] ::quick_xml::Error),
+    Xml(::quick_xml::Error),
     /// Error while parsing string
-    #[fail(display = "{}", _0)]
-    Parse(#[cause] ::std::string::ParseError),
+    Parse(::std::string::ParseError),
     /// Error while parsing integer
-    #[fail(display = "{}", _0)]
-    ParseInt(#[cause] ::std::num::ParseIntError),
+    ParseInt(::std::num::ParseIntError),
     /// Error while parsing float
-    #[fail(display = "{}", _0)]
-    ParseFloat(#[cause] ::std::num::ParseFloatError),
+    ParseFloat(::std::num::ParseFloatError),
 
     /// Invalid MIME
-    #[fail(display = "Invalid MIME type: {:?}", _0)]
     InvalidMime(Vec<u8>),
     /// File not found
-    #[fail(display = "Cannot find '{}' file", _0)]
     FileNotFound(&'static str),
     /// Unexpected end of file
-    #[fail(display = "Expecting {} found EOF", _0)]
     Eof(&'static str),
     /// Unexpexted error
-    #[fail(display = "Expecting {} found {}", expected, found)]
     Mismatch {
         /// Expected
         expected: &'static str,
@@ -68,6 +58,39 @@ from_err!(::zip::result::ZipError, OdsError, Zip);
 from_err!(::quick_xml::Error, OdsError, Xml);
 from_err!(::std::string::ParseError, OdsError, Parse);
 from_err!(::std::num::ParseFloatError, OdsError, ParseFloat);
+
+impl std::fmt::Display for OdsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            OdsError::Io(e) => write!(f, "I/O error: {}", e),
+            OdsError::Zip(e) => write!(f, "Zip error: {}", e),
+            OdsError::Xml(e) => write!(f, "Xml error: {}", e),
+            OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
+            OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
+            OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
+            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {:?}", mime),
+            OdsError::FileNotFound(file) => write!(f, "'{}' file not found in archive", file),
+            OdsError::Eof(node) => write!(f, "Expecting '{}' node, found end of xml file", node),
+            OdsError::Mismatch { expected, found } => {
+                write!(f, "Expecting '{}', found '{}'", expected, found)
+            }
+        }
+    }
+}
+
+impl std::error::Error for OdsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            OdsError::Io(e) => Some(e),
+            OdsError::Zip(e) => Some(e),
+            OdsError::Xml(e) => Some(e),
+            OdsError::Parse(e) => Some(e),
+            OdsError::ParseInt(e) => Some(e),
+            OdsError::ParseFloat(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// An OpenDocument Spreadsheet document parser
 ///
@@ -113,9 +136,9 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
         };
 
         Ok(Ods {
-            sheets: sheets,
-            metadata: metadata,
             marker: PhantomData,
+            metadata: metadata,
+            sheets: sheets,
         })
     }
 

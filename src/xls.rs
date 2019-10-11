@@ -9,24 +9,19 @@ use utils::{push_column, read_slice, read_u16, read_u32};
 use vba::VbaProject;
 use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
-#[derive(Fail, Debug)]
+#[derive(Debug)]
 /// An enum to handle Xls specific errors
 pub enum XlsError {
     /// Io error
-    #[fail(display = "{}", _0)]
-    Io(#[cause] ::std::io::Error),
+    Io(::std::io::Error),
     /// Cfb error
-    #[fail(display = "{}", _0)]
-    Cfb(#[cause] ::cfb::CfbError),
+    Cfb(::cfb::CfbError),
     /// Vba error
-    #[fail(display = "{}", _0)]
-    Vba(#[cause] ::vba::VbaError),
+    Vba(::vba::VbaError),
 
     /// Cannot parse formula, stack is too short
-    #[fail(display = "Invalid stack length")]
     StackLen,
     /// Unrecognized data
-    #[fail(display = "Unrecognized {}: 0x{:0X}", typ, val)]
     Unrecognized {
         /// data type
         typ: &'static str,
@@ -34,13 +29,8 @@ pub enum XlsError {
         val: u8,
     },
     /// Workook is password protected
-    #[fail(display = "Workbook is password protected")]
     Password,
     /// Invalid length
-    #[fail(
-        display = "Invalid {} length, expected {} maximum, found {}",
-        typ, expected, found
-    )]
     Len {
         /// expected length
         expected: usize,
@@ -50,32 +40,70 @@ pub enum XlsError {
         typ: &'static str,
     },
     /// Continue Record is too short
-    #[fail(display = "Continued record too short while reading extended string")]
     ContinueRecordTooShort,
     /// End of stream
-    #[fail(display = "End of stream for {}", _0)]
     EoStream(&'static str),
 
     /// Invalid Formula
-    #[fail(display = "Invalid formula (stack size: {})", stack_size)]
     InvalidFormula {
         /// stack size
         stack_size: usize,
     },
     /// Invalid or unknown iftab
-    #[fail(display = "Invalid iftab {:X}", _0)]
     IfTab(usize),
     /// Invalid etpg
-    #[fail(display = "Invalid etpg {:X}", _0)]
     Etpg(u8),
     /// No vba project
-    #[fail(display = "No VBA project")]
     NoVba,
 }
 
 from_err!(::std::io::Error, XlsError, Io);
 from_err!(::cfb::CfbError, XlsError, Cfb);
 from_err!(::vba::VbaError, XlsError, Vba);
+
+impl std::fmt::Display for XlsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            XlsError::Io(e) => write!(f, "I/O error: {}", e),
+            XlsError::Cfb(e) => write!(f, "Cfb error: {}", e),
+            XlsError::Vba(e) => write!(f, "Vba error: {}", e),
+            XlsError::StackLen => write!(f, "Invalid stack length"),
+            XlsError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: 0x{:0X}", typ, val),
+            XlsError::Password => write!(f, "Workbook is password protected"),
+            XlsError::Len {
+                expected,
+                found,
+                typ,
+            } => write!(
+                f,
+                "Invalid {} length, expected {} maximum, found {}",
+                typ, expected, found
+            ),
+            XlsError::ContinueRecordTooShort => write!(
+                f,
+                "Continued record too short while reading extended string"
+            ),
+            XlsError::EoStream(s) => write!(f, "End of stream '{}'", s),
+            XlsError::InvalidFormula { stack_size } => {
+                write!(f, "Invalid formula (stack size: {})", stack_size)
+            }
+            XlsError::IfTab(iftab) => write!(f, "Invalid iftab {:X}", iftab),
+            XlsError::Etpg(etpg) => write!(f, "Invalid etpg {:X}", etpg),
+            XlsError::NoVba => write!(f, "No VBA project"),
+        }
+    }
+}
+
+impl std::error::Error for XlsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            XlsError::Io(e) => Some(e),
+            XlsError::Cfb(e) => Some(e),
+            XlsError::Vba(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
@@ -744,7 +772,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 rgce = &rgce[4..];
             }
-            0x03...0x11 => {
+            0x03..=0x11 => {
                 // binary operation
                 let e2 = stack.pop().ok_or(XlsError::StackLen)?;
                 let e2 = formula.split_off(e2);

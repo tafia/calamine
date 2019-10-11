@@ -61,8 +61,6 @@
 extern crate byteorder;
 extern crate codepage;
 extern crate encoding_rs;
-#[macro_use]
-extern crate failure;
 extern crate quick_xml;
 #[macro_use]
 extern crate serde;
