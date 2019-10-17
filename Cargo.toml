@@ -9,6 +9,7 @@ license = "MIT"
 readme = "README.md"
 keywords = ["excel", "vba", "office", "ods", "serde"]
 categories = ["encoding", "parsing", "text-processing"]
+exclude = ["tests/**/*"]
 
 [badges]
 travis-ci = { repository = "tafia/calamine" }
