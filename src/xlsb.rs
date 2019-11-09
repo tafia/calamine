@@ -224,6 +224,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         let relid = UTF_16LE.decode(relid).0;
                         let path = format!("xl/{}", relationships[relid.as_bytes()]);
                         let name = wide_str(&buf[12 + rel_len..len], &mut 0)?;
+                        self.metadata.sheets.push(name.to_string());
                         self.sheets.push((name.into_owned(), path));
                     }
                 }
@@ -485,7 +486,6 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
         xlsb.read_shared_strings()?;
         let relationships = xlsb.read_relationships()?;
         xlsb.read_workbook(&relationships)?;
-        xlsb.metadata.sheets = xlsb.sheets.iter().map(|s| s.0.clone()).collect();
 
         Ok(xlsb)
     }

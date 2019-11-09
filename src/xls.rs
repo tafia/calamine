@@ -186,10 +186,12 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
+                        self.metadata.sheets.reserve(sheet_len);
                     }
                     // RRTabId
                     0x0085 => {
                         let name = parse_sheet_name(&mut r, &mut encoding)?;
+                        self.metadata.sheets.push(name.1.to_string());
                         sheet_names.push(name); // BoundSheet8
                     }
                     0x0018 => {
@@ -288,7 +290,6 @@ impl<RS: Read + Seek> Xls<RS> {
 
         self.sheets = sheets;
         self.metadata.names = defined_names;
-        self.metadata.sheets = self.sheets.keys().map(|k| k.to_string()).collect();
 
         Ok(())
     }

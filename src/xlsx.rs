@@ -204,6 +204,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             _ => (),
                         }
                     }
+                    self.metadata.sheets.push(name.to_string());
                     self.sheets.push((name, path));
                 }
                 Ok(Event::Start(ref e)) if e.local_name() == b"definedName" => {
@@ -225,7 +226,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
         }
         self.metadata.names = defined_names;
-        self.metadata.sheets = self.sheets.iter().map(|&(ref s, _)| s.clone()).collect();
         Ok(())
     }
 

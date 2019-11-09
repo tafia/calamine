@@ -172,7 +172,7 @@ pub trait Reader: Sized {
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
 
-    /// Get all sheet names of this workbook
+    /// Get all sheet names of this workbook, in workbook order
     ///
     /// # Examples
     /// ```
