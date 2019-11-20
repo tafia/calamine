@@ -172,7 +172,7 @@ pub trait Reader: Sized {
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
 
-    /// Get all sheet names of this workbook
+    /// Get all sheet names of this workbook, in workbook order
     ///
     /// # Examples
     /// ```
@@ -189,6 +189,13 @@ pub trait Reader: Sized {
     /// Get all defined names (Ranges names etc)
     fn defined_names(&self) -> &[(String, String)] {
         &self.metadata().names
+    }
+
+    /// Get the nth worksheet. Shortcut for getting the nth
+    /// sheet_name, then the corresponding worksheet.
+    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
+        let name = if let Some(name) = self.sheet_names().get(n) { name } else { return None; }.to_string();
+        self.worksheet_range(&name)
     }
 }
 

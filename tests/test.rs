@@ -3,7 +3,7 @@ extern crate env_logger;
 
 use calamine::CellErrorType::*;
 use calamine::DataType::{Bool, Empty, Error, Float, String};
-use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};
+use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
 use std::sync::{Once, ONCE_INIT};
 
@@ -590,10 +590,7 @@ fn issue_120() {
 fn issue_127() {
     setup();
 
-    //Ods::sheet_names should now return sheet names in their correct order
-    let path = format!("{}/tests/issue127.ods", env!("CARGO_MANIFEST_DIR"));
-    let ods: Ods<_> = open_workbook(&path).unwrap();
-
+    let root = env!("CARGO_MANIFEST_DIR");
     let ordered_names: Vec<std::string::String> = vec![
         "Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8",
     ]
@@ -601,7 +598,12 @@ fn issue_127() {
     .map(|&s| s.to_owned())
     .collect();
 
-    assert_eq!(ods.sheet_names(), &ordered_names[..]);
+    for ext in &["ods", "xls", "xlsx", "xlsb"] {
+        let p = format!("{}/tests/issue127.{}", root, ext);
+        let workbook = open_workbook_auto(&p).expect(&p);
+        assert_eq!(workbook.sheet_names(), &ordered_names[..],
+                   "{} sheets should be ordered", ext);
+    }
 }
 
 #[test]
