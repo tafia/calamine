@@ -8,6 +8,10 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.16.1
+- feat: Make `Metadata.sheets` (and `Reader.sheet_names`) always return names in workbook order
+- style: fix warnings in tests
+
 ## 0.16.0
 - feat: deprecate failure and impl `std::error::Error` for all errors.
 - feat: add `dates` feature to enrich `DataType` with date conversions fns.
