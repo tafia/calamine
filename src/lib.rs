@@ -194,7 +194,12 @@ pub trait Reader: Sized {
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
-        let name = if let Some(name) = self.sheet_names().get(n) { name } else { return None; }.to_string();
+        let name = if let Some(name) = self.sheet_names().get(n) {
+            name
+        } else {
+            return None;
+        }
+        .to_string();
         self.worksheet_range(&name)
     }
 }

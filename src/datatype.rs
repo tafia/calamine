@@ -285,14 +285,12 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "dates"))]
 mod tests {
-    #[cfg(feature = "dates")]
     extern crate chrono;
 
     use super::*;
 
-    #[cfg(feature = "dates")]
     #[test]
     fn test_dates() {
         use self::chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};

@@ -5,9 +5,9 @@ use calamine::CellErrorType::*;
 use calamine::DataType::{Bool, Empty, Error, Float, String};
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
-use std::sync::{Once, ONCE_INIT};
+use std::sync::Once;
 
-static INIT: Once = ONCE_INIT;
+static INIT: Once = Once::new();
 
 /// Setup function that is only run once, even if called multiple times.
 fn setup() {
@@ -601,8 +601,12 @@ fn issue_127() {
     for ext in &["ods", "xls", "xlsx", "xlsb"] {
         let p = format!("{}/tests/issue127.{}", root, ext);
         let workbook = open_workbook_auto(&p).expect(&p);
-        assert_eq!(workbook.sheet_names(), &ordered_names[..],
-                   "{} sheets should be ordered", ext);
+        assert_eq!(
+            workbook.sheet_names(),
+            &ordered_names[..],
+            "{} sheets should be ordered",
+            ext
+        );
     }
 }
 
