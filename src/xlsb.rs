@@ -217,7 +217,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     // BrtBundleSh
                     let len = iter.fill_buffer(&mut buf)?;
                     let rel_len = read_u32(&buf[8..len]);
-                    if rel_len != 0xFFFFFFFF {
+                    if rel_len != 0xFFFF_FFFF {
                         let rel_len = rel_len as usize * 2;
                         let relid = &buf[12..12 + rel_len];
                         // converts utf16le to utf8 for HashMap search
@@ -370,7 +370,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 0x0000 => {
                     // BrtRowHdr
                     row = read_u32(&buf);
-                    if row > 0x00100000 {
+                    if row > 0x0010_0000 {
                         return Ok(Range::from_sparse(cells)); // invalid row
                     }
                     continue;
@@ -453,7 +453,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 0x0000 => {
                     // BrtRowHdr
                     row = read_u32(&buf);
-                    if row > 0x00100000 {
+                    if row > 0x0010_0000 {
                         return Ok(Range::from_sparse(cells)); // invalid row
                     }
                     continue;

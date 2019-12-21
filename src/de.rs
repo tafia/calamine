@@ -107,7 +107,6 @@ impl RangeDeserializerBuilder<'static, &'static str> {
     ///
     /// ```
     /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
-    /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
@@ -152,7 +151,6 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     /// ```
     /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
-    /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
@@ -183,7 +181,6 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     /// ```
     /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
-    /// # fn main() { example().unwrap(); }
     /// fn example() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
@@ -220,7 +217,6 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 ///
 /// ```
 /// # use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
-/// # fn main() { example().unwrap(); }
 /// fn example() -> Result<(), Error> {
 ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
 ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
@@ -373,7 +369,7 @@ where
             iter: column_indexes.iter(),
             headers,
             cells,
-            pos: pos,
+            pos,
             peek: None,
         }
     }
@@ -513,7 +509,7 @@ impl<'a> ToCellDeserializer<'a> for DataType {
     fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> DataTypeDeserializer<'a> {
         DataTypeDeserializer {
             data_type: self,
-            pos: pos,
+            pos,
         }
     }
 

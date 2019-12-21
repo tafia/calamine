@@ -118,8 +118,8 @@ impl VbaProject {
 
         Ok(VbaProject {
             references: refs,
-            modules: modules,
-            encoding: encoding,
+            modules,
+            encoding,
         })
     }
 
@@ -166,7 +166,7 @@ impl VbaProject {
     pub fn get_module_raw(&self, name: &str) -> Result<&[u8], VbaError> {
         match self.modules.get(name) {
             Some(m) => Ok(&**m),
-            None => return Err(VbaError::ModuleNotFound(name.into())),
+            None => Err(VbaError::ModuleNotFound(name.into())),
         }
     }
 }
@@ -302,7 +302,7 @@ impl Reference {
                 }
                 Ok(())
             }
-            _ => return Err(VbaError::LibId),
+            _ => Err(VbaError::LibId),
         }
     }
 }
@@ -401,8 +401,8 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         *stream = &stream[4..]; // reserved
 
         modules.push(Module {
-            name: name,
-            stream_name: stream_name,
+            name,
+            stream_name,
             text_offset: offset,
         });
     }

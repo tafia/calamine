@@ -122,7 +122,7 @@ impl FromStr for CellErrorType {
             "#NUM!" => Ok(CellErrorType::Num),
             "#REF!" => Ok(CellErrorType::Ref),
             "#VALUE!" => Ok(CellErrorType::Value),
-            _ => return Err(XlsxError::CellError(s.into())),
+            _ => Err(XlsxError::CellError(s.into())),
         }
     }
 }
@@ -294,7 +294,7 @@ where
                                 value: rdim,
                             } = a?
                             {
-                                let (start, end) = get_dimension(&rdim)?;
+                                let Dimensions { start, end } = get_dimension(&rdim)?;
                                 let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
                                 if len < 1_000_000 {
                                     // it is unlikely to have more than that
@@ -538,15 +538,15 @@ fn read_sheet_data(
             Some(b"is") => {
                 // this case should be handled in outer loop over cell elements, in which
                 // case read_inline_str is called instead. Case included here for completeness.
-                return Err(XlsxError::Unexpected(
+                Err(XlsxError::Unexpected(
                     "called read_value on a cell of type inlineStr",
-                ));
+                ))
             }
             Some(t) => {
                 let t = ::std::str::from_utf8(t)
                     .unwrap_or("<utf8 error>")
                     .to_string();
-                return Err(XlsxError::CellTAttribute(t));
+                Err(XlsxError::CellTAttribute(t))
             }
         }
     }
@@ -574,10 +574,16 @@ fn read_sheet_data(
     })
 }
 
+#[derive(Debug, PartialEq)]
+struct Dimensions {
+    start: (u32, u32),
+    end: (u32, u32),
+}
+
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
 /// - top left (row, column),
 /// - bottom right (row, column)
-fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsxError> {
+fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
     let parts: Vec<_> = dimension
         .split(|c| *c == b':')
         .map(|s| get_row_column(s))
@@ -585,8 +591,14 @@ fn get_dimension(dimension: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsxError
 
     match parts.len() {
         0 => Err(XlsxError::DimensionCount(0)),
-        1 => Ok((parts[0], parts[0])),
-        2 => Ok((parts[0], parts[1])),
+        1 => Ok(Dimensions {
+            start: parts[0],
+            end: parts[0],
+        }),
+        2 => Ok(Dimensions {
+            start: parts[0],
+            end: parts[1],
+        }),
         len => Err(XlsxError::DimensionCount(len)),
     }
 }
@@ -667,7 +679,13 @@ fn read_string(xml: &mut XlsReader, closing: &[u8]) -> Result<Option<String>, Xl
 fn test_dimensions() {
     assert_eq!(get_row_column(b"A1").unwrap(), (0, 0));
     assert_eq!(get_row_column(b"C107").unwrap(), (106, 2));
-    assert_eq!(get_dimension(b"C2:D35").unwrap(), ((1, 2), (34, 3)));
+    assert_eq!(
+        get_dimension(b"C2:D35").unwrap(),
+        Dimensions {
+            start: (1, 2),
+            end: (34, 3)
+        }
+    );
 }
 
 #[test]

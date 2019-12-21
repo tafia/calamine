@@ -8,9 +8,9 @@ use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
 use utils::*;
 
-const ENDOFCHAIN: u32 = 0xFFFFFFFE;
-const FREESECT: u32 = 0xFFFFFFFF;
-const RESERVED_SECTORS: u32 = 0xFFFFFFFA;
+const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
+const FREESECT: u32 = 0xFFFF_FFFF;
+const RESERVED_SECTORS: u32 = 0xFFFF_FFFA;
 
 /// A Cfb specific error enum
 #[derive(Debug)]
@@ -117,8 +117,8 @@ impl Cfb {
         let minifat = to_u32(&minifat).to_vec();
         Ok(Cfb {
             directories: dirs,
-            sectors: sectors,
-            fats: fats,
+            sectors,
+            fats,
             mini_sectors: Sectors::new(64, ministream),
             mini_fats: minifat,
         })
@@ -165,7 +165,7 @@ impl Header {
         f.read_exact(&mut buf).map_err(CfbError::Io)?;
 
         // check ole signature
-        if read_slice::<u64>(buf.as_ref()) != 0xE11AB1A1E011CFD0 {
+        if read_slice::<u64>(buf.as_ref()) != 0xE11A_B1A1_E011_CFD0 {
             return Err(CfbError::Ole);
         }
 
@@ -210,14 +210,14 @@ impl Header {
 
         Ok((
             Header {
-                version: version,
-                sector_size: sector_size,
-                dir_len: dir_len,
-                fat_len: fat_len,
-                dir_start: dir_start,
-                mini_fat_len: mini_fat_len,
-                mini_fat_start: mini_fat_start,
-                difat_start: difat_start,
+                version,
+                sector_size,
+                dir_len,
+                fat_len,
+                dir_start,
+                mini_fat_len,
+                mini_fat_start,
+                difat_start,
             },
             difat,
         ))
@@ -235,10 +235,7 @@ struct Sectors {
 
 impl Sectors {
     fn new(size: usize, data: Vec<u8>) -> Sectors {
-        Sectors {
-            data: data,
-            size: size,
-        }
+        Sectors { data, size }
     }
 
     fn get<R: Read>(&mut self, id: u32, r: &mut R) -> Result<&[u8], CfbError> {
@@ -305,11 +302,7 @@ impl Directory {
             read_slice::<u64>(&buf[120..128]) as usize
         };
 
-        Directory {
-            start: start,
-            len: len,
-            name: name,
-        }
+        Directory { start, len, name }
     }
 }
 
@@ -432,7 +425,7 @@ impl XlsEncoding {
 
         Ok(XlsEncoding {
             encoding: e,
-            high_byte: high_byte,
+            high_byte,
         })
     }
 

@@ -18,7 +18,7 @@ use std::marker::PhantomData;
 use vba::VbaProject;
 use {DataType, Metadata, Range, Reader};
 
-const MIMETYPE: &'static [u8] = b"application/vnd.oasis.opendocument.spreadsheet";
+const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
 type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -129,7 +129,11 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
             Err(e) => return Err(OdsError::Zip(e)),
         }
 
-        let (sheets, sheet_names, defined_names) = parse_content(zip)?;
+        let Content {
+            sheets,
+            sheet_names,
+            defined_names,
+        } = parse_content(zip)?;
         let metadata = Metadata {
             sheets: sheet_names,
             names: defined_names,
@@ -137,8 +141,8 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
 
         Ok(Ods {
             marker: PhantomData,
-            metadata: metadata,
-            sheets: sheets,
+            metadata,
+            sheets,
         })
     }
 
@@ -163,17 +167,14 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     }
 }
 
+struct Content {
+    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
+    sheet_names: Vec<String>,
+    defined_names: Vec<(String, String)>,
+}
+
 /// Parses content.xml and store the result in `self.content`
-fn parse_content<RS: Read + Seek>(
-    mut zip: ZipArchive<RS>,
-) -> Result<
-    (
-        HashMap<String, (Range<DataType>, Range<String>)>,
-        Vec<String>,
-        Vec<(String, String)>,
-    ),
-    OdsError,
-> {
+fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, OdsError> {
     let mut reader = match zip.by_name("content.xml") {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
@@ -215,7 +216,11 @@ fn parse_content<RS: Read + Seek>(
         }
         buf.clear();
     }
-    Ok((sheets, sheet_names, defined_names))
+    Ok(Content {
+        sheets,
+        sheet_names,
+        defined_names,
+    })
 }
 
 fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>), OdsError> {
@@ -290,7 +295,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
             } else if row.len() == col_max + 1 {
                 new_cells.extend_from_slice(&row[col_min..]);
             } else {
-                new_cells.extend_from_slice(&row[col_min..col_max + 1]);
+                new_cells.extend_from_slice(&row[col_min..=col_max]);
             }
         }
         cells = new_cells;

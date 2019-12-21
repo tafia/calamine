@@ -251,7 +251,7 @@ impl<RS: Read + Seek> Xls<RS> {
                 match r.typ {
                     // 512: Dimensions
                     0x0200 => {
-                        let (start, end) = parse_dimensions(r.data)?;
+                        let Dimensions { start, end } = parse_dimensions(r.data)?;
                         cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
@@ -453,7 +453,12 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>, XlsEr
     ))
 }
 
-fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsError> {
+struct Dimensions {
+    start: (u32, u32),
+    end: (u32, u32),
+}
+
+fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
     let (rf, rl, cf, cl) = match r.len() {
         10 => (
             read_u16(&r[0..2]) as u32,
@@ -476,9 +481,15 @@ fn parse_dimensions(r: &[u8]) -> Result<((u32, u32), (u32, u32)), XlsError> {
         }
     };
     if 1 <= rl && 1 <= cl {
-        Ok(((rf, cf), (rl - 1, cl - 1)))
+        Ok(Dimensions {
+            start: (rf, cf),
+            end: (rl - 1, cl - 1),
+        })
     } else {
-        Ok(((rf, cf), (rf, cf)))
+        Ok(Dimensions {
+            start: (rf, cf),
+            end: (rf, cf),
+        })
     }
 }
 
@@ -580,7 +591,7 @@ fn read_unicode_string_no_cch(encoding: &mut XlsEncoding, buf: &[u8], len: &mut 
             *len *= 2;
         }
     }
-    let _ = encoding.decode_to(&buf[1..*len + 1], *len, &mut s);
+    let _ = encoding.decode_to(&buf[1..=*len], *len, &mut s);
     s
 }
 
@@ -649,7 +660,7 @@ impl<'a> Iterator for RecordIter<'a> {
         Some(Ok(Record {
             typ: t,
             data: d,
-            cont: cont,
+            cont,
         }))
     }
 }
