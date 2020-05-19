@@ -313,7 +313,7 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get column width
+    /// Get column height
     #[inline]
     pub fn height(&self) -> usize {
         if self.is_empty() {
