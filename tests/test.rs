@@ -622,3 +622,16 @@ fn mul_rk() {
     let range = xls.worksheet_range("Boys").unwrap().unwrap();
     assert_eq!(range.get_value((6, 2)), Some(&Float(9.)));
 }
+
+#[test]
+fn skip_phonetic_text() {
+    setup();
+
+    let path = format!("{}/tests/rph.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range("Sheet1").unwrap().unwrap();
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("課きく　毛こ".to_string()))
+    );
+}
