@@ -645,6 +645,7 @@ fn read_string(xml: &mut XlsReader, closing: &[u8]) -> Result<Option<String>, Xl
     let mut buf = Vec::new();
     let mut val_buf = Vec::new();
     let mut rich_buffer: Option<String> = None;
+    let mut is_phonetic_text = false;
     loop {
         buf.clear();
         match xml.read_event(&mut buf) {
@@ -654,10 +655,16 @@ fn read_string(xml: &mut XlsReader, closing: &[u8]) -> Result<Option<String>, Xl
                     rich_buffer = Some(String::new());
                 }
             }
+            Ok(Event::Start(ref e)) if e.local_name() == b"rPh" => {
+                is_phonetic_text = true;
+            }
             Ok(Event::End(ref e)) if e.local_name() == closing => {
                 return Ok(rich_buffer);
             }
-            Ok(Event::Start(ref e)) if e.local_name() == b"t" => {
+            Ok(Event::End(ref e)) if e.local_name() == b"rPh" => {
+                is_phonetic_text = false;
+            }
+            Ok(Event::Start(ref e)) if e.local_name() == b"t" && !is_phonetic_text => {
                 val_buf.clear();
                 let value = xml.read_text(e.name(), &mut val_buf)?;
                 if let Some(ref mut s) = rich_buffer {
