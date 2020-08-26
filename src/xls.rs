@@ -410,7 +410,12 @@ fn rk_num(rk: &[u8]) -> DataType {
     v[0] &= 0xFC;
     if is_int {
         let v = (read_slice::<i32>(&v[4..]) >> 2) as i64;
-        DataType::Int(if d100 { v / 100 } else { v })
+        if d100 && v % 100 != 0 {
+            DataType::Float(v as f64 / 100.0)
+        }
+        else {
+            DataType::Int(if d100 { v / 100 } else { v })
+        }
     } else {
         let v = read_slice(&v);
         DataType::Float(if d100 { v / 100.0 } else { v })
