@@ -135,7 +135,7 @@ impl VbaProject {
 
     /// Reads module content and tries to convert to utf8
     ///
-    /// While it works most of the time, the modules are MBSC encoding and the conversion
+    /// While it works most of the time, the modules are MBCS encoding and the conversion
     /// may fail. If this is the case you should revert to `read_module_raw` as there is
     /// no built in decoding provided in this crate
     ///
@@ -162,7 +162,7 @@ impl VbaProject {
         Ok(self.encoding.decode_all(data))
     }
 
-    /// Reads module content (MBSC encoded) and output it as-is (binary output)
+    /// Reads module content (MBCS encoded) and output it as-is (binary output)
     pub fn get_module_raw(&self, name: &str) -> Result<&[u8], VbaError> {
         match self.modules.get(name) {
             Some(m) => Ok(&**m),
