@@ -33,7 +33,7 @@ from_err!(crate::de::DeError, Error, De);
 from_err!(&'static str, Error, Msg);
 
 impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "I/O error: {}", e),
             Error::Ods(e) => write!(f, "Ods error: {}", e),

@@ -45,7 +45,7 @@ from_err!(crate::cfb::CfbError, VbaError, Cfb);
 from_err!(std::io::Error, VbaError, Io);
 
 impl std::fmt::Display for VbaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VbaError::Io(e) => write!(f, "I/O error: {}", e),
             VbaError::Cfb(e) => write!(f, "Cfb error: {}", e),

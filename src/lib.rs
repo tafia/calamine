@@ -117,7 +117,7 @@ pub enum CellErrorType {
 }
 
 impl fmt::Display for CellErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match *self {
             CellErrorType::Div0 => write!(f, "#DIV/0!"),
             CellErrorType::NA => write!(f, "#N/A"),
@@ -154,7 +154,7 @@ pub trait Reader: Sized {
     /// Creates a new instance.
     fn new(reader: Self::RS) -> Result<Self, Self::Error>;
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, Self::Error>>;
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
     /// Initialize
     fn metadata(&self) -> &Metadata;
     /// Read worksheet data in corresponding worksheet path
@@ -489,7 +489,7 @@ impl<T: CellType> Range<T> {
     /// // with rows item row: &[DataType]
     /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
     /// ```
-    pub fn rows(&self) -> Rows<T> {
+    pub fn rows(&self) -> Rows<'_, T> {
         if self.inner.is_empty() {
             Rows { inner: None }
         } else {
@@ -501,7 +501,7 @@ impl<T: CellType> Range<T> {
     }
 
     /// Get an iterator over used cells only
-    pub fn used_cells(&self) -> UsedCells<T> {
+    pub fn used_cells(&self) -> UsedCells<'_, T> {
         UsedCells {
             width: self.width(),
             inner: self.inner.iter().enumerate(),
@@ -509,7 +509,7 @@ impl<T: CellType> Range<T> {
     }
 
     /// Get an iterator over all cells in this range
-    pub fn cells(&self) -> Cells<T> {
+    pub fn cells(&self) -> Cells<'_, T> {
         Cells {
             width: self.width(),
             inner: self.inner.iter().enumerate(),
@@ -665,7 +665,7 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
 
 /// A struct to iterate over all cells
 #[derive(Debug)]
-pub struct Cells<'a, T: 'a + CellType> {
+pub struct Cells<'a, T: CellType> {
     width: usize,
     inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
 }
@@ -698,7 +698,7 @@ impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 
 /// A struct to iterate over used cells
 #[derive(Debug)]
-pub struct UsedCells<'a, T: 'a + CellType> {
+pub struct UsedCells<'a, T: CellType> {
     width: usize,
     inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
 }
@@ -736,7 +736,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
 
 /// An iterator to read `Range` struct row by row
 #[derive(Debug)]
-pub struct Rows<'a, T: 'a + CellType> {
+pub struct Rows<'a, T: CellType> {
     inner: Option<std::slice::Chunks<'a, T>>,
 }
 

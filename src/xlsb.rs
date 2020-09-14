@@ -66,7 +66,7 @@ from_err!(zip::result::ZipError, XlsbError, Zip);
 from_err!(quick_xml::Error, XlsbError, Xml);
 
 impl std::fmt::Display for XlsbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             XlsbError::Io(e) => write!(f, "I/O error: {}", e),
             XlsbError::Zip(e) => write!(f, "Zip error: {}", e),
@@ -492,7 +492,7 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
         Ok(xlsb)
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsbError>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsbError>> {
         self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
             let len = f.size() as usize;
             VbaProject::new(&mut f, len)

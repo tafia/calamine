@@ -60,7 +60,7 @@ from_err!(std::string::ParseError, OdsError, Parse);
 from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 
 impl std::fmt::Display for OdsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OdsError::Io(e) => write!(f, "I/O error: {}", e),
             OdsError::Zip(e) => write!(f, "Zip error: {}", e),
@@ -147,7 +147,7 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, OdsError>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, OdsError>> {
         None
     }
 
@@ -223,7 +223,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     })
 }
 
-fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>), OdsError> {
+fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<String>), OdsError> {
     let mut cells = Vec::new();
     let mut formulas = Vec::new();
     let mut cols = Vec::new();
@@ -308,7 +308,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
 }
 
 fn read_row(
-    reader: &mut OdsReader,
+    reader: &mut OdsReader<'_>,
     row_buf: &mut Vec<u8>,
     cell_buf: &mut Vec<u8>,
     cells: &mut Vec<DataType>,
@@ -358,8 +358,8 @@ fn read_row(
 ///
 /// ODF 1.2-19.385
 fn get_datatype(
-    reader: &mut OdsReader,
-    atts: Attributes,
+    reader: &mut OdsReader<'_>,
+    atts: Attributes<'_>,
     buf: &mut Vec<u8>,
 ) -> Result<(DataType, String, bool), OdsError> {
     let mut is_string = false;
@@ -429,7 +429,7 @@ fn get_datatype(
     }
 }
 
-fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)>, OdsError> {
+fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, String)>, OdsError> {
     let mut defined_names = Vec::new();
     let mut buf = Vec::new();
     loop {

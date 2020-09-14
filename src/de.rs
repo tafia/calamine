@@ -35,7 +35,7 @@ pub enum DeError {
 }
 
 impl fmt::Display for DeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match *self {
             DeError::CellOutOfRange {
                 ref try_pos,
@@ -72,7 +72,7 @@ impl de::Error for DeError {
 }
 
 #[derive(Clone)]
-pub enum Headers<'h, H: 'h> {
+pub enum Headers<'h, H> {
     None,
     All,
     Custom(&'h [H]),
@@ -83,7 +83,7 @@ pub enum Headers<'h, H: 'h> {
 /// This can be used to optionally parse the first row as a header. Once built,
 /// a `RangeDeserializer`s cannot be changed.
 #[derive(Clone)]
-pub struct RangeDeserializerBuilder<'h, H: 'h> {
+pub struct RangeDeserializerBuilder<'h, H> {
     headers: Headers<'h, H>,
 }
 
@@ -237,7 +237,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 /// ```
 pub struct RangeDeserializer<'cell, T, D>
 where
-    T: 'cell + ToCellDeserializer<'cell>,
+    T: ToCellDeserializer<'cell>,
     D: DeserializeOwned,
 {
     column_indexes: Vec<usize>,
@@ -346,7 +346,7 @@ where
 
 struct RowDeserializer<'header, 'cell, T>
 where
-    T: 'cell + ToCellDeserializer<'cell>,
+    T: ToCellDeserializer<'cell>,
 {
     cells: &'cell [T],
     headers: Option<&'header [String]>,

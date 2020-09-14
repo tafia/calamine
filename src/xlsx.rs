@@ -64,7 +64,7 @@ from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
 from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 
 impl std::fmt::Display for XlsxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             XlsxError::Io(e) => write!(f, "I/O error: {}", e),
             XlsxError::Zip(e) => write!(f, "Zip error: {}", e),
@@ -273,12 +273,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
 fn worksheet<T, F>(
     strings: &[String],
-    mut xml: XlsReader,
+    mut xml: XlsReader<'_>,
     read_data: &mut F,
 ) -> Result<Range<T>, XlsxError>
 where
     T: Default + Clone + PartialEq,
-    F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
+    F: FnMut(&[String], &mut XlsReader<'_>, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
 {
     let mut cells = Vec::new();
     let mut buf = Vec::new();
@@ -341,7 +341,7 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
         Ok(xlsx)
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsxError>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
         self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
             let len = f.size() as usize;
             VbaProject::new(&mut f, len)
@@ -431,7 +431,7 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
 }
 
 fn read_sheet<T, F>(
-    xml: &mut XlsReader,
+    xml: &mut XlsReader<'_>,
     cells: &mut Vec<Cell<T>>,
     push_cell: &mut F,
 ) -> Result<(), XlsxError>
@@ -439,10 +439,10 @@ where
     T: Clone + Default + PartialEq,
     F: FnMut(
         &mut Vec<Cell<T>>,
-        &mut XlsReader,
-        &BytesStart,
+        &mut XlsReader<'_>,
+        &BytesStart<'_>,
         (u32, u32),
-        &BytesStart,
+        &BytesStart<'_>,
     ) -> Result<(), XlsxError>,
 {
     let mut buf = Vec::new();
@@ -475,7 +475,7 @@ where
 
 /// read sheetData node
 fn read_sheet_data(
-    xml: &mut XlsReader,
+    xml: &mut XlsReader<'_>,
     strings: &[String],
     cells: &mut Vec<Cell<DataType>>,
 ) -> Result<(), XlsxError> {
@@ -639,7 +639,7 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
 }
 
 /// attempts to read either a simple or richtext string
-fn read_string(xml: &mut XlsReader, closing: &[u8]) -> Result<Option<String>, XlsxError> {
+fn read_string(xml: &mut XlsReader<'_>, closing: &[u8]) -> Result<Option<String>, XlsxError> {
     let mut buf = Vec::new();
     let mut val_buf = Vec::new();
     let mut rich_buffer: Option<String> = None;

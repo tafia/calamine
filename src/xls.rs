@@ -64,7 +64,7 @@ from_err!(crate::cfb::CfbError, XlsError, Cfb);
 from_err!(crate::vba::VbaError, XlsError, Vba);
 
 impl std::fmt::Display for XlsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             XlsError::Io(e) => write!(f, "I/O error: {}", e),
             XlsError::Cfb(e) => write!(f, "Cfb error: {}", e),
@@ -147,7 +147,7 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
         Ok(xls)
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsError>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
         self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
     }
 
@@ -299,7 +299,7 @@ impl<RS: Read + Seek> Xls<RS> {
 
 /// BoundSheet8 [MS-XLS 2.4.28]
 fn parse_sheet_name(
-    r: &mut Record,
+    r: &mut Record<'_>,
     encoding: &mut XlsEncoding,
 ) -> Result<(usize, String), XlsError> {
     let pos = read_u32(r.data) as usize;
@@ -424,7 +424,7 @@ fn rk_num(rk: &[u8]) -> DataType {
 }
 
 /// ShortXLUnicodeString [MS-XLS 2.5.240]
-fn parse_short_string(r: &mut Record, encoding: &mut XlsEncoding) -> Result<String, XlsError> {
+fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<String, XlsError> {
     if r.data.len() < 2 {
         return Err(XlsError::Len {
             typ: "short string",
@@ -499,7 +499,7 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
     }
 }
 
-fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>, XlsError> {
+fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<String>, XlsError> {
     if r.data.len() < 8 {
         return Err(XlsError::Len {
             typ: "sst",
@@ -517,7 +517,7 @@ fn parse_sst(r: &mut Record, encoding: &mut XlsEncoding) -> Result<Vec<String>, 
 }
 
 fn read_rich_extended_string(
-    r: &mut Record,
+    r: &mut Record<'_>,
     encoding: &mut XlsEncoding,
 ) -> Result<String, XlsError> {
     if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
@@ -568,7 +568,7 @@ fn read_rich_extended_string(
 fn read_dbcs(
     encoding: &mut XlsEncoding,
     mut len: usize,
-    r: &mut Record,
+    r: &mut Record<'_>,
 ) -> Result<String, XlsError> {
     let mut s = String::with_capacity(len);
     while len > 0 {
