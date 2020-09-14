@@ -162,7 +162,7 @@ impl PartialEq<i64> for DataType {
 }
 
 impl fmt::Display for DataType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         match *self {
             DataType::Int(ref e) => write!(f, "{}", e),
             DataType::Float(ref e) => write!(f, "{}", e),
@@ -287,13 +287,11 @@ where
 
 #[cfg(all(test, feature = "dates"))]
 mod tests {
-    extern crate chrono;
-
     use super::*;
 
     #[test]
     fn test_dates() {
-        use self::chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+        use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 
         let unix_epoch = DataType::Float(25569.);
         assert_eq!(

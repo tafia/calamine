@@ -58,19 +58,9 @@
 //! ```
 #![deny(missing_docs)]
 
-extern crate byteorder;
-extern crate codepage;
-extern crate encoding_rs;
-extern crate quick_xml;
-#[macro_use]
-extern crate serde;
-extern crate zip;
-
-#[macro_use]
-extern crate log;
-
 #[macro_use]
 mod utils;
+
 mod auto;
 mod cfb;
 mod datatype;
@@ -92,16 +82,16 @@ use std::io::{BufReader, Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 
-pub use auto::{open_workbook_auto, Sheets};
-pub use datatype::DataType;
-pub use de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
-pub use errors::Error;
-pub use ods::{Ods, OdsError};
-pub use xls::{Xls, XlsError};
-pub use xlsb::{Xlsb, XlsbError};
-pub use xlsx::{Xlsx, XlsxError};
+pub use crate::auto::{open_workbook_auto, Sheets};
+pub use crate::datatype::DataType;
+pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
+pub use crate::errors::Error;
+pub use crate::ods::{Ods, OdsError};
+pub use crate::xls::{Xls, XlsError};
+pub use crate::xlsb::{Xlsb, XlsbError};
+pub use crate::xlsx::{Xlsx, XlsxError};
 
-use vba::VbaProject;
+use crate::vba::VbaProject;
 
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
 /// An enum to represent all different errors that can appear as
@@ -159,7 +149,7 @@ pub trait Reader: Sized {
     /// Inner reader type
     type RS: Read + Seek;
     /// Error specific to file type
-    type Error: ::std::fmt::Debug + From<::std::io::Error>;
+    type Error: std::fmt::Debug + From<std::io::Error>;
 
     /// Creates a new instance.
     fn new(reader: Self::RS) -> Result<Self, Self::Error>;
@@ -194,12 +184,7 @@ pub trait Reader: Sized {
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
-        let name = if let Some(name) = self.sheet_names().get(n) {
-            name
-        } else {
-            return None;
-        }
-        .to_string();
+        let name = self.sheet_names().get(n)?.to_string();
         self.worksheet_range(&name)
     }
 }
@@ -353,7 +338,7 @@ impl<T: CellType> Range<T> {
             // search bounds
             let row_start = cells.first().unwrap().pos.0;
             let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = ::std::u32::MAX;
+            let mut col_start = std::u32::MAX;
             let mut col_end = 0;
             for c in cells.iter().map(|c| c.pos.1) {
                 if c < col_start {
@@ -682,7 +667,7 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
 #[derive(Debug)]
 pub struct Cells<'a, T: 'a + CellType> {
     width: usize,
-    inner: ::std::iter::Enumerate<::std::slice::Iter<'a, T>>,
+    inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
 }
 
 impl<'a, T: 'a + CellType> Iterator for Cells<'a, T> {
@@ -715,7 +700,7 @@ impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 #[derive(Debug)]
 pub struct UsedCells<'a, T: 'a + CellType> {
     width: usize,
-    inner: ::std::iter::Enumerate<::std::slice::Iter<'a, T>>,
+    inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
 }
 
 impl<'a, T: 'a + CellType> Iterator for UsedCells<'a, T> {
@@ -752,7 +737,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
 /// An iterator to read `Range` struct row by row
 #[derive(Debug)]
 pub struct Rows<'a, T: 'a + CellType> {
-    inner: Option<::std::slice::Chunks<'a, T>>,
+    inner: Option<std::slice::Chunks<'a, T>>,
 }
 
 impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {

@@ -4,20 +4,22 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
-use cfb::{Cfb, XlsEncoding};
-use utils::{push_column, read_slice, read_u16, read_u32};
-use vba::VbaProject;
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use log::debug;
+
+use crate::cfb::{Cfb, XlsEncoding};
+use crate::utils::{push_column, read_slice, read_u16, read_u32};
+use crate::vba::VbaProject;
+use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
 pub enum XlsError {
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
     /// Cfb error
-    Cfb(::cfb::CfbError),
+    Cfb(crate::cfb::CfbError),
     /// Vba error
-    Vba(::vba::VbaError),
+    Vba(crate::vba::VbaError),
 
     /// Cannot parse formula, stack is too short
     StackLen,
@@ -57,9 +59,9 @@ pub enum XlsError {
     NoVba,
 }
 
-from_err!(::std::io::Error, XlsError, Io);
-from_err!(::cfb::CfbError, XlsError, Cfb);
-from_err!(::vba::VbaError, XlsError, Vba);
+from_err!(std::io::Error, XlsError, Io);
+from_err!(crate::cfb::CfbError, XlsError, Cfb);
+from_err!(crate::vba::VbaError, XlsError, Vba);
 
 impl std::fmt::Display for XlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -136,7 +138,7 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
 
         let mut xls = Xls {
             sheets: HashMap::new(),
-            vba: vba,
+            vba,
             marker: PhantomData,
             metadata: Metadata::default(),
         };
@@ -412,8 +414,7 @@ fn rk_num(rk: &[u8]) -> DataType {
         let v = (read_slice::<i32>(&v[4..]) >> 2) as i64;
         if d100 && v % 100 != 0 {
             DataType::Float(v as f64 / 100.0)
-        }
-        else {
+        } else {
             DataType::Int(if d100 { v / 100 } else { v })
         }
     } else {
@@ -914,11 +915,11 @@ fn parse_formula(
                     }
                     _ => {
                         let iftab = read_u16(rgce) as usize;
-                        if iftab > ::utils::FTAB_LEN {
+                        if iftab > crate::utils::FTAB_LEN {
                             return Err(XlsError::IfTab(iftab));
                         }
                         rgce = &rgce[2..];
-                        let argc = ::utils::FTAB_ARGC[iftab] as usize;
+                        let argc = crate::utils::FTAB_ARGC[iftab] as usize;
                         (iftab, argc)
                     }
                 };
@@ -935,7 +936,7 @@ fn parse_formula(
                     let fargs = formula.split_off(start);
                     stack.push(formula.len());
                     args.push(fargs.len());
-                    formula.push_str(::utils::FTAB[iftab]);
+                    formula.push_str(crate::utils::FTAB[iftab]);
                     formula.push('(');
                     for w in args.windows(2) {
                         formula.push_str(&fargs[w[0]..w[1]]);
@@ -945,7 +946,7 @@ fn parse_formula(
                     formula.push(')');
                 } else {
                     stack.push(formula.len());
-                    formula.push_str(::utils::FTAB[iftab]);
+                    formula.push_str(crate::utils::FTAB[iftab]);
                     formula.push_str("()");
                 }
             }

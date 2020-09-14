@@ -10,8 +10,8 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use vba::VbaProject;
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::vba::VbaProject;
+use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -19,19 +19,19 @@ type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 #[derive(Debug)]
 pub enum XlsxError {
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
     /// Zip error
-    Zip(::zip::result::ZipError),
+    Zip(zip::result::ZipError),
     /// Vba error
-    Vba(::vba::VbaError),
+    Vba(crate::vba::VbaError),
     /// Xml error
-    Xml(::quick_xml::Error),
+    Xml(quick_xml::Error),
     /// Parse error
-    Parse(::std::string::ParseError),
+    Parse(std::string::ParseError),
     /// Float error
-    ParseFloat(::std::num::ParseFloatError),
+    ParseFloat(std::num::ParseFloatError),
     /// ParseInt error
-    ParseInt(::std::num::ParseIntError),
+    ParseInt(std::num::ParseIntError),
 
     /// Unexpected end of xml
     XmlEof(&'static str),
@@ -55,13 +55,13 @@ pub enum XlsxError {
     CellError(String),
 }
 
-from_err!(::std::io::Error, XlsxError, Io);
-from_err!(::zip::result::ZipError, XlsxError, Zip);
-from_err!(::vba::VbaError, XlsxError, Vba);
-from_err!(::quick_xml::Error, XlsxError, Xml);
-from_err!(::std::string::ParseError, XlsxError, Parse);
-from_err!(::std::num::ParseFloatError, XlsxError, ParseFloat);
-from_err!(::std::num::ParseIntError, XlsxError, ParseInt);
+from_err!(std::io::Error, XlsxError, Io);
+from_err!(zip::result::ZipError, XlsxError, Zip);
+from_err!(crate::vba::VbaError, XlsxError, Vba);
+from_err!(quick_xml::Error, XlsxError, Xml);
+from_err!(std::string::ParseError, XlsxError, Parse);
+from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
+from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 
 impl std::fmt::Display for XlsxError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -543,9 +543,7 @@ fn read_sheet_data(
                 ))
             }
             Some(t) => {
-                let t = ::std::str::from_utf8(t)
-                    .unwrap_or("<utf8 error>")
-                    .to_string();
+                let t = std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();
                 Err(XlsxError::CellTAttribute(t))
             }
         }

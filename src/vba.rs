@@ -8,18 +8,18 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::Level;
+use log::{debug, log_enabled, warn, Level};
 
-use cfb::{Cfb, XlsEncoding};
-use utils::read_u16;
+use crate::cfb::{Cfb, XlsEncoding};
+use crate::utils::read_u16;
 
 /// A VBA specific error enum
 #[derive(Debug)]
 pub enum VbaError {
     /// Error comes from a cfb parsing
-    Cfb(::cfb::CfbError),
+    Cfb(crate::cfb::CfbError),
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
 
     /// Cannot find module
     ModuleNotFound(String),
@@ -41,8 +41,8 @@ pub enum VbaError {
     },
 }
 
-from_err!(::cfb::CfbError, VbaError, Cfb);
-from_err!(::std::io::Error, VbaError, Io);
+from_err!(crate::cfb::CfbError, VbaError, Cfb);
+from_err!(std::io::Error, VbaError, Io);
 
 impl std::fmt::Display for VbaError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -94,7 +94,7 @@ impl VbaProject {
     pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
-        let stream = ::cfb::decompress_stream(&*stream)?;
+        let stream = crate::cfb::decompress_stream(&*stream)?;
         let stream = &mut &*stream;
 
         // read dir information record (not used)
@@ -111,7 +111,7 @@ impl VbaProject {
             .into_iter()
             .map(|m| {
                 cfb.get_stream(&m.stream_name, r).and_then(|s| {
-                    ::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
+                    crate::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
                 })
             })
             .collect::<Result<HashMap<_, _>, _>>()?;

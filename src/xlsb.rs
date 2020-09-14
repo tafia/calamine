@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek};
 use std::string::String;
 
+use log::debug;
+
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
@@ -10,21 +12,21 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use utils::{push_column, read_slice, read_u16, read_u32, read_usize};
-use vba::VbaProject;
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::utils::{push_column, read_slice, read_u16, read_u32, read_usize};
+use crate::vba::VbaProject;
+use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 /// A Xlsb specific error
 #[derive(Debug)]
 pub enum XlsbError {
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
     /// Zip error
-    Zip(::zip::result::ZipError),
+    Zip(zip::result::ZipError),
     /// Xml error
-    Xml(::quick_xml::Error),
+    Xml(quick_xml::Error),
     /// Vba error
-    Vba(::vba::VbaError),
+    Vba(crate::vba::VbaError),
 
     /// Mismatch value
     Mismatch {
@@ -59,9 +61,9 @@ pub enum XlsbError {
     },
 }
 
-from_err!(::std::io::Error, XlsbError, Io);
-from_err!(::zip::result::ZipError, XlsbError, Zip);
-from_err!(::quick_xml::Error, XlsbError, Xml);
+from_err!(std::io::Error, XlsbError, Io);
+from_err!(zip::result::ZipError, XlsbError, Zip);
+from_err!(quick_xml::Error, XlsbError, Xml);
 
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -542,13 +544,13 @@ impl<'a> RecordIter<'a> {
         }
     }
 
-    fn read_u8(&mut self) -> Result<u8, ::std::io::Error> {
+    fn read_u8(&mut self) -> Result<u8, std::io::Error> {
         self.r.read_exact(&mut self.b)?;
         Ok(self.b[0])
     }
 
     /// Read next type, until we have no future record
-    fn read_type(&mut self) -> Result<u16, ::std::io::Error> {
+    fn read_type(&mut self) -> Result<u16, std::io::Error> {
         let b = self.read_u8()?;
         let typ = if (b & 0x80) == 0x80 {
             (b & 0x7F) as u16 + (((self.read_u8()? & 0x7F) as u16) << 7)
@@ -558,7 +560,7 @@ impl<'a> RecordIter<'a> {
         Ok(typ)
     }
 
-    fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize, ::std::io::Error> {
+    fn fill_buffer(&mut self, buf: &mut Vec<u8>) -> Result<usize, std::io::Error> {
         let mut b = self.read_u8()?;
         let mut len = (b & 0x7F) as usize;
         for i in 1..4 {
@@ -821,11 +823,11 @@ fn parse_formula(
                     }
                     _ => {
                         let iftab = read_u16(rgce) as usize;
-                        if iftab > ::utils::FTAB_LEN {
+                        if iftab > crate::utils::FTAB_LEN {
                             return Err(XlsbError::IfTab(iftab));
                         }
                         rgce = &rgce[2..];
-                        let argc = ::utils::FTAB_ARGC[iftab] as usize;
+                        let argc = crate::utils::FTAB_ARGC[iftab] as usize;
                         (iftab, argc)
                     }
                 };
@@ -842,7 +844,7 @@ fn parse_formula(
                     let fargs = formula.split_off(start);
                     stack.push(formula.len());
                     args.push(fargs.len());
-                    formula.push_str(::utils::FTAB[iftab]);
+                    formula.push_str(crate::utils::FTAB[iftab]);
                     formula.push('(');
                     for w in args.windows(2) {
                         formula.push_str(&fargs[w[0]..w[1]]);
@@ -852,7 +854,7 @@ fn parse_formula(
                     formula.push(')');
                 } else {
                     stack.push(formula.len());
-                    formula.push_str(::utils::FTAB[iftab]);
+                    formula.push_str(crate::utils::FTAB[iftab]);
                     formula.push_str("()");
                 }
             }

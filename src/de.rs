@@ -1,6 +1,6 @@
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{self, DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
-use serde::{self, Deserialize};
+use serde::{self, forward_to_deserialize_any, Deserialize};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
@@ -542,10 +542,14 @@ macro_rules! deserialize_num {
                     err: err.clone(),
                     pos: self.pos,
                 }),
-                ref d => Err(DeError::Custom(format!("Expecting {}, got {:?}", stringify!($typ), d))),
+                ref d => Err(DeError::Custom(format!(
+                    "Expecting {}, got {:?}",
+                    stringify!($typ),
+                    d
+                ))),
             }
         }
-    }
+    };
 }
 
 /// A deserializer for the `DataType` type.

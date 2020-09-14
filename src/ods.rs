@@ -14,9 +14,9 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::vba::VbaProject;
+use crate::{DataType, Metadata, Range, Reader};
 use std::marker::PhantomData;
-use vba::VbaProject;
-use {DataType, Metadata, Range, Reader};
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
@@ -26,17 +26,17 @@ type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 #[derive(Debug)]
 pub enum OdsError {
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
     /// Zip error
-    Zip(::zip::result::ZipError),
+    Zip(zip::result::ZipError),
     /// Xml error
-    Xml(::quick_xml::Error),
+    Xml(quick_xml::Error),
     /// Error while parsing string
-    Parse(::std::string::ParseError),
+    Parse(std::string::ParseError),
     /// Error while parsing integer
-    ParseInt(::std::num::ParseIntError),
+    ParseInt(std::num::ParseIntError),
     /// Error while parsing float
-    ParseFloat(::std::num::ParseFloatError),
+    ParseFloat(std::num::ParseFloatError),
 
     /// Invalid MIME
     InvalidMime(Vec<u8>),
@@ -53,11 +53,11 @@ pub enum OdsError {
     },
 }
 
-from_err!(::std::io::Error, OdsError, Io);
-from_err!(::zip::result::ZipError, OdsError, Zip);
-from_err!(::quick_xml::Error, OdsError, Xml);
-from_err!(::std::string::ParseError, OdsError, Parse);
-from_err!(::std::num::ParseFloatError, OdsError, ParseFloat);
+from_err!(std::io::Error, OdsError, Io);
+from_err!(zip::result::ZipError, OdsError, Zip);
+from_err!(quick_xml::Error, OdsError, Xml);
+from_err!(std::string::ParseError, OdsError, Parse);
+from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 
 impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -256,7 +256,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
-    let mut col_min = ::std::usize::MAX;
+    let mut col_min = std::usize::MAX;
     let mut col_max = 0;
     {
         for (i, w) in cols.windows(2).enumerate() {
@@ -413,11 +413,11 @@ fn get_datatype(
                     if first_paragraph {
                         first_paragraph = false;
                     } else {
-                        s.push_str("\n");
+                        s.push('\n');
                     }
                 }
                 Ok(Event::Start(ref e)) if e.name() == b"text:s" => {
-                    s.push_str(" ");
+                    s.push(' ');
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),

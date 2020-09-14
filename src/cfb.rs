@@ -4,9 +4,11 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Read;
 
+use log::debug;
+
 use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
-use utils::*;
+use crate::utils::*;
 
 const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
 const FREESECT: u32 = 0xFFFF_FFFF;
@@ -15,7 +17,7 @@ const RESERVED_SECTORS: u32 = 0xFFFF_FFFA;
 /// A Cfb specific error enum
 #[derive(Debug)]
 pub enum CfbError {
-    Io(::std::io::Error),
+    Io(std::io::Error),
 
     Ole,
     EmptyRootDir,
