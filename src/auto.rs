@@ -1,12 +1,12 @@
 //! A module to convert file extension to reader
 
-use errors::Error;
+use crate::errors::Error;
+use crate::vba::VbaProject;
+use crate::{open_workbook, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx};
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use vba::VbaProject;
-use {open_workbook, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx};
 
 /// A wrapper over all sheets when the file type is not known at static time
 pub enum Sheets {
@@ -45,7 +45,7 @@ impl Reader for Sheets {
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, Self::Error>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>> {
         match *self {
             Sheets::Xls(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xls)),
             Sheets::Xlsx(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsx)),

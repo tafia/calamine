@@ -1,6 +1,5 @@
 #![feature(test)]
 
-extern crate calamine;
 extern crate test;
 
 use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx};

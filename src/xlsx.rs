@@ -10,8 +10,8 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use vba::VbaProject;
-use {Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::vba::VbaProject;
+use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -19,19 +19,19 @@ type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 #[derive(Debug)]
 pub enum XlsxError {
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
     /// Zip error
-    Zip(::zip::result::ZipError),
+    Zip(zip::result::ZipError),
     /// Vba error
-    Vba(::vba::VbaError),
+    Vba(crate::vba::VbaError),
     /// Xml error
-    Xml(::quick_xml::Error),
+    Xml(quick_xml::Error),
     /// Parse error
-    Parse(::std::string::ParseError),
+    Parse(std::string::ParseError),
     /// Float error
-    ParseFloat(::std::num::ParseFloatError),
+    ParseFloat(std::num::ParseFloatError),
     /// ParseInt error
-    ParseInt(::std::num::ParseIntError),
+    ParseInt(std::num::ParseIntError),
 
     /// Unexpected end of xml
     XmlEof(&'static str),
@@ -55,16 +55,16 @@ pub enum XlsxError {
     CellError(String),
 }
 
-from_err!(::std::io::Error, XlsxError, Io);
-from_err!(::zip::result::ZipError, XlsxError, Zip);
-from_err!(::vba::VbaError, XlsxError, Vba);
-from_err!(::quick_xml::Error, XlsxError, Xml);
-from_err!(::std::string::ParseError, XlsxError, Parse);
-from_err!(::std::num::ParseFloatError, XlsxError, ParseFloat);
-from_err!(::std::num::ParseIntError, XlsxError, ParseInt);
+from_err!(std::io::Error, XlsxError, Io);
+from_err!(zip::result::ZipError, XlsxError, Zip);
+from_err!(crate::vba::VbaError, XlsxError, Vba);
+from_err!(quick_xml::Error, XlsxError, Xml);
+from_err!(std::string::ParseError, XlsxError, Parse);
+from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
+from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 
 impl std::fmt::Display for XlsxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             XlsxError::Io(e) => write!(f, "I/O error: {}", e),
             XlsxError::Zip(e) => write!(f, "Zip error: {}", e),
@@ -273,12 +273,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
 fn worksheet<T, F>(
     strings: &[String],
-    mut xml: XlsReader,
+    mut xml: XlsReader<'_>,
     read_data: &mut F,
 ) -> Result<Range<T>, XlsxError>
 where
     T: Default + Clone + PartialEq,
-    F: FnMut(&[String], &mut XlsReader, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
+    F: FnMut(&[String], &mut XlsReader<'_>, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
 {
     let mut cells = Vec::new();
     let mut buf = Vec::new();
@@ -341,7 +341,7 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
         Ok(xlsx)
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, XlsxError>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
         self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
             let len = f.size() as usize;
             VbaProject::new(&mut f, len)
@@ -431,7 +431,7 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: &[u8]) -> Result<Option<&'a [u8]>,
 }
 
 fn read_sheet<T, F>(
-    xml: &mut XlsReader,
+    xml: &mut XlsReader<'_>,
     cells: &mut Vec<Cell<T>>,
     push_cell: &mut F,
 ) -> Result<(), XlsxError>
@@ -439,10 +439,10 @@ where
     T: Clone + Default + PartialEq,
     F: FnMut(
         &mut Vec<Cell<T>>,
-        &mut XlsReader,
-        &BytesStart,
+        &mut XlsReader<'_>,
+        &BytesStart<'_>,
         (u32, u32),
-        &BytesStart,
+        &BytesStart<'_>,
     ) -> Result<(), XlsxError>,
 {
     let mut buf = Vec::new();
@@ -475,7 +475,7 @@ where
 
 /// read sheetData node
 fn read_sheet_data(
-    xml: &mut XlsReader,
+    xml: &mut XlsReader<'_>,
     strings: &[String],
     cells: &mut Vec<Cell<DataType>>,
 ) -> Result<(), XlsxError> {
@@ -543,9 +543,7 @@ fn read_sheet_data(
                 ))
             }
             Some(t) => {
-                let t = ::std::str::from_utf8(t)
-                    .unwrap_or("<utf8 error>")
-                    .to_string();
+                let t = std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();
                 Err(XlsxError::CellTAttribute(t))
             }
         }
@@ -641,7 +639,7 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
 }
 
 /// attempts to read either a simple or richtext string
-fn read_string(xml: &mut XlsReader, closing: &[u8]) -> Result<Option<String>, XlsxError> {
+fn read_string(xml: &mut XlsReader<'_>, closing: &[u8]) -> Result<Option<String>, XlsxError> {
     let mut buf = Vec::new();
     let mut val_buf = Vec::new();
     let mut rich_buffer: Option<String> = None;

@@ -1,6 +1,3 @@
-extern crate calamine;
-extern crate env_logger;
-
 use calamine::CellErrorType::*;
 use calamine::DataType::{Bool, Empty, Error, Float, String};
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
@@ -12,7 +9,7 @@ static INIT: Once = Once::new();
 /// Setup function that is only run once, even if called multiple times.
 fn setup() {
     INIT.call_once(|| {
-        ::env_logger::init();
+        env_logger::init();
     });
 }
 

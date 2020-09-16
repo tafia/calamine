@@ -4,36 +4,36 @@
 #[derive(Debug)]
 pub enum Error {
     /// IO error
-    Io(::std::io::Error),
+    Io(std::io::Error),
 
     /// Ods specific error
-    Ods(::ods::OdsError),
+    Ods(crate::ods::OdsError),
     /// xls specific error
-    Xls(::xls::XlsError),
+    Xls(crate::xls::XlsError),
     /// xlsb specific error
-    Xlsb(::xlsb::XlsbError),
+    Xlsb(crate::xlsb::XlsbError),
     /// xlsx specific error
-    Xlsx(::xlsx::XlsxError),
+    Xlsx(crate::xlsx::XlsxError),
     /// vba specific error
-    Vba(::vba::VbaError),
+    Vba(crate::vba::VbaError),
     /// cfb specific error
-    De(::de::DeError),
+    De(crate::de::DeError),
 
     /// General error message
     Msg(&'static str),
 }
 
-from_err!(::std::io::Error, Error, Io);
-from_err!(::ods::OdsError, Error, Ods);
-from_err!(::xls::XlsError, Error, Xls);
-from_err!(::xlsb::XlsbError, Error, Xlsb);
-from_err!(::xlsx::XlsxError, Error, Xlsx);
-from_err!(::vba::VbaError, Error, Vba);
-from_err!(::de::DeError, Error, De);
+from_err!(std::io::Error, Error, Io);
+from_err!(crate::ods::OdsError, Error, Ods);
+from_err!(crate::xls::XlsError, Error, Xls);
+from_err!(crate::xlsb::XlsbError, Error, Xlsb);
+from_err!(crate::xlsx::XlsxError, Error, Xlsx);
+from_err!(crate::vba::VbaError, Error, Vba);
+from_err!(crate::de::DeError, Error, De);
 from_err!(&'static str, Error, Msg);
 
 impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "I/O error: {}", e),
             Error::Ods(e) => write!(f, "Ods error: {}", e),

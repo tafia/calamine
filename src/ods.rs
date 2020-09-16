@@ -14,9 +14,9 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::vba::VbaProject;
+use crate::{DataType, Metadata, Range, Reader};
 use std::marker::PhantomData;
-use vba::VbaProject;
-use {DataType, Metadata, Range, Reader};
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
@@ -26,17 +26,17 @@ type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 #[derive(Debug)]
 pub enum OdsError {
     /// Io error
-    Io(::std::io::Error),
+    Io(std::io::Error),
     /// Zip error
-    Zip(::zip::result::ZipError),
+    Zip(zip::result::ZipError),
     /// Xml error
-    Xml(::quick_xml::Error),
+    Xml(quick_xml::Error),
     /// Error while parsing string
-    Parse(::std::string::ParseError),
+    Parse(std::string::ParseError),
     /// Error while parsing integer
-    ParseInt(::std::num::ParseIntError),
+    ParseInt(std::num::ParseIntError),
     /// Error while parsing float
-    ParseFloat(::std::num::ParseFloatError),
+    ParseFloat(std::num::ParseFloatError),
 
     /// Invalid MIME
     InvalidMime(Vec<u8>),
@@ -53,14 +53,14 @@ pub enum OdsError {
     },
 }
 
-from_err!(::std::io::Error, OdsError, Io);
-from_err!(::zip::result::ZipError, OdsError, Zip);
-from_err!(::quick_xml::Error, OdsError, Xml);
-from_err!(::std::string::ParseError, OdsError, Parse);
-from_err!(::std::num::ParseFloatError, OdsError, ParseFloat);
+from_err!(std::io::Error, OdsError, Io);
+from_err!(zip::result::ZipError, OdsError, Zip);
+from_err!(quick_xml::Error, OdsError, Xml);
+from_err!(std::string::ParseError, OdsError, Parse);
+from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 
 impl std::fmt::Display for OdsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OdsError::Io(e) => write!(f, "I/O error: {}", e),
             OdsError::Zip(e) => write!(f, "Zip error: {}", e),
@@ -147,7 +147,7 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<VbaProject>, OdsError>> {
+    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, OdsError>> {
         None
     }
 
@@ -223,7 +223,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     })
 }
 
-fn read_table(reader: &mut OdsReader) -> Result<(Range<DataType>, Range<String>), OdsError> {
+fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<String>), OdsError> {
     let mut cells = Vec::new();
     let mut formulas = Vec::new();
     let mut cols = Vec::new();
@@ -256,7 +256,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
-    let mut col_min = ::std::usize::MAX;
+    let mut col_min = std::usize::MAX;
     let mut col_max = 0;
     {
         for (i, w) in cols.windows(2).enumerate() {
@@ -308,7 +308,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
 }
 
 fn read_row(
-    reader: &mut OdsReader,
+    reader: &mut OdsReader<'_>,
     row_buf: &mut Vec<u8>,
     cell_buf: &mut Vec<u8>,
     cells: &mut Vec<DataType>,
@@ -358,8 +358,8 @@ fn read_row(
 ///
 /// ODF 1.2-19.385
 fn get_datatype(
-    reader: &mut OdsReader,
-    atts: Attributes,
+    reader: &mut OdsReader<'_>,
+    atts: Attributes<'_>,
     buf: &mut Vec<u8>,
 ) -> Result<(DataType, String, bool), OdsError> {
     let mut is_string = false;
@@ -413,11 +413,11 @@ fn get_datatype(
                     if first_paragraph {
                         first_paragraph = false;
                     } else {
-                        s.push_str("\n");
+                        s.push('\n');
                     }
                 }
                 Ok(Event::Start(ref e)) if e.name() == b"text:s" => {
-                    s.push_str(" ");
+                    s.push(' ');
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),
@@ -429,7 +429,7 @@ fn get_datatype(
     }
 }
 
-fn read_named_expressions(reader: &mut OdsReader) -> Result<Vec<(String, String)>, OdsError> {
+fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, String)>, OdsError> {
     let mut defined_names = Vec::new();
     let mut buf = Vec::new();
     loop {
