@@ -363,7 +363,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 }
                 0x0004|0x000A => DataType::Bool(buf[8] != 0), // BrtCellBool or BrtFmlaBool
                 0x0005|0x0009 => DataType::Float(read_slice(&buf[8..16])), // BrtCellReal or BrtFmlaFloat
-                0x0006|0x0008 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtFmlaString
+                0x0006|0x0008 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&buf[8..12]);
