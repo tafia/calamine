@@ -115,13 +115,21 @@ impl DataType {
     /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
     pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
-        self.get_float().and_then(|f| {
-            let unix_days = f - 25569.;
-            let unix_secs = unix_days * 86400.;
-            let secs = unix_secs.trunc() as i64;
-            let nsecs = (unix_secs.fract().abs() * 1e9) as u32;
-            chrono::NaiveDateTime::from_timestamp_opt(secs, nsecs)
-        })
+        match self {
+            DataType::Int(x) => {
+                let days = x - 25569;
+                let secs = days * 86400;
+                chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
+            }
+            DataType::Float(f) => {
+                let unix_days = f - 25569.;
+                let unix_secs = unix_days * 86400.;
+                let secs = unix_secs.trunc() as i64;
+                let nsecs = (unix_secs.fract().abs() * 1e9) as u32;
+                chrono::NaiveDateTime::from_timestamp_opt(secs, nsecs)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -309,5 +317,28 @@ mod tests {
         );
         let micro = Duration::microseconds(1);
         assert!(unix_epoch_15h30m.as_datetime().unwrap() - chrono_dt < micro);
+    }
+
+    #[test]
+    fn test_int_dates() {
+        use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+
+        let unix_epoch = DataType::Int(25569);
+        assert_eq!(
+            unix_epoch.as_datetime(),
+            Some(NaiveDateTime::new(
+                NaiveDate::from_ymd(1970, 1, 1),
+                NaiveTime::from_hms(0, 0, 0)
+            ))
+        );
+
+        let time = DataType::Int(44060);
+        assert_eq!(
+            time.as_datetime(),
+            Some(NaiveDateTime::new(
+                NaiveDate::from_ymd(2020, 8, 17),
+                NaiveTime::from_hms(0, 0, 0),
+            ))
+        );
     }
 }
