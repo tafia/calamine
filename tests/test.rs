@@ -522,6 +522,25 @@ fn formula_xlsb() {
 }
 
 #[test]
+fn formula_vals_xlsb() {
+    setup();
+
+    let path = format!("{}/tests/issue_182.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("formula_vals").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [Float(3.)],
+            [String("Ab".to_string())],
+            [Bool(false)]
+        ]
+    );
+    
+}
+
+#[test]
 fn formula_xls() {
     setup();
 
