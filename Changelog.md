@@ -8,6 +8,15 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## 0.16.2
+- docs: add `deserialize_with` example in readme
+- fix: Skip phonetic run
+- fix: Fix XLS float parsing error
+- docs: Correct MBSC to MBCS in vba.rs (mispelled before)
+- style: use 2018 edition paths
+- fix: Add the ability to read formula values from XLSB
+- fix: support integral date types
+
 ## 0.16.1
 - feat: Make `Metadata.sheets` (and `Reader.sheet_names`) always return names in workbook order
 - style: fix warnings in tests
