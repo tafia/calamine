@@ -531,13 +531,8 @@ fn formula_vals_xlsb() {
     let range = excel.worksheet_range("formula_vals").unwrap().unwrap();
     range_eq!(
         range,
-        [
-            [Float(3.)],
-            [String("Ab".to_string())],
-            [Bool(false)]
-        ]
+        [[Float(3.)], [String("Ab".to_string())], [Bool(false)]]
     );
-    
 }
 
 #[test]
