@@ -535,6 +535,27 @@ fn formula_vals_xlsb() {
     );
 }
 
+
+#[test]
+fn float_vals_xlsb() {
+    setup();
+
+    let path = format!("{}/tests/issue_186.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [Float(1.23)],
+            [Float(12.34)],
+            [Float(123.45)],
+            [Float(1234.56)],
+            [Float(12345.67)],
+        ]
+    );
+}
+
 #[test]
 fn formula_xls() {
     setup();
