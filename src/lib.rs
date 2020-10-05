@@ -522,7 +522,7 @@ impl<T: CellType> Range<T> {
     ///
     /// ```
     /// # use calamine::{Reader, Error, open_workbook, Xlsx, RangeDeserializerBuilder};
-    /// fn example() -> Result<(), Error> {
+    /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///     let mut sheet = workbook.worksheet_range("Sheet1")
@@ -558,21 +558,19 @@ impl<T: CellType> Range<T> {
     ///
     /// ```
     /// # use calamine::{Range, DataType};
+    /// let mut a = Range::new((1, 1), (3, 3));
+    /// a.set_value((1, 1), DataType::Bool(true));
+    /// a.set_value((2, 2), DataType::Bool(true));
     ///
-    /// fn example() {
-    ///     let mut a = Range::new((1, 1), (3, 3));
-    ///     a.set_value((1, 1), DataType::Bool(true));
-    ///     a.set_value((2, 2), DataType::Bool(true));
+    /// let b = a.range((2, 2), (5, 5));
+    /// assert_eq!(b.get_value((2, 2)), Some(&DataType::Bool(true)));
+    /// assert_eq!(b.get_value((3, 3)), Some(&DataType::Empty));
     ///
-    ///     let b = a.range((2, 2), (5, 5));
-    ///     assert_eq!(b.get_value((2, 2)), Some(&DataType::Bool(true)));
-    ///     assert_eq!(b.get_value((3, 3)), Some(&DataType::Empty));
-    ///
-    ///     let c = a.range((0, 0), (2, 2));
-    ///     assert_eq!(c.get_value((0, 0)), Some(&DataType::Empty));
-    ///     assert_eq!(c.get_value((1, 1)), Some(&DataType::Bool(true)));
-    ///     assert_eq!(c.get_value((2, 2)), Some(&DataType::Bool(true)));
-    /// }
+    /// let c = a.range((0, 0), (2, 2));
+    /// assert_eq!(c.get_value((0, 0)), Some(&DataType::Empty));
+    /// assert_eq!(c.get_value((1, 1)), Some(&DataType::Bool(true)));
+    /// assert_eq!(c.get_value((2, 2)), Some(&DataType::Bool(true)));
+    /// ```
     pub fn range(&self, start: (u32, u32), end: (u32, u32)) -> Range<T> {
         let mut other = Range::new(start, end);
         let (self_start_row, self_start_col) = self.start;
