@@ -535,7 +535,6 @@ fn formula_vals_xlsb() {
     );
 }
 
-
 #[test]
 fn float_vals_xlsb() {
     setup();
