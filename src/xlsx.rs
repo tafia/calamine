@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
+use log::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
@@ -14,6 +15,12 @@ use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
+
+/// Maximum number of rows allowed in an xlsx file
+pub const MAX_ROWS: u32 = 1_048_576;
+
+/// Maximum number of columns allowed in an xlsx file
+pub const MAX_COLUMNS: u32 = 16_384;
 
 /// An enum for Xlsx specific errors
 #[derive(Debug)]
@@ -294,8 +301,7 @@ where
                                 value: rdim,
                             } = a?
                             {
-                                let Dimensions { start, end } = get_dimension(&rdim)?;
-                                let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
+                                let len = get_dimension(&rdim)?.len();
                                 if len < 1_000_000 {
                                     // it is unlikely to have more than that
                                     // there may be of empty cells
@@ -578,6 +584,12 @@ struct Dimensions {
     end: (u32, u32),
 }
 
+impl Dimensions {
+    fn len(&self) -> u64 {
+        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+    }
+}
+
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
 /// - top left (row, column),
 /// - bottom right (row, column)
@@ -593,10 +605,26 @@ fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
             start: parts[0],
             end: parts[0],
         }),
-        2 => Ok(Dimensions {
-            start: parts[0],
-            end: parts[1],
-        }),
+        2 => {
+            let rows = parts[1].0 - parts[0].0;
+            let columns = parts[1].1 - parts[0].1;
+            if rows > MAX_ROWS {
+                warn!(
+                    "xlsx has more than maximum number of rows ({} > {})",
+                    rows, MAX_ROWS
+                );
+            }
+            if columns > MAX_COLUMNS {
+                warn!(
+                    "xlsx has more than maximum number of columns ({} > {})",
+                    columns, MAX_COLUMNS
+                );
+            }
+            Ok(Dimensions {
+                start: parts[0],
+                end: parts[1],
+            })
+        }
         len => Err(XlsxError::DimensionCount(len)),
     }
 }
@@ -690,6 +718,22 @@ fn test_dimensions() {
             start: (1, 2),
             end: (34, 3)
         }
+    );
+    assert_eq!(
+        get_dimension(b"A1:XFD1048576").unwrap(),
+        Dimensions {
+            start: (0, 0),
+            end: (1_048_575, 16_383),
+        }
+    );
+}
+
+#[test]
+fn test_dimension_length() {
+    assert_eq!(get_dimension(b"A1:Z99").unwrap().len(), 2_574);
+    assert_eq!(
+        get_dimension(b"A1:XFD1048576").unwrap().len(),
+        17_179_869_184
     );
 }
 
