@@ -666,3 +666,12 @@ fn skip_phonetic_text() {
         Some(&String("課きく　毛こ".to_string()))
     );
 }
+
+#[test]
+fn issue_174() {
+    setup();
+
+    let path = format!("{}/tests/issue_174.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    xls.worksheet_range_at(0).unwrap().unwrap();
+}
