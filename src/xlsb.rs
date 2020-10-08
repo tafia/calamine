@@ -338,12 +338,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     buf[8] &= 0xFC;
                     if is_int {
                         let v = (read_slice::<i32>(&buf[8..12]) >> 2) as i64;
-                        if d100{
-                            DataType::Float((v as f64) / 100.0 )
-                        }else {
+                        if d100 {
+                            DataType::Float((v as f64) / 100.0)
+                        } else {
                             DataType::Int(v)
                         }
-
                     } else {
                         let mut v = [0u8; 8];
                         v[4..].copy_from_slice(&buf[8..12]);
