@@ -1,5 +1,5 @@
 use calamine::CellErrorType::*;
-use calamine::DataType::{Bool, Empty, Error, Float, String};
+use calamine::DataType::{Bool, DateTime, Empty, Error, Float, String};
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
 use std::sync::Once;
@@ -674,4 +674,21 @@ fn issue_174() {
     let path = format!("{}/tests/issue_174.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     xls.worksheet_range_at(0).unwrap().unwrap();
+}
+
+#[test]
+fn date() {
+    setup();
+
+    let path = format!("{}/tests/date.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+    }
 }
