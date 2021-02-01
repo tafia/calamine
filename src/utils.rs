@@ -12,11 +12,13 @@ macro_rules! from_err {
     };
 }
 
-/// Converts a &[u8] into a &[u32]
-pub fn to_u32(s: &[u8]) -> &[u32] {
+/// Converts a &[u8] into an iterator of `u32`s
+pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
     assert_eq!(s.len() % 4, 0);
-    unsafe { std::slice::from_raw_parts(s as *const [u8] as *const u32, s.len() / 4) }
+    s.chunks(4)
+        .map(|data| u32::from_ne_bytes([data[0], data[1], data[2], data[3]]))
 }
+
 pub fn read_slice<T>(s: &[u8]) -> T {
     unsafe { std::ptr::read(&s[..std::mem::size_of::<T>()] as *const [u8] as *const T) }
 }
@@ -1039,8 +1041,8 @@ mod tests {
     fn sound_to_u32() {
         let data = b"ABCDEFGH";
         assert_eq!(
-            to_u32(data),
-            &[u32::from_ne_bytes(*b"ABCD"), u32::from_ne_bytes(*b"EFGH")]
+            to_u32(data).collect::<Vec<_>>(),
+            [u32::from_ne_bytes(*b"ABCD"), u32::from_ne_bytes(*b"EFGH")]
         );
     }
 

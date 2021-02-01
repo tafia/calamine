@@ -83,7 +83,7 @@ impl Cfb {
         debug!("load difat");
         let mut sector_id = h.difat_start;
         while sector_id < RESERVED_SECTORS {
-            difat.extend_from_slice(to_u32(sectors.get(sector_id, reader)?));
+            difat.extend(to_u32(sectors.get(sector_id, reader)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }
 
@@ -91,7 +91,7 @@ impl Cfb {
         debug!("load fat");
         let mut fats = Vec::with_capacity(h.fat_len);
         for id in difat.into_iter().filter(|id| *id != FREESECT) {
-            fats.extend_from_slice(to_u32(sectors.get(id, reader)?));
+            fats.extend(to_u32(sectors.get(id, reader)?));
         }
 
         // get the list of directory sectors
@@ -116,7 +116,7 @@ impl Cfb {
             reader,
             h.mini_fat_len * h.sector_size,
         )?;
-        let minifat = to_u32(&minifat).to_vec();
+        let minifat = to_u32(&minifat).collect();
         Ok(Cfb {
             directories: dirs,
             sectors,
@@ -208,7 +208,7 @@ impl Header {
         let difat_len = read_usize(&buf[62..76]);
 
         let mut difat = Vec::with_capacity(difat_len);
-        difat.extend_from_slice(to_u32(&buf[76..512]));
+        difat.extend(to_u32(&buf[76..512]));
 
         Ok((
             Header {
