@@ -167,7 +167,7 @@ impl Header {
         f.read_exact(&mut buf).map_err(CfbError::Io)?;
 
         // check ole signature
-        if read_slice::<u64>(buf.as_ref()) != 0xE11A_B1A1_E011_CFD0 {
+        if read_slice_u64(buf.as_ref()).next() != Some(0xE11A_B1A1_E011_CFD0) {
             return Err(CfbError::Ole);
         }
 
@@ -291,15 +291,20 @@ struct Directory {
 
 impl Directory {
     fn from_slice(buf: &[u8], sector_size: usize) -> Directory {
+        use std::convert::TryFrom;
+
         let mut name = UTF_16LE.decode(&buf[..64]).0.into_owned();
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
         let start = read_u32(&buf[116..120]);
         let len = if sector_size == 512 {
-            read_slice::<u32>(&buf[120..124]) as usize
+            read_slice_u32(&buf[120..124]).next().unwrap() as usize
         } else {
-            read_slice::<u64>(&buf[120..128]) as usize
+            read_slice_u64(&buf[120..128])
+                .next()
+                .and_then(|x| usize::try_from(x).ok())
+                .unwrap()
         };
 
         Directory { start, len, name }
