@@ -1030,3 +1030,37 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
     3,   // "AVERAGEIF",
     129, // "AVERAGEIFS"
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_to_u32() {
+        let data = b"ABCDEFGH";
+        assert_eq!(
+            to_u32(data),
+            &[u32::from_ne_bytes(*b"ABCD"), u32::from_ne_bytes(*b"EFGH")]
+        );
+    }
+
+    #[test]
+    fn sound_read_slice() {
+        #[derive(Debug, PartialEq, Eq)]
+        struct A {
+            a: u8,
+            b: u16,
+            c: u64,
+        }
+
+        let data = [b'a'; 24];
+        assert_eq!(
+            read_slice::<A>(&data),
+            A {
+                a: b'a',
+                b: u16::from_ne_bytes([b'a'; 2]),
+                c: u64::from_ne_bytes([b'a'; 8])
+            }
+        );
+    }
+}
