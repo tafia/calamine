@@ -245,9 +245,7 @@ impl Sectors {
         let end = start + self.size;
         if end > self.data.len() {
             let mut len = self.data.len();
-            unsafe {
-                self.data.set_len(end);
-            }
+            self.data.resize(end, 0);
             // read_exact or stop if EOF
             while len < end {
                 let read = r.read(&mut self.data[len..end]).map_err(CfbError::Io)?;
