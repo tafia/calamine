@@ -15,27 +15,27 @@ macro_rules! from_err {
 /// Converts a &[u8] into an iterator of `u32`s
 pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
     assert_eq!(s.len() % 4, 0);
-    s.chunks(4)
+    s.chunks_exact(4)
         .map(|data| u32::from_ne_bytes([data[0], data[1], data[2], data[3]]))
 }
 
 pub(crate) fn read_slice_u16(s: &[u8]) -> impl ExactSizeIterator<Item = u16> + '_ {
-    s.chunks(2)
+    s.chunks_exact(2)
         .map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]]))
 }
 
 pub(crate) fn read_slice_i32(s: &[u8]) -> impl ExactSizeIterator<Item = i32> + '_ {
-    s.chunks(4)
+    s.chunks_exact(4)
         .map(|chunk| i32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
 }
 
 pub(crate) fn read_slice_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
-    s.chunks(4)
+    s.chunks_exact(4)
         .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
 }
 
 pub(crate) fn read_slice_u64(s: &[u8]) -> impl ExactSizeIterator<Item = u64> + '_ {
-    s.chunks(8).map(|chunk| {
+    s.chunks_exact(8).map(|chunk| {
         u64::from_ne_bytes([
             chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
         ])
@@ -43,7 +43,7 @@ pub(crate) fn read_slice_u64(s: &[u8]) -> impl ExactSizeIterator<Item = u64> + '
 }
 
 pub(crate) fn read_slice_f64(s: &[u8]) -> impl ExactSizeIterator<Item = f64> + '_ {
-    s.chunks(8).map(|chunk| {
+    s.chunks_exact(8).map(|chunk| {
         f64::from_ne_bytes([
             chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
         ])
