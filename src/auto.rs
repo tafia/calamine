@@ -31,7 +31,32 @@ pub fn open_workbook_auto<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
         }
         Some("xlsb") => Sheets::Xlsb(open_workbook(&path).map_err(Error::Xlsb)?),
         Some("ods") => Sheets::Ods(open_workbook(&path).map_err(Error::Ods)?),
-        _ => return Err(Error::Msg("Unknown extension")),
+        _ => {
+            fn open_workbook_xlsx<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
+                Ok(Sheets::Xlsx(open_workbook(&path).map_err(Error::Xlsx)?))
+            }
+            fn open_workbook_xls<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
+                Ok(Sheets::Xls(open_workbook(&path).map_err(Error::Xls)?))
+            }
+            fn open_workbook_xlsb<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
+                Ok(Sheets::Xlsb(open_workbook(&path).map_err(Error::Xlsb)?))
+            }
+            fn open_workbook_ods<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
+                Ok(Sheets::Ods(open_workbook(&path).map_err(Error::Ods)?))
+            }
+
+            return if let Ok(ret) = open_workbook_xlsx(&path) {
+                Ok(ret)
+            } else if let Ok(ret) = open_workbook_xls(&path) {
+                Ok(ret)
+            } else if let Ok(ret) = open_workbook_xlsb(&path) {
+                Ok(ret)
+            } else if let Ok(ret) = open_workbook_ods(&path) {
+                Ok(ret)
+            } else {
+                Err(Error::Msg("Cannot detect file format"))
+            }
+        }
     })
 }
 
