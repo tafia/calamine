@@ -134,6 +134,12 @@ impl FromStr for CellErrorType {
     }
 }
 
+#[derive(Debug)]
+enum CellFormat {
+    Other,
+    Date,
+}
+
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
 pub struct Xlsx<RS>
@@ -145,6 +151,8 @@ where
     strings: Vec<String>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
+    /// Cell (number) formats
+    formats: Vec<CellFormat>,
     /// Metadata
     metadata: Metadata,
 }
@@ -166,6 +174,82 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 }
                 Ok(Event::End(ref e)) if e.local_name() == b"sst" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sst")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+        Ok(())
+    }
+
+    fn read_styles(&mut self) -> Result<(), XlsxError> {
+        let mut xml = match xml_reader(&mut self.zip, "xl/styles.xml") {
+            None => return Ok(()),
+            Some(x) => x?,
+        };
+
+        let mut number_formats = HashMap::new();
+
+        let mut buf = Vec::new();
+        let mut inner_buf = Vec::new();
+        loop {
+            buf.clear();
+            match xml.read_event(&mut buf) {
+                Ok(Event::Start(ref e)) if e.local_name() == b"numFmts" => loop {
+                    inner_buf.clear();
+                    match xml.read_event(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name() == b"numFmt" => {
+                            let mut id = Vec::new();
+                            let mut format = String::new();
+                            for a in e.attributes() {
+                                match a? {
+                                    Attribute {
+                                        key: b"numFmtId",
+                                        value: v,
+                                    } => id.extend_from_slice(&v),
+                                    Attribute {
+                                        key: b"formatCode",
+                                        value: v,
+                                    } => format = xml.decode(&v).into_owned(),
+                                    _ => (),
+                                }
+                            }
+                            number_formats.insert(id, format);
+                        }
+                        Ok(Event::End(ref e)) if e.local_name() == b"numFmts" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("numFmts")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(ref e)) if e.local_name() == b"cellXfs" => loop {
+                    inner_buf.clear();
+                    match xml.read_event(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name() == b"xf" => {
+                            self.formats.push(
+                                e.attributes()
+                                    .filter_map(|a| a.ok())
+                                    .find(|a| a.key == b"numFmtId")
+                                    .map_or(CellFormat::Other, |a| {
+                                        match number_formats.get(&*a.value) {
+                                            Some(fmt) if is_custom_date_format(fmt) => {
+                                                CellFormat::Date
+                                            }
+                                            None if is_builtin_date_format_id(&a.value) => {
+                                                CellFormat::Date
+                                            }
+                                            _ => CellFormat::Other,
+                                        }
+                                    }),
+                            );
+                        }
+                        Ok(Event::End(ref e)) if e.local_name() == b"cellXfs" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name() == b"styleSheet" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("styleSheet")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
             }
@@ -280,12 +364,18 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
 fn worksheet<T, F>(
     strings: &[String],
+    formats: &[CellFormat],
     mut xml: XlsReader<'_>,
     read_data: &mut F,
 ) -> Result<Range<T>, XlsxError>
 where
     T: Default + Clone + PartialEq,
-    F: FnMut(&[String], &mut XlsReader<'_>, &mut Vec<Cell<T>>) -> Result<(), XlsxError>,
+    F: FnMut(
+        &[String],
+        &[CellFormat],
+        &mut XlsReader<'_>,
+        &mut Vec<Cell<T>>,
+    ) -> Result<(), XlsxError>,
 {
     let mut cells = Vec::new();
     let mut buf = Vec::new();
@@ -313,7 +403,7 @@ where
                         return Err(XlsxError::UnexpectedNode("dimension"));
                     }
                     b"sheetData" => {
-                        read_data(&strings, &mut xml, &mut cells)?;
+                        read_data(&strings, &formats, &mut xml, &mut cells)?;
                         break;
                     }
                     _ => (),
@@ -338,10 +428,12 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
         let mut xlsx = Xlsx {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
+            formats: Vec::new(),
             sheets: Vec::new(),
             metadata: Metadata::default(),
         };
         xlsx.read_shared_strings()?;
+        xlsx.read_styles()?;
         let relationships = xlsx.read_relationships()?;
         xlsx.read_workbook(&relationships)?;
         Ok(xlsx)
@@ -366,9 +458,10 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             None => return None,
         };
         let strings = &self.strings;
+        let formats = &self.formats;
         xml.map(|xml| {
-            worksheet(strings, xml?, &mut |s, xml, cells| {
-                read_sheet_data(xml, s, cells)
+            worksheet(strings, formats, xml?, &mut |s, f, xml, cells| {
+                read_sheet_data(xml, s, f, cells)
             })
         })
     }
@@ -380,8 +473,9 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
         };
 
         let strings = &self.strings;
+        let formats = &self.formats;
         xml.map(|xml| {
-            worksheet(strings, xml?, &mut |_, xml, cells| {
+            worksheet(strings, formats, xml?, &mut |_, _, xml, cells| {
                 read_sheet(xml, cells, &mut |cells, xml, e, pos, _| {
                     match e.local_name() {
                         b"is" | b"v" => xml.read_to_end(e.name(), &mut Vec::new())?,
@@ -483,15 +577,25 @@ where
 fn read_sheet_data(
     xml: &mut XlsReader<'_>,
     strings: &[String],
+    formats: &[CellFormat],
     cells: &mut Vec<Cell<DataType>>,
 ) -> Result<(), XlsxError> {
     /// read the contents of a <v> cell
     fn read_value<'a>(
         v: String,
         strings: &[String],
-        atts: Attributes<'a>,
+        formats: &[CellFormat],
+        c_element: &BytesStart<'a>,
     ) -> Result<DataType, XlsxError> {
-        match get_attribute(atts, b"t")? {
+        let is_date_time = match get_attribute(c_element.attributes(), b"s") {
+            Ok(Some(style)) => {
+                let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
+                matches!(formats.get(id), Some(CellFormat::Date))
+            }
+            _ => false,
+        };
+
+        match get_attribute(c_element.attributes(), b"t")? {
             Some(b"s") => {
                 // shared string
                 let idx: usize = v.parse()?;
@@ -530,14 +634,26 @@ fn read_sheet_data(
             Some(b"n") => {
                 // n - number
                 v.parse()
-                    .map(DataType::Float)
+                    .map(|n| {
+                        if is_date_time {
+                            DataType::DateTime(n)
+                        } else {
+                            DataType::Float(n)
+                        }
+                    })
                     .map_err(XlsxError::ParseFloat)
             }
             None => {
                 // If type is not known, we try to parse as Float for utility, but fall back to
                 // String if this fails.
                 v.parse()
-                    .map(DataType::Float)
+                    .map(|n| {
+                        if is_date_time {
+                            DataType::DateTime(n)
+                        } else {
+                            DataType::Float(n)
+                        }
+                    })
                     .map_err(XlsxError::ParseFloat)
                     .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
             }
@@ -566,7 +682,7 @@ fn read_sheet_data(
             b"v" => {
                 // value
                 let v = xml.read_text(e.name(), &mut Vec::new())?;
-                match read_value(v, strings, c_element.attributes())? {
+                match read_value(v, strings, formats, c_element)? {
                     DataType::Empty => (),
                     v => cells.push(Cell::new(pos, v)),
                 }
@@ -576,6 +692,50 @@ fn read_sheet_data(
         }
         Ok(())
     })
+}
+
+// This tries to detect number formats that are definitely date/time formats.
+// This is definitely not perfect!
+fn is_custom_date_format(format: &String) -> bool {
+    for chr in format.bytes() {
+        match chr {
+            b'm' | b'd' | b'y' | b'M' | b'D' | b'Y' | b'h' | b's' | b'H' | b'S' | b'-' | b'/'
+            | b'.' | b' ' | b'\\' => (),
+            _ => return false,
+        }
+    }
+
+    return true;
+}
+
+fn is_builtin_date_format_id(id: &[u8]) -> bool {
+    match id {
+    // mm-dd-yy
+    b"14" |
+    // d-mmm-yy
+    b"15" |
+    // d-mmm
+    b"16" |
+    // mmm-yy
+    b"17" |
+    // h:mm AM/PM
+    b"18" |
+    // h:mm:ss AM/PM
+    b"19" |
+    // h:mm
+    b"20" |
+    // h:mm:ss
+    b"21" |
+    // m/d/yy h:mm
+    b"22" |
+    // mm:ss
+    b"45" |
+    // [h]:mm:ss
+    b"46" |
+    // mmss.0
+    b"47" => true,
+    _ => false
+    }
 }
 
 #[derive(Debug, PartialEq)]
