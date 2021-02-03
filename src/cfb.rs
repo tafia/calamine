@@ -83,7 +83,7 @@ impl Cfb {
         debug!("load difat");
         let mut sector_id = h.difat_start;
         while sector_id < RESERVED_SECTORS {
-            difat.extend_from_slice(to_u32(sectors.get(sector_id, reader)?));
+            difat.extend(to_u32(sectors.get(sector_id, reader)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }
 
@@ -91,7 +91,7 @@ impl Cfb {
         debug!("load fat");
         let mut fats = Vec::with_capacity(h.fat_len);
         for id in difat.into_iter().filter(|id| *id != FREESECT) {
-            fats.extend_from_slice(to_u32(sectors.get(id, reader)?));
+            fats.extend(to_u32(sectors.get(id, reader)?));
         }
 
         // get the list of directory sectors
@@ -116,7 +116,7 @@ impl Cfb {
             reader,
             h.mini_fat_len * h.sector_size,
         )?;
-        let minifat = to_u32(&minifat).to_vec();
+        let minifat = to_u32(&minifat).collect();
         Ok(Cfb {
             directories: dirs,
             sectors,
@@ -167,7 +167,7 @@ impl Header {
         f.read_exact(&mut buf).map_err(CfbError::Io)?;
 
         // check ole signature
-        if read_slice::<u64>(buf.as_ref()) != 0xE11A_B1A1_E011_CFD0 {
+        if read_slice_u64(buf.as_ref()).next() != Some(0xE11A_B1A1_E011_CFD0) {
             return Err(CfbError::Ole);
         }
 
@@ -208,7 +208,7 @@ impl Header {
         let difat_len = read_usize(&buf[62..76]);
 
         let mut difat = Vec::with_capacity(difat_len);
-        difat.extend_from_slice(to_u32(&buf[76..512]));
+        difat.extend(to_u32(&buf[76..512]));
 
         Ok((
             Header {
@@ -245,9 +245,7 @@ impl Sectors {
         let end = start + self.size;
         if end > self.data.len() {
             let mut len = self.data.len();
-            unsafe {
-                self.data.set_len(end);
-            }
+            self.data.resize(end, 0);
             // read_exact or stop if EOF
             while len < end {
                 let read = r.read(&mut self.data[len..end]).map_err(CfbError::Io)?;
@@ -293,15 +291,20 @@ struct Directory {
 
 impl Directory {
     fn from_slice(buf: &[u8], sector_size: usize) -> Directory {
+        use std::convert::TryFrom;
+
         let mut name = UTF_16LE.decode(&buf[..64]).0.into_owned();
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
         let start = read_u32(&buf[116..120]);
         let len = if sector_size == 512 {
-            read_slice::<u32>(&buf[120..124]) as usize
+            read_slice_u32(&buf[120..124]).next().unwrap() as usize
         } else {
-            read_slice::<u64>(&buf[120..128]) as usize
+            read_slice_u64(&buf[120..128])
+                .next()
+                .and_then(|x| usize::try_from(x).ok())
+                .unwrap()
         };
 
         Directory { start, len, name }
