@@ -55,7 +55,7 @@ pub fn open_workbook_auto<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
                 Ok(ret)
             } else {
                 Err(Error::Msg("Cannot detect file format"))
-            }
+            };
         }
     })
 }

@@ -628,20 +628,23 @@ fn read_sheet_data(
                 // representation if that fails
                 v.parse()
                     .map(DataType::Float)
-                    .map_err(XlsxError::ParseFloat)
                     .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
             }
             Some(b"n") => {
                 // n - number
-                v.parse()
-                    .map(|n| {
-                        if is_date_time {
-                            DataType::DateTime(n)
-                        } else {
-                            DataType::Float(n)
-                        }
-                    })
-                    .map_err(XlsxError::ParseFloat)
+                if v.is_empty() {
+                    Ok(DataType::Empty)
+                } else {
+                    v.parse()
+                        .map(|n| {
+                            if is_date_time {
+                                DataType::DateTime(n)
+                            } else {
+                                DataType::Float(n)
+                            }
+                        })
+                        .map_err(XlsxError::ParseFloat)
+                }
             }
             None => {
                 // If type is not known, we try to parse as Float for utility, but fall back to
@@ -654,7 +657,6 @@ fn read_sheet_data(
                             DataType::Float(n)
                         }
                     })
-                    .map_err(XlsxError::ParseFloat)
                     .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
             }
             Some(b"is") => {
@@ -697,15 +699,7 @@ fn read_sheet_data(
 // This tries to detect number formats that are definitely date/time formats.
 // This is definitely not perfect!
 fn is_custom_date_format(format: &String) -> bool {
-    for chr in format.bytes() {
-        match chr {
-            b'm' | b'd' | b'y' | b'M' | b'D' | b'Y' | b'h' | b's' | b'H' | b'S' | b'-' | b'/'
-            | b'.' | b' ' | b'\\' => (),
-            _ => return false,
-        }
-    }
-
-    return true;
+    format.bytes().all(|c| b"mdyMDYhsHS-/. \\".contains(&c))
 }
 
 fn is_builtin_date_format_id(id: &[u8]) -> bool {
