@@ -165,7 +165,6 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsError>> {
-        debug!("{:?}", self.sheets.keys().collect::<Vec<_>>());
         self.sheets.get(name).map(|r| Ok(r.0.clone()))
     }
 
@@ -456,8 +455,6 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<
     r.data = &r.data[2..];
     let mut s = String::with_capacity(cch);
     let _ = encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
-    debug!("short string: {}", s);
-    debug!("short string: {:?}", s);
     Ok(s)
 }
 
@@ -576,12 +573,6 @@ fn read_rich_extended_string(
             return Err(XlsError::ContinueRecordTooShort);
         }
         let _cb = read_u16(&r.data[2..]);
-        debug!(
-            "ext_rst: {}, cb: {}, data.len: {}",
-            ext_rst,
-            _cb,
-            r.data.len()
-        );
         let crun = read_u16(&r.data[8..]) as usize;
         let _cch = read_u16(&r.data[10..]) as usize;
         let cch_characters = read_u16(&r.data[12..]) as usize;
