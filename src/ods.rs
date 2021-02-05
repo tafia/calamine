@@ -289,13 +289,17 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
         let empty_cells = vec![T::default(); col_max + 1];
         for w in cols.windows(2).skip(row_min).take(row_max + 1) {
             let row = &cells[w[0]..w[1]];
-            if row.len() < col_max + 1 {
-                new_cells.extend_from_slice(&row[col_min..]);
-                new_cells.extend_from_slice(&empty_cells[row.len()..]);
-            } else if row.len() == col_max + 1 {
-                new_cells.extend_from_slice(&row[col_min..]);
-            } else {
-                new_cells.extend_from_slice(&row[col_min..=col_max]);
+            match row.len().cmp(&(col_max + 1)) {
+                std::cmp::Ordering::Less => {
+                    new_cells.extend_from_slice(&row[col_min..]);
+                    new_cells.extend_from_slice(&empty_cells[row.len()..]);
+                }
+                std::cmp::Ordering::Equal => {
+                    new_cells.extend_from_slice(&row[col_min..]);
+                }
+                std::cmp::Ordering::Greater => {
+                    new_cells.extend_from_slice(&row[col_min..=col_max]);
+                }
             }
         }
         cells = new_cells;

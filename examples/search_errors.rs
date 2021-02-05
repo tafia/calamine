@@ -80,15 +80,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
             .map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
-            .flat_map(|r| {
-                r.iter().filter(|c| {
-                    if let DataType::Error(_) = **c {
-                        true
-                    } else {
-                        false
-                    }
-                })
-            })
+            .flat_map(|r| r.iter().filter(|c| matches!(**c, DataType::Error(_))))
             .count();
     }
 

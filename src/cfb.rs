@@ -420,8 +420,7 @@ pub struct XlsEncoding {
 
 impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
-        let e =
-            codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
+        let e = codepage::to_encoding(codepage).ok_or(CfbError::CodePageNotFound(codepage))?;
         let high_byte = if e == UTF_8 || e.is_single_byte() {
             None
         } else {
