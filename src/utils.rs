@@ -54,6 +54,10 @@ pub fn read_u32(s: &[u8]) -> u32 {
     read_slice_u32(s).next().unwrap()
 }
 
+pub fn read_i32(s: &[u8]) -> i32 {
+    read_slice_i32(s).next().unwrap()
+}
+
 pub fn read_u16(s: &[u8]) -> u16 {
     read_slice_u16(s).next().unwrap()
 }

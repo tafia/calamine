@@ -8,6 +8,11 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## Unreleased
+
+- fix: Allow empty value cells in xlsx
+- fix: obscure xls parsing errors (#195)
+
 ## 0.17.0
 
 - feat: use `chunks_exact` instead of chunks where possible
