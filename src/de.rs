@@ -515,11 +515,7 @@ impl<'a> ToCellDeserializer<'a> for DataType {
 
     #[inline]
     fn is_empty(&self) -> bool {
-        if let DataType::Empty = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, DataType::Empty)
     }
 }
 

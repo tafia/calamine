@@ -626,9 +626,7 @@ fn read_sheet_data(
                 // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
                 // We do try an initial parse as Float for utility, but fall back to a string
                 // representation if that fails
-                v.parse()
-                    .map(DataType::Float)
-                    .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
+                v.parse().map(DataType::Float).or(Ok(DataType::String(v)))
             }
             Some(b"n") => {
                 // n - number
@@ -657,7 +655,7 @@ fn read_sheet_data(
                             DataType::Float(n)
                         }
                     })
-                    .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
+                    .or(Ok(DataType::String(v)))
             }
             Some(b"is") => {
                 // this case should be handled in outer loop over cell elements, in which
@@ -698,14 +696,14 @@ fn read_sheet_data(
 
 // This tries to detect number formats that are definitely date/time formats.
 // This is definitely not perfect!
-fn is_custom_date_format(format: &String) -> bool {
+fn is_custom_date_format(format: &str) -> bool {
     format.bytes().all(|c| b"mdyMDYhsHS-/. \\".contains(&c))
 }
 
 fn is_builtin_date_format_id(id: &[u8]) -> bool {
-    match id {
-    // mm-dd-yy
-    b"14" |
+    matches!(
+        id,
+        b"14" |
     // d-mmm-yy
     b"15" |
     // d-mmm
@@ -727,9 +725,8 @@ fn is_builtin_date_format_id(id: &[u8]) -> bool {
     // [h]:mm:ss
     b"46" |
     // mmss.0
-    b"47" => true,
-    _ => false
-    }
+    b"47"
+    )
 }
 
 #[derive(Debug, PartialEq)]
