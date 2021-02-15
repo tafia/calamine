@@ -159,6 +159,19 @@ pub trait Reader: Sized {
     fn metadata(&self) -> &Metadata;
     /// Read worksheet data in corresponding worksheet path
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>>;
+
+    /// Fetch all worksheets
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        self.sheet_names()
+            .to_owned()
+            .into_iter()
+            .filter_map(|name| {
+                let worksheet = self.worksheet_range(&name)?.ok()?;
+                Some((name, worksheet))
+            })
+            .collect()
+    }
+
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
 
