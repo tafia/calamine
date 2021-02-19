@@ -108,4 +108,13 @@ impl Reader for Sheets {
             Sheets::Ods(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Ods)),
         }
     }
+
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        match *self {
+            Sheets::Xls(ref mut e) => e.worksheets(),
+            Sheets::Xlsx(ref mut e) => e.worksheets(),
+            Sheets::Xlsb(ref mut e) => e.worksheets(),
+            Sheets::Ods(ref mut e) => e.worksheets(),
+        }
+    }
 }

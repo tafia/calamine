@@ -164,6 +164,13 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
         self.sheets.get(name).map(|r| Ok(r.1.clone()))
     }
+
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        self.sheets
+            .iter()
+            .map(|(name, (data, _))| (name.to_owned(), data.clone()))
+            .collect()
+    }
 }
 
 impl<RS: Read + Seek> Xls<RS> {
