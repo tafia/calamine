@@ -264,7 +264,11 @@ impl Reference {
                     let absolute = read_variable_record(stream, 1)?; // project libid absolute
                     {
                         let absolute = encoding.decode_all(absolute);
-                        reference.path = absolute.strip_prefix("*\\C").unwrap_or(&absolute).into();
+                        reference.path = if absolute.starts_with("*\\C") {
+                            absolute[3..].into()
+                        } else {
+                            absolute.into()
+                        };
                     }
                     read_variable_record(stream, 1)?; // project libid relative
                     *stream = &stream[6..];

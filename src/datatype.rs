@@ -38,19 +38,35 @@ impl DataType {
     }
     /// Assess if datatype is a int
     pub fn is_int(&self) -> bool {
-        matches!(*self, DataType::Int(_))
+        if let DataType::Int(_) = *self {
+            true
+        } else {
+            false
+        }
     }
     /// Assess if datatype is a float
     pub fn is_float(&self) -> bool {
-        matches!(*self, DataType::Float(_))
+        if let DataType::Float(_) = *self {
+            true
+        } else {
+            false
+        }
     }
     /// Assess if datatype is a bool
     pub fn is_bool(&self) -> bool {
-        matches!(*self, DataType::Bool(_))
+        if let DataType::Bool(_) = *self {
+            true
+        } else {
+            false
+        }
     }
     /// Assess if datatype is a string
     pub fn is_string(&self) -> bool {
-        matches!(*self, DataType::String(_))
+        if let DataType::String(_) = *self {
+            true
+        } else {
+            false
+        }
     }
 
     /// Try getting int value
@@ -121,25 +137,37 @@ impl DataType {
 
 impl PartialEq<str> for DataType {
     fn eq(&self, other: &str) -> bool {
-        matches!(*self, DataType::String(ref s) if s == other)
+        match *self {
+            DataType::String(ref s) if s == other => true,
+            _ => false,
+        }
     }
 }
 
 impl PartialEq<f64> for DataType {
     fn eq(&self, other: &f64) -> bool {
-        matches!(*self, DataType::Float(ref s) if *s == *other)
+        match *self {
+            DataType::Float(ref s) if *s == *other => true,
+            _ => false,
+        }
     }
 }
 
 impl PartialEq<bool> for DataType {
     fn eq(&self, other: &bool) -> bool {
-        matches!(*self, DataType::Bool(ref s) if *s == *other)
+        match *self {
+            DataType::Bool(ref s) if *s == *other => true,
+            _ => false,
+        }
     }
 }
 
 impl PartialEq<i64> for DataType {
     fn eq(&self, other: &i64) -> bool {
-        matches!(*self, DataType::Int(ref s) if *s == *other)
+        match *self {
+            DataType::Int(ref s) if *s == *other => true,
+            _ => false,
+        }
     }
 }
 

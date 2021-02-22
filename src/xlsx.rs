@@ -590,7 +590,10 @@ fn read_sheet_data(
         let is_date_time = match get_attribute(c_element.attributes(), b"s") {
             Ok(Some(style)) => {
                 let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
-                matches!(formats.get(id), Some(CellFormat::Date))
+                match formats.get(id) {
+                    Some(CellFormat::Date) => true,
+                    _ => false,
+                }
             }
             _ => false,
         };
@@ -701,9 +704,9 @@ fn is_custom_date_format(format: &str) -> bool {
 }
 
 fn is_builtin_date_format_id(id: &[u8]) -> bool {
-    matches!(
-        id,
-        b"14" |
+    match id {
+    // mm-dd-yy
+    b"14" |
     // d-mmm-yy
     b"15" |
     // d-mmm
@@ -725,8 +728,9 @@ fn is_builtin_date_format_id(id: &[u8]) -> bool {
     // [h]:mm:ss
     b"46" |
     // mmss.0
-    b"47"
-    )
+    b"47" => true,
+    _ => false
+    }
 }
 
 #[derive(Debug, PartialEq)]
