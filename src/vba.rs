@@ -159,7 +159,7 @@ impl VbaProject {
     pub fn get_module(&self, name: &str) -> Result<String, VbaError> {
         debug!("read module {}", name);
         let data = self.get_module_raw(name)?;
-        Ok(self.encoding.decode_all(data))
+        Ok(self.encoding.decode_all(data, None))
     }
 
     /// Reads module content (MBCS encoded) and output it as-is (binary output)
@@ -215,7 +215,7 @@ impl Reference {
                         references.push(reference);
                     }
                     let name = read_variable_record(stream, 1)?;
-                    let name = encoding.decode_all(name);
+                    let name = encoding.decode_all(name, None);
                     reference = Reference {
                         name: name.clone(),
                         description: name,
@@ -263,7 +263,7 @@ impl Reference {
                     *stream = &stream[4..];
                     let absolute = read_variable_record(stream, 1)?; // project libid absolute
                     {
-                        let absolute = encoding.decode_all(absolute);
+                        let absolute = encoding.decode_all(absolute, None);
                         reference.path = if absolute.starts_with("*\\C") {
                             absolute[3..].into()
                         } else {
@@ -291,7 +291,7 @@ impl Reference {
         if libid.is_empty() || libid.ends_with(b"##") {
             return Ok(());
         }
-        let libid = encoding.decode_all(libid);
+        let libid = encoding.decode_all(libid, None);
         let mut parts = libid.rsplit('#');
         match (parts.next(), parts.next()) {
             (Some(desc), Some(path)) => {
@@ -359,12 +359,12 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
     for _ in 0..module_len {
         // name
         let name = check_variable_record(0x0019, stream)?;
-        let name = encoding.decode_all(name);
+        let name = encoding.decode_all(name, None);
 
         check_variable_record(0x0047, stream)?; // unicode
 
         let stream_name = check_variable_record(0x001A, stream)?; // stream name
-        let stream_name = encoding.decode_all(stream_name);
+        let stream_name = encoding.decode_all(stream_name, None);
 
         check_variable_record(0x0032, stream)?; // stream name unicode
         check_variable_record(0x001C, stream)?; // doc string

@@ -200,6 +200,24 @@ fn xls() {
     );
 }
 
+// test ignored because the file is too large to be commited and tested
+#[ignore]
+#[test]
+fn issue_195() {
+    setup();
+
+    let path = format!(
+        "{}/JLCPCB SMT Parts Library(20210204).xls",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xls<_> = open_workbook(&path).expect("can't open wb");
+    let range = excel
+        .worksheet_range("JLCPCB SMT Parts Library")
+        .expect("error in wks range")
+        .expect("sheet not found");
+    assert_eq!(range.get_size(), (52046, 12));
+}
+
 #[test]
 fn ods() {
     setup();

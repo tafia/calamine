@@ -11,9 +11,11 @@ use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
 use crate::utils::*;
 
-const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
-const FREESECT: u32 = 0xFFFF_FFFF;
 const RESERVED_SECTORS: u32 = 0xFFFF_FFFA;
+const DIFSECT: u32 = 0xFFFF_FFFC;
+// const FATSECT: u32 = 0xFFFF_FFFD;
+const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
+//const FREESECT: u32 = 0xFFFF_FFFF;
 
 /// A Cfb specific error enum
 #[derive(Debug)]
@@ -89,9 +91,9 @@ impl Cfb {
         }
 
         // load the FATs
-        debug!("load fat");
+        debug!("load fat (len {})", h.fat_len);
         let mut fats = Vec::with_capacity(h.fat_len);
-        for id in difat.into_iter().filter(|id| *id != FREESECT) {
+        for id in difat.into_iter().filter(|id| *id < DIFSECT) {
             fats.extend(to_u32(sectors.get(id, reader)?));
         }
 
@@ -414,26 +416,33 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
 #[derive(Clone)]
 pub struct XlsEncoding {
     encoding: &'static Encoding,
-    pub high_byte: Option<bool>, // None if single byte encoding
 }
 
 impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
-        let e = codepage::to_encoding(codepage).ok_or(CfbError::CodePageNotFound(codepage))?;
-        let high_byte = if e == UTF_8 || e.is_single_byte() {
-            None
-        } else {
-            Some(false)
-        };
+        let e =
+            codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
+        Ok(XlsEncoding { encoding: e })
+    }
 
-        Ok(XlsEncoding {
-            encoding: e,
-            high_byte,
+    fn high_byte(&self, high_byte: Option<bool>) -> Option<bool> {
+        high_byte.or_else(|| {
+            if self.encoding == UTF_8 || self.encoding.is_single_byte() {
+                None
+            } else {
+                Some(false)
+            }
         })
     }
 
-    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut String) -> (usize, usize) {
-        let (l, ub, bytes) = match self.high_byte {
+    pub fn decode_to(
+        &self,
+        stream: &[u8],
+        len: usize,
+        s: &mut String,
+        high_byte: Option<bool>,
+    ) -> (usize, usize) {
+        let (l, ub, bytes) = match self.high_byte(high_byte) {
             None => {
                 let l = min(stream.len(), len);
                 (l, l, Cow::Borrowed(&stream[..l]))
@@ -458,9 +467,9 @@ impl XlsEncoding {
         (l, ub)
     }
 
-    pub fn decode_all(&self, stream: &[u8]) -> String {
+    pub fn decode_all(&self, stream: &[u8], high_byte: Option<bool>) -> String {
         let mut s = String::with_capacity(stream.len());
-        let _ = self.decode_to(stream, stream.len(), &mut s);
+        let _ = self.decode_to(stream, stream.len(), &mut s, high_byte);
         s
     }
 }

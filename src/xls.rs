@@ -130,12 +130,16 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
             Cfb::new(&mut reader, offset_end)?
         };
 
+        debug!("cfb loaded");
+
         // Reads vba once for all (better than reading all worksheets once for all)
         let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
             Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
         } else {
             None
         };
+
+        debug!("vba ok");
 
         let mut xls = Xls {
             sheets: HashMap::new(),
@@ -145,6 +149,9 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
         };
 
         xls.parse_workbook(reader, cfb)?;
+
+        debug!("xls parsed");
+
         Ok(xls)
     }
 
@@ -200,9 +207,9 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // RRTabId
                     0x0085 => {
-                        let name = parse_sheet_name(&mut r, &mut encoding)?;
-                        self.metadata.sheets.push(name.1.to_string());
-                        sheet_names.push(name); // BoundSheet8
+                        let (pos, name) = parse_sheet_name(&mut r, &mut encoding)?;
+                        self.metadata.sheets.push(name.clone());
+                        sheet_names.push((pos, name)); // BoundSheet8
                     }
                     0x0018 => {
                         // Lbl for defined_names
@@ -245,6 +252,8 @@ impl<RS: Read + Seek> Xls<RS> {
                 }
             })
             .collect::<Vec<_>>();
+
+        debug!("defined_names: {:?}", defined_names);
 
         let mut sheets = HashMap::with_capacity(sheet_names.len());
         let fmla_sheet_names = sheet_names
@@ -312,7 +321,15 @@ fn parse_sheet_name(
 ) -> Result<(usize, String), XlsError> {
     let pos = read_u32(r.data) as usize;
     r.data = &r.data[6..];
-    parse_short_string(r, encoding).map(|s| (pos, s))
+    let name = parse_short_string(r, encoding)?;
+    let sheet_name = name
+        .as_bytes()
+        .iter()
+        .cloned()
+        .filter(|b| *b != 0)
+        .collect::<Vec<_>>();
+    let sheet_name = String::from_utf8(sheet_name).unwrap();
+    Ok((pos, sheet_name))
 }
 
 fn parse_number(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
@@ -441,12 +458,10 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<
         });
     }
     let cch = r.data[0] as usize;
-    if let Some(ref mut b) = encoding.high_byte {
-        *b = r.data[1] != 0;
-    }
+    let high_byte = r.data[1] & 0x1 != 0;
     r.data = &r.data[2..];
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(r.data, cch, &mut s);
+    let _ = encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
     Ok(s)
 }
 
@@ -518,6 +533,7 @@ fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<Strin
     let len: usize = read_i32(&r.data[4..8]).try_into().unwrap();
     let mut sst = Vec::with_capacity(len);
     r.data = &r.data[8..];
+
     for _ in 0..len {
         sst.push(read_rich_extended_string(r, encoding)?);
     }
@@ -536,39 +552,36 @@ fn read_rich_extended_string(
         });
     }
 
-    let str_len = read_u16(r.data) as usize;
+    let cch = read_u16(r.data) as usize;
     let flags = r.data[2];
     r.data = &r.data[3..];
-    let ext_st = flags & 0x4;
-    let rich_st = flags & 0x8;
 
-    if let Some(ref mut b) = encoding.high_byte {
-        *b = flags & 0x1 != 0;
+    let high_byte = flags & 0x1 != 0;
+    let mut run = 0;
+    let mut ext_rst = 0;
+    if flags & 0x8 != 0 {
+        run = read_u16(&r.data) as usize;
+        r.data = &r.data[2..];
+    }
+    if flags & 0x4 != 0 {
+        ext_rst = read_i32(&r.data) as usize;
+        r.data = &r.data[4..];
     }
 
-    let mut unused_len = if rich_st != 0 {
-        let l = 4 * read_u16(r.data) as usize;
-        r.data = &r.data[2..];
-        l
-    } else {
-        0
-    };
-    if ext_st != 0 {
-        let (raw_len, next_data) = r.data.split_at(4);
-        unused_len += usize::try_from(read_i32(raw_len)).unwrap();
-        r.data = next_data;
-    };
+    let s = read_dbcs(encoding, cch, r, high_byte)?;
 
-    let s = read_dbcs(encoding, str_len, r)?;
-
-    while unused_len > 0 {
+    // skip rgRun and ExtRst
+    r.skip(run * 4)?;
+    for _ in 0..ext_rst {
         if r.data.is_empty() && !r.continue_record() {
             return Err(XlsError::ContinueRecordTooShort);
         }
-        let l = min(unused_len, r.data.len());
-        let (_, next) = r.data.split_at(l);
-        r.data = next;
-        unused_len -= l;
+        let _cb = read_u16(&r.data[2..]);
+        let crun = read_u16(&r.data[8..]) as usize;
+        let _cch = read_u16(&r.data[10..]) as usize;
+        let cch_characters = read_u16(&r.data[12..]) as usize;
+        r.data = &r.data[14..];
+        r.skip(2 * cch_characters + 6 * crun)?;
     }
 
     Ok(s)
@@ -578,17 +591,16 @@ fn read_dbcs(
     encoding: &mut XlsEncoding,
     mut len: usize,
     r: &mut Record<'_>,
+    mut high_byte: bool,
 ) -> Result<String, XlsError> {
     let mut s = String::with_capacity(len);
     while len > 0 {
-        let (l, at) = encoding.decode_to(r.data, len, &mut s);
+        let (l, at) = encoding.decode_to(r.data, len, &mut s, Some(high_byte));
         r.data = &r.data[at..];
         len -= l;
         if len > 0 {
             if r.continue_record() {
-                if let Some(ref mut b) = encoding.high_byte {
-                    *b = r.data[0] & 0x1 != 0;
-                }
+                high_byte = r.data[0] & 0x1 != 0;
                 r.data = &r.data[1..];
             } else {
                 return Err(XlsError::EoStream("dbcs"));
@@ -600,13 +612,7 @@ fn read_dbcs(
 
 fn read_unicode_string_no_cch(encoding: &mut XlsEncoding, buf: &[u8], len: &mut usize) -> String {
     let mut s = String::new();
-    if let Some(ref mut b) = encoding.high_byte {
-        *b = buf[0] & 0x1 != 0;
-        if *b {
-            *len *= 2;
-        }
-    }
-    let _ = encoding.decode_to(&buf[1..=*len], *len, &mut s);
+    let _ = encoding.decode_to(&buf[1..=*len], *len, &mut s, Some(buf[0] & 0x1 != 0));
     s
 }
 
@@ -629,6 +635,19 @@ impl<'a> Record<'a> {
                 }
             }
         }
+    }
+
+    fn skip(&mut self, mut len: usize) -> Result<(), XlsError> {
+        while len > 0 {
+            if self.data.is_empty() && !self.continue_record() {
+                return Err(XlsError::ContinueRecordTooShort);
+            }
+            let l = min(len, self.data.len());
+            let (_, next) = self.data.split_at(l);
+            self.data = next;
+            len -= l;
+        }
+        Ok(())
     }
 }
 
