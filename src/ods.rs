@@ -165,6 +165,13 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
         self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
     }
+
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        self.sheets
+            .iter()
+            .map(|(name, (range, _formula))| (name.to_owned(), range.clone()))
+            .collect()
+    }
 }
 
 struct Content {

@@ -492,6 +492,24 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             })
         })
     }
+
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        self.sheets
+            .clone()
+            .into_iter()
+            .filter_map(|(name, path)| {
+                let xml = xml_reader(&mut self.zip, &path)?.ok()?;
+                let range = worksheet(
+                    &self.strings,
+                    &self.formats,
+                    xml,
+                    &mut |s, f, xml, cells| read_sheet_data(xml, s, f, cells),
+                )
+                .ok()?;
+                Some((name, range))
+            })
+            .collect()
+    }
 }
 
 fn xml_reader<'a, RS>(

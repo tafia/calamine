@@ -526,6 +526,18 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
         };
         Some(self.worksheet_formula_from_path(path))
     }
+
+    /// MS-XLSB 2.1.7.62
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        let sheets = self.sheets.clone();
+        sheets
+            .into_iter()
+            .filter_map(|(name, path)| {
+                let ws = self.worksheet_range_from_path(path).ok()?;
+                Some((name, ws))
+            })
+            .collect()
+    }
 }
 
 struct RecordIter<'a> {
