@@ -1,6 +1,6 @@
 //! Internal module providing handy function
 
-#![allow(clippy::cast_ptr_alignment)]
+use std::convert::TryInto;
 
 macro_rules! from_err {
     ($from:ty, $to:tt, $var:tt) => {
@@ -16,54 +16,37 @@ macro_rules! from_err {
 pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
     assert_eq!(s.len() % 4, 0);
     s.chunks_exact(4)
-        .map(|data| u32::from_ne_bytes([data[0], data[1], data[2], data[3]]))
+        .map(|data| u32::from_le_bytes(data.try_into().unwrap()))
 }
 
-pub(crate) fn read_slice_u16(s: &[u8]) -> impl ExactSizeIterator<Item = u16> + '_ {
-    s.chunks_exact(2)
-        .map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]]))
-}
-
-pub(crate) fn read_slice_i32(s: &[u8]) -> impl ExactSizeIterator<Item = i32> + '_ {
-    s.chunks_exact(4)
-        .map(|chunk| i32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-}
-
-pub(crate) fn read_slice_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
-    s.chunks_exact(4)
-        .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-}
-
-pub(crate) fn read_slice_u64(s: &[u8]) -> impl ExactSizeIterator<Item = u64> + '_ {
-    s.chunks_exact(8).map(|chunk| {
-        u64::from_ne_bytes([
-            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-        ])
-    })
-}
-
-pub(crate) fn read_slice_f64(s: &[u8]) -> impl ExactSizeIterator<Item = f64> + '_ {
-    s.chunks_exact(8).map(|chunk| {
-        f64::from_ne_bytes([
-            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-        ])
-    })
-}
-
+#[inline]
 pub fn read_u32(s: &[u8]) -> u32 {
-    read_slice_u32(s).next().unwrap()
+    u32::from_le_bytes(s[..4].try_into().unwrap())
 }
 
+#[inline]
 pub fn read_i32(s: &[u8]) -> i32 {
-    read_slice_i32(s).next().unwrap()
+    i32::from_le_bytes(s[..4].try_into().unwrap())
 }
 
+#[inline]
 pub fn read_u16(s: &[u8]) -> u16 {
-    read_slice_u16(s).next().unwrap()
+    u16::from_le_bytes(s[..2].try_into().unwrap())
 }
 
+#[inline]
+pub fn read_u64(s: &[u8]) -> u64 {
+    u64::from_le_bytes(s[..8].try_into().unwrap())
+}
+
+#[inline]
 pub fn read_usize(s: &[u8]) -> usize {
-    read_u32(s) as usize
+    read_u32(s).try_into().unwrap()
+}
+
+#[inline]
+pub fn read_f64(s: &[u8]) -> f64 {
+    f64::from_le_bytes(s[..8].try_into().unwrap())
 }
 
 /// Push literal column into a String buffer
@@ -1073,7 +1056,7 @@ mod tests {
         let data = b"ABCDEFGH";
         assert_eq!(
             to_u32(data).collect::<Vec<_>>(),
-            [u32::from_ne_bytes(*b"ABCD"), u32::from_ne_bytes(*b"EFGH")]
+            [u32::from_le_bytes(*b"ABCD"), u32::from_le_bytes(*b"EFGH")]
         );
     }
 }

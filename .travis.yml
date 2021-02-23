@@ -2,6 +2,10 @@ language: rust
 cache: cargo
 sudo: false
 
+arch:
+  - amd64
+  - s390x
+
 rust:
   - nightly
   - beta

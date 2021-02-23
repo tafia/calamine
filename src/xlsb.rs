@@ -12,7 +12,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use crate::utils::{push_column, read_slice_f64, read_slice_i32, read_u16, read_u32, read_usize};
+use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
@@ -255,7 +255,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let extern_sheets = buf[4..]
                         .chunks(12)
                         .map(|xti| {
-                            match read_slice_i32(&xti[4..8]).next().unwrap() {
+                            match read_i32(&xti[4..8]) {
                                 -2 => "#ThisWorkbook",
                                 -1 => "#InvalidWorkSheet",
                                 p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
@@ -337,7 +337,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let is_int = (buf[8] & 2) != 0;
                     buf[8] &= 0xFC;
                     if is_int {
-                        let v = (read_slice_i32(&buf[8..12]).next().unwrap() >> 2) as i64;
+                        let v = (read_i32(&buf[8..12]) >> 2) as i64;
                         if d100 {
                             DataType::Float((v as f64) / 100.0)
                         } else {
@@ -346,7 +346,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     } else {
                         let mut v = [0u8; 8];
                         v[4..].copy_from_slice(&buf[8..12]);
-                        let v = read_slice_f64(&v).next().unwrap();
+                        let v = read_f64(&v);
                         DataType::Float(if d100 { v / 100.0 } else { v })
                     }
                 }
@@ -366,7 +366,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     DataType::Error(error)
                 }
                 0x0004 | 0x000A => DataType::Bool(buf[8] != 0), // BrtCellBool or BrtFmlaBool
-                0x0005 | 0x0009 => DataType::Float(read_slice_f64(&buf[8..16]).next().unwrap()), // BrtCellReal or BrtFmlaFloat
+                0x0005 | 0x0009 => DataType::Float(read_f64(&buf[8..16])), // BrtCellReal or BrtFmlaFloat
                 0x0006 | 0x0008 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
@@ -525,6 +525,18 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
             None => return None,
         };
         Some(self.worksheet_formula_from_path(path))
+    }
+
+    /// MS-XLSB 2.1.7.62
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        let sheets = self.sheets.clone();
+        sheets
+            .into_iter()
+            .filter_map(|(name, path)| {
+                let ws = self.worksheet_range_from_path(path).ok()?;
+                Some((name, ws))
+            })
+            .collect()
     }
 }
 
@@ -809,7 +821,7 @@ fn parse_formula(
             }
             0x1F => {
                 stack.push(formula.len());
-                formula.push_str(&format!("{}", read_slice_f64(rgce).next().unwrap()));
+                formula.push_str(&format!("{}", read_f64(rgce)));
                 rgce = &rgce[8..];
             }
             0x20 | 0x40 | 0x60 => {

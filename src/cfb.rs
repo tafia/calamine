@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::cmp::min;
+use std::convert::TryInto;
 use std::io::Read;
 
 use log::debug;
@@ -169,7 +170,10 @@ impl Header {
         f.read_exact(&mut buf).map_err(CfbError::Io)?;
 
         // check ole signature
-        if read_slice_u64(buf.as_ref()).next() != Some(0xE11A_B1A1_E011_CFD0) {
+        let signature = buf
+            .get(0..8)
+            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()));
+        if signature != Some(0xE11A_B1A1_E011_CFD0) {
             return Err(CfbError::Ole);
         }
 
@@ -293,20 +297,15 @@ struct Directory {
 
 impl Directory {
     fn from_slice(buf: &[u8], sector_size: usize) -> Directory {
-        use std::convert::TryFrom;
-
         let mut name = UTF_16LE.decode(&buf[..64]).0.into_owned();
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
         let start = read_u32(&buf[116..120]);
-        let len = if sector_size == 512 {
-            read_slice_u32(&buf[120..124]).next().unwrap() as usize
+        let len: usize = if sector_size == 512 {
+            read_u32(&buf[120..124]).try_into().unwrap()
         } else {
-            read_slice_u64(&buf[120..128])
-                .next()
-                .and_then(|x| usize::try_from(x).ok())
-                .unwrap()
+            read_u64(&buf[120..128]).try_into().unwrap()
         };
 
         Directory { start, len, name }
@@ -423,7 +422,6 @@ impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
         let e =
             codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
-
         Ok(XlsEncoding { encoding: e })
     }
 

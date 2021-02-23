@@ -26,7 +26,7 @@ It is as simple as:
 use calamine::{open_workbook, Error, Xlsx, Reader, RangeDeserializerBuilder};
 
 fn example() -> Result<(), Error> {
-    let path = format!("{}/tests/tempurature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut workbook: Xlsx<_> = open_workbook(path)?;
     let range = workbook.worksheet_range("Sheet1")
         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
@@ -35,7 +35,7 @@ fn example() -> Result<(), Error> {
 
     if let Some(result) = iter.next() {
         let (label, value): (String, f64) = result?;
-        assert_eq!(label, "celcius");
+        assert_eq!(label, "celsius");
         assert_eq!(value, 22.2222);
         Ok(())
     } else {

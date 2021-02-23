@@ -492,6 +492,24 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             })
         })
     }
+
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+        self.sheets
+            .clone()
+            .into_iter()
+            .filter_map(|(name, path)| {
+                let xml = xml_reader(&mut self.zip, &path)?.ok()?;
+                let range = worksheet(
+                    &self.strings,
+                    &self.formats,
+                    xml,
+                    &mut |s, f, xml, cells| read_sheet_data(xml, s, f, cells),
+                )
+                .ok()?;
+                Some((name, range))
+            })
+            .collect()
+    }
 }
 
 fn xml_reader<'a, RS>(
@@ -590,7 +608,10 @@ fn read_sheet_data(
         let is_date_time = match get_attribute(c_element.attributes(), b"s") {
             Ok(Some(style)) => {
                 let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
-                matches!(formats.get(id), Some(CellFormat::Date))
+                match formats.get(id) {
+                    Some(CellFormat::Date) => true,
+                    _ => false,
+                }
             }
             _ => false,
         };
@@ -626,9 +647,7 @@ fn read_sheet_data(
                 // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
                 // We do try an initial parse as Float for utility, but fall back to a string
                 // representation if that fails
-                v.parse()
-                    .map(DataType::Float)
-                    .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
+                v.parse().map(DataType::Float).or(Ok(DataType::String(v)))
             }
             Some(b"n") => {
                 // n - number
@@ -657,7 +676,7 @@ fn read_sheet_data(
                             DataType::Float(n)
                         }
                     })
-                    .or_else::<XlsxError, _>(|_| Ok(DataType::String(v)))
+                    .or(Ok(DataType::String(v)))
             }
             Some(b"is") => {
                 // this case should be handled in outer loop over cell elements, in which
@@ -698,7 +717,7 @@ fn read_sheet_data(
 
 // This tries to detect number formats that are definitely date/time formats.
 // This is definitely not perfect!
-fn is_custom_date_format(format: &String) -> bool {
+fn is_custom_date_format(format: &str) -> bool {
     format.bytes().all(|c| b"mdyMDYhsHS-/. \\".contains(&c))
 }
 
