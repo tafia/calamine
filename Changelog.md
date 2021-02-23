@@ -10,8 +10,13 @@
 
 ## Unreleased
 
+## 0.18.0
+
 - fix: Allow empty value cells in xlsx
 - fix: obscure xls parsing errors (#195)
+- feat: Improve conversions from raw data to primitives
+- docs: fix two typos in readme
+- feat: replace macro matches! by match expression to reduce MSRV
 
 ## 0.17.0
 
