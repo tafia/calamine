@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
