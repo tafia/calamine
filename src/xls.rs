@@ -1,14 +1,14 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
 use log::debug;
 
 use crate::cfb::{Cfb, XlsEncoding};
-use crate::utils::{push_column, read_slice_f64, read_slice_i32, read_u16, read_u32};
+use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
@@ -325,7 +325,7 @@ fn parse_number(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     }
     let row = read_u16(r) as u32;
     let col = read_u16(&r[2..]) as u32;
-    let v = read_slice_f64(&r[6..]).next().unwrap();
+    let v = read_f64(&r[6..]);
     Ok(Cell::new((row, col), DataType::Float(v)))
 }
 
@@ -419,14 +419,14 @@ fn rk_num(rk: &[u8]) -> DataType {
     v[4..].copy_from_slice(rk);
     v[0] &= 0xFC;
     if is_int {
-        let v = (read_slice_i32(&v[4..]).next().unwrap() >> 2) as i64;
+        let v = (read_i32(&v[4..8]) >> 2) as i64;
         if d100 && v % 100 != 0 {
             DataType::Float(v as f64 / 100.0)
         } else {
             DataType::Int(if d100 { v / 100 } else { v })
         }
     } else {
-        let v = read_slice_f64(&v).next().unwrap();
+        let v = read_f64(&v);
         DataType::Float(if d100 { v / 100.0 } else { v })
     }
 }
@@ -515,10 +515,7 @@ fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<Strin
             found: r.data.len(),
         });
     }
-    let len = read_slice_i32(&r.data[4..])
-        .next()
-        .and_then(|x| usize::try_from(x).ok())
-        .unwrap();
+    let len: usize = read_i32(&r.data[4..8]).try_into().unwrap();
     let mut sst = Vec::with_capacity(len);
     r.data = &r.data[8..];
     for _ in 0..len {
@@ -557,11 +554,9 @@ fn read_rich_extended_string(
         0
     };
     if ext_st != 0 {
-        unused_len += read_slice_i32(r.data)
-            .next()
-            .and_then(|x| usize::try_from(x).ok())
-            .unwrap();
-        r.data = &r.data[4..];
+        let (raw_len, next_data) = r.data.split_at(4);
+        unused_len += usize::try_from(read_i32(raw_len)).unwrap();
+        r.data = next_data;
     };
 
     let s = read_dbcs(encoding, str_len, r)?;
@@ -911,7 +906,7 @@ fn parse_formula(
             }
             0x1F => {
                 stack.push(formula.len());
-                formula.push_str(&format!("{}", read_slice_f64(rgce).next().unwrap()));
+                formula.push_str(&format!("{}", read_f64(rgce)));
                 rgce = &rgce[8..];
             }
             0x20 | 0x40 | 0x60 => {
