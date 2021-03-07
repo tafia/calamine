@@ -702,6 +702,7 @@ fn table() {
         env!("CARGO_MANIFEST_DIR")
     );
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    xls.load_tables().unwrap();
     let table_names = xls.table_names();
     assert_eq!(table_names[0], "Temperature");
     let table = xls
