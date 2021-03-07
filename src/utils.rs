@@ -1,6 +1,6 @@
 //! Internal module providing handy function
 
-#![allow(clippy::cast_ptr_alignment)]
+use std::convert::TryInto;
 
 macro_rules! from_err {
     ($from:ty, $to:tt, $var:tt) => {
@@ -12,25 +12,41 @@ macro_rules! from_err {
     };
 }
 
-/// Converts a &[u8] into a &[u32]
-pub fn to_u32(s: &[u8]) -> &[u32] {
+/// Converts a &[u8] into an iterator of `u32`s
+pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
     assert_eq!(s.len() % 4, 0);
-    unsafe { std::slice::from_raw_parts(s as *const [u8] as *const u32, s.len() / 4) }
-}
-pub fn read_slice<T>(s: &[u8]) -> T {
-    unsafe { std::ptr::read(&s[..std::mem::size_of::<T>()] as *const [u8] as *const T) }
+    s.chunks_exact(4)
+        .map(|data| u32::from_le_bytes(data.try_into().unwrap()))
 }
 
+#[inline]
 pub fn read_u32(s: &[u8]) -> u32 {
-    read_slice(s)
+    u32::from_le_bytes(s[..4].try_into().unwrap())
 }
 
+#[inline]
+pub fn read_i32(s: &[u8]) -> i32 {
+    i32::from_le_bytes(s[..4].try_into().unwrap())
+}
+
+#[inline]
 pub fn read_u16(s: &[u8]) -> u16 {
-    read_slice(s)
+    u16::from_le_bytes(s[..2].try_into().unwrap())
 }
 
+#[inline]
+pub fn read_u64(s: &[u8]) -> u64 {
+    u64::from_le_bytes(s[..8].try_into().unwrap())
+}
+
+#[inline]
 pub fn read_usize(s: &[u8]) -> usize {
-    read_u32(s) as usize
+    read_u32(s).try_into().unwrap()
+}
+
+#[inline]
+pub fn read_f64(s: &[u8]) -> f64 {
+    f64::from_le_bytes(s[..8].try_into().unwrap())
 }
 
 /// Push literal column into a String buffer
@@ -1030,3 +1046,17 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
     3,   // "AVERAGEIF",
     129, // "AVERAGEIFS"
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_to_u32() {
+        let data = b"ABCDEFGH";
+        assert_eq!(
+            to_u32(data).collect::<Vec<_>>(),
+            [u32::from_le_bytes(*b"ABCD"), u32::from_le_bytes(*b"EFGH")]
+        );
+    }
+}

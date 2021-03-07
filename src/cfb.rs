@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::cmp::min;
+use std::convert::TryInto;
 use std::io::Read;
 
 use log::debug;
@@ -10,9 +11,11 @@ use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
 use crate::utils::*;
 
-const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
-const FREESECT: u32 = 0xFFFF_FFFF;
 const RESERVED_SECTORS: u32 = 0xFFFF_FFFA;
+const DIFSECT: u32 = 0xFFFF_FFFC;
+// const FATSECT: u32 = 0xFFFF_FFFD;
+const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
+//const FREESECT: u32 = 0xFFFF_FFFF;
 
 /// A Cfb specific error enum
 #[derive(Debug)]
@@ -83,15 +86,15 @@ impl Cfb {
         debug!("load difat");
         let mut sector_id = h.difat_start;
         while sector_id < RESERVED_SECTORS {
-            difat.extend_from_slice(to_u32(sectors.get(sector_id, reader)?));
+            difat.extend(to_u32(sectors.get(sector_id, reader)?));
             sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
         }
 
         // load the FATs
-        debug!("load fat");
+        debug!("load fat (len {})", h.fat_len);
         let mut fats = Vec::with_capacity(h.fat_len);
-        for id in difat.into_iter().filter(|id| *id != FREESECT) {
-            fats.extend_from_slice(to_u32(sectors.get(id, reader)?));
+        for id in difat.into_iter().filter(|id| *id < DIFSECT) {
+            fats.extend(to_u32(sectors.get(id, reader)?));
         }
 
         // get the list of directory sectors
@@ -116,7 +119,7 @@ impl Cfb {
             reader,
             h.mini_fat_len * h.sector_size,
         )?;
-        let minifat = to_u32(&minifat).to_vec();
+        let minifat = to_u32(&minifat).collect();
         Ok(Cfb {
             directories: dirs,
             sectors,
@@ -167,7 +170,10 @@ impl Header {
         f.read_exact(&mut buf).map_err(CfbError::Io)?;
 
         // check ole signature
-        if read_slice::<u64>(buf.as_ref()) != 0xE11A_B1A1_E011_CFD0 {
+        let signature = buf
+            .get(0..8)
+            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()));
+        if signature != Some(0xE11A_B1A1_E011_CFD0) {
             return Err(CfbError::Ole);
         }
 
@@ -208,7 +214,7 @@ impl Header {
         let difat_len = read_usize(&buf[62..76]);
 
         let mut difat = Vec::with_capacity(difat_len);
-        difat.extend_from_slice(to_u32(&buf[76..512]));
+        difat.extend(to_u32(&buf[76..512]));
 
         Ok((
             Header {
@@ -245,9 +251,7 @@ impl Sectors {
         let end = start + self.size;
         if end > self.data.len() {
             let mut len = self.data.len();
-            unsafe {
-                self.data.set_len(end);
-            }
+            self.data.resize(end, 0);
             // read_exact or stop if EOF
             while len < end {
                 let read = r.read(&mut self.data[len..end]).map_err(CfbError::Io)?;
@@ -298,10 +302,10 @@ impl Directory {
             name.truncate(l);
         }
         let start = read_u32(&buf[116..120]);
-        let len = if sector_size == 512 {
-            read_slice::<u32>(&buf[120..124]) as usize
+        let len: usize = if sector_size == 512 {
+            read_u32(&buf[120..124]).try_into().unwrap()
         } else {
-            read_slice::<u64>(&buf[120..128]) as usize
+            read_u64(&buf[120..128]).try_into().unwrap()
         };
 
         Directory { start, len, name }
@@ -412,27 +416,33 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
 #[derive(Clone)]
 pub struct XlsEncoding {
     encoding: &'static Encoding,
-    pub high_byte: Option<bool>, // None if single byte encoding
 }
 
 impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
         let e =
             codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
-        let high_byte = if e == UTF_8 || e.is_single_byte() {
-            None
-        } else {
-            Some(false)
-        };
+        Ok(XlsEncoding { encoding: e })
+    }
 
-        Ok(XlsEncoding {
-            encoding: e,
-            high_byte,
+    fn high_byte(&self, high_byte: Option<bool>) -> Option<bool> {
+        high_byte.or_else(|| {
+            if self.encoding == UTF_8 || self.encoding.is_single_byte() {
+                None
+            } else {
+                Some(false)
+            }
         })
     }
 
-    pub fn decode_to(&self, stream: &[u8], len: usize, s: &mut String) -> (usize, usize) {
-        let (l, ub, bytes) = match self.high_byte {
+    pub fn decode_to(
+        &self,
+        stream: &[u8],
+        len: usize,
+        s: &mut String,
+        high_byte: Option<bool>,
+    ) -> (usize, usize) {
+        let (l, ub, bytes) = match self.high_byte(high_byte) {
             None => {
                 let l = min(stream.len(), len);
                 (l, l, Cow::Borrowed(&stream[..l]))
@@ -457,9 +467,9 @@ impl XlsEncoding {
         (l, ub)
     }
 
-    pub fn decode_all(&self, stream: &[u8]) -> String {
+    pub fn decode_all(&self, stream: &[u8], high_byte: Option<bool>) -> String {
         let mut s = String::with_capacity(stream.len());
-        let _ = self.decode_to(stream, stream.len(), &mut s);
+        let _ = self.decode_to(stream, stream.len(), &mut s, high_byte);
         s
     }
 }

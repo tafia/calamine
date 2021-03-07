@@ -17,6 +17,8 @@ pub enum DataType {
     String(String),
     /// Boolean
     Bool(bool),
+    /// Date or Time
+    DateTime(f64),
     /// Error
     Error(CellErrorType),
     /// Empty cell
@@ -121,7 +123,7 @@ impl DataType {
                 let secs = days * 86400;
                 chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
             }
-            DataType::Float(f) => {
+            DataType::Float(f) | DataType::DateTime(f) => {
                 let unix_days = f - 25569.;
                 let unix_secs = unix_days * 86400.;
                 let secs = unix_secs.trunc() as i64;
@@ -176,6 +178,7 @@ impl fmt::Display for DataType {
             DataType::Float(ref e) => write!(f, "{}", e),
             DataType::String(ref e) => write!(f, "{}", e),
             DataType::Bool(ref e) => write!(f, "{}", e),
+            DataType::DateTime(ref e) => write!(f, "{}", e),
             DataType::Error(ref e) => write!(f, "{}", e),
             DataType::Empty => Ok(()),
         }

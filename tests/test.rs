@@ -1,5 +1,5 @@
 use calamine::CellErrorType::*;
-use calamine::DataType::{Bool, Empty, Error, Float, String};
+use calamine::DataType::{Bool, DateTime, Empty, Error, Float, String};
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
 use std::sync::Once;
@@ -198,6 +198,24 @@ fn xls() {
             [Float(3.), String("c".to_string())]
         ]
     );
+}
+
+// test ignored because the file is too large to be commited and tested
+#[ignore]
+#[test]
+fn issue_195() {
+    setup();
+
+    let path = format!(
+        "{}/JLCPCB SMT Parts Library(20210204).xls",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xls<_> = open_workbook(&path).expect("can't open wb");
+    let range = excel
+        .worksheet_range("JLCPCB SMT Parts Library")
+        .expect("error in wks range")
+        .expect("sheet not found");
+    assert_eq!(range.get_size(), (52046, 12));
 }
 
 #[test]
@@ -692,4 +710,21 @@ fn table() {
     assert_eq!(table.data().get((0,1)), Some(&Float(22.2222)));
     assert_eq!(table.data().get((1,1)), Some(&Float(72.0)));
     xls.worksheet_range_at(0).unwrap().unwrap();
+}
+
+#[test]
+fn date() {
+    setup();
+
+    let path = format!("{}/tests/date.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+    }
 }

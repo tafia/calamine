@@ -8,6 +8,29 @@
   - test: Adding missing tests
   - chore: Changes to the build process or auxiliary tools/libraries/documentation
 
+## Unreleased
+
+## 0.18.0
+
+- fix: Allow empty value cells in xlsx
+- fix: obscure xls parsing errors (#195)
+- feat: Improve conversions from raw data to primitives
+- docs: fix two typos in readme
+- feat: replace macro matches! by match expression to reduce MSRV
+
+## 0.17.0
+
+- feat: use `chunks_exact` instead of chunks where possible
+- fix: make `to_u32`, `read_slice` safe and sound
+- fix: security issue #199
+- test: add regression tests that fail with miri
+- feat: detect date/time formatted cells in XLSX
+- feat: brute force file detection if extension is not known
+- feat: support xlsx sheet sizes beyond u32::MAX
+- test: ensure doctest functions actually run
+- test: run cargo fmt to fix travis tests
+- fix: fix Float reading for XLSB
+
 ## 0.16.2
 - docs: add `deserialize_with` example in readme
 - fix: Skip phonetic run
