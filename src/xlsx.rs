@@ -402,10 +402,15 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         if table_type {
                             if target.starts_with("../") {
                                 // this is an incomplete implementation, but should be good enough for excel
-                                let new_index = base_folder.rfind("/").expect("Must be a parent folder");
-                                let full_path = format!("{}{}", base_folder[..new_index].to_owned(), target[2..].to_owned());
+                                let new_index =
+                                    base_folder.rfind("/").expect("Must be a parent folder");
+                                let full_path = format!(
+                                    "{}{}",
+                                    base_folder[..new_index].to_owned(),
+                                    target[2..].to_owned()
+                                );
                                 table_locations.push(full_path);
-                            } else if target.is_empty() { // do nothing 
+                            } else if target.is_empty() { // do nothing
                             } else {
                                 table_locations.push(target);
                             }
@@ -417,7 +422,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     _ => (),
                 }
             }
-            drop(xml); // this drop shouldn't be necessary, but the borrow checker complains otherwise 
+            drop(xml); // this drop shouldn't be necessary, but the borrow checker complains otherwise
             let mut new_tables = Vec::new();
             for table_file in table_locations {
                 let mut xml = match xml_reader(&mut self.zip, &table_file) {
@@ -466,7 +471,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     _ => (),
                                 }
                             }
-                            
                         }
                         Ok(Event::End(ref e)) if e.local_name() == b"table" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("Table")),
@@ -484,15 +488,20 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 if table_meta.insert_row {
                     dims.end.0 -= 1;
                 }
-                new_tables.push((table_meta.display_name, sheet_name.clone(), column_names, dims));
+                new_tables.push((
+                    table_meta.display_name,
+                    sheet_name.clone(),
+                    column_names,
+                    dims,
+                ));
             }
             self.tables = Some(new_tables);
         }
         Ok(())
     }
 
-    /// Load the tables from 
-    pub fn load_tables(&mut self) -> Result<(), XlsxError>{
+    /// Load the tables from
+    pub fn load_tables(&mut self) -> Result<(), XlsxError> {
         if self.tables.is_none() {
             self.read_table_metadata()
         } else {
@@ -502,45 +511,63 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     /// Get the names of all the tables
     pub fn table_names(&self) -> Vec<&String> {
-        self.tables.as_ref().expect("Tables must be loaded before they are referenced").iter().map(|(name, ..)| name).collect()
+        self.tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .map(|(name, ..)| name)
+            .collect()
     }
     /// Get the names of all the tables in a sheet
     pub fn table_names_in_sheet(&self, sheet_name: &str) -> Vec<&String> {
-        self.tables.as_ref().expect("Tables must be loaded before they are referenced").iter().filter(|(_, sheet, ..)| sheet == sheet_name ).map(|(name, ..)| name).collect()
+        self.tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .filter(|(_, sheet, ..)| sheet == sheet_name)
+            .map(|(name, ..)| name)
+            .collect()
     }
 
     /// Get the table by name
     // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more effecient
-    pub fn table_by_name(&mut self, table_name: &str) -> Option<Result<Table<DataType>, XlsxError>> {
-        let match_table_meta = self.tables.as_ref().expect("Tables must be loaded before they are referenced").iter().find(|(table, ..)| table == table_name)?;
+    pub fn table_by_name(
+        &mut self,
+        table_name: &str,
+    ) -> Option<Result<Table<DataType>, XlsxError>> {
+        let match_table_meta = self
+            .tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .find(|(table, ..)| table == table_name)?;
         let name = match_table_meta.0.to_owned();
         let sheet_name = match_table_meta.1.clone();
-        let columns =  match_table_meta.2.clone();
+        let columns = match_table_meta.2.clone();
         let start_dim = match_table_meta.3.start;
         let end_dim = match_table_meta.3.end;
         let r_range = self.worksheet_range(&sheet_name)?;
         match r_range {
             Ok(range) => {
                 let tbl_rng = range.range(start_dim, end_dim);
-                Some(Ok(Table{
+                Some(Ok(Table {
                     name,
                     sheet_name,
                     columns,
                     data: tbl_rng,
-                } ))
-            },
-            Err(e) => Some(Err(e))
+                }))
+            }
+            Err(e) => Some(Err(e)),
         }
     }
 }
-
 
 struct InnerTableMetadata {
     display_name: String,
     ref_cells: String,
     header_row_count: u32,
     insert_row: bool,
-    totals_row_count: u32
+    totals_row_count: u32,
 }
 
 impl InnerTableMetadata {
@@ -550,13 +577,10 @@ impl InnerTableMetadata {
             ref_cells: String::new(),
             header_row_count: 1,
             insert_row: false,
-            totals_row_count: 0
+            totals_row_count: 0,
         }
     }
 }
-
-
-
 
 fn worksheet<T, F>(
     strings: &[String],

@@ -763,16 +763,19 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
 impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 
 /// Struct with the key elements of a table
-pub struct Table<T> 
-where T: Default + Clone + PartialEq 
+pub struct Table<T>
+where
+    T: Default + Clone + PartialEq,
 {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
     pub(crate) columns: Vec<String>,
-    pub(crate) data: Range<T>
+    pub(crate) data: Range<T>,
 }
-impl <T> Table<T> 
-where T: Default + Clone + PartialEq {
+impl<T> Table<T>
+where
+    T: Default + Clone + PartialEq,
+{
     /// Get the name of the table
     pub fn name(&self) -> &str {
         &self.name
