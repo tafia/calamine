@@ -152,7 +152,7 @@ where
     /// Sheets paths
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
-    tables: Vec<(String, String, Vec<String>, Dimensions)>,
+    tables: Option<Vec<(String, String, Vec<String>, Dimensions)>>,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
     /// Metadata
@@ -418,6 +418,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 }
             }
             drop(xml); // this drop shouldn't be necessary, but the borrow checker complains otherwise 
+            let mut new_tables = Vec::new();
             for table_file in table_locations {
                 let mut xml = match xml_reader(&mut self.zip, &table_file) {
                     None => continue,
@@ -483,25 +484,35 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 if table_meta.insert_row {
                     dims.end.0 -= 1;
                 }
-                self.tables.push((table_meta.display_name, sheet_name.clone(), column_names, dims));
+                new_tables.push((table_meta.display_name, sheet_name.clone(), column_names, dims));
             }
+            self.tables = Some(new_tables);
         }
         Ok(())
     }
 
+    /// Load the tables from 
+    pub fn load_tables(&mut self) -> Result<(), XlsxError>{
+        if self.tables.is_none() {
+            self.read_table_metadata()
+        } else {
+            Ok(())
+        }
+    }
+
     /// Get the names of all the tables
     pub fn table_names(&self) -> Vec<&String> {
-        self.tables.iter().map(|(name, ..)| name).collect()
+        self.tables.as_ref().expect("Tables must be loaded before they are referenced").iter().map(|(name, ..)| name).collect()
     }
     /// Get the names of all the tables in a sheet
     pub fn table_names_in_sheet(&self, sheet_name: &str) -> Vec<&String> {
-        self.tables.iter().filter(|(_, sheet, ..)| sheet == sheet_name ).map(|(name, ..)| name).collect()
+        self.tables.as_ref().expect("Tables must be loaded before they are referenced").iter().filter(|(_, sheet, ..)| sheet == sheet_name ).map(|(name, ..)| name).collect()
     }
 
     /// Get the table by name
-    //. If retrieving multiple tables from a single sheet, get tables by sheet will be more effecient
+    // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more effecient
     pub fn table_by_name(&mut self, table_name: &str) -> Option<Result<Table<DataType>, XlsxError>> {
-        let match_table_meta = self.tables.iter().find(|(table, ..)| table == table_name)?;
+        let match_table_meta = self.tables.as_ref().expect("Tables must be loaded before they are referenced").iter().find(|(table, ..)| table == table_name)?;
         let name = match_table_meta.0.to_owned();
         let sheet_name = match_table_meta.1.clone();
         let columns =  match_table_meta.2.clone();
@@ -615,14 +626,13 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             strings: Vec::new(),
             formats: Vec::new(),
             sheets: Vec::new(),
-            tables: Vec::new(),
+            tables: None,
             metadata: Metadata::default(),
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
         let relationships = xlsx.read_relationships()?;
         xlsx.read_workbook(&relationships)?;
-        xlsx.read_table_metadata()?;
         Ok(xlsx)
     }
 
