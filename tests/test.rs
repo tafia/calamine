@@ -707,8 +707,8 @@ fn table() {
     assert_eq!(table_names[0], "Temperature");
     let table = xls
         .table_by_name("Temperature")
-        .expect("Should exist")
-        .expect("Should not error");
+        .expect("Table should exist")
+        .expect("Parsing table's sheet should not error");
     assert_eq!(table.name(), "Temperature");
     assert_eq!(table.columns()[0], "label");
     assert_eq!(table.columns()[1], "value");

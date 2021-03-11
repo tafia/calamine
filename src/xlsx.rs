@@ -369,21 +369,24 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let last_folder_index = sheet_path.rfind("/").expect("should be in a folder");
             let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
             let rel_path = format!("{}/_rels{}.rels", base_folder, file_name);
-            let mut xml = match xml_reader(&mut self.zip, &rel_path) {
-                None => continue,
-                Some(x) => x?,
-            };
+
             let mut table_locations = Vec::new();
             let mut buf = Vec::new();
-            loop {
-                buf.clear();
-                match xml.read_event(&mut buf) {
-                    Ok(Event::Start(ref e)) if e.local_name() == b"Relationship" => {
-                        let mut id = Vec::new();
-                        let mut target = String::new();
-                        let mut table_type = false;
-                        for a in e.attributes() {
-                            match a? {
+            // we need another mutable borrow of self.zip later so we enclose this borrow within braces
+            {
+                let mut xml = match xml_reader(&mut self.zip, &rel_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                loop {
+                    buf.clear();
+                    match xml.read_event(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.local_name() == b"Relationship" => {
+                            let mut id = Vec::new();
+                            let mut target = String::new();
+                            let mut table_type = false;
+                            for a in e.attributes() {
+                                match a? {
                                 Attribute {
                                     key: b"Id",
                                     value: v,
@@ -398,31 +401,31 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 } => table_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"[..],
                                 _ => (),
                             }
-                        }
-                        if table_type {
-                            if target.starts_with("../") {
-                                // this is an incomplete implementation, but should be good enough for excel
-                                let new_index =
-                                    base_folder.rfind("/").expect("Must be a parent folder");
-                                let full_path = format!(
-                                    "{}{}",
-                                    base_folder[..new_index].to_owned(),
-                                    target[2..].to_owned()
-                                );
-                                table_locations.push(full_path);
-                            } else if target.is_empty() { // do nothing
-                            } else {
-                                table_locations.push(target);
+                            }
+                            if table_type {
+                                if target.starts_with("../") {
+                                    // this is an incomplete implementation, but should be good enough for excel
+                                    let new_index =
+                                        base_folder.rfind("/").expect("Must be a parent folder");
+                                    let full_path = format!(
+                                        "{}{}",
+                                        base_folder[..new_index].to_owned(),
+                                        target[2..].to_owned()
+                                    );
+                                    table_locations.push(full_path);
+                                } else if target.is_empty() { // do nothing
+                                } else {
+                                    table_locations.push(target);
+                                }
                             }
                         }
+                        Ok(Event::End(ref e)) if e.local_name() == b"Relationships" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
                     }
-                    Ok(Event::End(ref e)) if e.local_name() == b"Relationships" => break,
-                    Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
-                    Err(e) => return Err(XlsxError::Xml(e)),
-                    _ => (),
                 }
             }
-            drop(xml); // this drop shouldn't be necessary, but the borrow checker complains otherwise
             let mut new_tables = Vec::new();
             for table_file in table_locations {
                 let mut xml = match xml_reader(&mut self.zip, &table_file) {
