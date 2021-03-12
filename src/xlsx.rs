@@ -12,7 +12,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader, Table};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -151,6 +151,8 @@ where
     strings: Vec<String>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
+    /// Tables: Name, Sheet, Columns, Data dimensions
+    tables: Option<Vec<(String, String, Vec<String>, Dimensions)>>,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
     /// Metadata
@@ -360,6 +362,227 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
         Ok(relationships)
     }
+
+    // sheets must be added before this is called!!
+    fn read_table_metadata(&mut self) -> Result<(), XlsxError> {
+        for (sheet_name, sheet_path) in &self.sheets {
+            let last_folder_index = sheet_path.rfind("/").expect("should be in a folder");
+            let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
+            let rel_path = format!("{}/_rels{}.rels", base_folder, file_name);
+
+            let mut table_locations = Vec::new();
+            let mut buf = Vec::new();
+            // we need another mutable borrow of self.zip later so we enclose this borrow within braces
+            {
+                let mut xml = match xml_reader(&mut self.zip, &rel_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                loop {
+                    buf.clear();
+                    match xml.read_event(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.local_name() == b"Relationship" => {
+                            let mut id = Vec::new();
+                            let mut target = String::new();
+                            let mut table_type = false;
+                            for a in e.attributes() {
+                                match a? {
+                                Attribute {
+                                    key: b"Id",
+                                    value: v,
+                                } => id.extend_from_slice(&v),
+                                Attribute {
+                                    key: b"Target",
+                                    value: v,
+                                } => target = xml.decode(&v).into_owned(),
+                                Attribute {
+                                    key: b"Type",
+                                    value: v,
+                                } => table_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"[..],
+                                _ => (),
+                            }
+                            }
+                            if table_type {
+                                if target.starts_with("../") {
+                                    // this is an incomplete implementation, but should be good enough for excel
+                                    let new_index =
+                                        base_folder.rfind("/").expect("Must be a parent folder");
+                                    let full_path = format!(
+                                        "{}{}",
+                                        base_folder[..new_index].to_owned(),
+                                        target[2..].to_owned()
+                                    );
+                                    table_locations.push(full_path);
+                                } else if target.is_empty() { // do nothing
+                                } else {
+                                    table_locations.push(target);
+                                }
+                            }
+                        }
+                        Ok(Event::End(ref e)) if e.local_name() == b"Relationships" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+            let mut new_tables = Vec::new();
+            for table_file in table_locations {
+                let mut xml = match xml_reader(&mut self.zip, &table_file) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut column_names = Vec::new();
+                let mut table_meta = InnerTableMetadata::new();
+                loop {
+                    buf.clear();
+                    match xml.read_event(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.local_name() == b"table" => {
+                            for a in e.attributes() {
+                                match a? {
+                                    Attribute {
+                                        key: b"displayName",
+                                        value: v,
+                                    } => table_meta.display_name = xml.decode(&v).into_owned(),
+                                    Attribute {
+                                        key: b"ref",
+                                        value: v,
+                                    } => table_meta.ref_cells = xml.decode(&v).into_owned(),
+                                    Attribute {
+                                        key: b"headerRowCount",
+                                        value: v,
+                                    } => table_meta.header_row_count = xml.decode(&v).parse()?,
+                                    Attribute {
+                                        key: b"insertRow",
+                                        value: v,
+                                    } => table_meta.insert_row = *v != b"0"[..],
+                                    Attribute {
+                                        key: b"totalsRowCount",
+                                        value: v,
+                                    } => table_meta.totals_row_count = xml.decode(&v).parse()?,
+                                    _ => (),
+                                }
+                            }
+                        }
+                        Ok(Event::Start(ref e)) if e.local_name() == b"tableColumn" => {
+                            for a in e.attributes() {
+                                match a? {
+                                    Attribute {
+                                        key: b"name",
+                                        value: v,
+                                    } => column_names.push(xml.decode(&v).into_owned()),
+                                    _ => (),
+                                }
+                            }
+                        }
+                        Ok(Event::End(ref e)) if e.local_name() == b"table" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("Table")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+                let mut dims = get_dimension(table_meta.ref_cells.as_bytes())?;
+                if table_meta.header_row_count != 0 {
+                    dims.start.0 += table_meta.header_row_count;
+                }
+                if table_meta.totals_row_count != 0 {
+                    dims.end.0 -= table_meta.header_row_count;
+                }
+                if table_meta.insert_row {
+                    dims.end.0 -= 1;
+                }
+                new_tables.push((
+                    table_meta.display_name,
+                    sheet_name.clone(),
+                    column_names,
+                    dims,
+                ));
+            }
+            self.tables = Some(new_tables);
+        }
+        Ok(())
+    }
+
+    /// Load the tables from
+    pub fn load_tables(&mut self) -> Result<(), XlsxError> {
+        if self.tables.is_none() {
+            self.read_table_metadata()
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Get the names of all the tables
+    pub fn table_names(&self) -> Vec<&String> {
+        self.tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .map(|(name, ..)| name)
+            .collect()
+    }
+    /// Get the names of all the tables in a sheet
+    pub fn table_names_in_sheet(&self, sheet_name: &str) -> Vec<&String> {
+        self.tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .filter(|(_, sheet, ..)| sheet == sheet_name)
+            .map(|(name, ..)| name)
+            .collect()
+    }
+
+    /// Get the table by name
+    // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more effecient
+    pub fn table_by_name(
+        &mut self,
+        table_name: &str,
+    ) -> Option<Result<Table<DataType>, XlsxError>> {
+        let match_table_meta = self
+            .tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .find(|(table, ..)| table == table_name)?;
+        let name = match_table_meta.0.to_owned();
+        let sheet_name = match_table_meta.1.clone();
+        let columns = match_table_meta.2.clone();
+        let start_dim = match_table_meta.3.start;
+        let end_dim = match_table_meta.3.end;
+        let r_range = self.worksheet_range(&sheet_name)?;
+        match r_range {
+            Ok(range) => {
+                let tbl_rng = range.range(start_dim, end_dim);
+                Some(Ok(Table {
+                    name,
+                    sheet_name,
+                    columns,
+                    data: tbl_rng,
+                }))
+            }
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+struct InnerTableMetadata {
+    display_name: String,
+    ref_cells: String,
+    header_row_count: u32,
+    insert_row: bool,
+    totals_row_count: u32,
+}
+
+impl InnerTableMetadata {
+    fn new() -> Self {
+        Self {
+            display_name: String::new(),
+            ref_cells: String::new(),
+            header_row_count: 1,
+            insert_row: false,
+            totals_row_count: 0,
+        }
+    }
 }
 
 fn worksheet<T, F>(
@@ -430,6 +653,7 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             strings: Vec::new(),
             formats: Vec::new(),
             sheets: Vec::new(),
+            tables: None,
             metadata: Metadata::default(),
         };
         xlsx.read_shared_strings()?;

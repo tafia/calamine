@@ -695,6 +695,37 @@ fn issue_174() {
 }
 
 #[test]
+fn table() {
+    setup();
+    let path = format!(
+        "{}/tests/temperature-table.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    xls.load_tables().unwrap();
+    let table_names = xls.table_names();
+    assert_eq!(table_names[0], "Temperature");
+    let table = xls
+        .table_by_name("Temperature")
+        .expect("Table should exist")
+        .expect("Parsing table's sheet should not error");
+    assert_eq!(table.name(), "Temperature");
+    assert_eq!(table.columns()[0], "label");
+    assert_eq!(table.columns()[1], "value");
+    assert_eq!(
+        table.data().get((0, 0)),
+        Some(&String("celsius".to_owned()))
+    );
+    assert_eq!(
+        table.data().get((1, 0)),
+        Some(&String("fahrenheit".to_owned()))
+    );
+    assert_eq!(table.data().get((0, 1)), Some(&Float(22.2222)));
+    assert_eq!(table.data().get((1, 1)), Some(&Float(72.0)));
+    xls.worksheet_range_at(0).unwrap().unwrap();
+}
+
+#[test]
 fn date() {
     setup();
 
