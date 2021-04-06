@@ -705,6 +705,7 @@ fn table() {
     xls.load_tables().unwrap();
     let table_names = xls.table_names();
     assert_eq!(table_names[0], "Temperature");
+    assert_eq!(table_names[1], "OtherTable");
     let table = xls
         .table_by_name("Temperature")
         .expect("Table should exist")
@@ -712,16 +713,24 @@ fn table() {
     assert_eq!(table.name(), "Temperature");
     assert_eq!(table.columns()[0], "label");
     assert_eq!(table.columns()[1], "value");
-    assert_eq!(
-        table.data().get((0, 0)),
-        Some(&String("celsius".to_owned()))
-    );
-    assert_eq!(
-        table.data().get((1, 0)),
-        Some(&String("fahrenheit".to_owned()))
-    );
-    assert_eq!(table.data().get((0, 1)), Some(&Float(22.2222)));
-    assert_eq!(table.data().get((1, 1)), Some(&Float(72.0)));
+    let data = table.data();
+    assert_eq!(data.get((0, 0)), Some(&String("celsius".to_owned())));
+    assert_eq!(data.get((1, 0)), Some(&String("fahrenheit".to_owned())));
+    assert_eq!(data.get((0, 1)), Some(&Float(22.2222)));
+    assert_eq!(data.get((1, 1)), Some(&Float(72.0)));
+    // Check the second table
+    let table = xls
+        .table_by_name("OtherTable")
+        .expect("Table should exist")
+        .expect("Parsing table's sheet should not error");
+    assert_eq!(table.name(), "OtherTable");
+    assert_eq!(table.columns()[0], "label2");
+    assert_eq!(table.columns()[1], "value2");
+    let data = table.data();
+    assert_eq!(data.get((0, 0)), Some(&String("something".to_owned())));
+    assert_eq!(data.get((1, 0)), Some(&String("else".to_owned())));
+    assert_eq!(data.get((0, 1)), Some(&Float(12.5)));
+    assert_eq!(data.get((1, 1)), Some(&Float(64.0)));
     xls.worksheet_range_at(0).unwrap().unwrap();
 }
 
