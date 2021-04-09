@@ -498,7 +498,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     dims,
                 ));
             }
-            self.tables = Some(new_tables);
+            if let Some(tables) = &mut self.tables {
+                tables.append(&mut new_tables);
+            } else {
+                self.tables = Some(new_tables);
+            }
         }
         Ok(())
     }
