@@ -750,3 +750,20 @@ fn date() {
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }
+
+#[test]
+fn issue_221() {
+    setup();
+
+    let path = format!("{}/tests/issue221.xlsm", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("Cell_A1".to_string()), String("Cell_B1".to_string())],
+            [String("Cell_A2".to_string()), String("Cell_B2".to_string())]
+        ]
+    );
+}
