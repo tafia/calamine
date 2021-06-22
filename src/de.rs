@@ -699,6 +699,27 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         visitor.visit_newtype_struct(self)
     }
 
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        use serde::de::IntoDeserializer;
+
+        match self.data_type {
+            DataType::String(s) => visitor.visit_enum(s.as_str().into_deserializer()),
+            DataType::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+            ref d => Err(DeError::Custom(format!("Expecting enum, got {:?}", d))),
+        }
+    }
+
     deserialize_num!(i64, deserialize_i64, visit_i64);
     deserialize_num!(i32, deserialize_i32, visit_i32);
     deserialize_num!(i16, deserialize_i16, visit_i16);
@@ -711,6 +732,28 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
     deserialize_num!(f32, deserialize_f32, visit_f32);
 
     forward_to_deserialize_any! {
-        unit_struct seq tuple tuple_struct map struct enum identifier ignored_any
+        unit_struct seq tuple tuple_struct map struct identifier ignored_any
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_deserialize_enum() {
+        use crate::ToCellDeserializer;
+        use serde::Deserialize;
+
+        #[derive(Debug, serde_derive::Deserialize, PartialEq)]
+        enum Content {
+            Foo,
+        }
+
+        assert_eq!(
+            Content::deserialize(
+                super::DataType::String("Foo".to_string()).to_cell_deserializer((0, 0))
+            )
+            .unwrap(),
+            Content::Foo
+        );
     }
 }
