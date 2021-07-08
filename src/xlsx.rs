@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
+use std::iter;
 use std::str::FromStr;
 
 use log::warn;
@@ -12,7 +13,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader, Table};
+use crate::{Cell, CellErrorType, CellType, DataType, Metadata, Range, Reader, Table};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -606,6 +607,7 @@ where
 {
     let mut cells = Vec::new();
     let mut buf = Vec::new();
+    let mut merge_cells = None;
     'xml: loop {
         buf.clear();
         match xml.read_event(&mut buf) {
@@ -631,7 +633,16 @@ where
                     }
                     b"sheetData" => {
                         read_data(&strings, &formats, &mut xml, &mut cells)?;
-                        break;
+                    }
+                    b"mergeCells" => {
+                        let merge_count: usize = std::str::from_utf8(
+                            get_attribute(e.attributes(), b"count")?
+                                .ok_or(XlsxError::XmlEof("count"))?,
+                        )
+                        .unwrap_or("0")
+                        .parse()?;
+
+                        merge_cells = Some(read_merge_cells(&mut xml, merge_count)?);
                     }
                     _ => (),
                 }
@@ -641,7 +652,14 @@ where
             _ => (),
         }
     }
-    Ok(Range::from_sparse(cells))
+
+    let mut range = Range::from_sparse(cells);
+
+    if let Some(ref merge_cells) = merge_cells {
+        write_merge_cells(merge_cells, &mut range);
+    }
+
+    Ok(range)
 }
 
 impl<RS: Read + Seek> Reader for Xlsx<RS> {
@@ -941,6 +959,47 @@ fn read_sheet_data(
         }
         Ok(())
     })
+}
+
+fn read_merge_cells(
+    xml: &mut XlsReader<'_>,
+    merge_count: usize,
+) -> Result<Vec<Dimensions>, XlsxError> {
+    let mut buf = Vec::new();
+    let mut merge_dimensions = Vec::with_capacity(merge_count);
+
+    loop {
+        buf.clear();
+
+        match xml.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) if e.local_name() == b"mergeCell" => {
+                let merge_ref =
+                    get_attribute(e.attributes(), b"ref")?.ok_or(XlsxError::XmlEof("ref"))?;
+                merge_dimensions.push(get_dimension(merge_ref)?);
+            }
+            Ok(Event::End(ref e)) if e.local_name() == b"mergeCells" => {
+                return Ok(merge_dimensions)
+            }
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("mergeCells")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+}
+
+fn write_merge_cells<T>(merge_cells: &[Dimensions], range: &mut Range<T>)
+where
+    T: CellType,
+{
+    for merge_cell in merge_cells {
+        let start = (merge_cell.start.0 as usize, merge_cell.start.1 as usize);
+        let end = (merge_cell.end.0 as usize, merge_cell.end.1 as usize);
+        let source_cell = range[start].clone();
+
+        for target in (start.0..=end.0).flat_map(|r| iter::repeat(r).zip(start.1..=end.1)) {
+            range[target].clone_from(&source_cell);
+        }
+    }
 }
 
 // This tries to detect number formats that are definitely date/time formats.
