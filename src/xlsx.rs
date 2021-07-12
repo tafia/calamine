@@ -656,7 +656,7 @@ where
     let mut range = Range::from_sparse(cells);
 
     if let Some(ref merge_cells) = merge_cells {
-        write_merge_cells(merge_cells, &mut range);
+        write_merge_cells(merge_cells, &mut range)?;
     }
 
     Ok(range)
@@ -987,19 +987,27 @@ fn read_merge_cells(
     }
 }
 
-fn write_merge_cells<T>(merge_cells: &[Dimensions], range: &mut Range<T>)
+fn write_merge_cells<T>(merge_cells: &[Dimensions], range: &mut Range<T>) -> Result<(), XlsxError>
 where
     T: CellType,
 {
     for merge_cell in merge_cells {
-        let start = (merge_cell.start.0 as usize, merge_cell.start.1 as usize);
-        let end = (merge_cell.end.0 as usize, merge_cell.end.1 as usize);
-        let source_cell = range[start].clone();
+        let start = (merge_cell.start.0, merge_cell.start.1);
+        let end = (merge_cell.end.0, merge_cell.end.1);
+        let source_cell = range
+            .get_value(start)
+            .ok_or_else(|| {
+                XlsxError::Unexpected("expected start cell of merge range to be present")
+            })?
+            .clone();
 
         for target in (start.0..=end.0).flat_map(|r| iter::repeat(r).zip(start.1..=end.1)) {
-            range[target].clone_from(&source_cell);
+            // range[target].clone_from(&source_cell);
+            range.set_value(target, source_cell.clone());
         }
     }
+
+    Ok(())
 }
 
 // This tries to detect number formats that are definitely date/time formats.
