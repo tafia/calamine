@@ -1002,7 +1002,6 @@ where
             .clone();
 
         for target in (start.0..=end.0).flat_map(|r| iter::repeat(r).zip(start.1..=end.1)) {
-            // range[target].clone_from(&source_cell);
             range.set_value(target, source_cell.clone());
         }
     }
