@@ -992,8 +992,7 @@ where
     T: CellType,
 {
     for merge_cell in merge_cells {
-        let start = (merge_cell.start.0, merge_cell.start.1);
-        let end = (merge_cell.end.0, merge_cell.end.1);
+        let Dimensions { start, end } = *merge_cell;
         let source_cell = range
             .get_value(start)
             .ok_or_else(|| {
