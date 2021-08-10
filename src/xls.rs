@@ -964,7 +964,11 @@ fn parse_formula(
                     let fargs = formula.split_off(start);
                     stack.push(formula.len());
                     args.push(fargs.len());
-                    formula.push_str(crate::utils::FTAB[iftab]);
+                    formula.push_str(
+                        crate::utils::FTAB
+                            .get(iftab)
+                            .ok_or_else(|| XlsError::IfTab(iftab))?,
+                    );
                     formula.push('(');
                     for w in args.windows(2) {
                         formula.push_str(&fargs[w[0]..w[1]]);
