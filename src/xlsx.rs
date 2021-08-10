@@ -282,6 +282,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             Attribute {
                                 key: b"r:id",
                                 value: v,
+                            }
+                            | Attribute {
+                                key: b"relationships:id",
+                                value: v,
                             } => {
                                 let r = &relationships[&*v][..];
                                 // target may have pre-prended "/xl/" or "xl/" path;
