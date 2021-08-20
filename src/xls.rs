@@ -108,19 +108,47 @@ impl std::error::Error for XlsError {
     }
 }
 
+/// Options to perform specialized parsing.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct XlsOptions {
+    /// Force a spreadsheet to be interpreted using a particular code page.
+    ///
+    /// XLS files can contain [code page] identifiers. If this identifier is missing or incorrect,
+    /// strings in the parsed spreadsheet may be decoded incorrectly. Setting this field causes
+    /// `calamine::Xls` to interpret strings using the specified code page, which may allow such
+    /// spreadsheets to be decoded properly.
+    ///
+    /// [code page]: https://docs.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
+    pub force_codepage: Option<u16>,
+}
+
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
     sheets: HashMap<String, (Range<DataType>, Range<String>)>,
     vba: Option<VbaProject>,
     metadata: Metadata,
     marker: PhantomData<RS>,
+    options: XlsOptions,
 }
 
-impl<RS: Read + Seek> Reader for Xls<RS> {
-    type Error = XlsError;
-    type RS = RS;
-
-    fn new(mut reader: RS) -> Result<Self, XlsError>
+impl<RS: Read + Seek> Xls<RS> {
+    /// Creates a new instance using `Options` to inform parsing.
+    ///
+    /// ```
+    /// use calamine::{Xls,XlsOptions};
+    /// # use std::io::Cursor;
+    /// # const BYTES: &'static [u8] = b"";
+    ///
+    /// # fn run() -> Result<Xls<Cursor<&'static [u8]>>, calamine::XlsError> {
+    /// # let reader = std::io::Cursor::new(BYTES);
+    /// let mut options = XlsOptions::default();
+    /// // ...set options...
+    /// let workbook = Xls::new_with_options(reader, options)?;
+    /// # Ok(workbook) }
+    /// # fn main() { assert!(run().is_err()); }
+    /// ```
+    pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError>
     where
         RS: Read + Seek,
     {
@@ -146,6 +174,7 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
             vba,
             marker: PhantomData,
             metadata: Metadata::default(),
+            options,
         };
 
         xls.parse_workbook(reader, cfb)?;
@@ -153,6 +182,18 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
         debug!("xls parsed");
 
         Ok(xls)
+    }
+}
+
+impl<RS: Read + Seek> Reader for Xls<RS> {
+    type RS = RS;
+    type Error = XlsError;
+
+    fn new(reader: RS) -> Result<Self, XlsError>
+    where
+        RS: Read + Seek,
+    {
+        Self::new_with_options(reader, XlsOptions::default())
     }
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
@@ -168,15 +209,15 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
         self.sheets.get(name).map(|r| Ok(r.0.clone()))
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.clone()))
-    }
-
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
         self.sheets
             .iter()
             .map(|(name, (data, _))| (name.to_owned(), data.clone()))
             .collect()
+    }
+
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
+        self.sheets.get(name).map(|r| Ok(r.1.clone()))
     }
 }
 
@@ -191,7 +232,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut strings = Vec::new();
         let mut defined_names = Vec::new();
         let mut xtis = Vec::new();
-        let mut encoding = XlsEncoding::from_codepage(1200)?;
+        let codepage = self.options.force_codepage.unwrap_or(1200);
+        let mut encoding = XlsEncoding::from_codepage(codepage)?;
         {
             let mut wb = &stream;
             let records = RecordIter { stream: &mut wb };
@@ -199,7 +241,12 @@ impl<RS: Read + Seek> Xls<RS> {
                 let mut r = record?;
                 match r.typ {
                     0x0012 if read_u16(r.data) != 0 => return Err(XlsError::Password),
-                    0x0042 => encoding = XlsEncoding::from_codepage(read_u16(r.data))?, // CodePage
+                    // CodePage
+                    0x0042 => {
+                        if self.options.force_codepage.is_none() {
+                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?
+                        }
+                    }
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
