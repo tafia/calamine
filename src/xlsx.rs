@@ -950,7 +950,7 @@ fn read_sheet_data(
 // This tries to detect number formats that are definitely date/time formats.
 // This is definitely not perfect!
 fn is_custom_date_format(format: &str) -> bool {
-    format.bytes().all(|c| b"mdyMDYhsHS-/. \\".contains(&c))
+    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
 }
 
 fn is_builtin_date_format_id(id: &[u8]) -> bool {
