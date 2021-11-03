@@ -9,7 +9,7 @@ use super::CellErrorType;
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
-    /// Unsigned integer
+    /// Signed integer
     Int(i64),
     /// Float
     Float(f64),
