@@ -587,6 +587,9 @@ fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<Strin
     Ok(sst)
 }
 
+/// Decode XLUnicodeRichExtendedString.
+///
+/// See: <https://docs.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/173d9f51-e5d3-43da-8de2-be7f22e119b9>
 fn read_rich_extended_string(
     r: &mut Record<'_>,
     encoding: &mut XlsEncoding,
@@ -601,35 +604,37 @@ fn read_rich_extended_string(
 
     let cch = read_u16(r.data) as usize;
     let flags = r.data[2];
+
     r.data = &r.data[3..];
 
     let high_byte = flags & 0x1 != 0;
-    let mut run = 0;
-    let mut ext_rst = 0;
+
+    // how many FormatRun in rgRun data block
+    let mut c_run = 0;
+
+    // how many bytes in ExtRst data block
+    let mut cb_ext_rst = 0;
+
+    // if flag fRichSt exists, read cRun and forward.
     if flags & 0x8 != 0 {
-        run = read_u16(&r.data) as usize;
+        c_run = read_u16(&r.data) as usize;
         r.data = &r.data[2..];
     }
+
+    // if flag fExtSt exists, read cbExtRst and forward.
     if flags & 0x4 != 0 {
-        ext_rst = read_i32(&r.data) as usize;
+        cb_ext_rst = read_i32(&r.data) as usize;
         r.data = &r.data[4..];
     }
 
+    // read rgb data block for the string we want
     let s = read_dbcs(encoding, cch, r, high_byte)?;
 
-    // skip rgRun and ExtRst
-    r.skip(run * 4)?;
-    for _ in 0..ext_rst {
-        if r.data.is_empty() && !r.continue_record() {
-            return Err(XlsError::ContinueRecordTooShort);
-        }
-        let _cb = read_u16(&r.data[2..]);
-        let crun = read_u16(&r.data[8..]) as usize;
-        let _cch = read_u16(&r.data[10..]) as usize;
-        let cch_characters = read_u16(&r.data[12..]) as usize;
-        r.data = &r.data[14..];
-        r.skip(2 * cch_characters + 6 * crun)?;
-    }
+    // skip rgRun data block. Note: each FormatRun contain 4 bytes.
+    r.skip(c_run * 4)?;
+
+    // skip ExtRst data block.
+    r.skip(cb_ext_rst)?;
 
     Ok(s)
 }
