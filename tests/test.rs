@@ -200,7 +200,7 @@ fn xls() {
     );
 }
 
-// test ignored because the file is too large to be commited and tested
+// test ignored because the file is too large to be committed and tested
 #[ignore]
 #[test]
 fn issue_195() {

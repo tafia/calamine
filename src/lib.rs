@@ -144,7 +144,7 @@ pub struct Metadata {
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
-/// A trait to share spreadsheets reader functions accross different `FileType`s
+/// A trait to share spreadsheets reader functions across different `FileType`s
 pub trait Reader: Sized {
     /// Inner reader type
     type RS: Read + Seek;
@@ -598,7 +598,7 @@ impl<T: CellType> Range<T> {
         // change referential
         //
         // we want to copy range: start_row..(end_row + 1)
-        // In self referencial it is (start_row - self_start_row)..(end_row + 1 - self_start_row)
+        // In self referential it is (start_row - self_start_row)..(end_row + 1 - self_start_row)
         let self_row_start = (start_row - self_start_row) as usize;
         let self_row_end = (end_row + 1 - self_start_row) as usize;
         let self_col_start = (start_col - self_start_col) as usize;
