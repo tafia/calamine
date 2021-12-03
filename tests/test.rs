@@ -752,6 +752,16 @@ fn date() {
 }
 
 #[test]
+fn issue_219() {
+    setup();
+
+    let path = format!("{}/tests/issue219.xls", env!("CARGO_MANIFEST_DIR"));
+
+    // should not panic
+    let _: Xls<_> = open_workbook(&path).unwrap();
+}
+
+#[test]
 fn issue_221() {
     setup();
 
