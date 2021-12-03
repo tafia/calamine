@@ -312,7 +312,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     {
                         let name = a.unescape_and_decode_value(&xml)?;
                         val_buf.clear();
-                        let value = xml.read_text(b"definedName", &mut val_buf)?;
+                        let value = xml.read_text(e.name(), &mut val_buf)?;
                         defined_names.push((name, value));
                     }
                 }
