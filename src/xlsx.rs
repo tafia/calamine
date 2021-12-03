@@ -541,7 +541,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     /// Get the table by name
-    // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more effecient
+    // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more efficient
     pub fn table_by_name(
         &mut self,
         table_name: &str,

@@ -1,4 +1,4 @@
-//! Coumpound File Binary format MS-CFB
+//! Compound File Binary format MS-CFB
 
 use std::borrow::Cow;
 use std::cmp::min;

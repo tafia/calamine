@@ -177,7 +177,7 @@
 - refactor: better internal logics
 
 ## 0.9.0
-- refactor: rename `Excel` in `Sheets` to accomodate OpenDocuments
+- refactor: rename `Excel` in `Sheets` to accommodate OpenDocuments
 - feat: add Index/IndexMut for Range
 
 ## 0.8.0
