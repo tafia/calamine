@@ -130,6 +130,8 @@ pub struct Xls<RS> {
     metadata: Metadata,
     marker: PhantomData<RS>,
     options: XlsOptions,
+    /// Merged Regions: Name, Sheet, Merged Dimensions
+    merged_regions: Option<Vec<(String, String, Dimensions)>>,
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -175,6 +177,7 @@ impl<RS: Read + Seek> Xls<RS> {
             marker: PhantomData,
             metadata: Metadata::default(),
             options,
+            merged_regions: None
         };
 
         xls.parse_workbook(reader, cfb)?;
@@ -182,6 +185,19 @@ impl<RS: Read + Seek> Xls<RS> {
         debug!("xls parsed");
 
         Ok(xls)
+    }
+
+    /// Get the merged regions of all the sheets
+    pub fn merged_regions(&self) -> &Vec<(String, String, Dimensions)> {
+        self.merged_regions.as_ref().expect("Merged Regions must be loaded before the are referenced")
+    }
+
+    /// Get the merged regions by sheet name
+    pub fn merged_regions_by_sheet(&self, name: &str) -> Vec<(&String, &String, &Dimensions)> {
+        self.merged_regions().iter()
+            .filter(|s| (**s).0 == name)
+            .map(|(name, sheet, region)| (name, sheet, region))
+            .collect()
     }
 }
 
@@ -529,9 +545,21 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>, XlsEr
     ))
 }
 
-struct Dimensions {
+/// Dimensions info
+#[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Copy, Clone)]
+pub struct Dimensions {
     start: (u32, u32),
     end: (u32, u32),
+}
+
+impl Dimensions {
+    /// create dimensions info with start position and end position
+    pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
+        Self {
+            start,
+            end
+        }
+    }
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {

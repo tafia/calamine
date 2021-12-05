@@ -155,6 +155,8 @@ where
     tables: Option<Vec<(String, String, Vec<String>, Dimensions)>>,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
+    /// Merged Regions: Name, Sheet, Merged Dimensions
+    merged_regions: Option<Vec<(String, String, Dimensions)>>,
     /// Metadata
     metadata: Metadata,
 }
@@ -511,6 +513,59 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    // sheets must be added before this is called!!
+    fn read_merged_regions(&mut self) -> Result<(), XlsxError> {
+        let mut regions = Vec::new();
+        for (sheet_name, sheet_path) in &self.sheets {
+            // we need another mutable borrow of self.zip later so we enclose this borrow within braces
+            {
+                let mut xml = match xml_reader(&mut self.zip, &sheet_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    match xml.read_event(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.local_name() == b"mergeCell" => {
+                            if let Some(attr) = get_attribute(e.attributes(), b"ref")? {
+                                let dismension = get_dimension(attr)?;
+                                regions.push((sheet_name.to_string(), sheet_path.to_string(), dismension));
+                            }
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+        }
+        self.merged_regions = Some(regions);
+        Ok(())
+    }
+    
+    /// Load the merged regions
+    pub fn load_merged_regions(&mut self) -> Result<(), XlsxError> {
+        if self.merged_regions.is_none() {
+            self.read_merged_regions()
+        } else {
+            Ok(())
+        }
+    }
+    
+    /// Get the merged regions of all the sheets
+    pub fn merged_regions(&self) -> &Vec<(String, String, Dimensions)> {
+        self.merged_regions.as_ref().expect("Merged Regions must be loaded before the are referenced")
+    }
+    
+    /// Get the merged regions by sheet name
+    pub fn merged_regions_by_sheet(&self, name: &str) -> Vec<(&String, &String, &Dimensions)> {
+        self.merged_regions().iter()
+            .filter(|s| (**s).0 == name)
+            .map(|(name, sheet, region)| (name, sheet, region))
+            .collect()
+    }
+
     /// Load the tables from
     pub fn load_tables(&mut self) -> Result<(), XlsxError> {
         if self.tables.is_none() {
@@ -663,6 +718,7 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
             sheets: Vec::new(),
             tables: None,
             metadata: Metadata::default(),
+            merged_regions: None
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
@@ -983,13 +1039,21 @@ fn is_builtin_date_format_id(id: &[u8]) -> bool {
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct Dimensions {
+/// Dimensions info
+#[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Copy, Clone)]
+pub struct Dimensions {
     start: (u32, u32),
     end: (u32, u32),
 }
 
 impl Dimensions {
+    /// create dimensions info with start position and end position
+    pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
+        Self {
+            start,
+            end
+        }
+    }
     fn len(&self) -> u64 {
         (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
     }

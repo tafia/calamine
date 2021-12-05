@@ -87,9 +87,9 @@ pub use crate::datatype::DataType;
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
-pub use crate::xls::{Xls, XlsError, XlsOptions};
+pub use crate::xls::{Xls, XlsError, XlsOptions, Dimensions as XlsDimensions};
 pub use crate::xlsb::{Xlsb, XlsbError};
-pub use crate::xlsx::{Xlsx, XlsxError};
+pub use crate::xlsx::{Xlsx, XlsxError, Dimensions as XlsxDimensions};
 
 use crate::vba::VbaProject;
 

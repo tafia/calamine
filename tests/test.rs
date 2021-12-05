@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use calamine::CellErrorType::*;
 use calamine::DataType::{Bool, DateTime, Empty, Error, Float, String};
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
@@ -775,5 +776,59 @@ fn issue_221() {
             [String("Cell_A1".to_string()), String("Cell_B1".to_string())],
             [String("Cell_A2".to_string()), String("Cell_B2".to_string())]
         ]
+    );
+}
+
+#[test]
+fn merged_regions_xlsx() {
+    use calamine::XlsxDimensions;
+    use std::string::String;
+    let path = format!("{}/tests/merged_range.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    excel.load_merged_regions().unwrap();
+    assert_eq!(
+        excel.merged_regions().iter().map(|(o1, o2, o3)|(o1.to_string(), o2.to_string(), o3.clone())).collect::<BTreeSet<(String, String, XlsxDimensions)>>(),
+        vec![
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 0), (1, 0))), // A1:A2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 1), (1, 1))), // B1:B2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 2), (1, 3))), // C1:D2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((2, 2), (2, 3))), // C3:D3
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((3, 2), (3, 3))), // C4:D4
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 4), (1, 4))), // E1:E2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 5), (1, 5))), // F1:F2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 6), (1, 6))), // G1:G2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 7), (1, 7))), // H1:H2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 0), (3, 0))), // A1:A4
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 1), (1, 1))), // B1:B2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 2), (1, 3))), // C1:D2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((2, 2), (3, 3))), // C3:D4
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 4), (1, 4))), // E1:E2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 5), (3, 7))), // F1:H4
+        ].into_iter().collect::<BTreeSet<(String, String, XlsxDimensions)>>(),
+    );
+    assert_eq!(
+        excel.merged_regions_by_sheet("Sheet1").iter().map(|&(o1, o2, o3)|(o1.to_string(), o2.to_string(), o3.clone())).collect::<BTreeSet<(String, String, XlsxDimensions)>>(),
+        vec![
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 0), (1, 0))), // A1:A2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 1), (1, 1))), // B1:B2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 2), (1, 3))), // C1:D2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((2, 2), (2, 3))), // C3:D3
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((3, 2), (3, 3))), // C4:D4
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 4), (1, 4))), // E1:E2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 5), (1, 5))), // F1:F2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 6), (1, 6))), // G1:G2
+            ("Sheet1".to_string(), "xl/worksheets/sheet1.xml".to_string(), XlsxDimensions::new((0, 7), (1, 7))), // H1:H2
+        ].into_iter().collect::<BTreeSet<(String, String, XlsxDimensions)>>(),
+    );
+    assert_eq!(
+        excel.merged_regions_by_sheet("Sheet2").iter().map(|&(o1, o2, o3)|(o1.to_string(), o2.to_string(), o3.clone())).collect::<BTreeSet<(String, String, XlsxDimensions)>>(),
+        vec![
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 0), (3, 0))), // A1:A4
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 1), (1, 1))), // B1:B2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 2), (1, 3))), // C1:D2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((2, 2), (3, 3))), // C3:D4
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 4), (1, 4))), // E1:E2
+            ("Sheet2".to_string(), "xl/worksheets/sheet2.xml".to_string(), XlsxDimensions::new((0, 5), (3, 7))), // F1:H4
+        ].into_iter().collect::<BTreeSet<(String, String, XlsxDimensions)>>(),
     );
 }
