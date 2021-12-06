@@ -1042,8 +1042,10 @@ fn is_builtin_date_format_id(id: &[u8]) -> bool {
 /// Dimensions info
 #[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Copy, Clone)]
 pub struct Dimensions {
-    start: (u32, u32),
-    end: (u32, u32),
+    /// start: (row, col)
+    pub start: (u32, u32),
+    /// end: (row, col)
+    pub end: (u32, u32),
 }
 
 impl Dimensions {
