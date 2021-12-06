@@ -562,6 +562,10 @@ impl Dimensions {
             end
         }
     }
+    /// check if a position is in it
+    pub fn contains(&self, row: u32, col: u32) -> bool {
+        row >= self.start.0 && row <= self.end.0 && col >= self.start.1 && col <= self.end.1
+    }
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
