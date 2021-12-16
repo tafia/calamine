@@ -2,7 +2,7 @@
 
 An Excel/OpenDocument Spreadsheets file reader/deserializer, in pure Rust.
 
-[![Build Status](https://travis-ci.org/tafia/calamine.svg?branch=master)](https://travis-ci.org/tafia/calamine)
+[![GitHub CI Rust tests](https://github.com/tafia/calamine/workflows/Rust/badge.svg)](https://github.com/tafia/calamine/actions)
 [![Build status](https://ci.appveyor.com/api/projects/status/njpnhq54h5hxsgel/branch/master?svg=true)](https://ci.appveyor.com/project/tafia/calamine/branch/master)
 
 [Documentation](https://docs.rs/calamine/)
