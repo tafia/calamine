@@ -163,9 +163,12 @@ impl FromStr for CellErrorType {
 }
 
 type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
+
+/// Struct representing an osmos custom date finder
 #[derive(Default)]
 pub struct OsmosXlsxConfig {
-    custom_date_finder: Option<fn(&str) -> bool>,
+    /// custom date finder fn
+    pub custom_date_finder: Option<fn(&str) -> bool>,
 }
 
 /// A struct representing xml zipped excel file

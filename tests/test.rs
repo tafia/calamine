@@ -1130,6 +1130,7 @@ fn issue_271() -> Result<(), calamine::Error> {
 
     Ok(())
 }
+<<<<<<< HEAD
 
 // cargo test --features picture
 #[test]
@@ -1487,4 +1488,30 @@ fn any_sheets_ods() {
             },
         ]
     );
+}
+#[test]
+fn custom_date_xlsx() {
+    use calamine::OsmosXlsxConfig;
+    use std::{fs::File, io::BufReader};
+
+    let path = format!(
+        "{}/tests/excel_date_notation.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let file = BufReader::new(File::open(path).unwrap());
+    let config = OsmosXlsxConfig {
+        custom_date_finder: Some(|s: &str| s.contains("yyyy")),
+    };
+
+    let mut xls = Xlsx::new_with_config(file, config).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+    for i in 2..9 {
+        for j in 0..2 {
+            match range.get_value((i, j)) {
+                Some(&DateTime(_)) => (),
+                _ => assert!(false),
+            }
+        }
+    }
 }
