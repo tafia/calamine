@@ -164,10 +164,12 @@ impl FromStr for CellErrorType {
 
 type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 
-/// Struct representing an osmos custom date finder
+/// struct used to a function that does some custom date finding
+/// while allowing us some backwards compatability.
 #[derive(Default)]
 pub struct OsmosXlsxConfig {
-    /// custom date finder fn
+    /// optional function used to parse number fmt strings and guess
+    /// if the number is a date
     pub custom_date_finder: Option<fn(&str) -> bool>,
 }
 
