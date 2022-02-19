@@ -148,6 +148,10 @@ enum CellFormat {
 }
 
 type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
+#[derive(Default)]
+pub struct OsmosXlsxConfig {
+    custom_date_finder: Option<fn(&str) -> bool>,
+}
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
@@ -163,6 +167,8 @@ pub struct Xlsx<RS> {
     formats: Vec<CellFormat>,
     /// Metadata
     metadata: Metadata,
+    /// OSMOS XLSX PARSER CONFIG
+    osmos_config: OsmosXlsxConfig,
 }
 
 impl<RS: Read + Seek> Xlsx<RS> {
@@ -196,6 +202,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
         };
 
         let mut number_formats = BTreeMap::new();
+        // make borrow checker happy
+        let date_finder = self.osmos_config.custom_date_finder;
 
         let mut buf = Vec::new();
         let mut inner_buf = Vec::new();
@@ -241,7 +249,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     .find(|a| a.key == QName(b"numFmtId"))
                                     .map_or(CellFormat::Other, |a| {
                                         match number_formats.get(&*a.value) {
-                                            Some(fmt) if is_custom_date_format(fmt) => {
+                                            Some(fmt)
+                                                if is_custom_date_format(fmt, date_finder) =>
+                                            {
                                                 CellFormat::Date
                                             }
                                             None if is_builtin_date_format_id(&a.value) => {
@@ -685,6 +695,29 @@ where
     }
     Ok(Range::from_sparse(cells))
 }
+impl<RS: Read + Seek> Xlsx<RS> {
+    /// basically the constructor function that we use to maintain backwards compatability
+    /// by pasing in the the OsmosXlsxConfig
+    pub fn new_with_config(reader: RS, osmos_config: OsmosXlsxConfig) -> Result<Self, XlsxError>
+    where
+        RS: Read + Seek,
+    {
+        let mut xlsx = Xlsx {
+            zip: ZipArchive::new(reader)?,
+            strings: Vec::new(),
+            formats: Vec::new(),
+            sheets: Vec::new(),
+            tables: None,
+            metadata: Metadata::default(),
+            osmos_config,
+        };
+        xlsx.read_shared_strings()?;
+        xlsx.read_styles()?;
+        let relationships = xlsx.read_relationships()?;
+        xlsx.read_workbook(&relationships)?;
+        Ok(xlsx)
+    }
+}
 
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     type Error = XlsxError;
@@ -697,6 +730,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             sheets: Vec::new(),
             tables: None,
             metadata: Metadata::default(),
+            osmos_config: OsmosXlsxConfig::default(),
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
@@ -1004,8 +1038,9 @@ fn read_sheet_data(
 
 // This tries to detect number formats that are definitely date/time formats.
 // This is definitely not perfect!
-fn is_custom_date_format(format: &str) -> bool {
-    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
+fn is_custom_date_format(format: &str, custom_parser: Option<fn(&str) -> bool>) -> bool {
+    let is_date = custom_parser.map(|f| f(format)).unwrap_or(false);
+    is_date || format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
 }
 
 fn is_builtin_date_format_id(id: &[u8]) -> bool {
