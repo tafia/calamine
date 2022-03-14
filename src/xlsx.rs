@@ -46,7 +46,9 @@ pub enum XlsxError {
     UnexpectedNode(&'static str),
     /// File not found
     FileNotFound(String),
-    /// Expecting alphanumeri character
+    /// Relationship not found
+    RelationshipNotFound,
+    /// Expecting alphanumeric character
     Alphanumeric(u8),
     /// Numeric column
     NumericColumn(u8),
@@ -84,6 +86,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::XmlEof(e) => write!(f, "Unexpected end of xml, expecting '</{}>'", e),
             XlsxError::UnexpectedNode(e) => write!(f, "Expecting '{}' node", e),
             XlsxError::FileNotFound(e) => write!(f, "File not found '{}'", e),
+            XlsxError::RelationshipNotFound => write!(f, "Relationship not found"),
             XlsxError::Alphanumeric(e) => {
                 write!(f, "Expecting alphanumeric character, got {:X}", e)
             }
@@ -287,7 +290,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 key: b"relationships:id",
                                 value: v,
                             } => {
-                                let r = &relationships[&*v][..];
+                                let r = &relationships
+                                    .get(&*v)
+                                    .ok_or(XlsxError::RelationshipNotFound)?[..];
                                 // target may have pre-prended "/xl/" or "xl/" path;
                                 // strip if present
                                 path = if r.starts_with("/xl/") {
