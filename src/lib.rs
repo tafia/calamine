@@ -205,6 +205,9 @@ where
 
 /// A trait to constrain cells
 pub trait CellType: Default + Clone + PartialEq {}
+
+// Blanket implementation of `CellType` for any `T` that satisfy
+// `Default`, `Clone` and `PartialEq`
 impl<T: Default + Clone + PartialEq> CellType for T {}
 
 /// A struct to hold cell position and value
@@ -340,22 +343,14 @@ impl<T: CellType> Range<T> {
             Range::empty()
         } else {
             // search bounds
+            // SAFETY: the unwraps below are safe because we have checked that the vector is not empty.
             let row_start = cells.first().unwrap().pos.0;
             let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = std::u32::MAX;
-            let mut col_end = 0;
-            for c in cells.iter().map(|c| c.pos.1) {
-                if c < col_start {
-                    col_start = c;
-                }
-                if c > col_end {
-                    col_end = c
-                }
-            }
+            let col_start = cells.iter().map(|c| c.pos.1).min().unwrap();
+            let col_end = cells.iter().map(|c| c.pos.1).max().unwrap();
             let width = col_end - col_start + 1;
             let len = ((row_end - row_start + 1) * width) as usize;
             let mut v = vec![T::default(); len];
-            v.shrink_to_fit();
             for c in cells {
                 let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
                 v[idx] = c.val;
