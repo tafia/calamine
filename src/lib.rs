@@ -78,11 +78,11 @@ use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Cursor, Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 
-pub use crate::auto::{open_workbook_auto, Sheets};
+pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_bytes, Sheets};
 pub use crate::datatype::DataType;
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
@@ -145,14 +145,15 @@ pub struct Metadata {
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
 /// A trait to share spreadsheets reader functions across different `FileType`s
-pub trait Reader: Sized {
-    /// Inner reader type
-    type RS: Read + Seek;
+pub trait Reader<RS>: Sized
+where
+    RS: Read + Seek,
+{
     /// Error specific to file type
     type Error: std::fmt::Debug + From<std::io::Error>;
 
     /// Creates a new instance.
-    fn new(reader: Self::RS) -> Result<Self, Self::Error>;
+    fn new(reader: RS) -> Result<Self, Self::Error>;
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
     /// Initialize
@@ -196,10 +197,19 @@ pub trait Reader: Sized {
 /// Convenient function to open a file with a BufReader<File>
 pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
 where
-    R: Reader<RS = BufReader<File>>,
+    R: Reader<BufReader<File>>,
     P: AsRef<Path>,
 {
     let file = BufReader::new(File::open(path)?);
+    R::new(file)
+}
+
+/// Convenient function to open a file with a BufReader<File>
+pub fn open_workbook_from_bytes<R>(path: Vec<u8>) -> Result<R, R::Error>
+where
+    R: Reader<Cursor<Vec<u8>>>,
+{
+    let file = Cursor::new(path);
     R::new(file)
 }
 

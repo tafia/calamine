@@ -185,8 +185,10 @@ impl<RS: Read + Seek> Xls<RS> {
     }
 }
 
-impl<RS: Read + Seek> Reader for Xls<RS> {
-    type RS = RS;
+impl<RS> Reader<RS> for Xls<RS>
+where
+    RS: Read + Seek,
+{
     type Error = XlsError;
 
     fn new(reader: RS) -> Result<Self, XlsError>

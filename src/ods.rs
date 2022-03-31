@@ -106,8 +106,10 @@ where
     marker: PhantomData<RS>,
 }
 
-impl<RS: Read + Seek> Reader for Ods<RS> {
-    type RS = RS;
+impl<RS> Reader<RS> for Ods<RS>
+where
+    RS: Read + Seek,
+{
     type Error = OdsError;
 
     fn new(reader: RS) -> Result<Self, OdsError>

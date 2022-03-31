@@ -648,8 +648,10 @@ where
     Ok(Range::from_sparse(cells))
 }
 
-impl<RS: Read + Seek> Reader for Xlsx<RS> {
-    type RS = RS;
+impl<RS> Reader<RS> for Xlsx<RS>
+where
+    RS: Read + Seek,
+{
     type Error = XlsxError;
 
     fn new(reader: RS) -> Result<Self, XlsxError>
