@@ -467,7 +467,7 @@ where
             .headers
             .expect("Cannot map-deserialize range without headers");
 
-        while let Some(i) = self.iter.next() {
+        for i in self.iter.by_ref() {
             if !self.cells[*i].is_empty() {
                 self.peek = Some(*i);
                 let de = BorrowedStrDeserializer::<Self::Error>::new(&headers[*i]);
