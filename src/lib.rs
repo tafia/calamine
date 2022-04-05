@@ -82,7 +82,7 @@ use std::io::{BufReader, Cursor, Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 
-pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_bytes, Sheets};
+pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
 pub use crate::datatype::DataType;
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
@@ -205,12 +205,12 @@ where
 }
 
 /// Convenient function to open a file with a BufReader<File>
-pub fn open_workbook_from_bytes<R>(path: Vec<u8>) -> Result<R, R::Error>
+pub fn open_workbook_from_rs<R, RS>(rs: RS) -> Result<R, R::Error>
 where
-    R: Reader<Cursor<Vec<u8>>>,
+    RS: std::io::Read + std::io::Seek,
+    R: Reader<RS>,
 {
-    let file = Cursor::new(path);
-    R::new(file)
+    R::new(rs)
 }
 
 /// A trait to constrain cells

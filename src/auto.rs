@@ -3,12 +3,11 @@
 use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
-    open_workbook, open_workbook_from_bytes, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb,
-    Xlsx,
+    open_workbook, open_workbook_from_rs, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx,
 };
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{BufReader, Cursor};
+use std::io::BufReader;
 use std::path::Path;
 
 /// A wrapper over all sheets when the file type is not known at static time
@@ -60,14 +59,17 @@ where
 /// Opens a workbook from the given bytes.
 ///
 /// Whenever possible use the statically known `open_workbook_from_bytes` function instead
-pub fn open_workbook_auto_from_bytes(data: Vec<u8>) -> Result<Sheets<Cursor<Vec<u8>>>, Error> {
-    if let Ok(ret) = open_workbook_from_bytes::<Xls<_>>(data.clone()) {
+pub fn open_workbook_auto_from_rs<RS>(data: RS) -> Result<Sheets<RS>, Error>
+where
+    RS: std::io::Read + std::io::Seek + Clone,
+{
+    if let Ok(ret) = open_workbook_from_rs::<Xls<RS>, RS>(data.clone()) {
         return Ok(Sheets::Xls(ret));
-    } else if let Ok(ret) = open_workbook_from_bytes::<Xlsx<_>>(data.clone()) {
+    } else if let Ok(ret) = open_workbook_from_rs::<Xlsx<RS>, RS>(data.clone()) {
         return Ok(Sheets::Xlsx(ret));
-    } else if let Ok(ret) = open_workbook_from_bytes::<Xlsb<_>>(data.clone()) {
+    } else if let Ok(ret) = open_workbook_from_rs::<Xlsb<RS>, RS>(data.clone()) {
         return Ok(Sheets::Xlsb(ret));
-    } else if let Ok(ret) = open_workbook_from_bytes::<Ods<_>>(data.clone()) {
+    } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data.clone()) {
         return Ok(Sheets::Ods(ret));
     } else {
         return Err(Error::Msg("Cannot detect file format"));
