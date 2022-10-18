@@ -25,7 +25,7 @@ jobs:
         cargo build
     - name: Run tests
       run: |
-        cargo test
+        cargo test --features dates
     - name: Install rustfmt
       uses: actions-rs/toolchain@v1
       if: ${{ matrix.toolchain == 'stable' }}
