@@ -344,10 +344,7 @@ where
     }
 }
 
-struct RowDeserializer<'header, 'cell, T>
-where
-    T: ToCellDeserializer<'cell>,
-{
+struct RowDeserializer<'header, 'cell, T> {
     cells: &'cell [T],
     headers: Option<&'header [String]>,
     iter: slice::Iter<'header, usize>, // iterator over column indexes

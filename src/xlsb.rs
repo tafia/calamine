@@ -8,6 +8,7 @@ use log::debug;
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
+use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
@@ -25,6 +26,8 @@ pub enum XlsbError {
     Zip(zip::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
+    /// Xml attribute error
+    XmlAttr(quick_xml::events::attributes::AttrError),
     /// Vba error
     Vba(crate::vba::VbaError),
 
@@ -71,6 +74,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Io(e) => write!(f, "I/O error: {}", e),
             XlsbError::Zip(e) => write!(f, "Zip error: {}", e),
             XlsbError::Xml(e) => write!(f, "Xml error: {}", e),
+            XlsbError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
             XlsbError::Vba(e) => write!(f, "Vba error: {}", e),
             XlsbError::Mismatch { expected, found } => {
                 write!(f, "Expecting {}, got {:X}", expected, found)
@@ -127,23 +131,23 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 let mut buf = Vec::new();
 
                 loop {
-                    match xml.read_event(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.name() == QName(b"Relationship") => {
                             let mut id = None;
                             let mut target = None;
                             for a in e.attributes() {
-                                match a? {
+                                match a.map_err(XlsbError::XmlAttr)? {
                                     Attribute {
-                                        key: b"Id",
+                                        key: QName(b"Id"),
                                         value: v,
                                     } => {
                                         id = Some(v.to_vec());
                                     }
                                     Attribute {
-                                        key: b"Target",
+                                        key: QName(b"Target"),
                                         value: v,
                                     } => {
-                                        target = Some(xml.decode(&v).into_owned());
+                                        target = Some(xml.decoder().decode(&v)?.into_owned());
                                     }
                                     _ => (),
                                 }
@@ -480,10 +484,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 }
 
-impl<RS> Reader<RS> for Xlsb<RS>
-where
-    RS: Read + Seek,
-{
+impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
 
     fn new(reader: RS) -> Result<Self, XlsbError> {

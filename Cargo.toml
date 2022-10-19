@@ -18,13 +18,13 @@ codepage = "0.1.1"
 encoding_rs = "0.8.24"
 log = "0.4.11"
 serde = "1.0.116"
-quick-xml = { version = "0.22", features = ["encoding"] }
+quick-xml = { version = "0.25", features = ["encoding"] }
 zip = { version = "0.6.2", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4.19", features = ["serde"], optional = true, default-features = false }
 
 [dev-dependencies]
 glob = "0.3"
-env_logger = "0.7"
+env_logger = "0.9.1"
 serde_derive = "1.0.116"
 
 [features]

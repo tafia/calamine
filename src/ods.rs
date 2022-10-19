@@ -10,6 +10,7 @@ use std::io::{BufReader, Read, Seek};
 
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
+use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
@@ -31,6 +32,8 @@ pub enum OdsError {
     Zip(zip::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
+    /// Xml attribute error
+    XmlAttr(quick_xml::events::attributes::AttrError),
     /// Error while parsing string
     Parse(std::string::ParseError),
     /// Error while parsing integer
@@ -65,6 +68,7 @@ impl std::fmt::Display for OdsError {
             OdsError::Io(e) => write!(f, "I/O error: {}", e),
             OdsError::Zip(e) => write!(f, "Zip error: {:?}", e),
             OdsError::Xml(e) => write!(f, "Xml error: {}", e),
+            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
             OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
             OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
             OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
@@ -195,22 +199,23 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut defined_names = Vec::new();
     let mut sheet_names = Vec::new();
     loop {
-        match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"table:table") => {
                 if let Some(ref a) = e
                     .attributes()
                     .filter_map(|a| a.ok())
-                    .find(|a| a.key == b"table:name")
+                    .find(|a| a.key == QName(b"table:name"))
                 {
                     let name = a
-                        .unescape_and_decode_value(&reader)
-                        .map_err(OdsError::Xml)?;
+                        .decode_and_unescape_value(&reader)
+                        .map_err(OdsError::Xml)?
+                        .to_string();
                     let (range, formulas) = read_table(&mut reader)?;
                     sheet_names.push(name.clone());
                     sheets.insert(name, (range, formulas));
                 }
             }
-            Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"table:named-expressions") => {
                 defined_names = read_named_expressions(&mut reader)?;
             }
             Ok(Event::Eof) => break,
@@ -235,8 +240,8 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
     let mut cell_buf = Vec::new();
     cols.push(0);
     loop {
-        match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table-row" => {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"table:table-row") => {
                 read_row(
                     reader,
                     &mut row_buf,
@@ -246,7 +251,7 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
                 )?;
                 cols.push(cells.len());
             }
-            Ok(Event::End(ref e)) if e.name() == b"table:table" => break,
+            Ok(Event::End(ref e)) if e.name() == QName(b"table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
         }
@@ -323,16 +328,18 @@ fn read_row(
 ) -> Result<(), OdsError> {
     loop {
         row_buf.clear();
-        match reader.read_event(row_buf) {
+        match reader.read_event_into(row_buf) {
             Ok(Event::Start(ref e))
-                if e.name() == b"table:table-cell" || e.name() == b"table:covered-table-cell" =>
+                if e.name() == QName(b"table:table-cell")
+                    || e.name() == QName(b"table:covered-table-cell") =>
             {
                 let mut repeats = 1;
                 for a in e.attributes() {
-                    let a = a?;
-                    if a.key == b"table:number-columns-repeated" {
+                    let a = a.map_err(OdsError::XmlAttr)?;
+                    if a.key == QName(b"table:number-columns-repeated") {
                         repeats = reader
-                            .decode(&a.value)
+                            .decoder()
+                            .decode(&a.value)?
                             .parse()
                             .map_err(OdsError::ParseInt)?;
                         break;
@@ -345,10 +352,10 @@ fn read_row(
                     formulas.push(formula.clone());
                 }
                 if !is_closed {
-                    reader.read_to_end(e.name(), cell_buf)?;
+                    reader.read_to_end_into(e.name(), cell_buf)?;
                 }
             }
-            Ok(Event::End(ref e)) if e.name() == b"table:table-row" => break,
+            Ok(Event::End(ref e)) if e.name() == QName(b"table:table-row") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {
@@ -374,27 +381,34 @@ fn get_datatype(
     let mut val = DataType::Empty;
     let mut formula = String::new();
     for a in atts {
-        let a = a?;
+        let a = a.map_err(OdsError::XmlAttr)?;
         match a.key {
-            b"office:value" if !is_value_set => {
-                let v = reader.decode(&a.value);
+            QName(b"office:value") if !is_value_set => {
+                let v = reader.decoder().decode(&a.value)?;
                 val = DataType::Float(v.parse().map_err(OdsError::ParseFloat)?);
                 is_value_set = true;
             }
-            b"office:string-value" | b"office:date-value" | b"office:time-value"
+            QName(b"office:string-value" | b"office:date-value" | b"office:time-value")
                 if !is_value_set =>
             {
-                val = DataType::String(a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?);
+                val = DataType::String(
+                    a.decode_and_unescape_value(reader)
+                        .map_err(OdsError::Xml)?
+                        .to_string(),
+                );
                 is_value_set = true;
             }
-            b"office:boolean-value" if !is_value_set => {
+            QName(b"office:boolean-value") if !is_value_set => {
                 let b = &*a.value == b"TRUE" || &*a.value == b"true";
                 val = DataType::Bool(b);
                 is_value_set = true;
             }
-            b"office:value-type" if !is_value_set => is_string = &*a.value == b"string",
-            b"table:formula" => {
-                formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?;
+            QName(b"office:value-type") if !is_value_set => is_string = &*a.value == b"string",
+            QName(b"table:formula") => {
+                formula = a
+                    .decode_and_unescape_value(reader)
+                    .map_err(OdsError::Xml)?
+                    .to_string();
             }
             _ => (),
         }
@@ -406,24 +420,24 @@ fn get_datatype(
         let mut first_paragraph = true;
         loop {
             buf.clear();
-            match reader.read_event(buf) {
+            match reader.read_event_into(buf) {
                 Ok(Event::Text(ref e)) => {
-                    s.push_str(&e.unescape_and_decode(reader)?);
+                    s.push_str(&e.unescape()?);
                 }
                 Ok(Event::End(ref e))
-                    if e.name() == b"table:table-cell"
-                        || e.name() == b"table:covered-table-cell" =>
+                    if e.name() == QName(b"table:table-cell")
+                        || e.name() == QName(b"table:covered-table-cell") =>
                 {
                     return Ok((DataType::String(s), formula, true));
                 }
-                Ok(Event::Start(ref e)) if e.name() == b"text:p" => {
+                Ok(Event::Start(ref e)) if e.name() == QName(b"text:p") => {
                     if first_paragraph {
                         first_paragraph = false;
                     } else {
                         s.push('\n');
                     }
                 }
-                Ok(Event::Start(ref e)) if e.name() == b"text:s" => {
+                Ok(Event::Start(ref e)) if e.name() == QName(b"text:s") => {
                     s.push(' ');
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
@@ -441,20 +455,27 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
     let mut buf = Vec::new();
     loop {
         buf.clear();
-        match reader.read_event(&mut buf) {
+        match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e))
-                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" =>
+                if e.name() == QName(b"table:named-range")
+                    || e.name() == QName(b"table:named-expression") =>
             {
                 let mut name = String::new();
                 let mut formula = String::new();
                 for a in e.attributes() {
-                    let a = a.map_err(OdsError::Xml)?;
+                    let a = a.map_err(OdsError::XmlAttr)?;
                     match a.key {
-                        b"table:name" => {
-                            name = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
+                        QName(b"table:name") => {
+                            name = a
+                                .decode_and_unescape_value(reader)
+                                .map_err(OdsError::Xml)?
+                                .to_string();
                         }
-                        b"table:cell-range-address" | b"table:expression" => {
-                            formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
+                        QName(b"table:cell-range-address" | b"table:expression") => {
+                            formula = a
+                                .decode_and_unescape_value(reader)
+                                .map_err(OdsError::Xml)?
+                                .to_string();
                         }
                         _ => (),
                     }
@@ -462,8 +483,9 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
                 defined_names.push((name, formula));
             }
             Ok(Event::End(ref e))
-                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" => {}
-            Ok(Event::End(ref e)) if e.name() == b"table:named-expressions" => break,
+                if e.name() == QName(b"table:named-range")
+                    || e.name() == QName(b"table:named-expression") => {}
+            Ok(Event::End(ref e)) if e.name() == QName(b"table:named-expressions") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {

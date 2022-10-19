@@ -11,10 +11,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 /// A wrapper over all sheets when the file type is not known at static time
-pub enum Sheets<RS>
-where
-    RS: std::io::Read + std::io::Seek,
-{
+pub enum Sheets<RS> {
     /// Xls reader
     Xls(Xls<RS>),
     /// Xlsx reader

@@ -78,7 +78,7 @@ use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, Seek};
+use std::io::{BufReader, Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 
@@ -207,7 +207,7 @@ where
 /// Convenient function to open a file with a BufReader<File>
 pub fn open_workbook_from_rs<R, RS>(rs: RS) -> Result<R, R::Error>
 where
-    RS: std::io::Read + std::io::Seek,
+    RS: Read + Seek,
     R: Reader<RS>,
 {
     R::new(rs)
