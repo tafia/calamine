@@ -105,10 +105,7 @@ impl std::error::Error for XlsbError {
 }
 
 /// A Xlsb reader
-pub struct Xlsb<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
@@ -386,7 +383,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
             };
 
             let col = read_u32(&buf);
-            cells.push(Cell::new((row, col), value));
+            match value {
+                DataType::Empty => (),
+                DataType::String(s) if s.is_empty() => (),
+                value => cells.push(Cell::new((row, col), value)),
+            }
         }
     }
 
@@ -404,12 +405,15 @@ impl<RS: Read + Seek> Xlsb<RS> {
             &mut buf,
         )?;
         let (start, end) = parse_dimensions(&buf[..16]);
-        let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-        let mut cells = if len < 1_000_000 {
-            Vec::with_capacity(len as usize)
-        } else {
-            Vec::new()
-        };
+        let mut cells = Vec::new();
+        if start.0 <= end.0 && start.1 <= end.1 {
+            let rows = (end.0 - start.0 + 1) as usize;
+            let cols = (end.1 - start.1 + 1) as usize;
+            let len = rows.saturating_mul(cols);
+            if len < 1_000_000 {
+                cells.reserve(len);
+            }
+        }
 
         // BrtBeginSheetData
         let _ = iter.next_skip_blocks(
@@ -469,7 +473,9 @@ impl<RS: Read + Seek> Xlsb<RS> {
             };
 
             let col = read_u32(&buf);
-            cells.push(Cell::new((row, col), value));
+            if !value.is_empty() {
+                cells.push(Cell::new((row, col), value));
+            }
         }
     }
 }
@@ -478,10 +484,7 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
     type RS = RS;
     type Error = XlsbError;
 
-    fn new(reader: RS) -> Result<Self, XlsbError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, XlsbError> {
         let mut xlsb = Xlsb {
             zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
@@ -877,7 +880,9 @@ fn parse_formula(
             0x23 | 0x43 | 0x63 => {
                 let iname = read_u32(rgce) as usize - 1; // one-based
                 stack.push(formula.len());
-                formula.push_str(&names[iname].0);
+                if let Some(name) = names.get(iname) {
+                    formula.push_str(&name.0);
+                }
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {

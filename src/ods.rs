@@ -97,10 +97,7 @@ impl std::error::Error for OdsError {
 /// # Reference
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-pub struct Ods<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Ods<RS> {
     sheets: HashMap<String, (Range<DataType>, Range<String>)>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -110,10 +107,7 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     type RS = RS;
     type Error = OdsError;
 
-    fn new(reader: RS) -> Result<Self, OdsError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, OdsError> {
         let mut zip = ZipArchive::new(reader)?;
 
         // check mimetype

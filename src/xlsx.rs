@@ -12,7 +12,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader, Table};
+use crate::{Cell, CellType, CellErrorType, DataType, Metadata, Range, Reader, Table};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -142,10 +142,7 @@ enum CellFormat {
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
-pub struct Xlsx<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
     /// Shared strings
     strings: Vec<String>,
@@ -600,7 +597,7 @@ fn worksheet<T, F>(
     read_data: &mut F,
 ) -> Result<Range<T>, XlsxError>
 where
-    T: Default + Clone + PartialEq,
+    T: CellType,
     F: FnMut(
         &[String],
         &[CellFormat],
@@ -652,10 +649,7 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
     type RS = RS;
     type Error = XlsxError;
 
-    fn new(reader: RS) -> Result<Self, XlsxError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, XlsxError> {
         let mut xlsx = Xlsx {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
@@ -744,13 +738,10 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
     }
 }
 
-fn xml_reader<'a, RS>(
+fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
-) -> Option<Result<XlsReader<'a>, XlsxError>>
-where
-    RS: Read + Seek,
-{
+) -> Option<Result<XlsReader<'a>, XlsxError>> {
     match zip.by_name(path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
@@ -786,7 +777,7 @@ fn read_sheet<T, F>(
     push_cell: &mut F,
 ) -> Result<(), XlsxError>
 where
-    T: Clone + Default + PartialEq,
+    T: CellType,
     F: FnMut(
         &mut Vec<Cell<T>>,
         &mut XlsReader<'_>,
