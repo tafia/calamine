@@ -12,7 +12,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader, Table};
+use crate::{Cell, CellErrorType, CellType, DataType, Metadata, Range, Reader, Table};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -143,19 +143,18 @@ enum CellFormat {
     Date,
 }
 
+type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
+
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
-pub struct Xlsx<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
     /// Shared strings
     strings: Vec<String>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
-    tables: Option<Vec<(String, String, Vec<String>, Dimensions)>>,
+    tables: Tables,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
     /// Metadata
@@ -375,7 +374,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     // sheets must be added before this is called!!
     fn read_table_metadata(&mut self) -> Result<(), XlsxError> {
         for (sheet_name, sheet_path) in &self.sheets {
-            let last_folder_index = sheet_path.rfind("/").expect("should be in a folder");
+            let last_folder_index = sheet_path.rfind('/').expect("should be in a folder");
             let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
             let rel_path = format!("{}/_rels{}.rels", base_folder, file_name);
 
@@ -415,7 +414,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 if target.starts_with("../") {
                                     // this is an incomplete implementation, but should be good enough for excel
                                     let new_index =
-                                        base_folder.rfind("/").expect("Must be a parent folder");
+                                        base_folder.rfind('/').expect("Must be a parent folder");
                                     let full_path = format!(
                                         "{}{}",
                                         base_folder[..new_index].to_owned(),
@@ -474,13 +473,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             }
                         }
                         Ok(Event::Start(ref e)) if e.local_name() == b"tableColumn" => {
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: b"name",
-                                        value: v,
-                                    } => column_names.push(xml.decode(&v).into_owned()),
-                                    _ => (),
+                            for a in e.attributes().flatten() {
+                                if let Attribute {
+                                    key: b"name",
+                                    value: v,
+                                } = a
+                                {
+                                    column_names.push(xml.decode(&v).into_owned())
                                 }
                             }
                         }
@@ -605,7 +604,7 @@ fn worksheet<T, F>(
     read_data: &mut F,
 ) -> Result<Range<T>, XlsxError>
 where
-    T: Default + Clone + PartialEq,
+    T: CellType,
     F: FnMut(
         &[String],
         &[CellFormat],
@@ -639,7 +638,7 @@ where
                         return Err(XlsxError::UnexpectedNode("dimension"));
                     }
                     b"sheetData" => {
-                        read_data(&strings, &formats, &mut xml, &mut cells)?;
+                        read_data(strings, formats, &mut xml, &mut cells)?;
                         break;
                     }
                     _ => (),
@@ -657,10 +656,7 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
     type RS = RS;
     type Error = XlsxError;
 
-    fn new(reader: RS) -> Result<Self, XlsxError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, XlsxError> {
         let mut xlsx = Xlsx {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
@@ -749,13 +745,10 @@ impl<RS: Read + Seek> Reader for Xlsx<RS> {
     }
 }
 
-fn xml_reader<'a, RS>(
+fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
-) -> Option<Result<XlsReader<'a>, XlsxError>>
-where
-    RS: Read + Seek,
-{
+) -> Option<Result<XlsReader<'a>, XlsxError>> {
     match zip.by_name(path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
@@ -791,7 +784,7 @@ fn read_sheet<T, F>(
     push_cell: &mut F,
 ) -> Result<(), XlsxError>
 where
-    T: Clone + Default + PartialEq,
+    T: CellType,
     F: FnMut(
         &mut Vec<Cell<T>>,
         &mut XlsReader<'_>,
@@ -1006,7 +999,7 @@ impl Dimensions {
 fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
     let parts: Vec<_> = dimension
         .split(|c| *c == b':')
-        .map(|s| get_row_column(s))
+        .map(get_row_column)
         .collect::<Result<Vec<_>, XlsxError>>()?;
 
     match parts.len() {

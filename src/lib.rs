@@ -205,7 +205,10 @@ where
 
 /// A trait to constrain cells
 pub trait CellType: Default + Clone + PartialEq {}
-impl<T: Default + Clone + PartialEq> CellType for T {}
+
+impl CellType for DataType {}
+impl CellType for String {}
+impl CellType for usize {} // for tests
 
 /// A struct to hold cell position and value
 #[derive(Debug, Clone)]
@@ -238,7 +241,7 @@ impl<T: CellType> Cell<T> {
 
 /// A struct which represents a squared selection of cells
 #[derive(Debug, Default, Clone)]
-pub struct Range<T: CellType> {
+pub struct Range<T> {
     start: (u32, u32),
     end: (u32, u32),
     inner: Vec<T>,
@@ -352,13 +355,16 @@ impl<T: CellType> Range<T> {
                     col_end = c
                 }
             }
-            let width = col_end - col_start + 1;
-            let len = ((row_end - row_start + 1) * width) as usize;
+            let cols = (col_end - col_start + 1) as usize;
+            let rows = (row_end - col_start + 1) as usize;
+            let len = cols.saturating_mul(rows);
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
             for c in cells {
-                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
-                v[idx] = c.val;
+                let row = (c.pos.0 - row_start) as usize;
+                let col = (c.pos.1 - col_start) as usize;
+                let idx = row.saturating_mul(cols) + col;
+                v.get_mut(idx).map(|v| *v = c.val);
             }
             Range {
                 start: (row_start, col_start),
@@ -763,19 +769,13 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
 impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 
 /// Struct with the key elements of a table
-pub struct Table<T>
-where
-    T: Default + Clone + PartialEq,
-{
+pub struct Table<T> {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
     pub(crate) columns: Vec<String>,
     pub(crate) data: Range<T>,
 }
-impl<T> Table<T>
-where
-    T: Default + Clone + PartialEq,
-{
+impl<T> Table<T> {
     /// Get the name of the table
     pub fn name(&self) -> &str {
         &self.name

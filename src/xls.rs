@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
@@ -148,10 +149,7 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # Ok(workbook) }
     /// # fn main() { assert!(run().is_err()); }
     /// ```
-    pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError>
-    where
-        RS: Read + Seek,
-    {
+    pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
         let mut cfb = {
             let offset_end = reader.seek(SeekFrom::End(0))? as usize;
             reader.seek(SeekFrom::Start(0))?;
@@ -189,10 +187,7 @@ impl<RS: Read + Seek> Reader for Xls<RS> {
     type RS = RS;
     type Error = XlsError;
 
-    fn new(reader: RS) -> Result<Self, XlsError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, XlsError> {
         Self::new_with_options(reader, XlsOptions::default())
     }
 
@@ -235,8 +230,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         {
-            let mut wb = &stream;
-            let records = RecordIter { stream: &mut wb };
+            let wb = &stream;
+            let records = RecordIter { stream: wb };
             for record in records {
                 let mut r = record?;
                 match r.typ {
@@ -262,8 +257,13 @@ impl<RS: Read + Seek> Xls<RS> {
                         // Lbl for defined_names
                         let mut cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
-                        let name =
-                            read_unicode_string_no_cch(&mut encoding, &r.data[14..], &mut cch);
+                        let mut name = String::new();
+                        read_unicode_string_no_cch(
+                            &mut encoding,
+                            &r.data[14..],
+                            &mut cch,
+                            &mut name,
+                        );
                         let rgce = &r.data[r.data.len() - cce..];
                         let formula = parse_defined_names(rgce)?;
                         defined_names.push((name, formula));
@@ -308,8 +308,8 @@ impl<RS: Read + Seek> Xls<RS> {
             .map(|&(_, ref n)| n.clone())
             .collect::<Vec<_>>();
         for (pos, name) in sheet_names {
-            let mut sh = &stream[pos..];
-            let records = RecordIter { stream: &mut sh };
+            let sh = &stream[pos..];
+            let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
             for record in records {
@@ -318,13 +318,15 @@ impl<RS: Read + Seek> Xls<RS> {
                     // 512: Dimensions
                     0x0200 => {
                         let Dimensions { start, end } = parse_dimensions(r.data)?;
-                        cells.reserve(((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize);
+                        let rows = (end.0 - start.0 + 1) as usize;
+                        let cols = (end.1 - start.1 + 1) as usize;
+                        cells.reserve(rows.saturating_mul(cols));
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data)?), // 515: Number
                     0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
                     0x027E => cells.push(parse_rk(r.data)?),     // 636: Rk
-                    0x00FD => cells.push(parse_label_sst(r.data, &strings)?), // LabelSst
+                    0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
                     0x00BD => parse_mul_rk(r.data, &mut cells)?, // 189: MulRk
                     0x000A => break,                             // 10: EOF,
                     0x0006 => {
@@ -338,6 +340,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &mut encoding,
                         )
                         .unwrap_or_else(|e| {
+                            debug!("{}", e);
                             format!(
                                 "Unrecognised formula \
                                  for cell ({}, {}): {:?}",
@@ -481,7 +484,7 @@ fn rk_num(rk: &[u8]) -> DataType {
 
     let mut v = [0u8; 8];
     v[4..].copy_from_slice(rk);
-    v[0] &= 0xFC;
+    v[4] &= 0xFC;
     if is_int {
         let v = (read_i32(&v[4..8]) >> 2) as i64;
         if d100 && v % 100 != 0 {
@@ -512,7 +515,7 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<
     Ok(s)
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>, XlsError> {
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<DataType>>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "label sst",
@@ -523,10 +526,15 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Cell<DataType>, XlsEr
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
-    Ok(Cell::new(
-        (row as u32, col as u32),
-        DataType::String(strings[i].clone()),
-    ))
+    if let Some(s) = strings.get(i) {
+        if !s.is_empty() {
+            return Ok(Some(Cell::new(
+                (row as u32, col as u32),
+                DataType::String(s.clone()),
+            )));
+        }
+    }
+    Ok(None)
 }
 
 struct Dimensions {
@@ -617,13 +625,13 @@ fn read_rich_extended_string(
 
     // if flag fRichSt exists, read cRun and forward.
     if flags & 0x8 != 0 {
-        c_run = read_u16(&r.data) as usize;
+        c_run = read_u16(r.data) as usize;
         r.data = &r.data[2..];
     }
 
     // if flag fExtSt exists, read cbExtRst and forward.
     if flags & 0x4 != 0 {
-        cb_ext_rst = read_i32(&r.data) as usize;
+        cb_ext_rst = read_i32(r.data) as usize;
         r.data = &r.data[4..];
     }
 
@@ -662,10 +670,13 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(encoding: &mut XlsEncoding, buf: &[u8], len: &mut usize) -> String {
-    let mut s = String::new();
-    let _ = encoding.decode_to(&buf[1..=*len], *len, &mut s, Some(buf[0] & 0x1 != 0));
-    s
+fn read_unicode_string_no_cch(
+    encoding: &mut XlsEncoding,
+    buf: &[u8],
+    len: &mut usize,
+    s: &mut String,
+) {
+    encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
 }
 
 struct Record<'a> {
@@ -824,8 +835,7 @@ fn parse_formula(
                 // TODO: check with relative columns
                 formula.push('$');
                 push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u16(&rgce[2..4]) as u32 + 1));
+                write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
                 rgce = &rgce[6..];
             }
             0x3b | 0x5b | 0x7b => {
@@ -837,13 +847,9 @@ fn parse_formula(
                 // TODO: check with relative columns
                 formula.push('$');
                 push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u16(&rgce[2..4]) as u32 + 1));
-                formula.push(':');
-                formula.push('$');
+                write!(&mut formula, "${}:$", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
                 push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u16(&rgce[4..6]) as u32 + 1));
+                write!(&mut formula, "${}", read_u16(&rgce[4..6]) as u32 + 1).unwrap();
                 rgce = &rgce[10..];
             }
             0x3c | 0x5c | 0x7c => {
@@ -873,7 +879,6 @@ fn parse_formula(
             0x03..=0x11 => {
                 // binary operation
                 let e2 = stack.pop().ok_or(XlsError::StackLen)?;
-                let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
                 let op = match ptg {
                     0x03 => "+",
@@ -893,8 +898,8 @@ fn parse_formula(
                     0x11 => ":",
                     _ => unreachable!(),
                 };
-                formula.push_str(op);
-                formula.push_str(&e2);
+                let e2 = formula.split_off(e2);
+                write!(&mut formula, "{}{}", op, e2).unwrap();
             }
             0x12 => {
                 let e = stack.last().ok_or(XlsError::StackLen)?;
@@ -919,7 +924,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let mut cch = rgce[0] as usize;
-                formula.push_str(&read_unicode_string_no_cch(encoding, &rgce[1..], &mut cch));
+                read_unicode_string_no_cch(encoding, &rgce[1..], &mut cch, &mut formula);
                 formula.push('\"');
                 rgce = &rgce[2 + cch..];
             }
@@ -927,19 +932,39 @@ fn parse_formula(
                 rgce = &rgce[5..];
             }
             0x19 => {
-                // ignore most of these ptgs ...
                 let etpg = rgce[0];
                 rgce = &rgce[1..];
                 match etpg {
-                    0x01 | 0x02 | 0x08 | 0x20 | 0x21 | 0x40 | 0x41 => rgce = &rgce[2..],
-                    0x04 => rgce = &rgce[10..],
+                    0x01 | 0x02 | 0x08 | 0x20 | 0x21 => rgce = &rgce[2..],
+                    0x04 => {
+                        // PtgAttrChoose
+                        let n = read_u16(&rgce[..2]) as usize + 1;
+                        rgce = &rgce[2 + 2 * n..]; // ignore
+                    }
                     0x10 => {
                         rgce = &rgce[2..];
                         let e = *stack.last().ok_or(XlsError::StackLen)?;
                         let e = formula.split_off(e);
-                        formula.push_str("SUM(");
-                        formula.push_str(&e);
-                        formula.push(')');
+                        write!(&mut formula, "SUM({})", e).unwrap();
+                    }
+                    0x40 | 0x41 => {
+                        // PtfAttrSpace
+                        let e = *stack.last().ok_or(XlsError::StackLen)?;
+                        let space = match rgce[0] {
+                            0x00 | 0x02 | 0x04 | 0x06 => ' ',
+                            0x01 | 0x03 | 0x05 => '\r',
+                            val => {
+                                return Err(XlsError::Unrecognized {
+                                    typ: "PtgAttrSpaceType",
+                                    val,
+                                })
+                            }
+                        };
+                        let cch = rgce[1];
+                        for _ in 0..cch {
+                            formula.insert(e, space);
+                        }
+                        rgce = &rgce[2..];
                     }
                     e => return Err(XlsError::Etpg(e)),
                 }
@@ -972,17 +997,18 @@ fn parse_formula(
             }
             0x1E => {
                 stack.push(formula.len());
-                formula.push_str(&format!("{}", read_u16(rgce)));
+                write!(&mut formula, "{}", read_u16(rgce)).unwrap();
                 rgce = &rgce[2..];
             }
             0x1F => {
                 stack.push(formula.len());
-                formula.push_str(&format!("{}", read_f64(rgce)));
+                write!(&mut formula, "{}", read_f64(rgce)).unwrap();
                 rgce = &rgce[8..];
             }
             0x20 | 0x40 | 0x60 => {
                 // PtgArray: ignore
                 stack.push(formula.len());
+                formula.push_str("{PtgArray}");
                 rgce = &rgce[7..];
             }
             0x21 | 0x22 | 0x41 | 0x42 | 0x61 | 0x62 => {
@@ -1019,7 +1045,7 @@ fn parse_formula(
                     formula.push_str(
                         crate::utils::FTAB
                             .get(iftab)
-                            .ok_or_else(|| XlsError::IfTab(iftab))?,
+                            .ok_or(XlsError::IfTab(iftab))?,
                     );
                     formula.push('(');
                     for w in args.windows(2) {
@@ -1058,13 +1084,9 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('$');
                 push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u16(&rgce[0..2]) as u32 + 1));
-                formula.push(':');
-                formula.push('$');
+                write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
                 push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u16(&rgce[2..4]) as u32 + 1));
+                write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
                 rgce = &rgce[8..];
             }
             0x2A | 0x4A | 0x6A => {
@@ -1076,6 +1098,12 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str("#REF!");
                 rgce = &rgce[8..];
+            }
+            0x39 | 0x59 => {
+                // PfgNameX
+                stack.push(formula.len());
+                formula.push_str("[PtgNameX]");
+                rgce = &rgce[6..];
             }
             _ => {
                 return Err(XlsError::Unrecognized {

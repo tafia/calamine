@@ -44,7 +44,7 @@ pub enum OdsError {
     FileNotFound(&'static str),
     /// Unexpected end of file
     Eof(&'static str),
-    /// Unexpexted error
+    /// Unexpected error
     Mismatch {
         /// Expected
         expected: &'static str,
@@ -63,7 +63,7 @@ impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OdsError::Io(e) => write!(f, "I/O error: {}", e),
-            OdsError::Zip(e) => write!(f, "Zip error: {}", e),
+            OdsError::Zip(e) => write!(f, "Zip error: {:?}", e),
             OdsError::Xml(e) => write!(f, "Xml error: {}", e),
             OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
             OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
@@ -97,10 +97,7 @@ impl std::error::Error for OdsError {
 /// # Reference
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-pub struct Ods<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Ods<RS> {
     sheets: HashMap<String, (Range<DataType>, Range<String>)>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -110,10 +107,7 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     type RS = RS;
     type Error = OdsError;
 
-    fn new(reader: RS) -> Result<Self, OdsError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, OdsError> {
         let mut zip = ZipArchive::new(reader)?;
 
         // check mimetype
@@ -161,16 +155,16 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
         self.sheets.get(name).map(|r| Ok(r.0.to_owned()))
     }
 
-    /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
-    }
-
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
         self.sheets
             .iter()
             .map(|(name, (range, _formula))| (name.to_owned(), range.clone()))
             .collect()
+    }
+
+    /// Read worksheet data in corresponding worksheet path
+    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
+        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
     }
 }
 
@@ -263,7 +257,7 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
-    let mut col_min = std::usize::MAX;
+    let mut col_min = usize::MAX;
     let mut col_max = 0;
     {
         for (i, w) in cols.windows(2).enumerate() {

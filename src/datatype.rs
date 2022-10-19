@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_int_dates() {
-        use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
         let unix_epoch = DataType::Int(25569);
         assert_eq!(
