@@ -481,7 +481,7 @@ fn rk_num(rk: &[u8]) -> DataType {
 
     let mut v = [0u8; 8];
     v[4..].copy_from_slice(rk);
-    v[0] &= 0xFC;
+    v[4] &= 0xFC;
     if is_int {
         let v = (read_i32(&v[4..8]) >> 2) as i64;
         if d100 && v % 100 != 0 {

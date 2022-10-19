@@ -777,3 +777,18 @@ fn issue_221() {
         ]
     );
 }
+
+#[test]
+fn test_values_xls() {
+    let path = format!(
+        "{}/tests/xls_wrong_decimals.xls",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xls<_> = open_workbook(&path).unwrap();
+    let range = excel
+        .worksheet_range_at(0)
+        .unwrap()
+        .unwrap()
+        .range((0, 0), (0, 0));
+    range_eq!(range, [[0.525625],]);
+}
