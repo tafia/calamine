@@ -3,7 +3,7 @@
 //! Retranscription from:
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -77,7 +77,7 @@ impl std::error::Error for VbaError {
 #[derive(Clone)]
 pub struct VbaProject {
     references: Vec<Reference>,
-    modules: HashMap<String, Vec<u8>>,
+    modules: BTreeMap<String, Vec<u8>>,
     encoding: XlsEncoding,
 }
 
@@ -107,14 +107,14 @@ impl VbaProject {
         let mods: Vec<Module> = read_modules(stream, &encoding)?;
 
         // read all modules
-        let modules: HashMap<String, Vec<u8>> = mods
+        let modules: BTreeMap<String, Vec<u8>> = mods
             .into_iter()
             .map(|m| {
                 cfb.get_stream(&m.stream_name, r).and_then(|s| {
                     crate::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
                 })
             })
-            .collect::<Result<HashMap<_, _>, _>>()?;
+            .collect::<Result<_, _>>()?;
 
         Ok(VbaProject {
             references: refs,

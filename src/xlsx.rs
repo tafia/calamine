@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
@@ -195,7 +195,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
 
-        let mut number_formats = HashMap::new();
+        let mut number_formats = BTreeMap::new();
 
         let mut buf = Vec::new();
         let mut inner_buf = Vec::new();
@@ -265,7 +265,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsxError> {
+    fn read_workbook(
+        &mut self,
+        relationships: &BTreeMap<Vec<u8>, String>,
+    ) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml") {
             None => return Ok(()),
             Some(x) => x?,
@@ -345,7 +348,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
+    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/_rels/workbook.xml.rels") {
             None => {
                 return Err(XlsxError::FileNotFound(
@@ -354,7 +357,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
             Some(x) => x?,
         };
-        let mut relationships = HashMap::new();
+        let mut relationships = BTreeMap::new();
         let mut buf = Vec::new();
         loop {
             buf.clear();
