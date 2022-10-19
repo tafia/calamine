@@ -779,6 +779,16 @@ fn issue_221() {
 }
 
 #[test]
+fn issue_252() {
+    setup();
+
+    let path = format!("{}/tests/issue252.xlsx", env!("CARGO_MANIFEST_DIR"));
+
+    // should err, not panic
+    assert!(open_workbook::<Xls<_>, _>(&path).is_err());
+}
+
+#[test]
 fn test_values_xls() {
     let path = format!(
         "{}/tests/xls_wrong_decimals.xls",
