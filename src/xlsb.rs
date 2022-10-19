@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 use std::string::String;
 
@@ -119,8 +119,8 @@ pub struct Xlsb<RS> {
 
 impl<RS: Read + Seek> Xlsb<RS> {
     /// MS-XLSB
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
-        let mut relationships = HashMap::new();
+    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsbError> {
+        let mut relationships = BTreeMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
                 let mut xml = XmlReader::from_reader(BufReader::new(f));
@@ -195,7 +195,10 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsbError> {
+    fn read_workbook(
+        &mut self,
+        relationships: &BTreeMap<Vec<u8>, String>,
+    ) -> Result<(), XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
         let mut buf = vec![0; 1024];
 
@@ -223,7 +226,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     if rel_len != 0xFFFF_FFFF {
                         let rel_len = rel_len as usize * 2;
                         let relid = &buf[12..12 + rel_len];
-                        // converts utf16le to utf8 for HashMap search
+                        // converts utf16le to utf8 for BTreeMap search
                         let relid = UTF_16LE.decode(relid).0;
                         let path = format!("xl/{}", relationships[relid.as_bytes()]);
                         let name = wide_str(&buf[12 + rel_len..len], &mut 0)?;

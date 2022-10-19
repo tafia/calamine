@@ -5,7 +5,7 @@
 //! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 
 use quick_xml::events::attributes::Attributes;
@@ -102,7 +102,7 @@ impl std::error::Error for OdsError {
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 pub struct Ods<RS> {
-    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
     metadata: Metadata,
     marker: PhantomData<RS>,
 }
@@ -175,7 +175,7 @@ where
 }
 
 struct Content {
-    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
     sheet_names: Vec<String>,
     defined_names: Vec<(String, String)>,
 }
@@ -195,7 +195,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         Err(e) => return Err(OdsError::Zip(e)),
     };
     let mut buf = Vec::new();
-    let mut sheets = HashMap::new();
+    let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
     let mut sheet_names = Vec::new();
     loop {

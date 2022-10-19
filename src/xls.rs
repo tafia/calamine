@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
@@ -126,7 +126,7 @@ pub struct XlsOptions {
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
-    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
     vba: Option<VbaProject>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -168,7 +168,7 @@ impl<RS: Read + Seek> Xls<RS> {
         debug!("vba ok");
 
         let mut xls = Xls {
-            sheets: HashMap::new(),
+            sheets: BTreeMap::new(),
             vba,
             marker: PhantomData,
             metadata: Metadata::default(),
@@ -301,7 +301,7 @@ impl<RS: Read + Seek> Xls<RS> {
 
         debug!("defined_names: {:?}", defined_names);
 
-        let mut sheets = HashMap::with_capacity(sheet_names.len());
+        let mut sheets = BTreeMap::new();
         let fmla_sheet_names = sheet_names
             .iter()
             .map(|&(_, ref n)| n.clone())

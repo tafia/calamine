@@ -802,3 +802,31 @@ fn test_values_xls() {
         .range((0, 0), (0, 0));
     range_eq!(range, [[0.525625],]);
 }
+
+#[test]
+fn issue_271() -> Result<(), calamine::Error> {
+    let mut count = 0;
+    let mut values = Vec::new();
+    loop {
+        let path = format!("{}/tests/issue_271.xls", env!("CARGO_MANIFEST_DIR"));
+        let mut workbook: Xls<_> = open_workbook(path)?;
+        let v = workbook.worksheets();
+        let (_sheetname, range) = v.first().expect("bad format");
+        dbg!(_sheetname);
+        let value = range.get((0, 1)).map(|s| s.to_string());
+        values.push(value);
+        count += 1;
+        if count > 20 {
+            break;
+        }
+    }
+
+    dbg!(&values);
+
+    values.sort_unstable();
+    values.dedup();
+
+    assert_eq!(values.len(), 1);
+
+    Ok(())
+}
