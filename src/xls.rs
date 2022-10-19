@@ -230,8 +230,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         {
-            let mut wb = &stream;
-            let records = RecordIter { stream: &mut wb };
+            let wb = &stream;
+            let records = RecordIter { stream: wb };
             for record in records {
                 let mut r = record?;
                 match r.typ {
@@ -308,8 +308,8 @@ impl<RS: Read + Seek> Xls<RS> {
             .map(|&(_, ref n)| n.clone())
             .collect::<Vec<_>>();
         for (pos, name) in sheet_names {
-            let mut sh = &stream[pos..];
-            let records = RecordIter { stream: &mut sh };
+            let sh = &stream[pos..];
+            let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
             for record in records {
@@ -625,13 +625,13 @@ fn read_rich_extended_string(
 
     // if flag fRichSt exists, read cRun and forward.
     if flags & 0x8 != 0 {
-        c_run = read_u16(&r.data) as usize;
+        c_run = read_u16(r.data) as usize;
         r.data = &r.data[2..];
     }
 
     // if flag fExtSt exists, read cbExtRst and forward.
     if flags & 0x4 != 0 {
-        cb_ext_rst = read_i32(&r.data) as usize;
+        cb_ext_rst = read_i32(r.data) as usize;
         r.data = &r.data[4..];
     }
 
@@ -1045,7 +1045,7 @@ fn parse_formula(
                     formula.push_str(
                         crate::utils::FTAB
                             .get(iftab)
-                            .ok_or_else(|| XlsError::IfTab(iftab))?,
+                            .ok_or(XlsError::IfTab(iftab))?,
                     );
                     formula.push('(');
                     for w in args.windows(2) {
