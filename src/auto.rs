@@ -2,29 +2,38 @@
 
 use crate::errors::Error;
 use crate::vba::VbaProject;
-use crate::{open_workbook, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx};
+use crate::{
+    open_workbook, open_workbook_from_rs, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx,
+};
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
 /// A wrapper over all sheets when the file type is not known at static time
-pub enum Sheets {
+pub enum Sheets<RS>
+where
+    RS: std::io::Read + std::io::Seek,
+{
     /// Xls reader
-    Xls(Xls<BufReader<File>>),
+    Xls(Xls<RS>),
     /// Xlsx reader
-    Xlsx(Xlsx<BufReader<File>>),
+    Xlsx(Xlsx<RS>),
     /// Xlsb reader
-    Xlsb(Xlsb<BufReader<File>>),
+    Xlsb(Xlsb<RS>),
     /// Ods reader
-    Ods(Ods<BufReader<File>>),
+    Ods(Ods<RS>),
 }
 
 /// Opens a workbook and define the file type at runtime.
 ///
 /// Whenever possible use the statically known `open_workbook` function instead
-pub fn open_workbook_auto<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
-    Ok(match path.as_ref().extension().and_then(|e| e.to_str()) {
+pub fn open_workbook_auto<P>(path: P) -> Result<Sheets<BufReader<File>>, Error>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    Ok(match path.extension().and_then(|e| e.to_str()) {
         Some("xls") | Some("xla") => Sheets::Xls(open_workbook(&path).map_err(Error::Xls)?),
         Some("xlsx") | Some("xlsm") | Some("xlam") => {
             Sheets::Xlsx(open_workbook(&path).map_err(Error::Xlsx)?)
@@ -32,40 +41,49 @@ pub fn open_workbook_auto<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
         Some("xlsb") => Sheets::Xlsb(open_workbook(&path).map_err(Error::Xlsb)?),
         Some("ods") => Sheets::Ods(open_workbook(&path).map_err(Error::Ods)?),
         _ => {
-            fn open_workbook_xlsx<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
-                Ok(Sheets::Xlsx(open_workbook(&path).map_err(Error::Xlsx)?))
-            }
-            fn open_workbook_xls<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
-                Ok(Sheets::Xls(open_workbook(&path).map_err(Error::Xls)?))
-            }
-            fn open_workbook_xlsb<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
-                Ok(Sheets::Xlsb(open_workbook(&path).map_err(Error::Xlsb)?))
-            }
-            fn open_workbook_ods<P: AsRef<Path>>(path: P) -> Result<Sheets, Error> {
-                Ok(Sheets::Ods(open_workbook(&path).map_err(Error::Ods)?))
-            }
-
-            return if let Ok(ret) = open_workbook_xlsx(&path) {
-                Ok(ret)
-            } else if let Ok(ret) = open_workbook_xls(&path) {
-                Ok(ret)
-            } else if let Ok(ret) = open_workbook_xlsb(&path) {
-                Ok(ret)
-            } else if let Ok(ret) = open_workbook_ods(&path) {
-                Ok(ret)
+            if let Ok(ret) = open_workbook::<Xls<_>, _>(path) {
+                return Ok(Sheets::Xls(ret));
+            } else if let Ok(ret) = open_workbook::<Xlsx<_>, _>(path) {
+                return Ok(Sheets::Xlsx(ret));
+            } else if let Ok(ret) = open_workbook::<Xlsb<_>, _>(path) {
+                return Ok(Sheets::Xlsb(ret));
+            } else if let Ok(ret) = open_workbook::<Ods<_>, _>(path) {
+                return Ok(Sheets::Ods(ret));
             } else {
-                Err(Error::Msg("Cannot detect file format"))
+                return Err(Error::Msg("Cannot detect file format"));
             };
         }
     })
 }
 
-impl Reader for Sheets {
-    type RS = BufReader<File>;
+/// Opens a workbook from the given bytes.
+///
+/// Whenever possible use the statically known `open_workbook_from_bytes` function instead
+pub fn open_workbook_auto_from_rs<RS>(data: RS) -> Result<Sheets<RS>, Error>
+where
+    RS: std::io::Read + std::io::Seek + Clone,
+{
+    if let Ok(ret) = open_workbook_from_rs::<Xls<RS>, RS>(data.clone()) {
+        return Ok(Sheets::Xls(ret));
+    } else if let Ok(ret) = open_workbook_from_rs::<Xlsx<RS>, RS>(data.clone()) {
+        return Ok(Sheets::Xlsx(ret));
+    } else if let Ok(ret) = open_workbook_from_rs::<Xlsb<RS>, RS>(data.clone()) {
+        return Ok(Sheets::Xlsb(ret));
+    } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data.clone()) {
+        return Ok(Sheets::Ods(ret));
+    } else {
+        return Err(Error::Msg("Cannot detect file format"));
+    };
+}
+
+impl<RS> Reader<RS> for Sheets<RS>
+where
+    RS: std::io::Read + std::io::Seek,
+{
     type Error = Error;
 
     /// Creates a new instance.
-    fn new(_reader: Self::RS) -> Result<Self, Self::Error> {
+    fn new(_reader: RS) -> Result<Self, Self::Error> {
         Err(Error::Msg("Sheets must be created from a Path"))
     }
 
