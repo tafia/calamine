@@ -12,7 +12,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Cell, CellType, CellErrorType, DataType, Metadata, Range, Reader, Table};
+use crate::{Cell, CellErrorType, CellType, DataType, Metadata, Range, Reader, Table};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 

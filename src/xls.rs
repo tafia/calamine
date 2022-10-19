@@ -2,9 +2,9 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
-use std::fmt::Write;
 
 use log::debug;
 
@@ -258,7 +258,12 @@ impl<RS: Read + Seek> Xls<RS> {
                         let mut cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
                         let mut name = String::new();
-                        read_unicode_string_no_cch(&mut encoding, &r.data[14..], &mut cch, &mut name);
+                        read_unicode_string_no_cch(
+                            &mut encoding,
+                            &r.data[14..],
+                            &mut cch,
+                            &mut name,
+                        );
                         let rgce = &r.data[r.data.len() - cce..];
                         let formula = parse_defined_names(rgce)?;
                         defined_names.push((name, formula));
@@ -665,7 +670,12 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(encoding: &mut XlsEncoding, buf: &[u8], len: &mut usize, s: &mut String) {
+fn read_unicode_string_no_cch(
+    encoding: &mut XlsEncoding,
+    buf: &[u8],
+    len: &mut usize,
+    s: &mut String,
+) {
     encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
 }
 
@@ -943,10 +953,12 @@ fn parse_formula(
                         let space = match rgce[0] {
                             0x00 | 0x02 | 0x04 | 0x06 => ' ',
                             0x01 | 0x03 | 0x05 => '\r',
-                            val => return Err(XlsError::Unrecognized {
-                                typ: "PtgAttrSpaceType",
-                                val,
-                            }),
+                            val => {
+                                return Err(XlsError::Unrecognized {
+                                    typ: "PtgAttrSpaceType",
+                                    val,
+                                })
+                            }
                         };
                         let cch = rgce[1];
                         for _ in 0..cch {
