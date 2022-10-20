@@ -1,14 +1,14 @@
 use std::fmt;
 
+#[cfg(feature = "dates")]
+use once_cell::sync::OnceCell;
 use serde::de::Visitor;
 use serde::{self, Deserialize};
+
+use super::CellErrorType;
+
 #[cfg(feature = "dates")]
- use once_cell::sync::OnceCell;
-
- use super::CellErrorType;
-
- #[cfg(feature = "dates")]
- static EXCEL_EPOCH: OnceCell<chrono::NaiveDateTime> = OnceCell::new();
+static EXCEL_EPOCH: OnceCell<chrono::NaiveDateTime> = OnceCell::new();
 
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
@@ -122,8 +122,8 @@ impl DataType {
     /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
     pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
-        const MS_MULTIPLIER:f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
-        
+        const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
+
         match self {
             DataType::Int(x) => {
                 let days = x - 25569;
@@ -132,7 +132,7 @@ impl DataType {
             }
             DataType::Float(f) | DataType::DateTime(f) => {
                 let excel_epoch = EXCEL_EPOCH
-                     .get_or_init(|| chrono::NaiveDate::from_ymd(1899, 12, 30).and_hms(0, 0, 0));
+                    .get_or_init(|| chrono::NaiveDate::from_ymd(1899, 12, 30).and_hms(0, 0, 0));
                 let ms = f * MS_MULTIPLIER;
                 let excel_duration = chrono::Duration::milliseconds(ms as i64);
                 Some(*excel_epoch + excel_duration)
