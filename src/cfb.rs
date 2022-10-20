@@ -21,7 +21,6 @@ const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
 #[derive(Debug)]
 pub enum CfbError {
     Io(std::io::Error),
-
     Ole,
     EmptyRootDir,
     StreamNotFound(String),
