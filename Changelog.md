@@ -10,6 +10,11 @@
 
 ## Unreleased
 
+## 0.19.1
+
+- fix: wrong range len calculation
+- fix: date precision
+
 ## 0.19.0
 
 - fix: Several decoding issues in xls and xlsb
