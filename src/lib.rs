@@ -366,7 +366,7 @@ impl<T: CellType> Range<T> {
                 }
             }
             let cols = (col_end - col_start + 1) as usize;
-            let rows = (row_end - col_start + 1) as usize;
+            let rows = (row_end - row_start + 1) as usize;
             let len = cols.saturating_mul(rows);
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
