@@ -221,7 +221,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     _ => (),
                                 }
                             }
-                            number_formats.insert(id, format);
+                            if !format.is_empty() {
+                                number_formats.insert(id, format);
+                            }
                         }
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"numFmts" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("numFmts")),
