@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 use std::string::String;
 
@@ -8,6 +8,7 @@ use log::debug;
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
+use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
@@ -25,6 +26,8 @@ pub enum XlsbError {
     Zip(zip::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
+    /// Xml attribute error
+    XmlAttr(quick_xml::events::attributes::AttrError),
     /// Vba error
     Vba(crate::vba::VbaError),
 
@@ -71,6 +74,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Io(e) => write!(f, "I/O error: {}", e),
             XlsbError::Zip(e) => write!(f, "Zip error: {}", e),
             XlsbError::Xml(e) => write!(f, "Xml error: {}", e),
+            XlsbError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
             XlsbError::Vba(e) => write!(f, "Vba error: {}", e),
             XlsbError::Mismatch { expected, found } => {
                 write!(f, "Expecting {}, got {:X}", expected, found)
@@ -105,10 +109,7 @@ impl std::error::Error for XlsbError {
 }
 
 /// A Xlsb reader
-pub struct Xlsb<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
@@ -118,8 +119,8 @@ where
 
 impl<RS: Read + Seek> Xlsb<RS> {
     /// MS-XLSB
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
-        let mut relationships = HashMap::new();
+    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsbError> {
+        let mut relationships = BTreeMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
                 let mut xml = XmlReader::from_reader(BufReader::new(f));
@@ -130,23 +131,23 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 let mut buf = Vec::new();
 
                 loop {
-                    match xml.read_event(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.name() == QName(b"Relationship") => {
                             let mut id = None;
                             let mut target = None;
                             for a in e.attributes() {
-                                match a? {
+                                match a.map_err(XlsbError::XmlAttr)? {
                                     Attribute {
-                                        key: b"Id",
+                                        key: QName(b"Id"),
                                         value: v,
                                     } => {
                                         id = Some(v.to_vec());
                                     }
                                     Attribute {
-                                        key: b"Target",
+                                        key: QName(b"Target"),
                                         value: v,
                                     } => {
-                                        target = Some(xml.decode(&v).into_owned());
+                                        target = Some(xml.decoder().decode(&v)?.into_owned());
                                     }
                                     _ => (),
                                 }
@@ -194,7 +195,10 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsbError> {
+    fn read_workbook(
+        &mut self,
+        relationships: &BTreeMap<Vec<u8>, String>,
+    ) -> Result<(), XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
         let mut buf = vec![0; 1024];
 
@@ -222,7 +226,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     if rel_len != 0xFFFF_FFFF {
                         let rel_len = rel_len as usize * 2;
                         let relid = &buf[12..12 + rel_len];
-                        // converts utf16le to utf8 for HashMap search
+                        // converts utf16le to utf8 for BTreeMap search
                         let relid = UTF_16LE.decode(relid).0;
                         let path = format!("xl/{}", relationships[relid.as_bytes()]);
                         let name = wide_str(&buf[12 + rel_len..len], &mut 0)?;
@@ -386,7 +390,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
             };
 
             let col = read_u32(&buf);
-            cells.push(Cell::new((row, col), value));
+            match value {
+                DataType::Empty => (),
+                DataType::String(s) if s.is_empty() => (),
+                value => cells.push(Cell::new((row, col), value)),
+            }
         }
     }
 
@@ -404,12 +412,15 @@ impl<RS: Read + Seek> Xlsb<RS> {
             &mut buf,
         )?;
         let (start, end) = parse_dimensions(&buf[..16]);
-        let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-        let mut cells = if len < 1_000_000 {
-            Vec::with_capacity(len as usize)
-        } else {
-            Vec::new()
-        };
+        let mut cells = Vec::new();
+        if start.0 <= end.0 && start.1 <= end.1 {
+            let rows = (end.0 - start.0 + 1) as usize;
+            let cols = (end.1 - start.1 + 1) as usize;
+            let len = rows.saturating_mul(cols);
+            if len < 1_000_000 {
+                cells.reserve(len);
+            }
+        }
 
         // BrtBeginSheetData
         let _ = iter.next_skip_blocks(
@@ -469,19 +480,17 @@ impl<RS: Read + Seek> Xlsb<RS> {
             };
 
             let col = read_u32(&buf);
-            cells.push(Cell::new((row, col), value));
+            if !value.is_empty() {
+                cells.push(Cell::new((row, col), value));
+            }
         }
     }
 }
 
-impl<RS: Read + Seek> Reader for Xlsb<RS> {
-    type RS = RS;
+impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
 
-    fn new(reader: RS) -> Result<Self, XlsbError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, XlsbError> {
         let mut xlsb = Xlsb {
             zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
@@ -877,7 +886,9 @@ fn parse_formula(
             0x23 | 0x43 | 0x63 => {
                 let iname = read_u32(rgce) as usize - 1; // one-based
                 stack.push(formula.len());
-                formula.push_str(&names[iname].0);
+                if let Some(name) = names.get(iname) {
+                    formula.push_str(&name.0);
+                }
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {

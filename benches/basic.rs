@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 use test::Bencher;
 
-fn count<R: Reader<RS = BufReader<File>>>(path: &str) -> usize {
+fn count<R: Reader<BufReader<File>>>(path: &str) -> usize {
     let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
     let mut excel: R = open_workbook(&path).expect("cannot open excel file");
 

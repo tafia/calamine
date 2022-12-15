@@ -82,14 +82,14 @@ use std::io::{BufReader, Read, Seek};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 
-pub use crate::auto::{open_workbook_auto, Sheets};
+pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
 pub use crate::datatype::DataType;
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
-pub use crate::xls::{Xls, XlsError};
+pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
-pub use crate::xlsx::{Xlsx, XlsxError};
+pub use crate::xlsx::{OsmosXlsxConfig, Xlsx, XlsxError};
 
 use crate::vba::VbaProject;
 
@@ -144,15 +144,16 @@ pub struct Metadata {
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
-/// A trait to share spreadsheets reader functions accross different `FileType`s
-pub trait Reader: Sized {
-    /// Inner reader type
-    type RS: Read + Seek;
+/// A trait to share spreadsheets reader functions across different `FileType`s
+pub trait Reader<RS>: Sized
+where
+    RS: Read + Seek,
+{
     /// Error specific to file type
     type Error: std::fmt::Debug + From<std::io::Error>;
 
     /// Creates a new instance.
-    fn new(reader: Self::RS) -> Result<Self, Self::Error>;
+    fn new(reader: RS) -> Result<Self, Self::Error>;
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
     /// Initialize
@@ -196,16 +197,28 @@ pub trait Reader: Sized {
 /// Convenient function to open a file with a BufReader<File>
 pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
 where
-    R: Reader<RS = BufReader<File>>,
+    R: Reader<BufReader<File>>,
     P: AsRef<Path>,
 {
     let file = BufReader::new(File::open(path)?);
     R::new(file)
 }
 
+/// Convenient function to open a file with a BufReader<File>
+pub fn open_workbook_from_rs<R, RS>(rs: RS) -> Result<R, R::Error>
+where
+    RS: Read + Seek,
+    R: Reader<RS>,
+{
+    R::new(rs)
+}
+
 /// A trait to constrain cells
 pub trait CellType: Default + Clone + PartialEq {}
-impl<T: Default + Clone + PartialEq> CellType for T {}
+
+impl CellType for DataType {}
+impl CellType for String {}
+impl CellType for usize {} // for tests
 
 /// A struct to hold cell position and value
 #[derive(Debug, Clone)]
@@ -238,7 +251,7 @@ impl<T: CellType> Cell<T> {
 
 /// A struct which represents a squared selection of cells
 #[derive(Debug, Default, Clone)]
-pub struct Range<T: CellType> {
+pub struct Range<T> {
     start: (u32, u32),
     end: (u32, u32),
     inner: Vec<T>,
@@ -352,13 +365,16 @@ impl<T: CellType> Range<T> {
                     col_end = c
                 }
             }
-            let width = col_end - col_start + 1;
-            let len = ((row_end - row_start + 1) * width) as usize;
+            let cols = (col_end - col_start + 1) as usize;
+            let rows = (row_end - row_start + 1) as usize;
+            let len = cols.saturating_mul(rows);
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
             for c in cells {
-                let idx = ((c.pos.0 - row_start) * width + (c.pos.1 - col_start)) as usize;
-                v[idx] = c.val;
+                let row = (c.pos.0 - row_start) as usize;
+                let col = (c.pos.1 - col_start) as usize;
+                let idx = row.saturating_mul(cols) + col;
+                v.get_mut(idx).map(|v| *v = c.val);
             }
             Range {
                 start: (row_start, col_start),
@@ -598,7 +614,7 @@ impl<T: CellType> Range<T> {
         // change referential
         //
         // we want to copy range: start_row..(end_row + 1)
-        // In self referencial it is (start_row - self_start_row)..(end_row + 1 - self_start_row)
+        // In self referential it is (start_row - self_start_row)..(end_row + 1 - self_start_row)
         let self_row_start = (start_row - self_start_row) as usize;
         let self_row_end = (end_row + 1 - self_start_row) as usize;
         let self_col_start = (start_col - self_start_col) as usize;
@@ -763,19 +779,13 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
 impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 
 /// Struct with the key elements of a table
-pub struct Table<T>
-where
-    T: Default + Clone + PartialEq,
-{
+pub struct Table<T> {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
     pub(crate) columns: Vec<String>,
     pub(crate) data: Range<T>,
 }
-impl<T> Table<T>
-where
-    T: Default + Clone + PartialEq,
-{
+impl<T> Table<T> {
     /// Get the name of the table
     pub fn name(&self) -> &str {
         &self.name

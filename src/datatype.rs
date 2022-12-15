@@ -1,15 +1,20 @@
 use std::fmt;
 
+#[cfg(feature = "dates")]
+use once_cell::sync::OnceCell;
 use serde::de::Visitor;
 use serde::{self, Deserialize};
 
 use super::CellErrorType;
 
+#[cfg(feature = "dates")]
+static EXCEL_EPOCH: OnceCell<chrono::NaiveDateTime> = OnceCell::new();
+
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
-    /// Unsigned integer
+    /// Signed integer
     Int(i64),
     /// Float
     Float(f64),
@@ -117,6 +122,8 @@ impl DataType {
     /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
     pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+        const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
+
         match self {
             DataType::Int(x) => {
                 let days = x - 25569;
@@ -124,11 +131,11 @@ impl DataType {
                 chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
             }
             DataType::Float(f) | DataType::DateTime(f) => {
-                let unix_days = f - 25569.;
-                let unix_secs = unix_days * 86400.;
-                let secs = unix_secs.trunc() as i64;
-                let nsecs = (unix_secs.fract().abs() * 1e9) as u32;
-                chrono::NaiveDateTime::from_timestamp_opt(secs, nsecs)
+                let excel_epoch = EXCEL_EPOCH
+                    .get_or_init(|| chrono::NaiveDate::from_ymd(1899, 12, 30).and_hms(0, 0, 0));
+                let ms = f * MS_MULTIPLIER;
+                let excel_duration = chrono::Duration::milliseconds(ms as i64);
+                Some(*excel_epoch + excel_duration)
             }
             _ => None,
         }
@@ -313,6 +320,16 @@ mod tests {
             ))
         );
 
+        // test for https://github.com/tafia/calamine/issues/251
+        let unix_epoch_precision = DataType::Float(44484.7916666667);
+        assert_eq!(
+            unix_epoch_precision.as_datetime(),
+            Some(NaiveDateTime::new(
+                NaiveDate::from_ymd(2021, 10, 15),
+                NaiveTime::from_hms(19, 0, 0)
+            ))
+        );
+
         let unix_epoch_15h30m = DataType::Float(25569.645833333333333);
         let chrono_dt = NaiveDateTime::new(
             NaiveDate::from_ymd(1970, 1, 1),
@@ -324,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_int_dates() {
-        use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
+        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
         let unix_epoch = DataType::Int(25569);
         assert_eq!(

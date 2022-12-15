@@ -1,4 +1,4 @@
-//! Coumpound File Binary format MS-CFB
+//! Compound File Binary format MS-CFB
 
 use std::borrow::Cow;
 use std::cmp::min;
@@ -21,7 +21,6 @@ const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
 #[derive(Debug)]
 pub enum CfbError {
     Io(std::io::Error),
-
     Ole,
     EmptyRootDir,
     StreamNotFound(String),
@@ -420,8 +419,7 @@ pub struct XlsEncoding {
 
 impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
-        let e =
-            codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
+        let e = codepage::to_encoding(codepage).ok_or(CfbError::CodePageNotFound(codepage))?;
         Ok(XlsEncoding { encoding: e })
     }
 

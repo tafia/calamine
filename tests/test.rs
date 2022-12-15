@@ -200,7 +200,7 @@ fn xls() {
     );
 }
 
-// test ignored because the file is too large to be commited and tested
+// test ignored because the file is too large to be committed and tested
 #[ignore]
 #[test]
 fn issue_195() {
@@ -752,6 +752,16 @@ fn date() {
 }
 
 #[test]
+fn issue_219() {
+    setup();
+
+    let path = format!("{}/tests/issue219.xls", env!("CARGO_MANIFEST_DIR"));
+
+    // should not panic
+    let _: Xls<_> = open_workbook(&path).unwrap();
+}
+
+#[test]
 fn issue_221() {
     setup();
 
@@ -766,4 +776,83 @@ fn issue_221() {
             [String("Cell_A2".to_string()), String("Cell_B2".to_string())]
         ]
     );
+}
+
+#[test]
+fn issue_252() {
+    setup();
+
+    let path = format!("{}/tests/issue252.xlsx", env!("CARGO_MANIFEST_DIR"));
+
+    // should err, not panic
+    assert!(open_workbook::<Xls<_>, _>(&path).is_err());
+}
+
+#[test]
+fn test_values_xls() {
+    let path = format!(
+        "{}/tests/xls_wrong_decimals.xls",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xls<_> = open_workbook(&path).unwrap();
+    let range = excel
+        .worksheet_range_at(0)
+        .unwrap()
+        .unwrap()
+        .range((0, 0), (0, 0));
+    range_eq!(range, [[0.525625],]);
+}
+
+#[test]
+fn issue_271() -> Result<(), calamine::Error> {
+    let mut count = 0;
+    let mut values = Vec::new();
+    loop {
+        let path = format!("{}/tests/issue_271.xls", env!("CARGO_MANIFEST_DIR"));
+        let mut workbook: Xls<_> = open_workbook(path)?;
+        let v = workbook.worksheets();
+        let (_sheetname, range) = v.first().expect("bad format");
+        dbg!(_sheetname);
+        let value = range.get((0, 1)).map(|s| s.to_string());
+        values.push(value);
+        count += 1;
+        if count > 20 {
+            break;
+        }
+    }
+
+    dbg!(&values);
+
+    values.sort_unstable();
+    values.dedup();
+
+    assert_eq!(values.len(), 1);
+
+    Ok(())
+}
+#[test]
+fn custom_date_xlsx() {
+    use calamine::OsmosXlsxConfig;
+    use std::{fs::File, io::BufReader};
+
+    let path = format!(
+        "{}/tests/excel_date_notation.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let file = BufReader::new(File::open(path).unwrap());
+    let config = OsmosXlsxConfig {
+        custom_date_finder: Some(|s: &str| s.contains("yyyy")),
+    };
+
+    let mut xls = Xlsx::new_with_config(file, config).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+    for i in 2..9 {
+        for j in 0..2 {
+            match range.get_value((i, j)) {
+                Some(&DateTime(_)) => (),
+                _ => assert!(false),
+            }
+        }
+    }
 }

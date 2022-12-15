@@ -10,6 +10,19 @@
 
 ## Unreleased
 
+## 0.19.1
+
+- fix: wrong range len calculation
+- fix: date precision
+
+## 0.19.0
+
+- fix: Several decoding issues in xls and xlsb
+- fix: Wrong decimal parsing
+- refactor: bump dependencies (quick-xml in particular and chrono)
+- feat: always return sheet names in lexicographic order (BTreeMap)
+- chore: remove travis
+
 ## 0.18.0
 
 - fix: Allow empty value cells in xlsx
@@ -177,7 +190,7 @@
 - refactor: better internal logics
 
 ## 0.9.0
-- refactor: rename `Excel` in `Sheets` to accomodate OpenDocuments
+- refactor: rename `Excel` in `Sheets` to accommodate OpenDocuments
 - feat: add Index/IndexMut for Range
 
 ## 0.8.0
