@@ -10,6 +10,10 @@
 
 ## Unreleased
 
+## 0.19.2
+
+- feat: Extract picture data by turning `picture` feature on
+
 ## 0.19.1
 
 - fix: wrong range len calculation

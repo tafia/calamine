@@ -192,6 +192,10 @@ where
         let name = self.sheet_names().get(n)?.to_string();
         self.worksheet_range(&name)
     }
+
+    /// Get all pictures, tuple as (ext: String, data: Vec<u8>)
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
 }
 
 /// Convenient function to open a file with a BufReader<File>

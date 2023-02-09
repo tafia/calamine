@@ -115,6 +115,8 @@ pub struct Xlsb<RS> {
     sheets: Vec<(String, String)>,
     strings: Vec<String>,
     metadata: Metadata,
+    #[cfg(feature = "picture")]
+    pictures: Option<Vec<(String, Vec<u8>)>>,
 }
 
 impl<RS: Read + Seek> Xlsb<RS> {
@@ -485,6 +487,34 @@ impl<RS: Read + Seek> Xlsb<RS> {
             }
         }
     }
+
+    #[cfg(feature = "picture")]
+    fn read_pictures(&mut self) -> Result<(), XlsbError> {
+        let mut pics = Vec::new();
+        for i in 0..self.zip.len() {
+            let mut zfile = self.zip.by_index(i)?;
+            let zname = zfile.name().to_owned();
+            if zname.starts_with("xl/media") {
+                let name_ext: Vec<&str> = zname.split(".").collect();
+                if let Some(ext) = name_ext.last() {
+                    if [
+                        "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
+                        "bmp", "wpg",
+                    ]
+                    .contains(ext)
+                    {
+                        let mut buf: Vec<u8> = Vec::new();
+                        zfile.read_to_end(&mut buf)?;
+                        pics.push((ext.to_string(), buf));
+                    }
+                }
+            }
+        }
+        if !pics.is_empty() {
+            self.pictures = Some(pics);
+        }
+        Ok(())
+    }
 }
 
 impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
@@ -497,10 +527,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             strings: Vec::new(),
             extern_sheets: Vec::new(),
             metadata: Metadata::default(),
+            #[cfg(feature = "picture")]
+            pictures: None,
         };
         xlsb.read_shared_strings()?;
         let relationships = xlsb.read_relationships()?;
         xlsb.read_workbook(&relationships)?;
+        #[cfg(feature = "picture")]
+        xlsb.read_pictures()?;
 
         Ok(xlsb)
     }
@@ -546,6 +580,11 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
                 Some((name, ws))
             })
             .collect()
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
     }
 }
 

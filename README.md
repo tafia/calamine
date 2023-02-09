@@ -162,6 +162,7 @@ for s in sheets {
 ## Features
 
 - `dates`: Add date related fn to `DataType`. 
+- `picture`: Extract picture data.
 
 ### Others
 

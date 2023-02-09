@@ -9,6 +9,8 @@ use std::marker::PhantomData;
 use log::debug;
 
 use crate::cfb::{Cfb, XlsEncoding};
+#[cfg(feature = "picture")]
+use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
@@ -59,6 +61,9 @@ pub enum XlsError {
     Etpg(u8),
     /// No vba project
     NoVba,
+    /// Invalid OfficeArt Record
+    #[cfg(feature = "picture")]
+    Art(&'static str),
 }
 
 from_err!(std::io::Error, XlsError, Io);
@@ -94,6 +99,8 @@ impl std::fmt::Display for XlsError {
             XlsError::IfTab(iftab) => write!(f, "Invalid iftab {:X}", iftab),
             XlsError::Etpg(etpg) => write!(f, "Invalid etpg {:X}", etpg),
             XlsError::NoVba => write!(f, "No VBA project"),
+            #[cfg(feature = "picture")]
+            XlsError::Art(s) => write!(f, "Invalid art record '{}'", s),
         }
     }
 }
@@ -131,6 +138,8 @@ pub struct Xls<RS> {
     metadata: Metadata,
     marker: PhantomData<RS>,
     options: XlsOptions,
+    #[cfg(feature = "picture")]
+    pictures: Option<Vec<(String, Vec<u8>)>>,
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -173,6 +182,8 @@ impl<RS: Read + Seek> Xls<RS> {
             marker: PhantomData,
             metadata: Metadata::default(),
             options,
+            #[cfg(feature = "picture")]
+            pictures: None,
         };
 
         xls.parse_workbook(reader, cfb)?;
@@ -213,6 +224,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
         self.sheets.get(name).map(|r| Ok(r.1.clone()))
     }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
+    }
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -228,6 +244,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xtis = Vec::new();
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
+        #[cfg(feature = "picture")]
+        let mut draw_group: Vec<u8> = Vec::new();
         {
             let wb = &stream;
             let records = RecordIter { stream: wb };
@@ -278,7 +296,15 @@ impl<RS: Read + Seek> Xls<RS> {
                         );
                     }
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
-                    0x000A => break,                                       // EOF,
+                    #[cfg(feature = "picture")]
+                    0x00EB => {
+                        // MsoDrawingGroup
+                        draw_group.extend(r.data);
+                        if let Some(cont) = r.cont {
+                            draw_group.extend(cont.iter().flat_map(|v| *v));
+                        }
+                    }
+                    0x000A => break, // EOF,
                     _ => (),
                 }
             }
@@ -358,6 +384,14 @@ impl<RS: Read + Seek> Xls<RS> {
 
         self.sheets = sheets;
         self.metadata.names = defined_names;
+
+        #[cfg(feature = "picture")]
+        if !draw_group.is_empty() {
+            let pics = parse_pictures(&draw_group)?;
+            if !pics.is_empty() {
+                self.pictures = Some(pics);
+            }
+        }
 
         Ok(())
     }
@@ -1119,4 +1153,143 @@ fn parse_formula(
     } else {
         Ok(formula)
     }
+}
+
+/// OfficeArtRecord [MS-ODRAW 1.3.1]
+#[cfg(feature = "picture")]
+struct ArtRecord<'a> {
+    instance: u16,
+    typ: u16,
+    data: &'a [u8],
+}
+
+#[cfg(feature = "picture")]
+struct ArtRecordIter<'a> {
+    stream: &'a [u8],
+}
+
+#[cfg(feature = "picture")]
+impl<'a> Iterator for ArtRecordIter<'a> {
+    type Item = Result<ArtRecord<'a>, XlsError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.stream.len() < 8 {
+            return if self.stream.is_empty() {
+                None
+            } else {
+                Some(Err(XlsError::EoStream("art record header")))
+            };
+        }
+        let ver_ins = read_u16(self.stream);
+        let instance = ver_ins >> 4;
+        let typ = read_u16(&self.stream[2..]);
+        if typ < 0xF000 {
+            return Some(Err(XlsError::Art("type range 0xF000 - 0xFFFF")));
+        }
+        let len = read_usize(&self.stream[4..]);
+        if self.stream.len() < len + 8 {
+            return Some(Err(XlsError::EoStream("art record length")));
+        }
+        let (d, next) = self.stream.split_at(len + 8);
+        self.stream = next;
+        let data = &d[8..];
+
+        Some(Ok(ArtRecord {
+            instance,
+            typ,
+            data,
+        }))
+    }
+}
+
+/// Parsing pictures
+#[cfg(feature = "picture")]
+fn parse_pictures(stream: &[u8]) -> Result<Vec<(String, Vec<u8>)>, XlsError> {
+    let mut pics = Vec::new();
+    let records = ArtRecordIter { stream };
+    for record in records {
+        let r = record?;
+        match r.typ {
+            // OfficeArtDggContainer [MS-ODRAW 2.2.12]
+            // OfficeArtBStoreContainer [MS-ODRAW 2.2.20]
+            0xF000 | 0xF001 => pics.extend(parse_pictures(r.data)?),
+            // OfficeArtFBSE [MS-ODRAW 2.2.32]
+            0xF007 => {
+                let skip = 36 + r.data[33] as usize;
+                pics.extend(parse_pictures(&r.data[skip..])?);
+            }
+            // OfficeArtBlip [MS-ODRAW 2.2.23]
+            0xF01A | 0xF01B | 0xF01C | 0xF01D | 0xF01E | 0xF01F | 0xF029 | 0xF02A => {
+                let ext_skip = match r.typ {
+                    // OfficeArtBlipEMF [MS-ODRAW 2.2.24]
+                    0xF01A => {
+                        let skip = match r.instance {
+                            0x3D4 => 50usize,
+                            0x3D5 => 66,
+                            _ => unreachable!(),
+                        };
+                        Ok(("emf", skip))
+                    }
+                    // OfficeArtBlipWMF [MS-ODRAW 2.2.25]
+                    0xF01B => {
+                        let skip = match r.instance {
+                            0x216 => 50usize,
+                            0x217 => 66,
+                            _ => unreachable!(),
+                        };
+                        Ok(("wmf", skip))
+                    }
+                    // OfficeArtBlipPICT [MS-ODRAW 2.2.26]
+                    0xF01C => {
+                        let skip = match r.instance {
+                            0x542 => 50usize,
+                            0x543 => 66,
+                            _ => unreachable!(),
+                        };
+                        Ok(("pict", skip))
+                    }
+                    // OfficeArtBlipJPEG [MS-ODRAW 2.2.27]
+                    0xF01D | 0xF02A => {
+                        let skip = match r.instance {
+                            0x46A | 0x6E2 => 17usize,
+                            0x46B | 0x6E3 => 33,
+                            _ => unreachable!(),
+                        };
+                        Ok(("jpg", skip))
+                    }
+                    // OfficeArtBlipPNG [MS-ODRAW 2.2.28]
+                    0xF01E => {
+                        let skip = match r.instance {
+                            0x6E0 => 17usize,
+                            0x6E1 => 33,
+                            _ => unreachable!(),
+                        };
+                        Ok(("png", skip))
+                    }
+                    // OfficeArtBlipDIB [MS-ODRAW 2.2.29]
+                    0xF01F => {
+                        let skip = match r.instance {
+                            0x7A8 => 17usize,
+                            0x7A9 => 33,
+                            _ => unreachable!(),
+                        };
+                        Ok(("dib", skip))
+                    }
+                    // OfficeArtBlipTIFF [MS-ODRAW 2.2.30]
+                    0xF029 => {
+                        let skip = match r.instance {
+                            0x6E4 => 17usize,
+                            0x6E5 => 33,
+                            _ => unreachable!(),
+                        };
+                        Ok(("tiff", skip))
+                    }
+                    _ => Err(XlsError::Art("picture type not support")),
+                };
+                let ext_skip = ext_skip?;
+                pics.push((ext_skip.0.to_string(), Vec::from(&r.data[ext_skip.1..])));
+            }
+            _ => {}
+        }
+    }
+    Ok(pics)
 }
