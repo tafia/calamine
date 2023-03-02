@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 use std::string::String;
 
-use log::debug;
+use tracing::debug;
 
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;

@@ -4,7 +4,7 @@ use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
-use log::warn;
+use tracing::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
