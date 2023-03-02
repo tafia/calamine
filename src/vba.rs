@@ -4,11 +4,12 @@
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::collections::BTreeMap;
+use std::convert::TryInto;
 use std::io::Read;
 use std::path::PathBuf;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::{debug, log_enabled, warn, Level};
+use tracing::{debug, warn, Level};
 
 use crate::cfb::{Cfb, XlsEncoding};
 use crate::utils::read_u16;
@@ -316,11 +317,25 @@ struct Module {
     text_offset: usize,
 }
 
+/// The dir information specifies version-independent information for the VBA project. The
+/// PROJECTINFORMATION record's structure specification is defined in section ['2.3.4.2.1'].
+///
+/// ['2.3.4.2.1']: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/5abef063-3661-46dd-ba80-8cb507afdb1d
 fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
     debug!("read dir header");
 
-    // PROJECTSYSKIND, PROJECTLCID and PROJECTLCIDINVOKE Records
-    *stream = &stream[30..];
+    // PROJECTSYSKIND
+    *stream = &stream[10..];
+
+    // PROJECTCOMPATVERSION is an optional field with a length of 10 bytes
+    // | id (2 bytes) | size (4 bytes) | version (4 bytes) |
+    if 0x004A == read_u16(&stream[0..2]) {
+        debug!("file contains a PROJECTCOMPATVERSION");
+        *stream = &stream[10..];
+    }
+
+    // PROJECTLCID and PROJECTLCIDINVOKE Records
+    *stream = &stream[20..];
 
     // PROJECT Codepage
     let encoding = XlsEncoding::from_codepage(read_u16(&stream[6..8]))?;
@@ -424,7 +439,7 @@ fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8], V
 fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaError> {
     check_record(id, r)?;
     let record = read_variable_record(r, 1)?;
-    if log_enabled!(Level::Warn) && record.len() > 100_000 {
+    if record.len() > 100_000 {
         warn!(
             "record id {} as a suspicious huge length of {} (hex: {:x})",
             id,

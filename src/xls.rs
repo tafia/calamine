@@ -6,7 +6,7 @@ use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
-use log::debug;
+use tracing::debug;
 
 use crate::cfb::{Cfb, XlsEncoding};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
