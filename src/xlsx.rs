@@ -4,11 +4,11 @@ use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
-use tracing::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
+use tracing::warn;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
