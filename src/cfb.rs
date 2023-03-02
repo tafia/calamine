@@ -5,7 +5,7 @@ use std::cmp::min;
 use std::convert::TryInto;
 use std::io::Read;
 
-use log::debug;
+use tracing::debug;
 
 use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
