@@ -4,12 +4,11 @@
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::collections::BTreeMap;
-use std::convert::TryInto;
 use std::io::Read;
 use std::path::PathBuf;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::{debug, warn, Level};
+use tracing::{debug, warn};
 
 use crate::cfb::{Cfb, XlsEncoding};
 use crate::utils::read_u16;
