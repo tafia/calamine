@@ -902,8 +902,8 @@ where
                         Ok(Event::Start(ref e)) => push_cell(cells, xml, e, pos, c_element)?,
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => {
                             cols += 1;
-                            break
-                        },
+                            break;
+                        }
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
