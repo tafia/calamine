@@ -890,9 +890,6 @@ where
             Ok(Event::End(r_element)) if r_element.local_name().as_ref() == b"row" => {
                 rows += 1;
             }
-            Ok(Event::End(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                cols += 1;
-            }
             Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
                 let pos = match get_attribute(c_element.attributes(), QName(b"r")) {
                     Ok(Some(r_val)) => get_row_column(r_val),
@@ -903,7 +900,10 @@ where
                     cell_buf.clear();
                     match xml.read_event_into(&mut cell_buf) {
                         Ok(Event::Start(ref e)) => push_cell(cells, xml, e, pos, c_element)?,
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => {
+                            cols += 1;
+                            break;
+                        }
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
