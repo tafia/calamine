@@ -24,6 +24,10 @@ pub enum DataType {
     Bool(bool),
     /// Date or Time
     DateTime(f64),
+    /// Date or DateTime in ISO 8601
+    DateTimeIso(String),
+    /// Duration in ISO 8601
+    DurationIso(String),
     /// Error
     Error(CellErrorType),
     /// Empty cell
@@ -110,18 +114,37 @@ impl DataType {
     /// Try converting data type into a date
     #[cfg(feature = "dates")]
     pub fn as_date(&self) -> Option<chrono::NaiveDate> {
-        self.as_datetime().map(|dt| dt.date())
+        use std::str::FromStr;
+        match self {
+            DataType::DateTimeIso(s) => {
+                if s.contains("T") {
+                    self.as_datetime().map(|dt| dt.date())
+                } else {
+                    chrono::NaiveDate::from_str(s).ok()
+                }
+            }
+            _ => self.as_datetime().map(|dt| dt.date()),
+        }
     }
 
     /// Try converting data type into a time
     #[cfg(feature = "dates")]
     pub fn as_time(&self) -> Option<chrono::NaiveTime> {
-        self.as_datetime().map(|dt| dt.time())
+        use std::str::FromStr;
+        match self {
+            DataType::DateTimeIso(s) => s
+                .contains("T")
+                .then(|| chrono::NaiveDateTime::from_str(s).map(|dt| dt.time()).ok())
+                .flatten(),
+            DataType::DurationIso(s) => chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%SS").ok(),
+            _ => self.as_datetime().map(|dt| dt.time()),
+        }
     }
 
     /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
     pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+        use std::str::FromStr;
         const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
         match self {
@@ -137,6 +160,7 @@ impl DataType {
                 let excel_duration = chrono::Duration::milliseconds(ms as i64);
                 Some(*excel_epoch + excel_duration)
             }
+            DataType::DateTimeIso(s) => chrono::NaiveDateTime::from_str(s).ok(),
             _ => None,
         }
     }
@@ -186,6 +210,8 @@ impl fmt::Display for DataType {
             DataType::String(ref e) => write!(f, "{}", e),
             DataType::Bool(ref e) => write!(f, "{}", e),
             DataType::DateTime(ref e) => write!(f, "{}", e),
+            DataType::DateTimeIso(ref e) => write!(f, "{}", e),
+            DataType::DurationIso(ref e) => write!(f, "{}", e),
             DataType::Error(ref e) => write!(f, "{}", e),
             DataType::Empty => Ok(()),
         }

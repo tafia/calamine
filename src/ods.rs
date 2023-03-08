@@ -391,11 +391,15 @@ fn get_datatype(
             QName(b"office:string-value" | b"office:date-value" | b"office:time-value")
                 if !is_value_set =>
             {
-                val = DataType::String(
-                    a.decode_and_unescape_value(reader)
-                        .map_err(OdsError::Xml)?
-                        .to_string(),
-                );
+                let attr = a
+                    .decode_and_unescape_value(reader)
+                    .map_err(OdsError::Xml)?
+                    .to_string();
+                val = match a.key {
+                    QName(b"office:date-value") => DataType::DateTimeIso(attr),
+                    QName(b"office:time-value") => DataType::DurationIso(attr),
+                    _ => DataType::String(attr),
+                };
                 is_value_set = true;
             }
             QName(b"office:boolean-value") if !is_value_set => {
