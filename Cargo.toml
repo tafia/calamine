@@ -19,7 +19,7 @@ encoding_rs = "0.8.24"
 log = "0.4.11"
 once_cell = { version = "1.15", optional = true }
 serde = "1.0.116"
-quick-xml = { version = "0.25", features = ["encoding"] }
+quick-xml = { version = "0.27", features = ["encoding"] }
 zip = { version = "0.6.2", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4.22", features = ["serde"], optional = true, default-features = false }
 
