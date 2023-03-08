@@ -1123,7 +1123,7 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
             _ => return Err(XlsxError::Alphanumeric(*c)),
         }
     }
-    Ok((row - 1, col - 1))
+    Ok((row.saturating_sub(1), col - 1))
 }
 
 /// attempts to read either a simple or richtext string
