@@ -280,7 +280,10 @@ fn special_cells() {
         range,
         [
             [String("Split\nLine".to_string())],
-            [String("Value With spaces".to_string())],
+            [String("Value  With spaces".to_string())],
+            [String("Value   With 3 spaces".to_string())],
+            [String(" Value   With spaces before and after ".to_string())],
+            [String("  Value   With 2 spaces before and after  ".to_string())],
         ]
     );
 }

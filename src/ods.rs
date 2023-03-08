@@ -198,7 +198,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
             r.check_end_names(false)
-                .trim_text(true)
+                .trim_text(false)
                 .check_comments(false)
                 .expand_empty_elements(true);
             r
@@ -454,7 +454,17 @@ fn get_datatype(
                     }
                 }
                 Ok(Event::Start(ref e)) if e.name() == QName(b"text:s") => {
-                    s.push(' ');
+                    let count = match e.try_get_attribute("text:c")? {
+                        Some(c) => c
+                            .decode_and_unescape_value(&reader)
+                            .map_err(OdsError::Xml)?
+                            .parse()
+                            .map_err(OdsError::ParseInt)?,
+                        None => 1,
+                    };
+                    for _ in 0..count {
+                        s.push(' ');
+                    }
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),
