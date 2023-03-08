@@ -163,6 +163,9 @@ pub struct Xlsx<RS> {
     formats: Vec<CellFormat>,
     /// Metadata
     metadata: Metadata,
+    /// Pictures
+    #[cfg(feature = "picture")]
+    pictures: Option<Vec<(String, Vec<u8>)>>,
 }
 
 impl<RS: Read + Seek> Xlsx<RS> {
@@ -549,6 +552,35 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    /// Read pictures
+    #[cfg(feature = "picture")]
+    fn read_pictures(&mut self) -> Result<(), XlsxError> {
+        let mut pics = Vec::new();
+        for i in 0..self.zip.len() {
+            let mut zfile = self.zip.by_index(i)?;
+            let zname = zfile.name().to_owned();
+            if zname.starts_with("xl/media") {
+                let name_ext: Vec<&str> = zname.split(".").collect();
+                if let Some(ext) = name_ext.last() {
+                    if [
+                        "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
+                        "bmp", "wpg",
+                    ]
+                    .contains(ext)
+                    {
+                        let mut buf: Vec<u8> = Vec::new();
+                        zfile.read_to_end(&mut buf)?;
+                        pics.push((ext.to_string(), buf));
+                    }
+                }
+            }
+        }
+        if !pics.is_empty() {
+            self.pictures = Some(pics);
+        }
+        Ok(())
+    }
+
     /// Load the tables from
     pub fn load_tables(&mut self) -> Result<(), XlsxError> {
         if self.tables.is_none() {
@@ -697,11 +729,16 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             sheets: Vec::new(),
             tables: None,
             metadata: Metadata::default(),
+            #[cfg(feature = "picture")]
+            pictures: None,
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
         let relationships = xlsx.read_relationships()?;
         xlsx.read_workbook(&relationships)?;
+        #[cfg(feature = "picture")]
+        xlsx.read_pictures()?;
+
         Ok(xlsx)
     }
 
@@ -787,6 +824,11 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
                 Some((name, range))
             })
             .collect()
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
     }
 }
 

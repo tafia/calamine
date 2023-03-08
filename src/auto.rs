@@ -132,4 +132,14 @@ where
             Sheets::Ods(ref mut e) => e.worksheets(),
         }
     }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        match *self {
+            Sheets::Xls(ref e) => e.pictures(),
+            Sheets::Xlsx(ref e) => e.pictures(),
+            Sheets::Xlsb(ref e) => e.pictures(),
+            Sheets::Ods(ref e) => e.pictures(),
+        }
+    }
 }

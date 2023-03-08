@@ -866,3 +866,52 @@ fn issue_271() -> Result<(), calamine::Error> {
 
     Ok(())
 }
+
+// cargo test --features picture
+#[test]
+#[cfg(feature = "picture")]
+fn pictures() -> Result<(), calamine::Error> {
+    let jpg_path = format!("{}/tests/picture.jpg", env!("CARGO_MANIFEST_DIR"));
+    let png_path = format!("{}/tests/picture.png", env!("CARGO_MANIFEST_DIR"));
+
+    let xlsx_path = format!("{}/tests/picture.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let xlsb_path = format!("{}/tests/picture.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let xls_path = format!("{}/tests/picture.xls", env!("CARGO_MANIFEST_DIR"));
+    let ods_path = format!("{}/tests/picture.ods", env!("CARGO_MANIFEST_DIR"));
+
+    let jpg_hash = sha256::digest(&*std::fs::read(&jpg_path)?);
+    let png_hash = sha256::digest(&*std::fs::read(&png_path)?);
+
+    let xlsx: Xlsx<_> = open_workbook(xlsx_path)?;
+    let xlsb: Xlsb<_> = open_workbook(xlsb_path)?;
+    let xls: Xls<_> = open_workbook(xls_path)?;
+    let ods: Ods<_> = open_workbook(ods_path)?;
+
+    let mut pictures = Vec::with_capacity(8);
+    let mut pass = 0;
+
+    if let Some(pics) = xlsx.pictures() {
+        pictures.extend(pics);
+    }
+    if let Some(pics) = xlsb.pictures() {
+        pictures.extend(pics);
+    }
+    if let Some(pics) = xls.pictures() {
+        pictures.extend(pics);
+    }
+    if let Some(pics) = ods.pictures() {
+        pictures.extend(pics);
+    }
+    for (ext, data) in pictures {
+        let pic_hash = sha256::digest(&*data);
+        if ext == "jpg" || ext == "jpeg" {
+            assert_eq!(jpg_hash, pic_hash);
+        } else if ext == "png" {
+            assert_eq!(png_hash, pic_hash);
+        }
+        pass += 1;
+    }
+    assert_eq!(pass, 8);
+
+    Ok(())
+}

@@ -105,6 +105,8 @@ pub struct Ods<RS> {
     sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
     metadata: Metadata,
     marker: PhantomData<RS>,
+    #[cfg(feature = "picture")]
+    pictures: Option<Vec<(String, Vec<u8>)>>,
 }
 
 impl<RS> Reader<RS> for Ods<RS>
@@ -129,6 +131,9 @@ where
             Err(e) => return Err(OdsError::Zip(e)),
         }
 
+        #[cfg(feature = "picture")]
+        let pictures = read_pictures(&mut zip)?;
+
         let Content {
             sheets,
             sheet_names,
@@ -143,6 +148,8 @@ where
             marker: PhantomData,
             metadata,
             sheets,
+            #[cfg(feature = "picture")]
+            pictures,
         })
     }
 
@@ -171,6 +178,11 @@ where
     /// Read worksheet data in corresponding worksheet path
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
         self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
     }
 }
 
@@ -500,4 +512,37 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
         }
     }
     Ok(defined_names)
+}
+
+/// Read pictures
+#[cfg(feature = "picture")]
+fn read_pictures<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+) -> Result<Option<Vec<(String, Vec<u8>)>>, OdsError> {
+    let mut pics = Vec::new();
+    for i in 0..zip.len() {
+        let mut zfile = zip.by_index(i)?;
+        let zname = zfile.name().to_owned();
+        // no Thumbnails
+        if zname.starts_with("Pictures") {
+            let name_ext: Vec<&str> = zname.split(".").collect();
+            if let Some(ext) = name_ext.last() {
+                if [
+                    "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps", "bmp",
+                    "wpg",
+                ]
+                .contains(ext)
+                {
+                    let mut buf: Vec<u8> = Vec::new();
+                    zfile.read_to_end(&mut buf)?;
+                    pics.push((ext.to_string(), buf));
+                }
+            }
+        }
+    }
+    if pics.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(pics))
+    }
 }
