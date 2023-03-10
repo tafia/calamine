@@ -789,6 +789,22 @@ fn date_ods() {
         );
     }
 }
+#[test]
+fn date_xlsb() {
+    setup();
+
+    let path = format!("{}/tests/date.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+    }
+}
 
 #[test]
 fn issue_219() {
