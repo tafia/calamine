@@ -4,7 +4,7 @@ use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
-use quick_xml::events::attributes::{Attribute, Attributes};
+use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
@@ -951,21 +951,6 @@ fn xml_reader<'a, RS: Read + Seek>(
     }
 }
 
-/// search through an Element's attributes for the named one
-fn get_attribute<'a>(atts: Attributes<'a>, n: QName) -> Result<Option<&'a [u8]>, XlsxError> {
-    for a in atts {
-        match a {
-            Ok(Attribute {
-                key,
-                value: Cow::Borrowed(value),
-            }) if key == n => return Ok(Some(value)),
-            Err(e) => return Err(XlsxError::XmlAttr(e)),
-            _ => {} // ignore other attributes
-        }
-    }
-    Ok(None)
-}
-
 fn read_sheet<T, F>(
     xml: &mut XlsReader<'_>,
     cells: &mut Vec<Cell<T>>,
@@ -991,9 +976,9 @@ where
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
-                let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
+                let attribute = row_element.try_get_attribute(QName(b"r"))?;
                 if let Some(range) = attribute {
-                    let row = get_row(range)?;
+                    let row = get_row(range.value.as_ref())?;
                     row_index = row;
                 }
             }
@@ -1002,10 +987,10 @@ where
                 col_index = 0;
             }
             Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
-                let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
+                let attribute = c_element.try_get_attribute(QName(b"r"))?;
 
                 let pos = if let Some(range) = attribute {
-                    let (row, col) = get_row_column(range)?;
+                    let (row, col) = get_row_column(range.value.as_ref())?;
                     col_index = col;
                     (row, col)
                 } else {
@@ -1051,15 +1036,21 @@ fn read_sheet_data(
         c_element: &BytesStart<'_>,
         is_1904: bool,
     ) -> Result<DataType, XlsxError> {
-        let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
+        let cell_format = match c_element.try_get_attribute(QName(b"s")) {
             Ok(Some(style)) => {
-                let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
+                let id: usize = std::str::from_utf8(style.value.as_ref())
+                    .unwrap_or("0")
+                    .parse()?;
                 formats.get(id)
             }
             _ => Some(&CellFormat::Other),
         };
 
-        match get_attribute(c_element.attributes(), QName(b"t"))? {
+        match c_element
+            .try_get_attribute(QName(b"t"))
+            .map(|res| res.map(|a| a.value))?
+            .as_deref()
+        {
             Some(b"s") => {
                 // shared string
                 let idx: usize = v.parse()?;
