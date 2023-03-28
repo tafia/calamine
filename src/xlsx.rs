@@ -847,21 +847,6 @@ fn xml_reader<'a, RS: Read + Seek>(
     }
 }
 
-/// search through an Element's attributes for the named one
-fn get_attribute<'a>(atts: Attributes<'a>, n: QName) -> Result<Option<&'a [u8]>, XlsxError> {
-    for a in atts {
-        match a {
-            Ok(Attribute {
-                key,
-                value: Cow::Borrowed(value),
-            }) if key == n => return Ok(Some(value)),
-            Err(e) => return Err(XlsxError::XmlAttr(e)),
-            _ => {} // ignore other attributes
-        }
-    }
-    Ok(None)
-}
-
 fn read_sheet<T, F>(
     xml: &mut XlsReader<'_>,
     cells: &mut Vec<Cell<T>>,
@@ -891,10 +876,13 @@ where
                 rows += 1;
             }
             Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
-                let pos = match get_attribute(c_element.attributes(), QName(b"r")) {
-                    Ok(Some(r_val)) => get_row_column(r_val),
-                    Ok(None) => Ok((rows, cols)),
-                    Err(err) => Err(err),
+                let pos = match c_element
+                    .try_get_attribute(QName(b"r"))
+                    .map(|res| res.map(|a| a.value))?
+                    .as_deref()
+                {
+                    Some(r_val) => get_row_column(r_val),
+                    None => Ok((rows, cols)),
                 }?;
                 loop {
                     cell_buf.clear();
@@ -932,9 +920,9 @@ fn read_sheet_data(
         formats: &[CellFormat],
         c_element: &BytesStart<'a>,
     ) -> Result<DataType, XlsxError> {
-        let is_date_time = match get_attribute(c_element.attributes(), QName(b"s")) {
+        let is_date_time = match c_element.try_get_attribute(QName(b"s")) {
             Ok(Some(style)) => {
-                let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
+                let id: usize = std::str::from_utf8(&style.value).unwrap_or("0").parse()?;
                 match formats.get(id) {
                     Some(CellFormat::Date) => true,
                     _ => false,
@@ -943,7 +931,11 @@ fn read_sheet_data(
             _ => false,
         };
 
-        match get_attribute(c_element.attributes(), QName(b"t"))? {
+        match c_element
+            .try_get_attribute(QName(b"t"))
+            .map(|res| res.map(|a| a.value))?
+            .as_deref()
+        {
             Some(b"s") => {
                 // shared string
                 let idx: usize = v.parse()?;
