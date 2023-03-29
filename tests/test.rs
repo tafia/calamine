@@ -740,6 +740,23 @@ fn table() {
 }
 
 #[test]
+fn date_xls() {
+    setup();
+
+    let path = format!("{}/tests/date.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xls<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+    }
+}
+
+#[test]
 fn date_xlsx() {
     setup();
 
