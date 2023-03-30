@@ -24,7 +24,7 @@ pub enum DataType {
     Bool(bool),
     /// Date or Time
     DateTime(f64),
-    /// Date or DateTime in ISO 8601
+    /// Date, Time or DateTime in ISO 8601
     DateTimeIso(String),
     /// Duration in ISO 8601
     DurationIso(String),
@@ -116,13 +116,10 @@ impl DataType {
     pub fn as_date(&self) -> Option<chrono::NaiveDate> {
         use std::str::FromStr;
         match self {
-            DataType::DateTimeIso(s) => {
-                if s.contains("T") {
-                    self.as_datetime().map(|dt| dt.date())
-                } else {
-                    chrono::NaiveDate::from_str(s).ok()
-                }
-            }
+            DataType::DateTimeIso(s) => self
+                .as_datetime()
+                .map(|dt| dt.date())
+                .or_else(|| chrono::NaiveDate::from_str(s).ok()),
             _ => self.as_datetime().map(|dt| dt.date()),
         }
     }
@@ -132,10 +129,10 @@ impl DataType {
     pub fn as_time(&self) -> Option<chrono::NaiveTime> {
         use std::str::FromStr;
         match self {
-            DataType::DateTimeIso(s) => s
-                .contains("T")
-                .then(|| chrono::NaiveDateTime::from_str(s).map(|dt| dt.time()).ok())
-                .flatten(),
+            DataType::DateTimeIso(s) => self
+                .as_datetime()
+                .map(|dt| dt.time())
+                .or_else(|| chrono::NaiveTime::from_str(s).ok()),
             DataType::DurationIso(s) => chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%S%.fS").ok(),
             _ => self.as_datetime().map(|dt| dt.time()),
         }
