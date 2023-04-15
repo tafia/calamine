@@ -773,6 +773,10 @@ fn date_ods() {
         range.get_value((2, 0)),
         Some(&DurationIso("PT10H10M10S".to_string()))
     );
+    assert_eq!(
+        range.get_value((3, 0)),
+        Some(&DurationIso("PT10H10M10.123456S".to_string()))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -787,6 +791,9 @@ fn date_ods() {
             range.get_value((1, 0)).unwrap().as_datetime(),
             Some(datetime)
         );
+
+        let time = chrono::NaiveTime::from_hms_micro_opt(10, 10, 10, 123456).unwrap();
+        assert_eq!(range.get_value((3, 0)).unwrap().as_time(), Some(time));
     }
 }
 

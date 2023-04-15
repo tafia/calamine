@@ -136,7 +136,7 @@ impl DataType {
                 .contains("T")
                 .then(|| chrono::NaiveDateTime::from_str(s).map(|dt| dt.time()).ok())
                 .flatten(),
-            DataType::DurationIso(s) => chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%SS").ok(),
+            DataType::DurationIso(s) => chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%S%.fS").ok(),
             _ => self.as_datetime().map(|dt| dt.time()),
         }
     }
