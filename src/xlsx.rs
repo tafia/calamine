@@ -8,7 +8,7 @@ use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
-use tracing::warn;
+use tracing::{warn, debug};
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
@@ -371,6 +371,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     if !state.is_very_hidden() {
                         self.metadata.sheets.push(name.to_string());
                         self.sheets.push((name, path));
+                    } else if !name.is_empty() {
+                        debug!("Ignoring {name} because it's state is set to veryHidden");
+                    } else {
+                        debug!("Ignoring an unnamed sheet that has veryHidden state");
                     }
                 }
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"definedName" => {
