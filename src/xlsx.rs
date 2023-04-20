@@ -8,7 +8,7 @@ use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
-use tracing::warn;
+use tracing::{debug, warn};
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
@@ -137,6 +137,32 @@ impl FromStr for CellErrorType {
             "#REF!" => Ok(CellErrorType::Ref),
             "#VALUE!" => Ok(CellErrorType::Value),
             _ => Err(XlsxError::CellError(s.into())),
+        }
+    }
+}
+
+/// https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.sheetstatevalues?view=openxml-2.8.1
+#[derive(Debug, Clone, Copy)]
+enum SheetState {
+    /// The worksheet is visible
+    Visible,
+    /// The worksheet is hidden but can be shown by the user via the user interface
+    Hidden,
+    /// The worksheet is hidden and cannot be shown by the user via the user interface
+    VeryHidden,
+}
+
+impl SheetState {
+    fn is_very_hidden(&self) -> bool {
+        matches!(self, SheetState::VeryHidden)
+    }
+
+    fn try_from_bytes(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            b"visible" => Some(SheetState::Visible),
+            b"hidden" => Some(SheetState::Hidden),
+            b"veryHidden" => Some(SheetState::VeryHidden),
+            _ => None,
         }
     }
 }
@@ -299,6 +325,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheet" => {
                     let mut name = String::new();
                     let mut path = String::new();
+                    let mut state = SheetState::Visible;
+
                     for a in e.attributes() {
                         let a = a.map_err(XlsxError::XmlAttr)?;
                         match a {
@@ -309,13 +337,21 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 name = a.decode_and_unescape_value(&xml)?.to_string();
                             }
                             Attribute {
+                                key: QName(b"state"),
+                                value: v,
+                            } => {
+                                if let Some(sheet_state) = SheetState::try_from_bytes(&v) {
+                                    state = sheet_state;
+                                }
+                            }
+                            Attribute {
                                 key: QName(b"r:id"),
                                 value: v,
                             }
                             | Attribute {
                                 key: QName(b"relationships:id"),
                                 value: v,
-                            } => {
+                            } if !v.is_empty() => {
                                 let r = &relationships
                                     .get(&*v)
                                     .ok_or(XlsxError::RelationshipNotFound)?[..];
@@ -332,8 +368,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             _ => (),
                         }
                     }
-                    self.metadata.sheets.push(name.to_string());
-                    self.sheets.push((name, path));
+                    if !state.is_very_hidden() {
+                        self.metadata.sheets.push(name.to_string());
+                        self.sheets.push((name, path));
+                    } else if !name.is_empty() {
+                        debug!("Ignoring {name} because it's state is set to veryHidden");
+                    } else {
+                        debug!("Ignoring an unnamed sheet that has veryHidden state");
+                    }
                 }
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"definedName" => {
                     if let Some(a) = e
