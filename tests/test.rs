@@ -1130,7 +1130,6 @@ fn issue_271() -> Result<(), calamine::Error> {
 
     Ok(())
 }
-<<<<<<< HEAD
 
 // cargo test --features picture
 #[test]

@@ -351,7 +351,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             | Attribute {
                                 key: QName(b"relationships:id"),
                                 value: v,
-                            } => {
+                            } if !v.is_empty() => {
                                 let r = &relationships
                                     .get(&*v)
                                     .ok_or(XlsxError::RelationshipNotFound)?[..];
@@ -1001,10 +1001,7 @@ where
                     cell_buf.clear();
                     match xml.read_event_into(&mut cell_buf) {
                         Ok(Event::Start(ref e)) => push_cell(cells, xml, e, pos, c_element)?,
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => {
-                            col_index += 1;
-                            break;
-                        }
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
