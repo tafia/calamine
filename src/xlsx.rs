@@ -8,7 +8,7 @@ use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
-use tracing::{warn, debug};
+use tracing::{debug, warn};
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
