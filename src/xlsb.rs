@@ -13,6 +13,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::formats::{is_builtin_date_format_id, is_custom_date_format};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
@@ -208,7 +209,9 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let num_fmt = read_u16(&buf[2..4]);
                     self.formats.push(match number_formats.get(&num_fmt) {
                         Some(fmt) if is_custom_date_format(fmt) => CellFormat::Date,
-                        None if is_builtin_date_format_id(num_fmt) => CellFormat::Date,
+                        None if is_builtin_date_format_id(num_fmt.to_string().as_bytes()) => {
+                            CellFormat::Date
+                        }
                         _ => CellFormat::Other,
                     });
                 }
@@ -1059,42 +1062,6 @@ fn parse_formula(
         Err(XlsbError::StackLen)
     } else {
         Ok(formula)
-    }
-}
-
-// This tries to detect number formats that are definitely date/time formats.
-// This is definitely not perfect!
-fn is_custom_date_format(format: &str) -> bool {
-    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
-}
-
-fn is_builtin_date_format_id(id: u16) -> bool {
-    match id {
-    // mm-dd-yy
-    14 |
-    // d-mmm-yy
-    15 |
-    // d-mmm
-    16 |
-    // mmm-yy
-    17 |
-    // h:mm AM/PM
-    18 |
-    // h:mm:ss AM/PM
-    19 |
-    // h:mm
-    20 |
-    // h:mm:ss
-    21 |
-    // m/d/yy h:mm
-    22 |
-    // mm:ss
-    45 |
-    // [h]:mm:ss
-    46 |
-    // mmss.0
-    47 => true,
-    _ => false
     }
 }
 

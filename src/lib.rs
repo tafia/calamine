@@ -64,6 +64,7 @@ mod utils;
 mod auto;
 mod cfb;
 mod datatype;
+mod formats;
 mod ods;
 mod xls;
 mod xlsb;
