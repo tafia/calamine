@@ -327,7 +327,7 @@ where
 }
 
 #[cfg(all(test, feature = "dates"))]
-mod tests {
+mod date_tests {
     use super::*;
 
     #[test]
@@ -396,5 +396,18 @@ mod tests {
                 NaiveTime::from_hms(0, 0, 0),
             ))
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_partial_eq() {
+        assert_eq!(DataType::String("value".to_string()), "value"[..]);
+        assert_eq!(DataType::Float(100.0), 100.0f64);
+        assert_eq!(DataType::Bool(true), true);
+        assert_eq!(DataType::Int(100), 100i64);
     }
 }
