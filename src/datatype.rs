@@ -163,6 +163,15 @@ impl DataType {
     }
 }
 
+impl PartialEq<&str> for DataType {
+    fn eq(&self, other: &&str) -> bool {
+        match *self {
+            DataType::String(ref s) if s == other => true,
+            _ => false,
+        }
+    }
+}
+
 impl PartialEq<str> for DataType {
     fn eq(&self, other: &str) -> bool {
         match *self {
@@ -405,6 +414,7 @@ mod tests {
 
     #[test]
     fn test_partial_eq() {
+        assert_eq!(DataType::String("value".to_string()), "value");
         assert_eq!(DataType::String("value".to_string()), "value"[..]);
         assert_eq!(DataType::Float(100.0), 100.0f64);
         assert_eq!(DataType::Bool(true), true);
