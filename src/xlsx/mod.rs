@@ -757,6 +757,55 @@ impl<RS: Read + Seek> Xlsx<RS> {
             data: tbl_rng,
         })
     }
+
+    /// Gets the worksheet merge cell dimensions
+    pub fn worksheet_merge_cells(
+        &mut self,
+        name: &str,
+    ) -> Option<Result<Vec<Dimensions>, XlsxError>> {
+        let (_, path) = self.sheets.iter().find(|(n, _)| n == name)?;
+        let xml = xml_reader(&mut self.zip, path);
+
+        xml.map(|xml| {
+            let mut xml = xml?;
+            let mut merge_cells = Vec::new();
+            let mut buffer = Vec::new();
+
+            loop {
+                buffer.clear();
+
+                match xml.read_event_into(&mut buffer) {
+                    Ok(Event::Start(event)) if event.local_name().as_ref() == b"mergeCells" => {
+                        if let Ok(cells) = read_merge_cells(&mut xml) {
+                            merge_cells = cells;
+                        }
+
+                        break;
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+
+            Ok(merge_cells)
+        })
+    }
+
+    /// Get the nth worksheet. Shortcut for getting the nth
+    /// sheet_name, then the corresponding worksheet.
+    pub fn worksheet_merge_cells_at(
+        &mut self,
+        n: usize,
+    ) -> Option<Result<Vec<Dimensions>, XlsxError>> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(n)
+            .map(|sheet| sheet.name.clone())?;
+
+        self.worksheet_merge_cells(&name)
+    }
 }
 
 struct InnerTableMetadata {
@@ -1115,6 +1164,37 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     };
 
     Ok(())
+}
+
+fn read_merge_cells(xml: &mut XlReader<'_>) -> Result<Vec<Dimensions>, XlsxError> {
+    let mut merge_cells = Vec::new();
+
+    loop {
+        let mut buffer = Vec::new();
+
+        match xml.read_event_into(&mut buffer) {
+            Ok(Event::Start(event)) if event.local_name().as_ref() == b"mergeCell" => {
+                for attribute in event.attributes() {
+                    let attribute = attribute.map_err(XlsxError::XmlAttr)?;
+
+                    if attribute.key == QName(b"ref") {
+                        let dimensions = get_dimension(&attribute.value)?;
+                        merge_cells.push(dimensions);
+
+                        break;
+                    }
+                }
+            }
+            Ok(Event::End(event)) if event.local_name().as_ref() == b"mergeCells" => {
+                break;
+            }
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+
+    Ok(merge_cells)
 }
 
 /// check if a char vector is a valid cell name  
