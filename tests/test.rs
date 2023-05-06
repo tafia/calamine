@@ -28,6 +28,18 @@ macro_rules! range_eq {
     };
 }
 
+macro_rules! merge_cells_eq {
+    ($merge_cells:expr, $right:expr) => {
+        for (i, item) in $right.iter().enumerate() {
+            assert_eq!($merge_cells[i].start().0, item[0].0, "Mismatch at position ({})", i);
+            assert_eq!($merge_cells[i].start().1, item[0].1, "Mismatch at position ({})", i);
+            assert_eq!($merge_cells[i].end().0, item[1].0, "Mismatch at position ({})", i);
+            assert_eq!($merge_cells[i].end().1, item[1].1, "Mismatch at position ({})", i);
+        }
+        
+    };
+}
+
 #[test]
 fn issue_2() {
     setup();
@@ -877,6 +889,36 @@ fn issue_271() -> Result<(), calamine::Error> {
     assert_eq!(values.len(), 1);
 
     Ok(())
+}
+
+#[test]
+fn issue_305_merge_cells() {
+    let path = format!(
+        "{}/tests/merge_cells.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    let merge_cells = excel
+        .worksheet_merge_cells_at(0)
+        .unwrap()
+        .unwrap();
+
+    merge_cells_eq!(merge_cells, [[(0, 0), (0, 1)], [(1, 0), (3, 0)], [(1, 1), (3, 3)]]);
+}
+
+#[test]
+fn issue_305_merge_cells_xls() {
+    let path = format!(
+        "{}/tests/merge_cells.xls",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xls<_> = open_workbook(&path).unwrap();
+    let merge_cells = excel
+        .worksheet_merge_cells_at(0)
+        .unwrap()
+        .unwrap();
+
+    merge_cells_eq!(merge_cells, [[(0, 0), (0, 1)], [(1, 0), (3, 0)], [(1, 1), (3, 3)]]);
 }
 
 // cargo test --features picture

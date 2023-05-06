@@ -641,6 +641,48 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Err(e) => Some(Err(e)),
         }
     }
+
+    /// Gets the worksheet merge cell demensions
+    pub fn worksheet_merge_cells(&mut self, name: &str) -> Option<Result<Vec<Dimensions>, XlsxError>> {
+        let xml = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
+            Some(&(_, ref path)) => xml_reader(&mut self.zip, path),
+            None => return None,
+        };
+
+        xml.map(|xml_result| {
+            let mut xml = xml_result.unwrap();
+            let mut merge_cells = Vec::new();
+            let mut buf = Vec::new();
+
+            loop {
+                buf.clear();
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(ref e)) => {
+                        match e.local_name().as_ref() {
+                            b"mergeCells" => {
+                                if let Ok(cells) = read_merge_cells(&mut xml) {
+                                    merge_cells = cells;
+                                }
+                                break;
+                            }
+                            _ => (),
+                        }
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+            Ok(merge_cells)
+        })
+    }
+
+    /// Get the nth worksheet. Shortcut for getting the nth
+    /// sheet_name, then the corresponding worksheet.
+    pub fn worksheet_merge_cells_at(&mut self, n: usize) -> Option<Result<Vec<Dimensions>, XlsxError>> {
+        let name = self.sheet_names().get(n)?.to_string();
+        self.worksheet_merge_cells(&name)
+    }
 }
 
 struct InnerTableMetadata {
@@ -1081,7 +1123,7 @@ fn is_builtin_date_format_id(id: &[u8]) -> bool {
 }
 
 #[derive(Debug, PartialEq)]
-struct Dimensions {
+pub struct Dimensions {
     start: (u32, u32),
     end: (u32, u32),
 }
@@ -1089,6 +1131,18 @@ struct Dimensions {
 impl Dimensions {
     fn len(&self) -> u64 {
         (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+    }
+
+    /// Get top left cell position (row, column)
+    #[inline]
+    pub fn start(&self) -> (u32, u32) {
+        self.start
+    }
+
+    /// Get bottom right cell position (row, column)
+    #[inline]
+    pub fn end(&self) -> (u32, u32) {
+        self.end
     }
 }
 
@@ -1219,6 +1273,41 @@ fn read_string(
             _ => (),
         }
     }
+}
+
+fn read_merge_cells(xml: &mut XlsReader<'_>) -> Result<Vec<Dimensions>, XlsxError> {
+    let mut buf = Vec::new();
+    let mut merge_cells = Vec::new();
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"mergeCell" => {
+                for a in e.attributes() {
+                    match a.map_err(XlsxError::XmlAttr)? {
+                        Attribute {
+                            key: QName(b"ref"),
+                            value: v,
+                        } => {
+                            match get_dimension(&v) {
+                                Ok(d) => merge_cells.push(d),
+                                Err(e) => return Err(e)
+                            }
+                            break;
+                        }
+                        _ => (),
+                    }
+                }
+            },
+            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"mergeCells" => {
+                break;
+            },
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => ()
+        }
+    }
+
+    Ok(merge_cells)
 }
 
 #[test]
