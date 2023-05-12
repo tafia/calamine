@@ -157,8 +157,8 @@ impl DataType {
                 let excel_epoch = EXCEL_EPOCH
                     .get_or_init(|| chrono::NaiveDate::from_ymd(1899, 12, 30).and_hms(0, 0, 0));
                 let ms = f * MS_MULTIPLIER;
-                let excel_duration = chrono::Duration::milliseconds(ms as i64);
-                Some(*excel_epoch + excel_duration)
+                let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
+                excel_epoch.checked_add_signed(excel_duration)
             }
             DataType::DateTimeIso(s) => chrono::NaiveDateTime::from_str(s).ok(),
             _ => None,
@@ -355,6 +355,19 @@ mod tests {
                 NaiveTime::from_hms(19, 0, 0)
             ))
         );
+
+        // test rounding
+        assert_eq!(
+            DataType::Float(0.18737500000000001).as_time(),
+            Some(NaiveTime::from_hms_milli_opt(4, 29, 49, 200).unwrap())
+        );
+        assert_eq!(
+            DataType::Float(0.25951736111111101).as_time(),
+            Some(NaiveTime::from_hms_milli_opt(6, 13, 42, 300).unwrap())
+        );
+
+        // test overflow
+        assert_eq!(DataType::Float(1e20).as_time(), None);
 
         let unix_epoch_15h30m = DataType::Float(25569.645833333333333);
         let chrono_dt = NaiveDateTime::new(
