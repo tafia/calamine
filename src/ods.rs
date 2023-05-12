@@ -325,7 +325,7 @@ fn get_range<T: Default + Clone + PartialEq>(
 
     // rebuild cells into its smallest non empty area
     let cells_len = (row_max + 1 - row_min) * (col_max + 1 - col_min);
-    if cells.len() != cells_len {
+    {
         let mut new_cells = Vec::with_capacity(cells_len);
         let empty_cells = vec![T::default(); col_max + 1];
         let mut empty_row_repeats = 0;
@@ -386,6 +386,7 @@ fn read_row(
     cells: &mut Vec<DataType>,
     formulas: &mut Vec<String>,
 ) -> Result<(), OdsError> {
+    let mut empty_col_repeats = 0;
     loop {
         row_buf.clear();
         match reader.read_event_into(row_buf) {
@@ -407,9 +408,20 @@ fn read_row(
                 }
 
                 let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
-                for _ in 0..repeats {
-                    cells.push(value.clone());
-                    formulas.push(formula.clone());
+
+                for _ in 0..empty_col_repeats {
+                    cells.push(DataType::Empty);
+                    formulas.push("".to_string());
+                }
+                empty_col_repeats = 0;
+
+                if value.is_empty() && formula.is_empty() {
+                    empty_col_repeats = repeats;
+                } else {
+                    for _ in 0..repeats {
+                        cells.push(value.clone());
+                        formulas.push(formula.clone());
+                    }
                 }
                 if !is_closed {
                     reader.read_to_end_into(e.name(), cell_buf)?;
