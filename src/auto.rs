@@ -55,7 +55,7 @@ where
 
 /// Opens a workbook from the given bytes.
 ///
-/// Whenever possible use the statically known `open_workbook_from_bytes` function instead
+/// Whenever possible use the statically known `open_workbook_from_rs` function instead
 pub fn open_workbook_auto_from_rs<RS>(data: RS) -> Result<Sheets<RS>, Error>
 where
     RS: std::io::Read + std::io::Seek + Clone,
