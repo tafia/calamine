@@ -916,11 +916,11 @@ fn read_sheet_data(
     cells: &mut Vec<Cell<DataType>>,
 ) -> Result<(), XlsxError> {
     /// read the contents of a <v> cell
-    fn read_value<'a>(
+    fn read_value(
         v: String,
         strings: &[String],
         formats: &[CellFormat],
-        c_element: &BytesStart<'a>,
+        c_element: &BytesStart<'_>,
     ) -> Result<DataType, XlsxError> {
         let is_date_time = match get_attribute(c_element.attributes(), QName(b"s")) {
             Ok(Some(style)) => {
