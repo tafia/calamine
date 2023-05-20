@@ -504,7 +504,7 @@ fn get_datatype(
                 Ok(Event::Start(ref e)) if e.name() == QName(b"text:s") => {
                     let count = match e.try_get_attribute("text:c")? {
                         Some(c) => c
-                            .decode_and_unescape_value(&reader)
+                            .decode_and_unescape_value(reader)
                             .map_err(OdsError::Xml)?
                             .parse()
                             .map_err(OdsError::ParseInt)?,
