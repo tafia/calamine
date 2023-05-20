@@ -389,7 +389,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let d100 = (buf[8] & 1) != 0;
                     let is_int = (buf[8] & 2) != 0;
                     buf[8] &= 0xFC;
-                    let is_date = is_cell_date(&formats, &buf);
+                    let is_date = is_cell_date(formats, &buf);
 
                     if is_int {
                         let v = (read_i32(&buf[8..12]) >> 2) as i64;
@@ -432,7 +432,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 }
                 0x0004 | 0x000A => DataType::Bool(buf[8] != 0), // BrtCellBool or BrtFmlaBool
                 0x0005 | 0x0009 => {
-                    let is_date = is_cell_date(&formats, &buf);
+                    let is_date = is_cell_date(formats, &buf);
                     let v = read_f64(&buf[8..16]);
                     if is_date {
                         DataType::DateTime(v)
