@@ -66,7 +66,7 @@ where
         return Ok(Sheets::Xlsx(ret));
     } else if let Ok(ret) = open_workbook_from_rs::<Xlsb<RS>, RS>(data.clone()) {
         return Ok(Sheets::Xlsb(ret));
-    } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data.clone()) {
+    } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data) {
         return Ok(Sheets::Ods(ret));
     } else {
         return Err(Error::Msg("Cannot detect file format"));
