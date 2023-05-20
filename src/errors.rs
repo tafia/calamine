@@ -57,7 +57,7 @@ impl std::error::Error for Error {
             Error::Xlsx(e) => Some(e),
             Error::Vba(e) => Some(e),
             Error::De(e) => Some(e),
-            _ => None,
+            Error::Msg(_) => None,
         }
     }
 }
