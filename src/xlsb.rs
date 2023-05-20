@@ -1098,7 +1098,7 @@ fn is_builtin_date_format_id(id: u16) -> bool {
     }
 }
 
-fn is_cell_date(formats: &Vec<CellFormat>, buf: &Vec<u8>) -> bool {
+fn is_cell_date(formats: &[CellFormat], buf: &[u8]) -> bool {
     // Parses a Cell (MS-XLSB 2.5.9) and determines if it references a Date format
 
     // iStyleRef is stored as a 24bit integer starting at the fifth byte
