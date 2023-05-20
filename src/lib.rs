@@ -776,7 +776,9 @@ impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
 
 impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(std::iter::DoubleEndedIterator::next_back)
+        self.inner
+            .as_mut()
+            .and_then(std::iter::DoubleEndedIterator::next_back)
     }
 }
 
