@@ -108,12 +108,20 @@ impl std::error::Error for XlsbError {
     }
 }
 
+#[derive(Debug)]
+enum CellFormat {
+    Other,
+    Date,
+}
+
 /// A Xlsb reader
 pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
     strings: Vec<String>,
+    /// Cell (number) formats
+    formats: Vec<CellFormat>,
     metadata: Metadata,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
@@ -169,6 +177,45 @@ impl<RS: Read + Seek> Xlsb<RS> {
             Err(e) => return Err(XlsbError::Zip(e)),
         }
         Ok(relationships)
+    }
+
+    /// MS-XLSB 2.1.7.50 Styles
+    fn read_styles(&mut self) -> Result<(), XlsbError> {
+        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/styles.bin") {
+            Ok(iter) => iter,
+            Err(_) => return Ok(()), // it is fine if path does not exists
+        };
+        let mut buf = vec![0; 1024];
+        let mut number_formats = BTreeMap::new();
+
+        // Search for BrtBeginFmts
+        if iter.next_skip_blocks(0x0267, &[], &mut buf).is_ok() {
+            let len = read_usize(&buf);
+
+            for _ in 0..len {
+                let _ = iter.next_skip_blocks(0x002C, &[], &mut buf)?; // BrtFmt
+                let fmt_code = read_u16(&buf);
+                let fmt_string = wide_str(&buf[2..], &mut 0)?.into_owned();
+                number_formats.insert(fmt_code, fmt_string);
+            }
+
+            // Search for BrtBeginCellXFs
+            if iter.next_skip_blocks(0x0269, &[], &mut buf).is_ok() {
+                let len = read_usize(&buf);
+
+                for _ in 0..len {
+                    let _ = iter.next_skip_blocks(0x002F, &[], &mut buf)?; // BrtXF
+                    let num_fmt = read_u16(&buf[2..4]);
+                    self.formats.push(match number_formats.get(&num_fmt) {
+                        Some(fmt) if is_custom_date_format(fmt) => CellFormat::Date,
+                        None if is_builtin_date_format_id(num_fmt) => CellFormat::Date,
+                        _ => CellFormat::Other,
+                    });
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// MS-XLSB 2.1.7.45
@@ -296,7 +343,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
     fn worksheet_range_from_path(&mut self, path: String) -> Result<Range<DataType>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
         let mut buf = vec![0; 1024];
-
+        let formats = &self.formats;
         // BrtWsDim
         let _ = iter.next_skip_blocks(
             0x0094,
@@ -342,10 +389,17 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let d100 = (buf[8] & 1) != 0;
                     let is_int = (buf[8] & 2) != 0;
                     buf[8] &= 0xFC;
+                    let is_date = is_cell_date(&formats, &buf);
+
                     if is_int {
                         let v = (read_i32(&buf[8..12]) >> 2) as i64;
                         if d100 {
-                            DataType::Float((v as f64) / 100.0)
+                            let v = (v as f64) / 100.0;
+                            if is_date {
+                                DataType::DateTime(v)
+                            } else {
+                                DataType::Float(v)
+                            }
                         } else {
                             DataType::Int(v)
                         }
@@ -353,7 +407,12 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         let mut v = [0u8; 8];
                         v[4..].copy_from_slice(&buf[8..12]);
                         let v = read_f64(&v);
-                        DataType::Float(if d100 { v / 100.0 } else { v })
+                        let v = if d100 { v / 100.0 } else { v };
+                        if is_date {
+                            DataType::DateTime(v)
+                        } else {
+                            DataType::Float(v)
+                        }
                     }
                 }
                 0x0003 => {
@@ -372,7 +431,15 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     DataType::Error(error)
                 }
                 0x0004 | 0x000A => DataType::Bool(buf[8] != 0), // BrtCellBool or BrtFmlaBool
-                0x0005 | 0x0009 => DataType::Float(read_f64(&buf[8..16])), // BrtCellReal or BrtFmlaFloat
+                0x0005 | 0x0009 => {
+                    let is_date = is_cell_date(&formats, &buf);
+                    let v = read_f64(&buf[8..16]);
+                    if is_date {
+                        DataType::DateTime(v)
+                    } else {
+                        DataType::Float(v)
+                    }
+                } // BrtCellReal or BrtFmlaNum
                 0x0006 | 0x0008 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
@@ -526,11 +593,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
+            formats: Vec::new(),
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
             pictures: None,
         };
         xlsb.read_shared_strings()?;
+        xlsb.read_styles()?;
         let relationships = xlsb.read_relationships()?;
         xlsb.read_workbook(&relationships)?;
         #[cfg(feature = "picture")]
@@ -990,5 +1059,53 @@ fn parse_formula(
         Err(XlsbError::StackLen)
     } else {
         Ok(formula)
+    }
+}
+
+// This tries to detect number formats that are definitely date/time formats.
+// This is definitely not perfect!
+fn is_custom_date_format(format: &str) -> bool {
+    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
+}
+
+fn is_builtin_date_format_id(id: u16) -> bool {
+    match id {
+    // mm-dd-yy
+    14 |
+    // d-mmm-yy
+    15 |
+    // d-mmm
+    16 |
+    // mmm-yy
+    17 |
+    // h:mm AM/PM
+    18 |
+    // h:mm:ss AM/PM
+    19 |
+    // h:mm
+    20 |
+    // h:mm:ss
+    21 |
+    // m/d/yy h:mm
+    22 |
+    // mm:ss
+    45 |
+    // [h]:mm:ss
+    46 |
+    // mmss.0
+    47 => true,
+    _ => false
+    }
+}
+
+fn is_cell_date(formats: &Vec<CellFormat>, buf: &Vec<u8>) -> bool {
+    // Parses a Cell (MS-XLSB 2.5.9) and determines if it references a Date format
+
+    // iStyleRef is stored as a 24bit integer starting at the fifth byte
+    let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]);
+
+    match formats.get(style_ref as usize) {
+        Some(CellFormat::Date) => true,
+        _ => false,
     }
 }

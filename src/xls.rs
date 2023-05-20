@@ -15,6 +15,9 @@ use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
+/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
+static EXCEL_1900_1904_DIFF: i64 = 1462;
+
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
 pub enum XlsError {
@@ -131,6 +134,13 @@ pub struct XlsOptions {
     pub force_codepage: Option<u16>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum CellFormat {
+    Other,
+    /// bool - is_1904
+    Date(bool),
+}
+
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
     sheets: BTreeMap<String, (Range<DataType>, Range<String>, Vec<Dimensions>)>,
@@ -138,6 +148,7 @@ pub struct Xls<RS> {
     metadata: Metadata,
     marker: PhantomData<RS>,
     options: XlsOptions,
+    formats: Vec<CellFormat>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
 }
@@ -182,6 +193,7 @@ impl<RS: Read + Seek> Xls<RS> {
             marker: PhantomData,
             metadata: Metadata::default(),
             options,
+            formats: Vec::new(),
             #[cfg(feature = "picture")]
             pictures: None,
         };
@@ -254,6 +266,9 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut strings = Vec::new();
         let mut defined_names = Vec::new();
         let mut xtis = Vec::new();
+        let mut formats = BTreeMap::new();
+        let mut xfs = Vec::new();
+        let mut is_1904 = false;
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
@@ -275,6 +290,21 @@ impl<RS: Read + Seek> Xls<RS> {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
                         self.metadata.sheets.reserve(sheet_len);
+                    }
+                    // Date1904
+                    0x0022 => {
+                        if read_u16(r.data) == 1 {
+                            is_1904 = true
+                        }
+                    }
+                    // FORMATTING
+                    0x041E => {
+                        let (idx, format) = parse_format(&mut r, &mut encoding, is_1904)?;
+                        formats.insert(idx, format);
+                    }
+                    // XFS
+                    0x00E0 => {
+                        xfs.push(parse_xf(&mut r)?);
                     }
                     // RRTabId
                     0x0085 => {
@@ -322,6 +352,17 @@ impl<RS: Read + Seek> Xls<RS> {
             }
         }
 
+        self.formats = xfs
+            .into_iter()
+            .map(|fmt| match formats.get(&fmt) {
+                Some(s) => *s,
+                None if is_builtin_date_format_id(fmt) => CellFormat::Date(is_1904),
+                _ => CellFormat::Other,
+            })
+            .collect();
+
+        debug!("formats: {:?}", self.formats);
+
         let defined_names = defined_names
             .into_iter()
             .map(|(name, (i, f))| {
@@ -361,13 +402,13 @@ impl<RS: Read + Seek> Xls<RS> {
                         cells.reserve(rows.saturating_mul(cols));
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
-                    0x0203 => cells.push(parse_number(r.data)?), // 515: Number
-                    0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
-                    0x027E => cells.push(parse_rk(r.data)?),     // 636: Rk
+                    0x0203 => cells.push(parse_number(r.data, &self.formats)?), // 515: Number
+                    0x0205 => cells.push(parse_bool_err(r.data)?),              // 517: BoolErr
+                    0x027E => cells.push(parse_rk(r.data, &self.formats)?),     // 636: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
-                    0x00BD => parse_mul_rk(r.data, &mut cells)?, // 189: MulRk
-                    0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?, // 229: Merge Cells
-                    0x000A => break,                             // 10: EOF,
+                    0x00BD => parse_mul_rk(r.data, &mut cells)?,                // 189: MulRk
+                    0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?,     // 229: Merge Cells
+                    0x000A => break,                                            // 10: EOF,
                     0x0006 => {
                         // 6: Formula
                         let row = read_u16(r.data);
@@ -429,7 +470,7 @@ fn parse_sheet_name(
     Ok((pos, sheet_name))
 }
 
-fn parse_number(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
+fn parse_number(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 14 {
         return Err(XlsError::Len {
             typ: "number",
@@ -440,7 +481,9 @@ fn parse_number(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     let row = read_u16(r) as u32;
     let col = read_u16(&r[2..]) as u32;
     let v = read_f64(&r[6..]);
-    Ok(Cell::new((row, col), DataType::Float(v)))
+    let format = formats.get(read_u16(&r[4..]) as usize);
+
+    Ok(Cell::new((row, col), check_f64_is_date(v, format)))
 }
 
 fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
@@ -481,7 +524,7 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
-fn parse_rk(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
+fn parse_rk(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "rk",
@@ -491,7 +534,11 @@ fn parse_rk(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
-    Ok(Cell::new((row as u32, col as u32), rk_num(&r[6..10])))
+
+    Ok(Cell::new(
+        (row as u32, col as u32),
+        rk_num(&r[4..10], formats),
+    ))
 }
 
 fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), XlsError> {
@@ -514,7 +561,11 @@ fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), 
     Ok(())
 }
 
-fn parse_mul_rk(r: &[u8], cells: &mut Vec<Cell<DataType>>) -> Result<(), XlsError> {
+fn parse_mul_rk(
+    r: &[u8],
+    cells: &mut Vec<Cell<DataType>>,
+    formats: &[CellFormat],
+) -> Result<(), XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
             typ: "rk",
@@ -538,30 +589,30 @@ fn parse_mul_rk(r: &[u8], cells: &mut Vec<Cell<DataType>>) -> Result<(), XlsErro
     let mut col = col_first as u32;
 
     for rk in r[4..r.len() - 2].chunks(6) {
-        // ignore ixfe format on the 2 first bytes
-        cells.push(Cell::new((row as u32, col), rk_num(&rk[2..])));
+        cells.push(Cell::new((row as u32, col), rk_num(rk, formats)));
         col += 1;
     }
     Ok(())
 }
 
-fn rk_num(rk: &[u8]) -> DataType {
-    let d100 = (rk[0] & 1) != 0;
-    let is_int = (rk[0] & 2) != 0;
+fn rk_num(rk: &[u8], formats: &[CellFormat]) -> DataType {
+    let d100 = (rk[2] & 1) != 0;
+    let is_int = (rk[2] & 2) != 0;
+    let format = formats.get(read_u16(rk) as usize);
 
     let mut v = [0u8; 8];
-    v[4..].copy_from_slice(rk);
+    v[4..].copy_from_slice(&rk[2..]);
     v[4] &= 0xFC;
     if is_int {
         let v = (read_i32(&v[4..8]) >> 2) as i64;
         if d100 && v % 100 != 0 {
-            DataType::Float(v as f64 / 100.0)
+            check_f64_is_date(v as f64 / 100.0, format)
         } else {
-            DataType::Int(if d100 { v / 100 } else { v })
+            check_i64_is_date(if d100 { v / 100 } else { v }, format)
         }
     } else {
         let v = read_f64(&v);
-        DataType::Float(if d100 { v / 100.0 } else { v })
+        check_f64_is_date(if d100 { v / 100.0 } else { v }, format)
     }
 }
 
@@ -675,6 +726,107 @@ fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<Strin
         sst.push(read_rich_extended_string(r, encoding)?);
     }
     Ok(sst)
+}
+
+/// Decode XF (extract only ifmt - Format identifier)
+///
+/// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/993d15c4-ec04-43e9-ba36-594dfb336c6d
+fn parse_xf(r: &mut Record<'_>) -> Result<u16, XlsError> {
+    if r.data.len() < 4 {
+        return Err(XlsError::Len {
+            typ: "xf",
+            expected: 4,
+            found: r.data.len(),
+        });
+    }
+
+    Ok(read_u16(&r.data[2..]))
+}
+
+/// Decode Format
+///
+/// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b
+fn parse_format(
+    r: &mut Record<'_>,
+    encoding: &mut XlsEncoding,
+    is_1904: bool,
+) -> Result<(u16, CellFormat), XlsError> {
+    if r.data.len() < 4 {
+        return Err(XlsError::Len {
+            typ: "format",
+            expected: 4,
+            found: r.data.len(),
+        });
+    }
+
+    let idx = read_u16(r.data);
+
+    let cch = read_u16(&r.data[2..]) as usize;
+    let high_byte = r.data[4] & 0x1 != 0;
+    r.data = &r.data[5..];
+    let mut s = String::with_capacity(cch);
+    encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
+
+    if is_custom_date_format(&s) {
+        Ok((idx, CellFormat::Date(is_1904)))
+    } else {
+        Ok((idx, CellFormat::Other))
+    }
+}
+
+// convert i64 to date, if format == Date
+fn check_i64_is_date(value: i64, format: Option<&CellFormat>) -> DataType {
+    match format {
+        Some(CellFormat::Date(false)) => DataType::DateTime(value as f64),
+        Some(CellFormat::Date(true)) => DataType::DateTime((value + EXCEL_1900_1904_DIFF) as f64),
+        _ => DataType::Int(value),
+    }
+}
+
+// convert f64 to date, if format == Date
+fn check_f64_is_date(value: f64, format: Option<&CellFormat>) -> DataType {
+    match format {
+        Some(CellFormat::Date(false)) => DataType::DateTime(value),
+        Some(CellFormat::Date(true)) => DataType::DateTime(value + EXCEL_1900_1904_DIFF as f64),
+        _ => DataType::Float(value),
+    }
+}
+
+// TODO: Copy from xlsx.rs, need to merge with xlsx/xlsb
+// This tries to detect number formats that are definitely date/time formats.
+// This is definitely not perfect!
+fn is_custom_date_format(format: &str) -> bool {
+    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
+}
+
+fn is_builtin_date_format_id(id: u16) -> bool {
+    match id {
+    // mm-dd-yy
+    14 |
+    // d-mmm-yy
+    15 |
+    // d-mmm
+    16 |
+    // mmm-yy
+    17 |
+    // h:mm AM/PM
+    18 |
+    // h:mm:ss AM/PM
+    19 |
+    // h:mm
+    20 |
+    // h:mm:ss
+    21 |
+    // m/d/yy h:mm
+    22 |
+    // mm:ss
+    45 |
+    // [h]:mm:ss
+    46 |
+    // mmss.0
+    47 => true,
+    _ => false
+    }
 }
 
 /// Decode XLUnicodeRichExtendedString.

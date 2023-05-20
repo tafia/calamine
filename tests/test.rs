@@ -752,6 +752,23 @@ fn table() {
 }
 
 #[test]
+fn date_xls() {
+    setup();
+
+    let path = format!("{}/tests/date.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xls<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+    }
+}
+
+#[test]
 fn date_xlsx() {
     setup();
 
@@ -767,6 +784,50 @@ fn date_xlsx() {
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }
+
+#[test]
+fn date_xlsx_iso() {
+    setup();
+
+    let path = format!("{}/tests/date_iso.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTimeIso("2021-01-01".to_string()))
+    );
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&DateTimeIso("2021-01-01T10:10:10".to_string()))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTimeIso("10:10:10".to_string()))
+    );
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+        assert_eq!(range.get_value((0, 0)).unwrap().as_time(), None);
+        assert_eq!(range.get_value((0, 0)).unwrap().as_datetime(), None);
+
+        let time = chrono::NaiveTime::from_hms_opt(10, 10, 10).unwrap();
+        assert_eq!(range.get_value((2, 0)).unwrap().as_time(), Some(time));
+        assert_eq!(range.get_value((2, 0)).unwrap().as_date(), None);
+        assert_eq!(range.get_value((2, 0)).unwrap().as_datetime(), None);
+
+        let datetime = chrono::NaiveDateTime::new(date, time);
+        assert_eq!(
+            range.get_value((1, 0)).unwrap().as_datetime(),
+            Some(datetime)
+        );
+        assert_eq!(range.get_value((1, 0)).unwrap().as_time(), Some(time));
+        assert_eq!(range.get_value((1, 0)).unwrap().as_date(), Some(date));
+    }
+}
+
 #[test]
 fn date_ods() {
     setup();
@@ -808,6 +869,22 @@ fn date_ods() {
 
         let time = chrono::NaiveTime::from_hms_micro_opt(10, 10, 10, 123456).unwrap();
         assert_eq!(range.get_value((3, 0)).unwrap().as_time(), Some(time));
+    }
+}
+#[test]
+fn date_xlsb() {
+    setup();
+
+    let path = format!("{}/tests/date.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }
 
@@ -968,4 +1045,30 @@ fn pictures() -> Result<(), calamine::Error> {
     assert_eq!(pass, 8);
 
     Ok(())
+}
+
+#[test]
+fn ods_number_rows_repeated() {
+    setup();
+
+    let path = format!(
+        "{}/tests/number_rows_repeated.ods",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut ods: Ods<_> = open_workbook(&path).unwrap();
+    let range = ods.worksheet_range_at(0).unwrap().unwrap();
+
+    range_eq!(
+        range,
+        [
+            [String("A".to_string()), String("B".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+        ]
+    );
 }

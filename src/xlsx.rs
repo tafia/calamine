@@ -991,9 +991,7 @@ fn read_sheet_data(
             }
             Some(b"d") => {
                 // date
-                // TODO: create a DataType::Date
-                // currently just return as string (ISO 8601)
-                Ok(DataType::String(v))
+                Ok(DataType::DateTimeIso(v))
             }
             Some(b"str") => {
                 // see http://officeopenxml.com/SScontentOverview.php
