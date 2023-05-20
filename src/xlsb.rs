@@ -879,7 +879,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = read_u16(&rgce[0..2]) as usize;
-                formula.push_str(&*UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
+                formula.push_str(&UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
                 formula.push('\"');
                 rgce = &rgce[2 + 2 * cch..];
             }
