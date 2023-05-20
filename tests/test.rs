@@ -927,3 +927,29 @@ fn pictures() -> Result<(), calamine::Error> {
 
     Ok(())
 }
+
+#[test]
+fn ods_number_rows_repeated() {
+    setup();
+
+    let path = format!(
+        "{}/tests/number_rows_repeated.ods",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut ods: Ods<_> = open_workbook(&path).unwrap();
+    let range = ods.worksheet_range_at(0).unwrap().unwrap();
+
+    range_eq!(
+        range,
+        [
+            [String("A".to_string()), String("B".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+        ]
+    );
+}

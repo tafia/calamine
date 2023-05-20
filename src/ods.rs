@@ -245,6 +245,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
 
 fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<String>), OdsError> {
     let mut cells = Vec::new();
+    let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
     let mut cols = Vec::new();
     let mut buf = Vec::new();
@@ -254,6 +255,14 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) if e.name() == QName(b"table:table-row") => {
+                let row_repeats = match e.try_get_attribute(b"table:number-rows-repeated")? {
+                    Some(c) => c
+                        .decode_and_unescape_value(reader)
+                        .map_err(OdsError::Xml)?
+                        .parse()
+                        .map_err(OdsError::ParseInt)?,
+                    None => 1,
+                };
                 read_row(
                     reader,
                     &mut row_buf,
@@ -262,6 +271,7 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
                     &mut formulas,
                 )?;
                 cols.push(cells.len());
+                rows_repeats.push(row_repeats);
             }
             Ok(Event::End(ref e)) if e.name() == QName(b"table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
@@ -269,10 +279,21 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
         }
         buf.clear();
     }
-    Ok((get_range(cells, &cols), get_range(formulas, &cols)))
+    Ok((
+        get_range(cells, &cols, &rows_repeats),
+        get_range(formulas, &cols, &rows_repeats),
+    ))
 }
 
-fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) -> Range<T> {
+fn is_empty_row<T: Default + Clone + PartialEq>(row: &[T]) -> bool {
+    row.iter().all(|x| x == &T::default())
+}
+
+fn get_range<T: Default + Clone + PartialEq>(
+    mut cells: Vec<T>,
+    cols: &[usize],
+    rows_repeats: &[usize],
+) -> Range<T> {
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
@@ -307,18 +328,45 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
     if cells.len() != cells_len {
         let mut new_cells = Vec::with_capacity(cells_len);
         let empty_cells = vec![T::default(); col_max + 1];
-        for w in cols.windows(2).skip(row_min).take(row_max + 1) {
+        let mut empty_row_repeats = 0;
+        for (w, row_repeats) in cols
+            .windows(2)
+            .skip(row_min)
+            .take(row_max + 1)
+            .zip(rows_repeats.iter().skip(row_min).take(row_max + 1))
+        {
             let row = &cells[w[0]..w[1]];
-            match row.len().cmp(&(col_max + 1)) {
-                std::cmp::Ordering::Less => {
-                    new_cells.extend_from_slice(&row[col_min..]);
-                    new_cells.extend_from_slice(&empty_cells[row.len()..]);
+            let row_repeats = *row_repeats;
+
+            if is_empty_row(row) {
+                empty_row_repeats = row_repeats;
+                continue;
+            }
+
+            if empty_row_repeats > 0 {
+                row_max = row_max + empty_row_repeats - 1;
+                for _ in 0..empty_row_repeats {
+                    new_cells.extend_from_slice(&empty_cells);
                 }
-                std::cmp::Ordering::Equal => {
-                    new_cells.extend_from_slice(&row[col_min..]);
-                }
-                std::cmp::Ordering::Greater => {
-                    new_cells.extend_from_slice(&row[col_min..=col_max]);
+                empty_row_repeats = 0;
+            };
+
+            if row_repeats > 1 {
+                row_max = row_max + row_repeats - 1;
+            };
+
+            for _ in 0..row_repeats {
+                match row.len().cmp(&(col_max + 1)) {
+                    std::cmp::Ordering::Less => {
+                        new_cells.extend_from_slice(&row[col_min..]);
+                        new_cells.extend_from_slice(&empty_cells[row.len()..]);
+                    }
+                    std::cmp::Ordering::Equal => {
+                        new_cells.extend_from_slice(&row[col_min..]);
+                    }
+                    std::cmp::Ordering::Greater => {
+                        new_cells.extend_from_slice(&row[col_min..=col_max]);
+                    }
                 }
             }
         }
