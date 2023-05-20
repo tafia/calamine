@@ -623,8 +623,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
             None => return None,
         };
         Some(self.worksheet_range_from_path(path))
@@ -632,8 +632,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
             None => return None,
         };
         Some(self.worksheet_formula_from_path(path))
