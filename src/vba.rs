@@ -94,7 +94,7 @@ impl VbaProject {
     pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
-        let stream = crate::cfb::decompress_stream(&*stream)?;
+        let stream = crate::cfb::decompress_stream(&stream)?;
         let stream = &mut &*stream;
 
         // read dir information record (not used)

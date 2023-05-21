@@ -389,7 +389,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let d100 = (buf[8] & 1) != 0;
                     let is_int = (buf[8] & 2) != 0;
                     buf[8] &= 0xFC;
-                    let is_date = is_cell_date(&formats, &buf);
+                    let is_date = is_cell_date(formats, &buf);
 
                     if is_int {
                         let v = (read_i32(&buf[8..12]) >> 2) as i64;
@@ -432,7 +432,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 }
                 0x0004 | 0x000A => DataType::Bool(buf[8] != 0), // BrtCellBool or BrtFmlaBool
                 0x0005 | 0x0009 => {
-                    let is_date = is_cell_date(&formats, &buf);
+                    let is_date = is_cell_date(formats, &buf);
                     let v = read_f64(&buf[8..16]);
                     if is_date {
                         DataType::DateTime(v)
@@ -623,8 +623,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
             None => return None,
         };
         Some(self.worksheet_range_from_path(path))
@@ -632,8 +632,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
             None => return None,
         };
         Some(self.worksheet_formula_from_path(path))
@@ -734,7 +734,7 @@ impl<'a> RecordIter<'a> {
     }
 }
 
-fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>, XlsbError> {
+fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, XlsbError> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
         return Err(XlsbError::WideStr {
@@ -879,7 +879,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = read_u16(&rgce[0..2]) as usize;
-                formula.push_str(&*UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
+                formula.push_str(&UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
                 formula.push('\"');
                 rgce = &rgce[2 + 2 * cch..];
             }
@@ -1098,7 +1098,7 @@ fn is_builtin_date_format_id(id: u16) -> bool {
     }
 }
 
-fn is_cell_date(formats: &Vec<CellFormat>, buf: &Vec<u8>) -> bool {
+fn is_cell_date(formats: &[CellFormat], buf: &[u8]) -> bool {
     // Parses a Cell (MS-XLSB 2.5.9) and determines if it references a Date format
 
     // iStyleRef is stored as a 24bit integer starting at the fifth byte

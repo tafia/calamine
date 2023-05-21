@@ -371,7 +371,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut sheets = BTreeMap::new();
         let fmla_sheet_names = sheet_names
             .iter()
-            .map(|&(_, ref n)| n.clone())
+            .map(|(_, n)| n.clone())
             .collect::<Vec<_>>();
         for (pos, name) in sheet_names {
             let sh = &stream[pos..];

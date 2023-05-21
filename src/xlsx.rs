@@ -756,8 +756,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsxError>> {
-        let xml = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => xml_reader(&mut self.zip, path),
+        let xml = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => xml_reader(&mut self.zip, path),
             None => return None,
         };
         let strings = &self.strings;
@@ -770,8 +770,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsxError>> {
-        let xml = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => xml_reader(&mut self.zip, path),
+        let xml = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => xml_reader(&mut self.zip, path),
             None => return None,
         };
 
@@ -916,11 +916,11 @@ fn read_sheet_data(
     cells: &mut Vec<Cell<DataType>>,
 ) -> Result<(), XlsxError> {
     /// read the contents of a <v> cell
-    fn read_value<'a>(
+    fn read_value(
         v: String,
         strings: &[String],
         formats: &[CellFormat],
-        c_element: &BytesStart<'a>,
+        c_element: &BytesStart<'_>,
     ) -> Result<DataType, XlsxError> {
         let is_date_time = match get_attribute(c_element.attributes(), QName(b"s")) {
             Ok(Some(style)) => {

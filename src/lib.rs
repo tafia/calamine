@@ -765,18 +765,20 @@ pub struct Rows<'a, T: CellType> {
 impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     type Item = &'a [T];
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(|c| c.next())
+        self.inner.as_mut().and_then(std::iter::Iterator::next)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner
             .as_ref()
-            .map_or((0, Some(0)), |ch| ch.size_hint())
+            .map_or((0, Some(0)), std::iter::Iterator::size_hint)
     }
 }
 
 impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(|c| c.next_back())
+        self.inner
+            .as_mut()
+            .and_then(std::iter::DoubleEndedIterator::next_back)
     }
 }
 
