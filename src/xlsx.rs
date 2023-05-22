@@ -12,6 +12,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::formats::{is_builtin_date_format_id, is_custom_date_format};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, CellType, DataType, Metadata, Range, Reader, Table};
 
@@ -1040,42 +1041,6 @@ fn read_sheet_data(
         }
         Ok(())
     })
-}
-
-// This tries to detect number formats that are definitely date/time formats.
-// This is definitely not perfect!
-fn is_custom_date_format(format: &str) -> bool {
-    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
-}
-
-fn is_builtin_date_format_id(id: &[u8]) -> bool {
-    match id {
-    // mm-dd-yy
-    b"14" |
-    // d-mmm-yy
-    b"15" |
-    // d-mmm
-    b"16" |
-    // mmm-yy
-    b"17" |
-    // h:mm AM/PM
-    b"18" |
-    // h:mm:ss AM/PM
-    b"19" |
-    // h:mm
-    b"20" |
-    // h:mm:ss
-    b"21" |
-    // m/d/yy h:mm
-    b"22" |
-    // mm:ss
-    b"45" |
-    // [h]:mm:ss
-    b"46" |
-    // mmss.0
-    b"47" => true,
-    _ => false
-    }
 }
 
 #[derive(Debug, PartialEq)]

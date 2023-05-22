@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use log::debug;
 
 use crate::cfb::{Cfb, XlsEncoding};
+use crate::formats::{is_builtin_date_format_id, is_custom_date_format};
 #[cfg(feature = "picture")]
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
@@ -344,7 +345,9 @@ impl<RS: Read + Seek> Xls<RS> {
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
                 Some(s) => *s,
-                None if is_builtin_date_format_id(fmt) => CellFormat::Date(is_1904),
+                None if is_builtin_date_format_id(fmt.to_string().as_bytes()) => {
+                    CellFormat::Date(is_1904)
+                }
                 _ => CellFormat::Other,
             })
             .collect();
@@ -740,43 +743,6 @@ fn check_f64_is_date(value: f64, format: Option<&CellFormat>) -> DataType {
         Some(CellFormat::Date(false)) => DataType::DateTime(value),
         Some(CellFormat::Date(true)) => DataType::DateTime(value + EXCEL_1900_1904_DIFF as f64),
         _ => DataType::Float(value),
-    }
-}
-
-// TODO: Copy from xlsx.rs, need to merge with xlsx/xlsb
-// This tries to detect number formats that are definitely date/time formats.
-// This is definitely not perfect!
-fn is_custom_date_format(format: &str) -> bool {
-    format.bytes().all(|c| b"mdyMDYhsHS-/.: \\".contains(&c))
-}
-
-fn is_builtin_date_format_id(id: u16) -> bool {
-    match id {
-    // mm-dd-yy
-    14 |
-    // d-mmm-yy
-    15 |
-    // d-mmm
-    16 |
-    // mmm-yy
-    17 |
-    // h:mm AM/PM
-    18 |
-    // h:mm:ss AM/PM
-    19 |
-    // h:mm
-    20 |
-    // h:mm:ss
-    21 |
-    // m/d/yy h:mm
-    22 |
-    // mm:ss
-    45 |
-    // [h]:mm:ss
-    46 |
-    // mmss.0
-    47 => true,
-    _ => false
     }
 }
 
