@@ -109,7 +109,7 @@ impl std::error::Error for XlsbError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum CellFormat {
     Other,
     Date,
@@ -189,33 +189,49 @@ impl<RS: Read + Seek> Xlsb<RS> {
         let mut buf = vec![0; 1024];
         let mut number_formats = BTreeMap::new();
 
-        // Search for BrtBeginFmts
-        if iter.next_skip_blocks(0x0267, &[], &mut buf).is_ok() {
-            let len = read_usize(&buf);
+        loop {
+            match iter.read_type()? {
+                0x0267 => {
+                    // BrtBeginFmts
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
 
-            for _ in 0..len {
-                let _ = iter.next_skip_blocks(0x002C, &[], &mut buf)?; // BrtFmt
-                let fmt_code = read_u16(&buf);
-                let fmt_string = wide_str(&buf[2..], &mut 0)?.into_owned();
-                number_formats.insert(fmt_code, fmt_string);
-            }
-
-            // Search for BrtBeginCellXFs
-            if iter.next_skip_blocks(0x0269, &[], &mut buf).is_ok() {
-                let len = read_usize(&buf);
-
-                for _ in 0..len {
-                    let _ = iter.next_skip_blocks(0x002F, &[], &mut buf)?; // BrtXF
-                    let num_fmt = read_u16(&buf[2..4]);
-                    self.formats.push(match number_formats.get(&num_fmt) {
-                        Some(fmt) if is_custom_date_format(fmt) => CellFormat::Date,
-                        None if is_builtin_date_format_id(num_fmt.to_string().as_bytes()) => {
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002C, &[], &mut buf)?; // BrtFmt
+                        let fmt_code = read_u16(&buf);
+                        let fmt_str = wide_str(&buf[2..], &mut 0)?;
+                        let fmt = if is_custom_date_format(fmt_str.as_ref()) {
                             CellFormat::Date
-                        }
-                        _ => CellFormat::Other,
-                    });
+                        } else {
+                            CellFormat::Other
+                        };
+                        number_formats.insert(fmt_code, fmt);
+                    }
                 }
+                0x0269 => {
+                    // BrtBeginCellXFs
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002F, &[], &mut buf)?; // BrtXF
+                        let fmt_code = read_u16(&buf[2..4]);
+                        if is_builtin_date_format_id(&fmt_code.to_le_bytes()) {
+                            self.formats.push(CellFormat::Date);
+                        } else {
+                            self.formats.push(
+                                number_formats
+                                    .get(&fmt_code)
+                                    .copied()
+                                    .unwrap_or(CellFormat::Other),
+                            );
+                        }
+                    }
+                    // BrtBeginCellXFs is always present and always after BrtBeginFmts
+                    break;
+                }
+                _ => (),
             }
+            buf.clear();
         }
 
         Ok(())

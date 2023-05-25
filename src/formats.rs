@@ -39,28 +39,40 @@ pub fn is_builtin_date_format_id(id: &[u8]) -> bool {
     match id {
     // mm-dd-yy
     b"14" |
+    &[14, 0] |
     // d-mmm-yy
     b"15" |
+    &[15, 0] |
     // d-mmm
     b"16" |
+    &[16, 0] |
     // mmm-yy
     b"17" |
+    &[17, 0] |
     // h:mm AM/PM
     b"18" |
+    &[18, 0] |
     // h:mm:ss AM/PM
     b"19" |
+    &[19, 0] |
     // h:mm
     b"20" |
+    &[20, 0] |
     // h:mm:ss
     b"21" |
+    &[21, 0] |
     // m/d/yy h:mm
     b"22" |
+    &[22, 0] |
     // mm:ss
     b"45" |
+    &[45, 0] |
     // [h]:mm:ss
     b"46" |
+    &[46, 0] |
     // mmss.0
-    b"47" => true,
+    b"47" |
+    &[47, 0]  => true,
     _ => false
     }
 }

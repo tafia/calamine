@@ -345,9 +345,7 @@ impl<RS: Read + Seek> Xls<RS> {
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
                 Some(s) => *s,
-                None if is_builtin_date_format_id(fmt.to_string().as_bytes()) => {
-                    CellFormat::Date(is_1904)
-                }
+                None if is_builtin_date_format_id(&fmt.to_le_bytes()) => CellFormat::Date(is_1904),
                 _ => CellFormat::Other,
             })
             .collect();
