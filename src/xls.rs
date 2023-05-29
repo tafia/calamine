@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use log::debug;
 
 use crate::cfb::{Cfb, XlsEncoding};
-use crate::formats::{is_builtin_date_format_id, is_custom_date_format};
+use crate::formats::{is_builtin_date_format_code, is_custom_date_format};
 #[cfg(feature = "picture")]
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
@@ -345,7 +345,7 @@ impl<RS: Read + Seek> Xls<RS> {
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
                 Some(s) => *s,
-                None if is_builtin_date_format_id(&fmt.to_le_bytes()) => CellFormat::Date(is_1904),
+                None if is_builtin_date_format_code(fmt) => CellFormat::Date(is_1904),
                 _ => CellFormat::Other,
             })
             .collect();

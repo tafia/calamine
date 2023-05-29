@@ -36,45 +36,40 @@ pub fn is_custom_date_format(format: &str) -> bool {
 }
 
 pub fn is_builtin_date_format_id(id: &[u8]) -> bool {
-    match id {
-    // mm-dd-yy
-    b"14" |
-    &[14, 0] |
-    // d-mmm-yy
-    b"15" |
-    &[15, 0] |
-    // d-mmm
-    b"16" |
-    &[16, 0] |
-    // mmm-yy
-    b"17" |
-    &[17, 0] |
-    // h:mm AM/PM
-    b"18" |
-    &[18, 0] |
-    // h:mm:ss AM/PM
-    b"19" |
-    &[19, 0] |
-    // h:mm
-    b"20" |
-    &[20, 0] |
-    // h:mm:ss
-    b"21" |
-    &[21, 0] |
-    // m/d/yy h:mm
-    b"22" |
-    &[22, 0] |
-    // mm:ss
-    b"45" |
-    &[45, 0] |
-    // [h]:mm:ss
-    b"46" |
-    &[46, 0] |
-    // mmss.0
-    b"47" |
-    &[47, 0]  => true,
-    _ => false
-    }
+    matches!(
+        id,
+        // mm-dd-yy
+        b"14" |
+        // d-mmm-yy
+        b"15" |
+        // d-mmm
+        b"16" |
+        // mmm-yy
+        b"17" |
+        // h:mm AM/PM
+        b"18" |
+        // h:mm:ss AM/PM
+        b"19" |
+        // h:mm
+        b"20" |
+        // h:mm:ss
+        b"21" |
+        // m/d/yy h:mm
+        b"22" |
+        // mm:ss
+        b"45" |
+        // [h]:mm:ss
+        b"46" |
+        // mmss.0
+        b"47"
+    )
+}
+
+/// Check if code corresponds to builtin date format
+///
+/// See `is_builtin_date_format_id`
+pub fn is_builtin_date_format_code(code: u16) -> bool {
+    matches!(code, 14..=22 | 45..=47)
 }
 
 /// Ported from openpyxl, MIT License
