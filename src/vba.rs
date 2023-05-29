@@ -264,8 +264,8 @@ impl Reference {
                     let absolute = read_variable_record(stream, 1)?; // project libid absolute
                     {
                         let absolute = encoding.decode_all(absolute, None);
-                        reference.path = if absolute.starts_with("*\\C") {
-                            absolute[3..].into()
+                        reference.path = if let Some(stripped) = absolute.strip_prefix("*\\C") {
+                            stripped.into()
                         } else {
                             absolute.into()
                         };

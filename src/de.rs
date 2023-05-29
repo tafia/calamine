@@ -512,11 +512,7 @@ impl<'a> ToCellDeserializer<'a> for DataType {
 
     #[inline]
     fn is_empty(&self) -> bool {
-        if let DataType::Empty = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, DataType::Empty)
     }
 }
 
@@ -589,8 +585,8 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
             DataType::Int(v) => visitor.visit_str(&v.to_string()),
             DataType::Bool(v) => visitor.visit_str(&v.to_string()),
             DataType::DateTime(v) => visitor.visit_str(&v.to_string()),
-            DataType::DateTimeIso(v) => visitor.visit_str(&v.to_string()),
-            DataType::DurationIso(v) => visitor.visit_str(&v.to_string()),
+            DataType::DateTimeIso(v) => visitor.visit_str(v),
+            DataType::DurationIso(v) => visitor.visit_str(v),
             DataType::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,

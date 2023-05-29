@@ -768,7 +768,7 @@ fn date_xlsx() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }
@@ -871,7 +871,7 @@ fn date_xlsb() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }

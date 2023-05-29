@@ -11,6 +11,7 @@ keywords = ["excel", "ods", "xls", "xlsx", "xlsb"]
 categories = ["encoding", "parsing", "text-processing"]
 exclude = ["tests/**/*"]
 edition = "2018"
+rust-version = "1.59"
 
 [dependencies]
 byteorder = "1.4"
@@ -27,7 +28,7 @@ chrono = { version = "0.4", features = [
 
 [dev-dependencies]
 glob = "0.3"
-env_logger = "0.10"
+env_logger = "0.9"
 serde_derive = "1.0"
 sha256 = "1.1"
 
