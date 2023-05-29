@@ -13,7 +13,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use crate::formats::{is_builtin_date_format_id, is_custom_date_format};
+use crate::formats::{is_builtin_date_format_code, is_custom_date_format};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
@@ -215,7 +215,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     for _ in 0..len {
                         let _ = iter.next_skip_blocks(0x002F, &[], &mut buf)?; // BrtXF
                         let fmt_code = read_u16(&buf[2..4]);
-                        if is_builtin_date_format_id(&fmt_code.to_le_bytes()) {
+                        if is_builtin_date_format_code(fmt_code) {
                             self.formats.push(CellFormat::Date);
                         } else {
                             self.formats.push(
