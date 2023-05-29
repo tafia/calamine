@@ -1,5 +1,17 @@
+use crate::DataType;
+
+/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
+static EXCEL_1900_1904_DIFF: i64 = 1462;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CellFormat {
+    Other,
+    DateTime,
+    TimeDelta,
+}
+
 /// Check excel number format is datetime
-pub fn is_custom_date_format(format: &str) -> bool {
+pub fn detect_custom_number_format(format: &str) -> CellFormat {
     let mut escaped = false;
     let mut is_quote = false;
     let mut brackets = 0u8;
@@ -13,14 +25,14 @@ pub fn is_custom_date_format(format: &str) -> bool {
             ('"', _, true, _, _) => is_quote = false,
             (_, _, true, _, _) => (),
             ('"', _, _, _, _) => is_quote = true,
-            (';', ..) => return false, // first format only
+            (';', ..) => return CellFormat::Other, // first format only
             ('[', ..) => brackets += 1,
-            (']', .., 1) if hms => return true, // if closing
+            (']', .., 1) if hms => return CellFormat::TimeDelta, // if closing
             (']', ..) => brackets = brackets.saturating_sub(1),
             ('a' | 'A', _, _, false, 0) => ap = true,
-            ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => return true,
+            ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => return CellFormat::DateTime,
             ('d' | 'm' | 'h' | 'y' | 's' | 'D' | 'M' | 'H' | 'Y' | 'S', _, _, false, 0) => {
-                return true
+                return CellFormat::DateTime
             }
             _ => {
                 if hms && s.eq_ignore_ascii_case(&prev) {
@@ -32,12 +44,11 @@ pub fn is_custom_date_format(format: &str) -> bool {
         }
         prev = s;
     }
-    false
+    CellFormat::Other
 }
 
-pub fn is_builtin_date_format_id(id: &[u8]) -> bool {
-    matches!(
-        id,
+pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
+    match id {
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -58,61 +69,136 @@ pub fn is_builtin_date_format_id(id: &[u8]) -> bool {
         b"22" |
         // mm:ss
         b"45" |
-        // [h]:mm:ss
-        b"46" |
         // mmss.0
-        b"47"
-    )
+        b"47" => CellFormat::DateTime,
+        // [h]:mm:ss
+        b"46" => CellFormat::TimeDelta,
+        _ => CellFormat::Other
+}
 }
 
 /// Check if code corresponds to builtin date format
 ///
 /// See `is_builtin_date_format_id`
-pub fn is_builtin_date_format_code(code: u16) -> bool {
-    matches!(code, 14..=22 | 45..=47)
+pub fn builtin_format_by_code(code: u16) -> CellFormat {
+    match code {
+        14..=22 | 45 | 47 => CellFormat::DateTime,
+        46 => CellFormat::TimeDelta,
+        _ => CellFormat::Other,
+    }
+}
+
+// convert i64 to date, if format == Date
+pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
+    match format {
+        Some(CellFormat::DateTime) => DataType::DateTime(
+            (if is_1904 {
+                value + EXCEL_1900_1904_DIFF
+            } else {
+                value
+            }) as f64,
+        ),
+        Some(CellFormat::TimeDelta) => DataType::Duration(value as f64),
+        _ => DataType::Int(value),
+    }
+}
+
+// convert f64 to date, if format == Date
+pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
+    match format {
+        Some(CellFormat::DateTime) => DataType::DateTime(if is_1904 {
+            value + EXCEL_1900_1904_DIFF as f64
+        } else {
+            value
+        }),
+        Some(CellFormat::TimeDelta) => DataType::Duration(value),
+        _ => DataType::Float(value),
+    }
 }
 
 /// Ported from openpyxl, MIT License
 /// https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a5e197c530aaa49814fd1d993dd776edcec35105/openpyxl/styles/tests/test_number_style.py
 #[test]
 fn test_is_date_format() {
-    assert_eq!(is_custom_date_format("DD/MM/YY"), true);
-    assert_eq!(is_custom_date_format("H:MM:SS;@"), true);
-    assert_eq!(is_custom_date_format("#,##0\\ [$\\u20bd-46D]"), false);
-    assert_eq!(is_custom_date_format("m\"M\"d\"D\";@"), true);
-    assert_eq!(is_custom_date_format("[h]:mm:ss"), true);
     assert_eq!(
-        is_custom_date_format("\"Y: \"0.00\"m\";\"Y: \"-0.00\"m\";\"Y: <num>m\";@"),
-        false
-    );
-    assert_eq!(is_custom_date_format("#,##0\\ [$''u20bd-46D]"), false);
-    assert_eq!(
-        is_custom_date_format("\"$\"#,##0_);[Red](\"$\"#,##0)"),
-        false
+        detect_custom_number_format("DD/MM/YY"),
+        CellFormat::DateTime
     );
     assert_eq!(
-        is_custom_date_format("[$-404]e\"\\xfc\"m\"\\xfc\"d\"\\xfc\""),
-        true
+        detect_custom_number_format("H:MM:SS;@"),
+        CellFormat::DateTime
     );
-    assert_eq!(is_custom_date_format("0_ ;[Red]\\-0\\ "), false);
-    assert_eq!(is_custom_date_format("\\Y000000"), false);
-    assert_eq!(is_custom_date_format("#,##0.0####\" YMD\""), false);
-    assert_eq!(is_custom_date_format("[h]"), true);
-    assert_eq!(is_custom_date_format("[ss]"), true);
-    assert_eq!(is_custom_date_format("[s].000"), true);
-    assert_eq!(is_custom_date_format("[m]"), true);
-    assert_eq!(is_custom_date_format("[mm]"), true);
     assert_eq!(
-        is_custom_date_format("[Blue]\\+[h]:mm;[Red]\\-[h]:mm;[Green][h]:mm"),
-        true
+        detect_custom_number_format("#,##0\\ [$\\u20bd-46D]"),
+        CellFormat::Other
     );
-    assert_eq!(is_custom_date_format("[>=100][Magenta][s].00"), true);
-    assert_eq!(is_custom_date_format("[h]:mm;[=0]\\-"), true);
-    assert_eq!(is_custom_date_format("[>=100][Magenta].00"), false);
-    assert_eq!(is_custom_date_format("[>=100][Magenta]General"), false);
-    assert_eq!(is_custom_date_format("ha/p\\\\m"), true);
     assert_eq!(
-        is_custom_date_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
-        false
+        detect_custom_number_format("m\"M\"d\"D\";@"),
+        CellFormat::DateTime
+    );
+    assert_eq!(
+        detect_custom_number_format("[h]:mm:ss"),
+        CellFormat::TimeDelta
+    );
+    assert_eq!(
+        detect_custom_number_format("\"Y: \"0.00\"m\";\"Y: \"-0.00\"m\";\"Y: <num>m\";@"),
+        CellFormat::Other
+    );
+    assert_eq!(
+        detect_custom_number_format("#,##0\\ [$''u20bd-46D]"),
+        CellFormat::Other
+    );
+    assert_eq!(
+        detect_custom_number_format("\"$\"#,##0_);[Red](\"$\"#,##0)"),
+        CellFormat::Other
+    );
+    assert_eq!(
+        detect_custom_number_format("[$-404]e\"\\xfc\"m\"\\xfc\"d\"\\xfc\""),
+        CellFormat::DateTime
+    );
+    assert_eq!(
+        detect_custom_number_format("0_ ;[Red]\\-0\\ "),
+        CellFormat::Other
+    );
+    assert_eq!(detect_custom_number_format("\\Y000000"), CellFormat::Other);
+    assert_eq!(
+        detect_custom_number_format("#,##0.0####\" YMD\""),
+        CellFormat::Other
+    );
+    assert_eq!(detect_custom_number_format("[h]"), CellFormat::TimeDelta);
+    assert_eq!(detect_custom_number_format("[ss]"), CellFormat::TimeDelta);
+    assert_eq!(
+        detect_custom_number_format("[s].000"),
+        CellFormat::TimeDelta
+    );
+    assert_eq!(detect_custom_number_format("[m]"), CellFormat::TimeDelta);
+    assert_eq!(detect_custom_number_format("[mm]"), CellFormat::TimeDelta);
+    assert_eq!(
+        detect_custom_number_format("[Blue]\\+[h]:mm;[Red]\\-[h]:mm;[Green][h]:mm"),
+        CellFormat::TimeDelta
+    );
+    assert_eq!(
+        detect_custom_number_format("[>=100][Magenta][s].00"),
+        CellFormat::TimeDelta
+    );
+    assert_eq!(
+        detect_custom_number_format("[h]:mm;[=0]\\-"),
+        CellFormat::TimeDelta
+    );
+    assert_eq!(
+        detect_custom_number_format("[>=100][Magenta].00"),
+        CellFormat::Other
+    );
+    assert_eq!(
+        detect_custom_number_format("[>=100][Magenta]General"),
+        CellFormat::Other
+    );
+    assert_eq!(
+        detect_custom_number_format("ha/p\\\\m"),
+        CellFormat::DateTime
+    );
+    assert_eq!(
+        detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
+        CellFormat::Other
     );
 }
