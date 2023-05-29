@@ -111,55 +111,31 @@ impl DataType {
         }
     }
 
-        /// Try converting data type into a string
+    /// Try converting data type into a string
     pub fn as_string(&self) -> Option<String> {
         match self {
-            DataType::Float(v) => {
-                Some(v.to_string())
-            }
-            DataType::Int(v) => {
-                Some(v.to_string())
-            }
-            DataType::String(v) => {
-                Some(v.clone())
-            }
-            _ => {
-                None
-            }
+            DataType::Float(v) => Some(v.to_string()),
+            DataType::Int(v) => Some(v.to_string()),
+            DataType::String(v) => Some(v.clone()),
+            _ => None,
         }
     }
     /// Try converting data type into an int
     pub fn as_i64(&self) -> Option<i64> {
         match self {
-            DataType::Int(v) => {
-                Some(*v)
-            }
-            DataType::Float(v) => {
-                Some(*v as i64)
-            }
-            DataType::String(v) => {
-                v.parse::<i64>().ok()
-            }
-            _ => {
-                None
-            }
+            DataType::Int(v) => Some(*v),
+            DataType::Float(v) => Some(*v as i64),
+            DataType::String(v) => v.parse::<i64>().ok(),
+            _ => None,
         }
     }
     /// Try converting data type into a float
     pub fn as_f64(&self) -> Option<f64> {
         match self {
-            DataType::Int(v) =>{
-                Some(*v as f64)
-            }
-            DataType::Float(v) => {
-                Some(*v)
-            }
-            DataType::String(v) => {
-                v.parse::<f64>().ok()
-            }
-            _ => {
-                None
-            }
+            DataType::Int(v) => Some(*v as f64),
+            DataType::Float(v) => Some(*v),
+            DataType::String(v) => v.parse::<f64>().ok(),
+            _ => None,
         }
     }
     /// Try converting data type into a date
