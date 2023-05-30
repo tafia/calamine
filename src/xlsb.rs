@@ -1087,8 +1087,5 @@ fn is_cell_date(formats: &[CellFormat], buf: &[u8]) -> bool {
     // iStyleRef is stored as a 24bit integer starting at the fifth byte
     let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]);
 
-    match formats.get(style_ref as usize) {
-        Some(CellFormat::Date) => true,
-        _ => false,
-    }
+    matches!(formats.get(style_ref as usize), Some(CellFormat::Date))
 }

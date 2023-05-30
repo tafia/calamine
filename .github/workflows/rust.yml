@@ -7,7 +7,11 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       matrix:
-        toolchain: [ stable, beta, nightly ]
+        toolchain: 
+          - "1.59.0"  # MSRV
+          - stable
+          - beta
+          - nightly
     steps:
     - uses: actions/checkout@v2
     - name: Install Rust toolchain

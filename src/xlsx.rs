@@ -926,10 +926,7 @@ fn read_sheet_data(
         let is_date_time = match get_attribute(c_element.attributes(), QName(b"s")) {
             Ok(Some(style)) => {
                 let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
-                match formats.get(id) {
-                    Some(CellFormat::Date) => true,
-                    _ => false,
-                }
+                matches!(formats.get(id), Some(CellFormat::Date))
             }
             _ => false,
         };
