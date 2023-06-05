@@ -94,7 +94,7 @@ impl VbaProject {
     pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
-        let stream = crate::cfb::decompress_stream(&*stream)?;
+        let stream = crate::cfb::decompress_stream(&stream)?;
         let stream = &mut &*stream;
 
         // read dir information record (not used)
@@ -264,8 +264,8 @@ impl Reference {
                     let absolute = read_variable_record(stream, 1)?; // project libid absolute
                     {
                         let absolute = encoding.decode_all(absolute, None);
-                        reference.path = if absolute.starts_with("*\\C") {
-                            absolute[3..].into()
+                        reference.path = if let Some(stripped) = absolute.strip_prefix("*\\C") {
+                            stripped.into()
                         } else {
                             absolute.into()
                         };

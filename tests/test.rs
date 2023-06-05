@@ -780,7 +780,7 @@ fn date_xlsx() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }
@@ -883,7 +883,7 @@ fn date_xlsb() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd(2021, 01, 01);
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
     }
 }
@@ -1045,6 +1045,32 @@ fn pictures() -> Result<(), calamine::Error> {
     assert_eq!(pass, 8);
 
     Ok(())
+}
+
+#[test]
+fn ods_merged_cells() {
+    setup();
+
+    let path = format!("{}/tests/merged_cells.ods", env!("CARGO_MANIFEST_DIR"));
+    let mut ods: Ods<_> = open_workbook(&path).unwrap();
+    let range = ods.worksheet_range_at(0).unwrap().unwrap();
+
+    range_eq!(
+        range,
+        [
+            [
+                String("A".to_string()),
+                String("B".to_string()),
+                String("C".to_string())
+            ],
+            [
+                String("A".to_string()),
+                String("B".to_string()),
+                String("C".to_string())
+            ],
+            [Empty, Empty, String("C".to_string())],
+        ]
+    );
 }
 
 #[test]

@@ -47,35 +47,19 @@ impl DataType {
     }
     /// Assess if datatype is a int
     pub fn is_int(&self) -> bool {
-        if let DataType::Int(_) = *self {
-            true
-        } else {
-            false
-        }
+        matches!(*self, DataType::Int(_))
     }
     /// Assess if datatype is a float
     pub fn is_float(&self) -> bool {
-        if let DataType::Float(_) = *self {
-            true
-        } else {
-            false
-        }
+        matches!(*self, DataType::Float(_))
     }
     /// Assess if datatype is a bool
     pub fn is_bool(&self) -> bool {
-        if let DataType::Bool(_) = *self {
-            true
-        } else {
-            false
-        }
+        matches!(*self, DataType::Bool(_))
     }
     /// Assess if datatype is a string
     pub fn is_string(&self) -> bool {
-        if let DataType::String(_) = *self {
-            true
-        } else {
-            false
-        }
+        matches!(*self, DataType::String(_))
     }
 
     /// Try getting int value
@@ -111,6 +95,33 @@ impl DataType {
         }
     }
 
+    /// Try converting data type into a string
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            DataType::Float(v) => Some(v.to_string()),
+            DataType::Int(v) => Some(v.to_string()),
+            DataType::String(v) => Some(v.clone()),
+            _ => None,
+        }
+    }
+    /// Try converting data type into an int
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            DataType::Int(v) => Some(*v),
+            DataType::Float(v) => Some(*v as i64),
+            DataType::String(v) => v.parse::<i64>().ok(),
+            _ => None,
+        }
+    }
+    /// Try converting data type into a float
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            DataType::Int(v) => Some(*v as f64),
+            DataType::Float(v) => Some(*v),
+            DataType::String(v) => v.parse::<f64>().ok(),
+            _ => None,
+        }
+    }
     /// Try converting data type into a date
     #[cfg(feature = "dates")]
     pub fn as_date(&self) -> Option<chrono::NaiveDate> {
@@ -151,8 +162,12 @@ impl DataType {
                 chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
             }
             DataType::Float(f) | DataType::DateTime(f) => {
-                let excel_epoch = EXCEL_EPOCH
-                    .get_or_init(|| chrono::NaiveDate::from_ymd(1899, 12, 30).and_hms(0, 0, 0));
+                let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
+                    chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap()
+                });
                 let ms = f * MS_MULTIPLIER;
                 let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
                 excel_epoch.checked_add_signed(excel_duration)
@@ -165,37 +180,25 @@ impl DataType {
 
 impl PartialEq<str> for DataType {
     fn eq(&self, other: &str) -> bool {
-        match *self {
-            DataType::String(ref s) if s == other => true,
-            _ => false,
-        }
+        matches!(*self, DataType::String(ref s) if s == other)
     }
 }
 
 impl PartialEq<f64> for DataType {
     fn eq(&self, other: &f64) -> bool {
-        match *self {
-            DataType::Float(ref s) if *s == *other => true,
-            _ => false,
-        }
+        matches!(*self, DataType::Float(ref s) if *s == *other)
     }
 }
 
 impl PartialEq<bool> for DataType {
     fn eq(&self, other: &bool) -> bool {
-        match *self {
-            DataType::Bool(ref s) if *s == *other => true,
-            _ => false,
-        }
+        matches!(*self, DataType::Bool(ref s) if *s == *other)
     }
 }
 
 impl PartialEq<i64> for DataType {
     fn eq(&self, other: &i64) -> bool {
-        match *self {
-            DataType::Int(ref s) if *s == *other => true,
-            _ => false,
-        }
+        matches!(*self, DataType::Int(ref s) if *s == *other)
     }
 }
 
@@ -338,8 +341,8 @@ mod tests {
         assert_eq!(
             unix_epoch.as_datetime(),
             Some(NaiveDateTime::new(
-                NaiveDate::from_ymd(1970, 1, 1),
-                NaiveTime::from_hms(0, 0, 0)
+                NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
+                NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
             ))
         );
 
@@ -348,8 +351,8 @@ mod tests {
         assert_eq!(
             unix_epoch_precision.as_datetime(),
             Some(NaiveDateTime::new(
-                NaiveDate::from_ymd(2021, 10, 15),
-                NaiveTime::from_hms(19, 0, 0)
+                NaiveDate::from_ymd_opt(2021, 10, 15).unwrap(),
+                NaiveTime::from_hms_opt(19, 0, 0).unwrap(),
             ))
         );
 
@@ -368,8 +371,8 @@ mod tests {
 
         let unix_epoch_15h30m = DataType::Float(25569.645833333333333);
         let chrono_dt = NaiveDateTime::new(
-            NaiveDate::from_ymd(1970, 1, 1),
-            NaiveTime::from_hms(15, 30, 0),
+            NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
+            NaiveTime::from_hms_opt(15, 30, 0).unwrap(),
         );
         let micro = Duration::microseconds(1);
         assert!(unix_epoch_15h30m.as_datetime().unwrap() - chrono_dt < micro);
@@ -383,8 +386,8 @@ mod tests {
         assert_eq!(
             unix_epoch.as_datetime(),
             Some(NaiveDateTime::new(
-                NaiveDate::from_ymd(1970, 1, 1),
-                NaiveTime::from_hms(0, 0, 0)
+                NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
+                NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
             ))
         );
 
@@ -392,8 +395,8 @@ mod tests {
         assert_eq!(
             time.as_datetime(),
             Some(NaiveDateTime::new(
-                NaiveDate::from_ymd(2020, 8, 17),
-                NaiveTime::from_hms(0, 0, 0),
+                NaiveDate::from_ymd_opt(2020, 8, 17).unwrap(),
+                NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
             ))
         );
     }
