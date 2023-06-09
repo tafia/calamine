@@ -883,18 +883,31 @@ where
 {
     let mut buf = Vec::new();
     let mut cell_buf = Vec::new();
+    let mut rows = 0;
+    let mut cols = 0;
     loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(r_element)) if r_element.local_name().as_ref() == b"row" => {
+                cols = 0;
+            }
+            Ok(Event::End(r_element)) if r_element.local_name().as_ref() == b"row" => {
+                rows += 1;
+            }
             Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
-                let pos = get_attribute(c_element.attributes(), QName(b"r"))
-                    .and_then(|o| o.ok_or(XlsxError::CellRAttribute))
-                    .and_then(get_row_column)?;
+                let pos = match get_attribute(c_element.attributes(), QName(b"r")) {
+                    Ok(Some(r_val)) => get_row_column(r_val),
+                    Ok(None) => Ok((rows, cols)),
+                    Err(err) => Err(err),
+                }?;
                 loop {
                     cell_buf.clear();
                     match xml.read_event_into(&mut cell_buf) {
                         Ok(Event::Start(ref e)) => push_cell(cells, xml, e, pos, c_element)?,
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => {
+                            cols += 1;
+                            break;
+                        }
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),

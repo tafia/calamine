@@ -929,6 +929,16 @@ fn test_values_xls() {
 }
 
 #[test]
+fn issue_261() {
+    // cell without r attribute
+    let path = format!("{}/tests/issue_261.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
+    let range = workbook.worksheet_range("Sheet1").unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)).unwrap(), "test")
+}
+
+#[test]
 fn issue_271() -> Result<(), calamine::Error> {
     let mut count = 0;
     let mut values = Vec::new();
