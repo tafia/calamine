@@ -60,8 +60,10 @@ pub enum XlsxError {
     DimensionCount(usize),
     /// Cell 't' attribute error
     CellTAttribute(String),
-    /// Cell 'r' attribute error
-    CellRAttribute,
+    /// There is no column component in the range string
+    RangeWithoutColumnComponent,
+    /// There is no row component in the range string
+    RangeWithoutRowCompontent,
     /// Unexpected error
     Unexpected(&'static str),
     /// Cell error
@@ -104,7 +106,12 @@ impl std::fmt::Display for XlsxError {
                 write!(f, "Range dimension must be lower than 2. Got {}", e)
             }
             XlsxError::CellTAttribute(e) => write!(f, "Unknown cell 't' attribute: {:?}", e),
-            XlsxError::CellRAttribute => write!(f, "Cell missing 'r' attribute"),
+            XlsxError::RangeWithoutColumnComponent => {
+                write!(f, "Range is missing the expected column component.")
+            }
+            XlsxError::RangeWithoutRowCompontent => {
+                write!(f, "Range is missing the expected row component.")
+            }
             XlsxError::Unexpected(e) => write!(f, "{}", e),
             XlsxError::CellError(e) => write!(f, "Unsupported cell error value '{}'", e),
         }
@@ -883,13 +890,35 @@ where
 {
     let mut buf = Vec::new();
     let mut cell_buf = Vec::new();
+
+    let mut row_index = 0;
+    let mut col_index = 0;
+
     loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
+                if let Some(range) = attribute {
+                    let row = get_row(range)?;
+                    row_index = row;
+                }
+            }
+            Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                row_index += 1;
+                col_index = 0;
+            }
             Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
-                let pos = get_attribute(c_element.attributes(), QName(b"r"))
-                    .and_then(|o| o.ok_or(XlsxError::CellRAttribute))
-                    .and_then(get_row_column)?;
+                let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
+
+                let pos = if let Some(range) = attribute {
+                    let (row, col) = get_row_column(range)?;
+                    col_index = col;
+                    (row, col)
+                } else {
+                    (row_index, col_index)
+                };
+
                 loop {
                     cell_buf.clear();
                     match xml.read_event_into(&mut cell_buf) {
@@ -900,6 +929,7 @@ where
                         _ => (),
                     }
                 }
+                col_index += 1;
             }
             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => return Ok(()),
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -1091,8 +1121,25 @@ fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
     }
 }
 
-/// converts a text range name into its position (row, column) (0 based index)
+/// Converts a text range name into its position (row, column) (0 based index).
+/// If the row or column component in the range is missing, an Error is returned.
 fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
+    let (row, col) = get_row_and_optional_column(range)?;
+    let col = col.ok_or(XlsxError::RangeWithoutColumnComponent)?;
+    Ok((row, col))
+}
+
+/// Converts a text row name into its position (0 based index).
+/// If the row component in the range is missing, an Error is returned.
+/// If the text row name also contains a column component, it is ignored.
+fn get_row(range: &[u8]) -> Result<u32, XlsxError> {
+    get_row_and_optional_column(range).map(|(row, _)| row)
+}
+
+/// Converts a text range name into its position (row, column) (0 based index).
+/// If the row component in the range is missing, an Error is returned.
+/// If the column component in the range is missing, an None is returned for the column.
+fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxError> {
     let (mut row, mut col) = (0, 0);
     let mut pow = 1;
     let mut readrow = true;
@@ -1125,7 +1172,10 @@ fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
             _ => return Err(XlsxError::Alphanumeric(*c)),
         }
     }
-    Ok((row.saturating_sub(1), col - 1))
+    let row = row
+        .checked_sub(1)
+        .ok_or(XlsxError::RangeWithoutRowCompontent)?;
+    Ok((row, col.checked_sub(1)))
 }
 
 /// attempts to read either a simple or richtext string
