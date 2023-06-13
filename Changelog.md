@@ -10,6 +10,8 @@
 
 ## Unreleased
 
+- chore: bump MSRv to 1.60.0 due to log dependencies
+
 ## 0.21.0
 
 - fix: (xlsx) support `r` attribute
