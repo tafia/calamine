@@ -144,7 +144,7 @@ enum CellFormat {
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
-    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<DataType>, Range<String>, Vec<Dimensions>)>,
     vba: Option<VbaProject>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -205,6 +205,18 @@ impl<RS: Read + Seek> Xls<RS> {
 
         Ok(xls)
     }
+
+    /// Gets the worksheet merge cell demensions
+    pub fn worksheet_merge_cells(&mut self, name: &str) -> Option<Result<Vec<Dimensions>, XlsError>> {
+        self.sheets.get(name).map(|r| Ok(r.2.clone()))
+    }
+
+    /// Get the nth worksheet. Shortcut for getting the nth
+    /// sheet_name, then the corresponding worksheet.
+    pub fn worksheet_merge_cells_at(&mut self, n: usize) -> Option<Result<Vec<Dimensions>, XlsError>> {
+        let name = self.sheet_names().get(n)?.to_string();
+        self.worksheet_merge_cells(&name)
+    }
 }
 
 impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
@@ -230,7 +242,7 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
         self.sheets
             .iter()
-            .map(|(name, (data, _))| (name.to_owned(), data.clone()))
+            .map(|(name, (data, _, _))| (name.to_owned(), data.clone()))
             .collect()
     }
 
@@ -379,6 +391,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
+            let mut merge_cells = Vec::new();
             for record in records {
                 let r = record?;
                 match r.typ {
@@ -394,7 +407,8 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x0205 => cells.push(parse_bool_err(r.data)?),              // 517: BoolErr
                     0x027E => cells.push(parse_rk(r.data, &self.formats)?),     // 636: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
-                    0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats)?, // 189: MulRk
+                    0x00BD => parse_mul_rk(r.data, &mut cells)?,                // 189: MulRk
+                    0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?,     // 229: Merge Cells
                     0x000A => break,                                            // 10: EOF,
                     0x0006 => {
                         // 6: Formula
@@ -421,7 +435,7 @@ impl<RS: Read + Seek> Xls<RS> {
             }
             let range = Range::from_sparse(cells);
             let formula = Range::from_sparse(formulas);
-            sheets.insert(name, (range, formula));
+            sheets.insert(name, (range, formula, merge_cells));
         }
 
         self.sheets = sheets;
@@ -528,6 +542,26 @@ fn parse_rk(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsError
     ))
 }
 
+fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), XlsError> {
+    let count = read_u16(r);
+
+    for i in 0..count {
+        let offset: usize = (2 + i * 8).into();
+
+        let rf = read_u16(&r[offset + 0..]);
+        let rl = read_u16(&r[offset + 2..]);
+        let cf = read_u16(&r[offset + 4..]);
+        let cl = read_u16(&r[offset + 6..]);
+
+        merge_cells.push(Dimensions {
+            start: (rf.into(), cf.into()),
+            end: (rl.into(), cl.into()),
+        })
+    }
+
+    Ok(())
+}
+
 fn parse_mul_rk(
     r: &[u8],
     cells: &mut Vec<Cell<DataType>>,
@@ -622,9 +656,24 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<DataType>
     Ok(None)
 }
 
-struct Dimensions {
+#[derive(Debug, Clone)]
+pub struct Dimensions {
     start: (u32, u32),
     end: (u32, u32),
+}
+
+impl Dimensions {
+    /// Get top left cell position (row, column)
+    #[inline]
+    pub fn start(&self) -> (u32, u32) {
+        self.start
+    }
+
+    /// Get bottom right cell position (row, column)
+    #[inline]
+    pub fn end(&self) -> (u32, u32) {
+        self.end
+    }
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
