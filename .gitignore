@@ -3,3 +3,4 @@ Cargo.lock
 *.bk
 .vim
 fuzz.xlsx
+.idea

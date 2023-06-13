@@ -1017,6 +1017,76 @@ fn issue_252() {
 }
 
 #[test]
+fn issue_261() {
+    setup();
+
+    let mut workbook_with_missing_r_attributes = {
+        let path = format!("{}/tests/issue_261.xlsx", env!("CARGO_MANIFEST_DIR"));
+        open_workbook::<Xlsx<_>, _>(&path).unwrap()
+    };
+
+    let mut workbook_fixed_by_excel = {
+        let path = format!(
+            "{}/tests/issue_261_fixed_by_excel.xlsx",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        open_workbook::<Xlsx<_>, _>(&path).unwrap()
+    };
+
+    let range_a = workbook_fixed_by_excel
+        .worksheet_range("Some Sheet")
+        .unwrap()
+        .unwrap();
+
+    let range_b = workbook_with_missing_r_attributes
+        .worksheet_range("Some Sheet")
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(range_a.cells().count(), 462);
+    assert_eq!(range_a.cells().count(), 462);
+    assert_eq!(range_a.rows().count(), 66);
+    assert_eq!(range_b.rows().count(), 66);
+
+    assert_eq!(
+        range_b.get_value((0, 0)).unwrap(),
+        &String("String Value 32".into())
+    );
+    range_b
+        .rows()
+        .nth(4)
+        .unwrap()
+        .iter()
+        .for_each(|cell| assert!(cell.is_empty()));
+
+    assert_eq!(range_b.get_value((60, 6)).unwrap(), &Float(939.));
+    assert_eq!(
+        range_b.get_value((65, 0)).unwrap(),
+        &String("String Value 42".into())
+    );
+
+    assert_eq!(
+        range_b.get_value((65, 3)).unwrap(),
+        &String("String Value 8".into())
+    );
+
+    range_a
+        .rows()
+        .zip(range_b.rows().filter(|r| !r.is_empty()))
+        .enumerate()
+        .for_each(|(i, (lhs, rhs))| {
+            assert_eq!(
+                lhs,
+                rhs,
+                "Expected row {} to be {:?}, but found {:?}",
+                i + 1,
+                lhs,
+                rhs
+            )
+        });
+}
+
+#[test]
 fn test_values_xls() {
     let path = format!(
         "{}/tests/xls_wrong_decimals.xls",
