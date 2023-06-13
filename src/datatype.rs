@@ -168,6 +168,7 @@ impl DataType {
                         .and_hms_opt(0, 0, 0)
                         .unwrap()
                 });
+                let f = if *f >= 60.0 { *f } else { *f + 1.0 };
                 let ms = f * MS_MULTIPLIER;
                 let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
                 excel_epoch.checked_add_signed(excel_duration)
