@@ -1,6 +1,6 @@
 [package]
 name = "calamine"
-version = "0.20.0"
+version = "0.21.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/calamine"
@@ -11,7 +11,7 @@ keywords = ["excel", "ods", "xls", "xlsx", "xlsb"]
 categories = ["encoding", "parsing", "text-processing"]
 exclude = ["tests/**/*"]
 edition = "2018"
-rust-version = "1.59"
+rust-version = "1.60"
 
 [dependencies]
 byteorder = "1.4"

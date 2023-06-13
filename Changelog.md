@@ -10,6 +10,23 @@
 
 ## Unreleased
 
+- chore: bump MSRv to 1.60.0 due to log dependencies
+
+## 0.21.0
+
+- fix: (xlsx) support `r` attribute
+- fix: support `PROJECTCOMPATVERSION` in vba
+- fix: incorrect date parsing due to excel bug
+- feat: support for duration
+- test: add MSRV
+
+## 0.20.0
+
+- refactor: bump dependencies
+- feat: __(all) parse format/style information to infer cell as datetime__
+- feat: (ods) support number-columns-repeated attribute
+- refactor: multiple clippy refactorings
+
 ## 0.19.2
 
 - feat: Extract picture data by turning `picture` feature on
