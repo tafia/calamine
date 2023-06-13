@@ -9,15 +9,15 @@ use std::marker::PhantomData;
 use log::debug;
 
 use crate::cfb::{Cfb, XlsEncoding};
-use crate::formats::{is_builtin_date_format_code, is_custom_date_format};
+use crate::formats::{
+    builtin_format_by_code, detect_custom_number_format, format_excel_f64, format_excel_i64,
+    CellFormat,
+};
 #[cfg(feature = "picture")]
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
-
-/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
-static EXCEL_1900_1904_DIFF: i64 = 1462;
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
@@ -135,13 +135,6 @@ pub struct XlsOptions {
     pub force_codepage: Option<u16>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum CellFormat {
-    Other,
-    /// bool - is_1904
-    Date(bool),
-}
-
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
     sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
@@ -150,6 +143,7 @@ pub struct Xls<RS> {
     marker: PhantomData<RS>,
     options: XlsOptions,
     formats: Vec<CellFormat>,
+    is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
 }
@@ -194,6 +188,7 @@ impl<RS: Read + Seek> Xls<RS> {
             marker: PhantomData,
             metadata: Metadata::default(),
             options,
+            is_1904: false,
             formats: Vec::new(),
             #[cfg(feature = "picture")]
             pictures: None,
@@ -257,7 +252,6 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xtis = Vec::new();
         let mut formats = BTreeMap::new();
         let mut xfs = Vec::new();
-        let mut is_1904 = false;
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
@@ -283,12 +277,12 @@ impl<RS: Read + Seek> Xls<RS> {
                     // Date1904
                     0x0022 => {
                         if read_u16(r.data) == 1 {
-                            is_1904 = true
+                            self.is_1904 = true
                         }
                     }
                     // FORMATTING
                     0x041E => {
-                        let (idx, format) = parse_format(&mut r, &mut encoding, is_1904)?;
+                        let (idx, format) = parse_format(&mut r, &mut encoding)?;
                         formats.insert(idx, format);
                     }
                     // XFS
@@ -345,8 +339,7 @@ impl<RS: Read + Seek> Xls<RS> {
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
                 Some(s) => *s,
-                None if is_builtin_date_format_code(fmt) => CellFormat::Date(is_1904),
-                _ => CellFormat::Other,
+                _ => builtin_format_by_code(fmt),
             })
             .collect();
 
@@ -390,12 +383,12 @@ impl<RS: Read + Seek> Xls<RS> {
                         cells.reserve(rows.saturating_mul(cols));
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
-                    0x0203 => cells.push(parse_number(r.data, &self.formats)?), // 515: Number
-                    0x0205 => cells.push(parse_bool_err(r.data)?),              // 517: BoolErr
-                    0x027E => cells.push(parse_rk(r.data, &self.formats)?),     // 636: Rk
+                    0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
+                    0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
+                    0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 636: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
-                    0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats)?, // 189: MulRk
-                    0x000A => break,                                            // 10: EOF,
+                    0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
+                    0x000A => break, // 10: EOF,
                     0x0006 => {
                         // 6: Formula
                         let row = read_u16(r.data);
@@ -457,7 +450,11 @@ fn parse_sheet_name(
     Ok((pos, sheet_name))
 }
 
-fn parse_number(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsError> {
+fn parse_number(
+    r: &[u8],
+    formats: &[CellFormat],
+    is_1904: bool,
+) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 14 {
         return Err(XlsError::Len {
             typ: "number",
@@ -470,7 +467,7 @@ fn parse_number(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsE
     let v = read_f64(&r[6..]);
     let format = formats.get(read_u16(&r[4..]) as usize);
 
-    Ok(Cell::new((row, col), check_f64_is_date(v, format)))
+    Ok(Cell::new((row, col), format_excel_f64(v, format, is_1904)))
 }
 
 fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
@@ -511,7 +508,7 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     Ok(Cell::new((row as u32, col as u32), v))
 }
 
-fn parse_rk(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsError> {
+fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<DataType>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "rk",
@@ -524,7 +521,7 @@ fn parse_rk(r: &[u8], formats: &[CellFormat]) -> Result<Cell<DataType>, XlsError
 
     Ok(Cell::new(
         (row as u32, col as u32),
-        rk_num(&r[4..10], formats),
+        rk_num(&r[4..10], formats, is_1904),
     ))
 }
 
@@ -532,6 +529,7 @@ fn parse_mul_rk(
     r: &[u8],
     cells: &mut Vec<Cell<DataType>>,
     formats: &[CellFormat],
+    is_1904: bool,
 ) -> Result<(), XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
@@ -556,13 +554,13 @@ fn parse_mul_rk(
     let mut col = col_first as u32;
 
     for rk in r[4..r.len() - 2].chunks(6) {
-        cells.push(Cell::new((row as u32, col), rk_num(rk, formats)));
+        cells.push(Cell::new((row as u32, col), rk_num(rk, formats, is_1904)));
         col += 1;
     }
     Ok(())
 }
 
-fn rk_num(rk: &[u8], formats: &[CellFormat]) -> DataType {
+fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> DataType {
     let d100 = (rk[2] & 1) != 0;
     let is_int = (rk[2] & 2) != 0;
     let format = formats.get(read_u16(rk) as usize);
@@ -573,13 +571,13 @@ fn rk_num(rk: &[u8], formats: &[CellFormat]) -> DataType {
     if is_int {
         let v = (read_i32(&v[4..8]) >> 2) as i64;
         if d100 && v % 100 != 0 {
-            check_f64_is_date(v as f64 / 100.0, format)
+            format_excel_f64(v as f64 / 100.0, format, is_1904)
         } else {
-            check_i64_is_date(if d100 { v / 100 } else { v }, format)
+            format_excel_i64(if d100 { v / 100 } else { v }, format, is_1904)
         }
     } else {
         let v = read_f64(&v);
-        check_f64_is_date(if d100 { v / 100.0 } else { v }, format)
+        format_excel_f64(if d100 { v / 100.0 } else { v }, format, is_1904)
     }
 }
 
@@ -701,7 +699,6 @@ fn parse_xf(r: &mut Record<'_>) -> Result<u16, XlsError> {
 fn parse_format(
     r: &mut Record<'_>,
     encoding: &mut XlsEncoding,
-    is_1904: bool,
 ) -> Result<(u16, CellFormat), XlsError> {
     if r.data.len() < 4 {
         return Err(XlsError::Len {
@@ -719,29 +716,7 @@ fn parse_format(
     let mut s = String::with_capacity(cch);
     encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
 
-    if is_custom_date_format(&s) {
-        Ok((idx, CellFormat::Date(is_1904)))
-    } else {
-        Ok((idx, CellFormat::Other))
-    }
-}
-
-// convert i64 to date, if format == Date
-fn check_i64_is_date(value: i64, format: Option<&CellFormat>) -> DataType {
-    match format {
-        Some(CellFormat::Date(false)) => DataType::DateTime(value as f64),
-        Some(CellFormat::Date(true)) => DataType::DateTime((value + EXCEL_1900_1904_DIFF) as f64),
-        _ => DataType::Int(value),
-    }
-}
-
-// convert f64 to date, if format == Date
-fn check_f64_is_date(value: f64, format: Option<&CellFormat>) -> DataType {
-    match format {
-        Some(CellFormat::Date(false)) => DataType::DateTime(value),
-        Some(CellFormat::Date(true)) => DataType::DateTime(value + EXCEL_1900_1904_DIFF as f64),
-        _ => DataType::Float(value),
-    }
+    Ok((idx, detect_custom_number_format(&s)))
 }
 
 /// Decode XLUnicodeRichExtendedString.

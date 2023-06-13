@@ -10,6 +10,9 @@ use super::CellErrorType;
 #[cfg(feature = "dates")]
 static EXCEL_EPOCH: OnceCell<chrono::NaiveDateTime> = OnceCell::new();
 
+#[cfg(feature = "dates")]
+const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
+
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +27,8 @@ pub enum DataType {
     Bool(bool),
     /// Date or Time
     DateTime(f64),
+    /// Duration
+    Duration(f64),
     /// Date, Time or DateTime in ISO 8601
     DateTimeIso(String),
     /// Duration in ISO 8601
@@ -149,11 +154,31 @@ impl DataType {
         }
     }
 
+    /// Try converting data type into a duration
+    #[cfg(feature = "dates")]
+    pub fn as_duration(&self) -> Option<chrono::Duration> {
+        use chrono::Timelike;
+
+        match self {
+            DataType::Duration(days) => {
+                let ms = days * MS_MULTIPLIER;
+                Some(chrono::Duration::milliseconds(ms.round() as i64))
+            }
+            // need replace in the future to smth like chrono::Duration::from_str()
+            // https://github.com/chronotope/chrono/issues/579
+            DataType::DurationIso(_) => self.as_time().map(|t| {
+                chrono::Duration::nanoseconds(
+                    t.num_seconds_from_midnight() as i64 * 1_000_000_000 + t.nanosecond() as i64,
+                )
+            }),
+            _ => None,
+        }
+    }
+
     /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
     pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
         use std::str::FromStr;
-        const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
         match self {
             DataType::Int(x) => {
@@ -211,6 +236,7 @@ impl fmt::Display for DataType {
             DataType::String(ref e) => write!(f, "{}", e),
             DataType::Bool(ref e) => write!(f, "{}", e),
             DataType::DateTime(ref e) => write!(f, "{}", e),
+            DataType::Duration(ref e) => write!(f, "{}", e),
             DataType::DateTimeIso(ref e) => write!(f, "{}", e),
             DataType::DurationIso(ref e) => write!(f, "{}", e),
             DataType::Error(ref e) => write!(f, "{}", e),

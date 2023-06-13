@@ -1,5 +1,7 @@
 use calamine::CellErrorType::*;
-use calamine::DataType::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
+use calamine::DataType::{
+    Bool, DateTime, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
+};
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
 use std::io::Cursor;
 use std::sync::Once;
@@ -748,11 +750,42 @@ fn date_xls() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
 
     #[cfg(feature = "dates")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+
+        let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
+        assert_eq!(
+            range.get_value((2, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
+    }
+}
+
+#[test]
+fn date_xls_1904() {
+    setup();
+
+    let path = format!("{}/tests/date_1904.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xls<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+
+        let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
+        assert_eq!(
+            range.get_value((2, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
     }
 }
 
@@ -765,11 +798,42 @@ fn date_xlsx() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
 
     #[cfg(feature = "dates")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+
+        let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
+        assert_eq!(
+            range.get_value((2, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
+    }
+}
+
+#[test]
+fn date_xlsx_1904() {
+    setup();
+
+    let path = format!("{}/tests/date_1904.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+
+        let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
+        assert_eq!(
+            range.get_value((2, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
     }
 }
 
@@ -857,8 +921,16 @@ fn date_ods() {
 
         let time = chrono::NaiveTime::from_hms_micro_opt(10, 10, 10, 123456).unwrap();
         assert_eq!(range.get_value((3, 0)).unwrap().as_time(), Some(time));
+
+        let duration =
+            chrono::Duration::microseconds((10 * 60 * 60 + 10 * 60 + 10) * 1_000_000 + 123456);
+        assert_eq!(
+            range.get_value((3, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
     }
 }
+
 #[test]
 fn date_xlsb() {
     setup();
@@ -868,11 +940,42 @@ fn date_xlsb() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
 
     #[cfg(feature = "dates")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+
+        let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
+        assert_eq!(
+            range.get_value((2, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
+    }
+}
+
+#[test]
+fn date_xlsb_1904() {
+    setup();
+
+    let path = format!("{}/tests/date_1904.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+
+    #[cfg(feature = "dates")]
+    {
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
+
+        let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
+        assert_eq!(
+            range.get_value((2, 0)).unwrap().as_duration(),
+            Some(duration)
+        );
     }
 }
 
