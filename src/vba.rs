@@ -319,8 +319,16 @@ struct Module {
 fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
     debug!("read dir header");
 
-    // PROJECTSYSKIND, PROJECTLCID and PROJECTLCIDINVOKE Records
-    *stream = &stream[30..];
+    // PROJECTSYSKIND
+    *stream = &stream[10..];
+
+    // PROJECTCOMPATVERSION (optional)
+    if read_u16(&stream[0..2]) == 0x004A {
+        *stream = &stream[10..];
+    }
+
+    // PROJECTLCID and PROJECTLCIDINVOKE Records
+    *stream = &stream[20..];
 
     // PROJECT Codepage
     let encoding = XlsEncoding::from_codepage(read_u16(&stream[6..8]))?;
