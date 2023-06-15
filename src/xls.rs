@@ -15,7 +15,7 @@ use crate::formats::{
 };
 #[cfg(feature = "picture")]
 use crate::utils::read_usize;
-use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32};
+use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
 
@@ -239,6 +239,13 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Xti {
+    _isup_book: u16,
+    itab_first: i16,
+    _itab_last: i16,
+}
+
 impl<RS: Read + Seek> Xls<RS> {
     fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
         // gets workbook and worksheets stream, or early exit
@@ -313,12 +320,11 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x0017 => {
                         // ExternSheet
                         let cxti = read_u16(r.data) as usize;
-                        xtis.extend(
-                            r.data[2..]
-                                .chunks(6)
-                                .take(cxti)
-                                .map(|xti| read_u16(&xti[2..]) as usize),
-                        );
+                        xtis.extend(r.data[2..].chunks(6).take(cxti).map(|xti| Xti {
+                            _isup_book: read_u16(&xti[..2]),
+                            itab_first: read_i16(&xti[2..4]),
+                            _itab_last: read_i16(&xti[4..]),
+                        }));
                     }
                     0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
                     #[cfg(feature = "picture")]
@@ -347,16 +353,15 @@ impl<RS: Read + Seek> Xls<RS> {
 
         let defined_names = defined_names
             .into_iter()
-            .map(|(name, (i, f))| {
+            .map(|(name, (i, mut f))| {
                 if let Some(i) = i {
-                    if i >= xtis.len() || xtis[i] >= sheet_names.len() {
-                        (name, format!("#REF!{}", f))
-                    } else {
-                        (name, format!("{}!{}", sheet_names[xtis[i]].1, f))
-                    }
-                } else {
-                    (name, f)
+                    let sh = xtis
+                        .get(i)
+                        .and_then(|xti| sheet_names.get(xti.itab_first as usize))
+                        .map_or("#REF", |sh| &sh.1);
+                    f = format!("{sh}!{f}");
                 }
+                (name, f)
             })
             .collect::<Vec<_>>();
 
@@ -397,6 +402,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &r.data[20..],
                             &fmla_sheet_names,
                             &defined_names,
+                            &xtis,
                             &mut encoding,
                         )
                         .unwrap_or_else(|e| {
@@ -940,6 +946,7 @@ fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
     names: &[(String, String)],
+    xtis: &[Xti],
     encoding: &mut XlsEncoding,
 ) -> Result<String, XlsError> {
     let mut stack = Vec::new();
@@ -953,13 +960,24 @@ fn parse_formula(
             0x3a | 0x5a | 0x7a => {
                 // PtgRef3d
                 let ixti = read_u16(&rgce[0..2]);
+                let rowu = read_u16(&rgce[2..]);
+                let colu = read_u16(&rgce[4..]);
+                let sh = xtis
+                    .get(ixti as usize)
+                    .and_then(|xti| sheets.get(xti.itab_first as usize))
+                    .map_or("#REF", |sh| &sh);
                 stack.push(formula.len());
-                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push_str(sh);
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
+                let col = colu << 2; // first 14 bits only
+                if colu & 2 != 0 {
+                    formula.push('$');
+                }
+                push_column(col as u32, &mut formula);
+                if colu & 1 != 0 {
+                    formula.push('$');
+                }
+                write!(&mut formula, "{}", rowu + 1).unwrap();
                 rgce = &rgce[6..];
             }
             0x3b | 0x5b | 0x7b => {

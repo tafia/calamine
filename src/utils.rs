@@ -35,6 +35,11 @@ pub fn read_u16(s: &[u8]) -> u16 {
 }
 
 #[inline]
+pub fn read_i16(s: &[u8]) -> i16 {
+    i16::from_le_bytes(s[..2].try_into().unwrap())
+}
+
+#[inline]
 pub fn read_u64(s: &[u8]) -> u64 {
     u64::from_le_bytes(s[..8].try_into().unwrap())
 }

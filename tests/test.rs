@@ -1229,3 +1229,16 @@ fn ods_number_rows_repeated() {
         ]
     );
 }
+
+#[test]
+fn xls_formula() {
+    setup();
+    let path = format!("{}/tests/xls_formula.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut wb: Xls<_> = open_workbook(&path).unwrap();
+    let formula = wb.worksheet_formula("Sheet1").unwrap().unwrap();
+    let mut rows = formula.rows();
+    assert_eq!(rows.next(), Some(&["A1*2".to_owned()][..]));
+    assert_eq!(rows.next(), Some(&["2*Sheet2!A1".to_owned()][..]));
+    assert_eq!(rows.next(), Some(&["A1+Sheet2!A1".to_owned()][..]));
+    assert_eq!(rows.next(), None);
+}
