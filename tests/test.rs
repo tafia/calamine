@@ -1,8 +1,8 @@
-use calamine::CellErrorType::*;
 use calamine::DataType::{
     Bool, DateTime, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
 };
 use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
+use calamine::{CellErrorType::*, DataType};
 use std::io::Cursor;
 use std::sync::Once;
 
@@ -1228,4 +1228,31 @@ fn ods_number_rows_repeated() {
             [String("C".to_string()), String("D".to_string())],
         ]
     );
+}
+
+#[test]
+fn issue304_xls_formula() {
+    setup();
+    let path = format!("{}/tests/xls_formula.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut wb: Xls<_> = open_workbook(&path).unwrap();
+    let formula = wb.worksheet_formula("Sheet1").unwrap().unwrap();
+    let mut rows = formula.rows();
+    assert_eq!(rows.next(), Some(&["A1*2".to_owned()][..]));
+    assert_eq!(rows.next(), Some(&["2*Sheet2!A1".to_owned()][..]));
+    assert_eq!(rows.next(), Some(&["A1+Sheet2!A1".to_owned()][..]));
+    assert_eq!(rows.next(), None);
+}
+
+#[test]
+fn issue304_xls_values() {
+    setup();
+    let path = format!("{}/tests/xls_formula.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut wb: Xls<_> = open_workbook(&path).unwrap();
+    let rge = wb.worksheet_range("Sheet1").unwrap().unwrap();
+    let mut rows = rge.rows();
+    assert_eq!(rows.next(), Some(&[DataType::Float(10.)][..]));
+    assert_eq!(rows.next(), Some(&[DataType::Float(20.)][..]));
+    assert_eq!(rows.next(), Some(&[DataType::Float(110.)][..]));
+    assert_eq!(rows.next(), Some(&[DataType::Float(65.)][..]));
+    assert_eq!(rows.next(), None);
 }
