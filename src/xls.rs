@@ -1299,6 +1299,7 @@ fn parse_formula(
     }
 }
 
+/// FormulaValue [MS-XLS 2.5.133]
 fn parse_formula_value(r: &[u8]) -> Result<Option<DataType>, XlsError> {
     match r {
         &[0x00, .., 0xFF, 0xFF] => Ok(None), // String, value should be in next record
