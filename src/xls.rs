@@ -377,6 +377,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
+            let mut fmla_pos = (0, 0);
             for record in records {
                 let r = record?;
                 match r.typ {
@@ -390,14 +391,32 @@ impl<RS: Read + Seek> Xls<RS> {
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
                     0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
-                    0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 636: Rk
+                    0x0207 => {
+                        // 519 String (formula value)
+                        let val = DataType::String(parse_string(r.data, &mut encoding)?);
+                        cells.push(Cell::new(fmla_pos, val))
+                    }
+                    0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
                     0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
                     0x000A => break, // 10: EOF,
                     0x0006 => {
                         // 6: Formula
+                        if r.data.len() < 20 {
+                            return Err(XlsError::Len {
+                                expected: 20,
+                                found: r.data.len(),
+                                typ: "Formuula",
+                            });
+                        }
                         let row = read_u16(r.data);
                         let col = read_u16(&r.data[2..]);
+                        fmla_pos = (row as u32, col as u32);
+                        if let Some(val) = parse_formula_value(&r.data[6..14])? {
+                            // If the value is a string
+                            // it will appear in 0x0207 record coming next
+                            cells.push(Cell::new(fmla_pos, val));
+                        }
                         let fmla = parse_formula(
                             &r.data[20..],
                             &fmla_sheet_names,
@@ -413,7 +432,7 @@ impl<RS: Read + Seek> Xls<RS> {
                                 row, col, e
                             )
                         });
-                        formulas.push(Cell::new((row as u32, col as u32), fmla));
+                        formulas.push(Cell::new(fmla_pos, fmla));
                     }
                     _ => (),
                 }
@@ -486,32 +505,32 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     }
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
-    let v = match r[7] {
-        0x00 => DataType::Bool(r[6] != 0),
-        0x01 => match r[6] {
-            0x00 => DataType::Error(CellErrorType::Null),
-            0x07 => DataType::Error(CellErrorType::Div0),
-            0x0F => DataType::Error(CellErrorType::Value),
-            0x17 => DataType::Error(CellErrorType::Ref),
-            0x1D => DataType::Error(CellErrorType::Name),
-            0x24 => DataType::Error(CellErrorType::Num),
-            0x2A => DataType::Error(CellErrorType::NA),
-            0x2B => DataType::Error(CellErrorType::GettingData),
-            e => {
-                return Err(XlsError::Unrecognized {
-                    typ: "error",
-                    val: e,
-                });
-            }
-        },
-        e => {
-            return Err(XlsError::Unrecognized {
-                typ: "fError",
-                val: e,
-            });
-        }
-    };
-    Ok(Cell::new((row as u32, col as u32), v))
+    let pos = (row as u32, col as u32);
+    match r[7] {
+        0x00 => Ok(Cell::new(pos, DataType::Bool(r[6] != 0))),
+        0x01 => Ok(Cell::new(pos, parse_err(r[6])?)),
+        e => Err(XlsError::Unrecognized {
+            typ: "fError",
+            val: e,
+        }),
+    }
+}
+
+fn parse_err(e: u8) -> Result<DataType, XlsError> {
+    match e {
+        0x00 => Ok(DataType::Error(CellErrorType::Null)),
+        0x07 => Ok(DataType::Error(CellErrorType::Div0)),
+        0x0F => Ok(DataType::Error(CellErrorType::Value)),
+        0x17 => Ok(DataType::Error(CellErrorType::Ref)),
+        0x1D => Ok(DataType::Error(CellErrorType::Name)),
+        0x24 => Ok(DataType::Error(CellErrorType::Num)),
+        0x2A => Ok(DataType::Error(CellErrorType::NA)),
+        0x2B => Ok(DataType::Error(CellErrorType::GettingData)),
+        e => Err(XlsError::Unrecognized {
+            typ: "error",
+            val: e,
+        }),
+    }
 }
 
 fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<DataType>, XlsError> {
@@ -601,6 +620,22 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<
     r.data = &r.data[2..];
     let mut s = String::with_capacity(cch);
     let _ = encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
+    Ok(s)
+}
+
+/// XLUnicodeString [MS-XLS 2.5.294]
+fn parse_string(r: &[u8], encoding: &mut XlsEncoding) -> Result<String, XlsError> {
+    if r.len() < 2 {
+        return Err(XlsError::Len {
+            typ: "short string",
+            expected: 2,
+            found: r.len(),
+        });
+    }
+    let cch = read_u16(r) as usize;
+    let high_byte = r[2] & 0x1 != 0;
+    let mut s = String::with_capacity(cch);
+    let _ = encoding.decode_to(r, cch, &mut s, Some(high_byte));
     Ok(s)
 }
 
@@ -1261,6 +1296,19 @@ fn parse_formula(
         })
     } else {
         Ok(formula)
+    }
+}
+
+fn parse_formula_value(r: &[u8]) -> Result<Option<DataType>, XlsError> {
+    match r {
+        &[0x00, .., 0xFF, 0xFF] => Ok(None), // String, value should be in next record
+        &[0x01, _, b, .., 0xFF, 0xFF] => Ok(Some(DataType::Bool(b != 0))),
+        &[0x02, _, e, .., 0xFF, 0xFF] => parse_err(e).map(Some),
+        &[e, .., 0xFF, 0xFF] => Err(XlsError::Unrecognized {
+            typ: "error",
+            val: e,
+        }),
+        _ => Ok(Some(DataType::Float(read_f64(r)))),
     }
 }
 
