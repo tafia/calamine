@@ -1256,3 +1256,17 @@ fn issue304_xls_values() {
     assert_eq!(rows.next(), Some(&[DataType::Float(65.)][..]));
     assert_eq!(rows.next(), None);
 }
+
+#[test]
+fn issue334_xls_values_string() {
+    setup();
+    let path = format!("{}/tests/xls_ref_String.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut wb: Xls<_> = open_workbook(&path).unwrap();
+    let rge = wb.worksheet_range("Sheet1").unwrap().unwrap();
+    let mut rows = rge.rows();
+    assert_eq!(rows.next(), Some(&[DataType::String("aa".into())][..]));
+    assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
+    assert_eq!(rows.next(), Some(&[DataType::String("aa".into())][..]));
+    assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
+    assert_eq!(rows.next(), None);
+}

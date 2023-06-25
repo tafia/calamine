@@ -10,7 +10,15 @@
 
 ## Unreleased
 
+## 0.21.2:
+
+- fix: formula with string not displaying properly
+
+## 0.21.1
+
 - chore: bump MSRv to 1.60.0 due to log dependencies
+- fix: xls: formula values ignored
+- fix: xls: formula (string) not displayed properly
 
 ## 0.21.0
 
