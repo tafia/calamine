@@ -635,7 +635,7 @@ fn parse_string(r: &[u8], encoding: &mut XlsEncoding) -> Result<String, XlsError
     let cch = read_u16(r) as usize;
     let high_byte = r[2] & 0x1 != 0;
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(r, cch, &mut s, Some(high_byte));
+    let _ = encoding.decode_to(&r[3..], cch, &mut s, Some(high_byte));
     Ok(s)
 }
 
