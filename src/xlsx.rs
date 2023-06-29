@@ -980,7 +980,7 @@ fn read_sheet_data(
         {
             Some(b"s") => {
                 // shared string
-                let idx: usize = v.parse()?;
+                let idx: usize = v.trim().parse()?;
                 Ok(DataType::String(strings[idx].clone()))
             }
             Some(b"b") => {
