@@ -44,15 +44,15 @@ fn example() -> Result<(), Error> {
 }
 ```
 
-Note if you want to deserialise a column that may have invalid types (i.e. a float where some values may be strings), you can use Serde's `deserialize_with` field attribute:
+Note if you want to deserialize a column that may have invalid types (i.e. a float where some values may be strings), you can use Serde's `deserialize_with` field attribute:
 
 ```rust
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use calamine::{RangeDeserializerBuilder, Reader, Xlsx};
 
 
-#[derive(Serialize, Deserialize, Debug)]
-struct RawExcelRow {
+#[derive(Deserialize)]
+struct ExcelRow {
     metric: String,
     #[serde(deserialize_with = "de_opt_f64")]
     value: Option<f64>,
@@ -64,12 +64,11 @@ fn de_opt_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let data_type = calamine::DataType::deserialize(deserializer);
-    match data_type {
-        Ok(calamine::DataType::Error(_)) => Ok(None),
-        Ok(calamine::DataType::Float(f)) => Ok(Some(f)),
-        Ok(calamine::DataType::Int(i)) => Ok(Some(i as f64)),
-        _ => Ok(None),
+    let data_type = calamine::DataType::deserialize(deserializer)?;
+    if let Some(float) = data_type.as_f64() {
+        Ok(Some(float))
+    } else {
+        Ok(None)
     }
 }
 
@@ -82,7 +81,7 @@ fn main() ->  Result<(), Box<dyn std::error::Error>> {
       .ok_or(calamine::Error::Msg("Cannot find Sheet1"))??;
 
     let iter_result =
-        RangeDeserializerBuilder::with_headers(&COLUMNS).from_range::<_, RawExcelRow>(&range)?;
+        RangeDeserializerBuilder::with_headers(&COLUMNS).from_range::<_, ExcelRow>(&range)?;
   }
 ```
 
