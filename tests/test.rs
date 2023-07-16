@@ -1270,3 +1270,18 @@ fn issue334_xls_values_string() {
     assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
     assert_eq!(rows.next(), None);
 }
+
+#[test]
+fn issue281_vba() {
+    setup();
+
+    let path = format!("{}/tests/issue281.xlsm", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let mut vba = excel.vba_project().unwrap().unwrap();
+    assert_eq!(
+        vba.to_mut().get_module("testVBA").unwrap(),
+        "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
+         vba!\"\r\nEnd Sub\r\n"
+    );
+}
