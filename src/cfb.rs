@@ -465,9 +465,7 @@ impl XlsEncoding {
         (l, ub)
     }
 
-    pub fn decode_all(&self, stream: &[u8], high_byte: Option<bool>) -> String {
-        let mut s = String::with_capacity(stream.len());
-        let _ = self.decode_to(stream, stream.len(), &mut s, high_byte);
-        s
+    pub fn decode_all(&self, stream: &[u8]) -> String {
+        self.encoding.decode(stream).0.into_owned()
     }
 }
