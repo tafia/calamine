@@ -28,7 +28,7 @@ chrono = { version = "0.4", features = [
 
 [dev-dependencies]
 glob = "0.3"
-env_logger = "0.10"
+env_logger = "0.9"
 serde_derive = "1.0"
 sha256 = "1.2"
 
