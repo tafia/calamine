@@ -5,7 +5,7 @@
 //! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
 use quick_xml::events::attributes::Attributes;
@@ -16,7 +16,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{DataType, Metadata, Range, Reader};
+use crate::{DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -40,6 +40,8 @@ pub enum OdsError {
     ParseInt(std::num::ParseIntError),
     /// Error while parsing float
     ParseFloat(std::num::ParseFloatError),
+    /// Error while parsing bool
+    ParseBool(std::str::ParseBoolError),
 
     /// Invalid MIME
     InvalidMime(Vec<u8>),
@@ -72,6 +74,7 @@ impl std::fmt::Display for OdsError {
             OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
             OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
             OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
+            OdsError::ParseBool(e) => write!(f, "Parse bool error: {}", e),
             OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {:?}", mime),
             OdsError::FileNotFound(file) => write!(f, "'{}' file not found in archive", file),
             OdsError::Eof(node) => write!(f, "Expecting '{}' node, found end of xml file", node),
@@ -136,11 +139,11 @@ where
 
         let Content {
             sheets,
-            sheet_names,
+            sheets_metadata,
             defined_names,
         } = parse_content(zip)?;
         let metadata = Metadata {
-            sheets: sheet_names,
+            sheets: sheets_metadata,
             names: defined_names,
         };
 
@@ -188,7 +191,7 @@ where
 
 struct Content {
     sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
-    sheet_names: Vec<String>,
+    sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
 }
 
@@ -209,10 +212,47 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut buf = Vec::new();
     let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
-    let mut sheet_names = Vec::new();
+    let mut sheets_metadata = Vec::new();
+    let mut styles = HashMap::new();
+    let mut style_name: Option<String> = None;
     loop {
         match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"style:style") => {
+                style_name = e
+                    .try_get_attribute(b"style:name")?
+                    .map(|a| a.decode_and_unescape_value(&reader))
+                    .transpose()
+                    .map_err(OdsError::Xml)?
+                    .map(|x| x.to_string())
+            }
+            Ok(Event::Start(ref e))
+                if style_name.clone().is_some() && e.name() == QName(b"style:table-properties") =>
+            {
+                let visible = match e.try_get_attribute(b"table:display")? {
+                    Some(a) => match a
+                        .decode_and_unescape_value(&reader)
+                        .map_err(OdsError::Xml)?
+                        .parse()
+                        .map_err(OdsError::ParseBool)?
+                    {
+                        true => SheetVisible::Visible,
+                        false => SheetVisible::Hidden,
+                    },
+                    None => SheetVisible::Visible,
+                };
+                styles.insert(style_name.clone(), visible);
+            }
             Ok(Event::Start(ref e)) if e.name() == QName(b"table:table") => {
+                let visible = styles
+                    .get(
+                        &e.try_get_attribute(b"table:style-name")?
+                            .map(|a| a.decode_and_unescape_value(&reader))
+                            .transpose()
+                            .map_err(OdsError::Xml)?
+                            .map(|x| x.to_string()),
+                    )
+                    .map(|v| v.to_owned())
+                    .unwrap_or(SheetVisible::Visible);
                 if let Some(ref a) = e
                     .attributes()
                     .filter_map(|a| a.ok())
@@ -223,7 +263,11 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                         .map_err(OdsError::Xml)?
                         .to_string();
                     let (range, formulas) = read_table(&mut reader)?;
-                    sheet_names.push(name.clone());
+                    sheets_metadata.push(Sheet {
+                        name: name.clone(),
+                        typ: SheetType::WorkSheet,
+                        visible,
+                    });
                     sheets.insert(name, (range, formulas));
                 }
             }
@@ -238,7 +282,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     }
     Ok(Content {
         sheets,
-        sheet_names,
+        sheets_metadata,
         defined_names,
     })
 }

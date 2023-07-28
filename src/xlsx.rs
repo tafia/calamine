@@ -16,7 +16,10 @@ use crate::formats::{
     builtin_format_by_id, detect_custom_number_format, format_excel_f64, CellFormat,
 };
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, CellType, DataType, Metadata, Range, Reader, Table};
+use crate::{
+    Cell, CellErrorType, CellType, DataType, Metadata, Range, Reader, Sheet, SheetType,
+    SheetVisible, Table,
+};
 
 type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -68,6 +71,13 @@ pub enum XlsxError {
     RangeWithoutRowCompontent,
     /// Unexpected error
     Unexpected(&'static str),
+    /// Unrecognized data
+    Unrecognized {
+        /// data type
+        typ: &'static str,
+        /// value found
+        val: String,
+    },
     /// Cell error
     CellError(String),
 }
@@ -115,6 +125,7 @@ impl std::fmt::Display for XlsxError {
                 write!(f, "Range is missing the expected row component.")
             }
             XlsxError::Unexpected(e) => write!(f, "{}", e),
+            XlsxError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: {}", typ, val),
             XlsxError::CellError(e) => write!(f, "Unsupported cell error value '{}'", e),
         }
     }
@@ -288,6 +299,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheet" => {
                     let mut name = String::new();
                     let mut path = String::new();
+                    let mut visible = SheetVisible::Visible;
                     for a in e.attributes() {
                         let a = a.map_err(XlsxError::XmlAttr)?;
                         match a {
@@ -296,6 +308,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 ..
                             } => {
                                 name = a.decode_and_unescape_value(&xml)?.to_string();
+                            }
+                            Attribute {
+                                key: QName(b"state"),
+                                ..
+                            } => {
+                                visible = match a.decode_and_unescape_value(&xml)?.as_ref() {
+                                    "visible" => SheetVisible::Visible,
+                                    "hidden" => SheetVisible::Hidden,
+                                    "veryHidden" => SheetVisible::VeryHidden,
+                                    v => {
+                                        return Err(XlsxError::Unrecognized {
+                                            typ: "sheet:state",
+                                            val: v.to_string(),
+                                        })
+                                    }
+                                }
                             }
                             Attribute {
                                 key: QName(b"r:id"),
@@ -321,7 +349,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             _ => (),
                         }
                     }
-                    self.metadata.sheets.push(name.to_string());
+                    let typ = match path.split('/').nth(1) {
+                        Some("worksheets") => SheetType::WorkSheet,
+                        Some("chartsheets") => SheetType::ChartSheet,
+                        Some("dialogsheets") => SheetType::DialogSheet,
+                        _ => {
+                            return Err(XlsxError::Unrecognized {
+                                typ: "sheet:type",
+                                val: path.to_string(),
+                            })
+                        }
+                    };
+                    self.metadata.sheets.push(Sheet {
+                        name: name.to_string(),
+                        typ,
+                        visible,
+                    });
                     self.sheets.push((name, path));
                 }
                 Ok(Event::Start(ref e)) if e.name().as_ref() == b"workbookPr" => {

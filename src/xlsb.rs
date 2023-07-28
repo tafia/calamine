@@ -18,7 +18,9 @@ use crate::formats::{
 };
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::{
+    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -65,6 +67,13 @@ pub enum XlsbError {
         /// buffer length
         buf_len: usize,
     },
+    /// Unrecognized data
+    Unrecognized {
+        /// data type
+        typ: &'static str,
+        /// value found
+        val: String,
+    },
 }
 
 from_err!(std::io::Error, XlsbError, Io);
@@ -95,6 +104,7 @@ impl std::fmt::Display for XlsbError {
                 "Wide str length exceeds buffer length ({} > {})",
                 ws_len, buf_len
             ),
+            XlsbError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: {}", typ, val),
         }
     }
 }
@@ -281,8 +291,35 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         // converts utf16le to utf8 for BTreeMap search
                         let relid = UTF_16LE.decode(relid).0;
                         let path = format!("xl/{}", relationships[relid.as_bytes()]);
+                        // ST_SheetState
+                        let visible = match read_u32(&buf) {
+                            0 => SheetVisible::Visible,
+                            1 => SheetVisible::Hidden,
+                            2 => SheetVisible::VeryHidden,
+                            v => {
+                                return Err(XlsbError::Unrecognized {
+                                    typ: "BoundSheet8:hsState",
+                                    val: v.to_string(),
+                                })
+                            }
+                        };
+                        let typ = match path.split('/').nth(1) {
+                            Some("worksheets") => SheetType::WorkSheet,
+                            Some("chartsheets") => SheetType::ChartSheet,
+                            Some("dialogsheets") => SheetType::DialogSheet,
+                            _ => {
+                                return Err(XlsbError::Unrecognized {
+                                    typ: "BoundSheet8:dt",
+                                    val: path.to_string(),
+                                })
+                            }
+                        };
                         let name = wide_str(&buf[12 + rel_len..len], &mut 0)?;
-                        self.metadata.sheets.push(name.to_string());
+                        self.metadata.sheets.push(Sheet {
+                            name: name.to_string(),
+                            typ,
+                            visible,
+                        });
                         self.sheets.push((name.into_owned(), path));
                     };
                 }
