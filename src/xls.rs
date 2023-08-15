@@ -460,7 +460,7 @@ impl<RS: Read + Seek> Xls<RS> {
 /// BoundSheet8 [MS-XLS 2.4.28]
 fn parse_sheet_name(
     r: &mut Record<'_>,
-    encoding: &mut XlsEncoding,
+    encoding: &XlsEncoding,
 ) -> Result<(usize, String), XlsError> {
     let pos = read_u32(r.data) as usize;
     r.data = &r.data[6..];
@@ -765,7 +765,7 @@ fn parse_format(
 /// See: <https://docs.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/173d9f51-e5d3-43da-8de2-be7f22e119b9>
 fn read_rich_extended_string(
     r: &mut Record<'_>,
-    encoding: &mut XlsEncoding,
+    encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
     if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
         return Err(XlsError::Len {
@@ -982,7 +982,7 @@ fn parse_formula(
     sheets: &[String],
     names: &[(String, String)],
     xtis: &[Xti],
-    encoding: &mut XlsEncoding,
+    encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
