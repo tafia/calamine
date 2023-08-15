@@ -607,7 +607,7 @@ fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> DataType {
 }
 
 /// ShortXLUnicodeString [MS-XLS 2.5.240]
-fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<String, XlsError> {
+fn parse_short_string(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<String, XlsError> {
     if r.data.len() < 2 {
         return Err(XlsError::Len {
             typ: "short string",
@@ -624,7 +624,7 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<
 }
 
 /// XLUnicodeString [MS-XLS 2.5.294]
-fn parse_string(r: &[u8], encoding: &mut XlsEncoding) -> Result<String, XlsError> {
+fn parse_string(r: &[u8], encoding: &XlsEncoding) -> Result<String, XlsError> {
     if r.len() < 2 {
         return Err(XlsError::Len {
             typ: "short string",
@@ -722,7 +722,7 @@ fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<Strin
 /// Decode XF (extract only ifmt - Format identifier)
 ///
 /// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/993d15c4-ec04-43e9-ba36-594dfb336c6d
-fn parse_xf(r: &mut Record<'_>) -> Result<u16, XlsError> {
+fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
     if r.data.len() < 4 {
         return Err(XlsError::Len {
             typ: "xf",
@@ -739,7 +739,7 @@ fn parse_xf(r: &mut Record<'_>) -> Result<u16, XlsError> {
 /// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b
 fn parse_format(
     r: &mut Record<'_>,
-    encoding: &mut XlsEncoding,
+    encoding: &XlsEncoding,
 ) -> Result<(u16, CellFormat), XlsError> {
     if r.data.len() < 4 {
         return Err(XlsError::Len {
@@ -813,7 +813,7 @@ fn read_rich_extended_string(
 }
 
 fn read_dbcs(
-    encoding: &mut XlsEncoding,
+    encoding: &XlsEncoding,
     mut len: usize,
     r: &mut Record<'_>,
     mut high_byte: bool,
@@ -836,9 +836,9 @@ fn read_dbcs(
 }
 
 fn read_unicode_string_no_cch(
-    encoding: &mut XlsEncoding,
+    encoding: &XlsEncoding,
     buf: &[u8],
-    len: &mut usize,
+    len: &usize,
     s: &mut String,
 ) {
     encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
