@@ -1000,7 +1000,7 @@ fn parse_formula(
                 let sh = xtis
                     .get(ixti as usize)
                     .and_then(|xti| sheets.get(xti.itab_first as usize))
-                    .map_or("#REF", |sh| &sh);
+                    .map_or("#REF", |sh| sh);
                 stack.push(formula.len());
                 formula.push_str(sh);
                 formula.push('!');
