@@ -289,28 +289,28 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // FORMATTING
                     0x041E => {
-                        let (idx, format) = parse_format(&mut r, &mut encoding)?;
+                        let (idx, format) = parse_format(&mut r, &encoding)?;
                         formats.insert(idx, format);
                     }
                     // XFS
                     0x00E0 => {
-                        xfs.push(parse_xf(&mut r)?);
+                        xfs.push(parse_xf(&r)?);
                     }
                     // RRTabId
                     0x0085 => {
-                        let (pos, name) = parse_sheet_name(&mut r, &mut encoding)?;
+                        let (pos, name) = parse_sheet_name(&mut r, &encoding)?;
                         self.metadata.sheets.push(name.clone());
                         sheet_names.push((pos, name)); // BoundSheet8
                     }
                     0x0018 => {
                         // Lbl for defined_names
-                        let mut cch = r.data[3] as usize;
+                        let cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
                         let mut name = String::new();
                         read_unicode_string_no_cch(
-                            &mut encoding,
+                            &encoding,
                             &r.data[14..],
-                            &mut cch,
+                            &cch,
                             &mut name,
                         );
                         let rgce = &r.data[r.data.len() - cce..];
@@ -326,7 +326,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             _itab_last: read_i16(&xti[4..]),
                         }));
                     }
-                    0x00FC => strings = parse_sst(&mut r, &mut encoding)?, // SST
+                    0x00FC => strings = parse_sst(&mut r, &encoding)?, // SST
                     #[cfg(feature = "picture")]
                     0x00EB => {
                         // MsoDrawingGroup
@@ -393,7 +393,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
-                        let val = DataType::String(parse_string(r.data, &mut encoding)?);
+                        let val = DataType::String(parse_string(r.data, &encoding)?);
                         cells.push(Cell::new(fmla_pos, val))
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
@@ -422,7 +422,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &fmla_sheet_names,
                             &defined_names,
                             &xtis,
-                            &mut encoding,
+                            &encoding,
                         )
                         .unwrap_or_else(|e| {
                             debug!("{}", e);
@@ -701,7 +701,7 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
     }
 }
 
-fn parse_sst(r: &mut Record<'_>, encoding: &mut XlsEncoding) -> Result<Vec<String>, XlsError> {
+fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, XlsError> {
     if r.data.len() < 8 {
         return Err(XlsError::Len {
             typ: "sst",
@@ -1100,8 +1100,8 @@ fn parse_formula(
             0x17 => {
                 stack.push(formula.len());
                 formula.push('\"');
-                let mut cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &mut cch, &mut formula);
+                let cch = rgce[0] as usize;
+                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
                 formula.push('\"');
                 rgce = &rgce[2 + cch..];
             }
