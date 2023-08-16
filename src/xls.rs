@@ -300,9 +300,9 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // RRTabId
                     0x0085 => {
-                        let (pos, name) = parse_sheet_name(&mut r, &encoding)?;
-                        self.metadata.sheets.push(name.clone());
-                        sheet_names.push((pos, name)); // BoundSheet8
+                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding)?;
+                        self.metadata.sheets.push(sheet.clone());
+                        sheet_names.push((pos, sheet.name)); // BoundSheet8
                     }
                     0x0018 => {
                         // Lbl for defined_names
@@ -458,7 +458,7 @@ impl<RS: Read + Seek> Xls<RS> {
 fn parse_sheet_metadata(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
-) -> Result<(usize, String), XlsError> {
+) -> Result<(usize, Sheet), XlsError> {
     let pos = read_u32(r.data) as usize;
     let visible = match r.data[4] & 0b0011_1111 {
         0x00 => SheetVisible::Visible,
