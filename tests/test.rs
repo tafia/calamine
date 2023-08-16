@@ -1,7 +1,9 @@
 use calamine::DataType::{
     Bool, DateTime, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
 };
-use calamine::{open_workbook, open_workbook_auto, Ods, Reader, Xls, Xlsb, Xlsx};
+use calamine::{
+    open_workbook, open_workbook_auto, Ods, Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+};
 use calamine::{CellErrorType::*, DataType};
 use std::io::Cursor;
 use std::sync::Once;
@@ -1283,5 +1285,143 @@ fn issue281_vba() {
         vba.to_mut().get_module("testVBA").unwrap(),
         "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
          vba!\"\r\nEnd Sub\r\n"
+    );
+}
+
+#[test]
+fn any_sheets_xlsx() {
+    setup();
+
+    let path = format!("{}/tests/any_sheets.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let workbook: Xlsx<_> = open_workbook(path).unwrap();
+
+    assert_eq!(
+        workbook.sheets_metadata(),
+        &[
+            Sheet {
+                name: "Visible".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Visible
+            },
+            Sheet {
+                name: "Hidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Hidden
+            },
+            Sheet {
+                name: "VeryHidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::VeryHidden
+            },
+            Sheet {
+                name: "Chart".to_string(),
+                typ: SheetType::ChartSheet,
+                visible: SheetVisible::Visible
+            },
+        ]
+    );
+}
+
+#[test]
+fn any_sheets_xlsb() {
+    setup();
+
+    let path = format!("{}/tests/any_sheets.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let workbook: Xlsb<_> = open_workbook(path).unwrap();
+
+    assert_eq!(
+        workbook.sheets_metadata(),
+        &[
+            Sheet {
+                name: "Visible".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Visible
+            },
+            Sheet {
+                name: "Hidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Hidden
+            },
+            Sheet {
+                name: "VeryHidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::VeryHidden
+            },
+            Sheet {
+                name: "Chart".to_string(),
+                typ: SheetType::ChartSheet,
+                visible: SheetVisible::Visible
+            },
+        ]
+    );
+}
+
+#[test]
+fn any_sheets_xls() {
+    setup();
+
+    let path = format!("{}/tests/any_sheets.xls", env!("CARGO_MANIFEST_DIR"));
+    let workbook: Xls<_> = open_workbook(path).unwrap();
+
+    assert_eq!(
+        workbook.sheets_metadata(),
+        &[
+            Sheet {
+                name: "Visible".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Visible
+            },
+            Sheet {
+                name: "Hidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Hidden
+            },
+            Sheet {
+                name: "VeryHidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::VeryHidden
+            },
+            Sheet {
+                name: "Chart".to_string(),
+                typ: SheetType::ChartSheet,
+                visible: SheetVisible::Visible
+            },
+        ]
+    );
+}
+
+#[test]
+fn any_sheets_ods() {
+    setup();
+
+    let path = format!("{}/tests/any_sheets.ods", env!("CARGO_MANIFEST_DIR"));
+    let workbook: Ods<_> = open_workbook(path).unwrap();
+
+    assert_eq!(
+        workbook.sheets_metadata(),
+        &[
+            Sheet {
+                name: "Visible".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Visible
+            },
+            Sheet {
+                name: "Hidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Hidden
+            },
+            // ODS doesn't support Very Hidden
+            Sheet {
+                name: "VeryHidden".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Hidden
+            },
+            // ODS doesn't support chartsheet
+            Sheet {
+                name: "Chart".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Visible
+            },
+        ]
     );
 }
