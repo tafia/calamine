@@ -17,7 +17,9 @@ use crate::formats::{
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::{
+    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+};
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
@@ -453,11 +455,34 @@ impl<RS: Read + Seek> Xls<RS> {
 }
 
 /// BoundSheet8 [MS-XLS 2.4.28]
-fn parse_sheet_name(
+fn parse_sheet_metadata(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
 ) -> Result<(usize, String), XlsError> {
     let pos = read_u32(r.data) as usize;
+    let visible = match r.data[4] & 0b0011_1111 {
+        0x00 => SheetVisible::Visible,
+        0x01 => SheetVisible::Hidden,
+        0x02 => SheetVisible::VeryHidden,
+        e => {
+            return Err(XlsError::Unrecognized {
+                typ: "BoundSheet8:hsState",
+                val: e,
+            })
+        }
+    };
+    let typ = match r.data[5] {
+        0x00 => SheetType::WorkSheet,
+        0x01 => SheetType::MacroSheet,
+        0x02 => SheetType::ChartSheet,
+        0x06 => SheetType::Vba,
+        e => {
+            return Err(XlsError::Unrecognized {
+                typ: "BoundSheet8:dt",
+                val: e,
+            })
+        }
+    };
     r.data = &r.data[6..];
     let name = parse_short_string(r, encoding)?;
     let sheet_name = name
@@ -466,8 +491,8 @@ fn parse_sheet_name(
         .cloned()
         .filter(|b| *b != 0)
         .collect::<Vec<_>>();
-    let sheet_name = String::from_utf8(sheet_name).unwrap();
-    Ok((pos, sheet_name))
+    let name = String::from_utf8(sheet_name).unwrap();
+    Ok((pos, Sheet { name, visible, typ }))
 }
 
 fn parse_number(

@@ -181,7 +181,6 @@ The main unsupported items are:
 - no support for writing excel files, this is a read-only library
 - no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
 - no support for reading VB for opendocuments
-- dates: dates detection is not supported and will return `DataType::Float`. You can use the `dates` feature to get friendly conversions fn.
 
 ## Credits
 
