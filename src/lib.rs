@@ -499,9 +499,18 @@ impl<T: CellType> Range<T> {
     }
 
     /// Get cell value from **relative position**.
+    ///
+    /// Unlike using the Index trait, this will not panic but rather yield `None` if out of range.
+    /// Otherwise, returns the cell value. The coordinate format is (row, column).
+    ///
     pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
         let (row, col) = relative_position;
-        self.inner.get(row * self.width() + col)
+        let (height, width) = self.get_size();
+        if col >= height { // row is checked implicitly
+            None
+        } else {
+            self.inner.get(row * width + col)
+        }
     }
 
     /// Get an iterator over inner rows
