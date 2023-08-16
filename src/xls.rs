@@ -307,12 +307,7 @@ impl<RS: Read + Seek> Xls<RS> {
                         let cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
                         let mut name = String::new();
-                        read_unicode_string_no_cch(
-                            &encoding,
-                            &r.data[14..],
-                            &cch,
-                            &mut name,
-                        );
+                        read_unicode_string_no_cch(&encoding, &r.data[14..], &cch, &mut name);
                         let rgce = &r.data[r.data.len() - cce..];
                         let formula = parse_defined_names(rgce)?;
                         defined_names.push((name, formula));
@@ -737,10 +732,7 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
 /// Decode Format
 ///
 /// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b
-fn parse_format(
-    r: &mut Record<'_>,
-    encoding: &XlsEncoding,
-) -> Result<(u16, CellFormat), XlsError> {
+fn parse_format(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<(u16, CellFormat), XlsError> {
     if r.data.len() < 4 {
         return Err(XlsError::Len {
             typ: "format",
@@ -835,12 +827,7 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(
-    encoding: &XlsEncoding,
-    buf: &[u8],
-    len: &usize,
-    s: &mut String,
-) {
+fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) {
     encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
 }
 
