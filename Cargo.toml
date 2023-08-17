@@ -10,8 +10,8 @@ readme = "README.md"
 keywords = ["excel", "ods", "xls", "xlsx", "xlsb"]
 categories = ["encoding", "parsing", "text-processing"]
 exclude = ["tests/**/*"]
-edition = "2018"
-rust-version = "1.60"
+edition = "2021"
+rust-version = "1.62.1"
 
 [dependencies]
 byteorder = "1.4"
