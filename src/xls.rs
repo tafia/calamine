@@ -1317,7 +1317,7 @@ fn parse_formula_value(r: &[u8]) -> Result<Option<DataType>, XlsError> {
         [0x00, .., 0xFF, 0xFF] => Ok(None), // String, value should be in next record
         [0x01, _, b, .., 0xFF, 0xFF] => Ok(Some(DataType::Bool(b != 0))),
         [0x02, _, e, .., 0xFF, 0xFF] => parse_err(e).map(Some),
-        &[0x3, _, .., 0xFF, 0xFF] => Ok(None), // ignore 0x3, empty strings are undefined. see https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/39a0757a-c7bb-4e85-b144-3e7837b059d7
+        [0x3, _, .., 0xFF, 0xFF] => Ok(None), // ignore 0x3, empty strings are undefined. see https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/39a0757a-c7bb-4e85-b144-3e7837b059d7
         [e, .., 0xFF, 0xFF] => Err(XlsError::Unrecognized {
             typ: "error",
             val: e,
