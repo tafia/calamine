@@ -563,7 +563,8 @@ impl<T: CellType> Range<T> {
     pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
         let (row, col) = relative_position;
         let (height, width) = self.get_size();
-        if col >= height { // row is checked implicitly
+        if col >= height {
+            // row is checked implicitly
             None
         } else {
             self.inner.get(row * width + col)
