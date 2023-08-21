@@ -15,7 +15,7 @@ const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum DataType {
     /// Signed integer
     Int(i64),
@@ -36,13 +36,8 @@ pub enum DataType {
     /// Error
     Error(CellErrorType),
     /// Empty cell
+    #[default]
     Empty,
-}
-
-impl Default for DataType {
-    fn default() -> DataType {
-        DataType::Empty
-    }
 }
 
 impl DataType {
