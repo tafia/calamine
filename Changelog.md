@@ -10,6 +10,16 @@
 
 ## Unreleased
 
+## 0.22.0
+
+- docs: improve `de_opt_f64` example.
+- docs: remove datetime notice from README
+- feat: add support of sheet type and visibility
+- style: clippy
+- chore: bump MSRV to 1.63 (breaking)
+- chore: set edition to 2021
+- feat: implement blank string handling
+
 ## 0.21.2:
 
 - fix: formula with string not displaying properly
