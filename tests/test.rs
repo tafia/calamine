@@ -1289,6 +1289,16 @@ fn issue281_vba() {
 }
 
 #[test]
+fn issue343() {
+    setup();
+
+    let path = format!("{}/tests/issue343.xls", env!("CARGO_MANIFEST_DIR"));
+
+    // should not panic
+    let _: Xls<_> = open_workbook(&path).unwrap();
+}
+
+#[test]
 fn any_sheets_xlsx() {
     setup();
 
