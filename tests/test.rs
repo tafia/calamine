@@ -1215,11 +1215,64 @@ fn ods_number_rows_repeated() {
         env!("CARGO_MANIFEST_DIR")
     );
     let mut ods: Ods<_> = open_workbook(&path).unwrap();
+    let test_cropped_range = [
+        [String("A".to_string()), String("B".to_string())],
+        [String("C".to_string()), String("D".to_string())],
+        [String("C".to_string()), String("D".to_string())],
+        [Empty, Empty],
+        [Empty, Empty],
+        [String("C".to_string()), String("D".to_string())],
+        [Empty, Empty],
+        [String("C".to_string()), String("D".to_string())],
+    ];
+
     let range = ods.worksheet_range_at(0).unwrap().unwrap();
+    range_eq!(range, test_cropped_range);
+
+    let range = range.range((0, 0), range.end().unwrap());
+    range_eq!(
+        range,
+        [
+            [String("A".to_string()), String("B".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+        ]
+    );
+
+    let range = ods.worksheet_range_at(1).unwrap().unwrap();
+    range_eq!(range, test_cropped_range);
+
+    let range = range.range((0, 0), range.end().unwrap());
+    range_eq!(
+        range,
+        [
+            [Empty, Empty],
+            [String("A".to_string()), String("B".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+            [Empty, Empty],
+            [String("C".to_string()), String("D".to_string())],
+        ]
+    );
+
+    let range = ods.worksheet_range_at(2).unwrap().unwrap();
+    range_eq!(range, test_cropped_range);
+
+    let range = range.range((0, 0), range.end().unwrap());
 
     range_eq!(
         range,
         [
+            [Empty, Empty],
+            [Empty, Empty],
             [String("A".to_string()), String("B".to_string())],
             [String("C".to_string()), String("D".to_string())],
             [String("C".to_string()), String("D".to_string())],

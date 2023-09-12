@@ -343,12 +343,15 @@ fn get_range<T: Default + Clone + PartialEq>(
     let mut row_max = 0;
     let mut col_min = usize::MAX;
     let mut col_max = 0;
+    let mut first_empty_rows_repeated = 0;
     {
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| c != &T::default()) {
                 if row_min.is_none() {
                     row_min = Some(i);
+                    first_empty_rows_repeated =
+                        rows_repeats.iter().take(i).sum::<usize>().saturating_sub(i);
                 }
                 row_max = i;
                 if p < col_min {
@@ -416,6 +419,8 @@ fn get_range<T: Default + Clone + PartialEq>(
         }
         cells = new_cells;
     }
+    let row_min = row_min + first_empty_rows_repeated;
+    let row_max = row_max + first_empty_rows_repeated;
     Range {
         start: (row_min as u32, col_min as u32),
         end: (row_max as u32, col_max as u32),
