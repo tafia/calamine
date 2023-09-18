@@ -40,7 +40,7 @@ pub enum XlsError {
         /// value found
         val: u8,
     },
-    /// Workook is password protected
+    /// Workbook is password protected
     Password,
     /// Invalid length
     Len {
@@ -403,7 +403,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             return Err(XlsError::Len {
                                 expected: 20,
                                 found: r.data.len(),
-                                typ: "Formuula",
+                                typ: "Formula",
                             });
                         }
                         let row = read_u16(r.data);
@@ -988,7 +988,7 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
 
 /// Formula parsing
 ///
-/// CellParsedForumula [MS-XLS 2.5.198.3]
+/// CellParsedFormula [MS-XLS 2.5.198.3]
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
