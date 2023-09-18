@@ -13,13 +13,11 @@ jobs:
           - beta
           - nightly
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@master
       with:
           toolchain: ${{ matrix.toolchain }}
-          profile: minimal
-          override: true
     - name: Toolchain version
       run: |
         cargo -vV
@@ -31,12 +29,10 @@ jobs:
       run: |
         cargo test --features dates
     - name: Install rustfmt
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@master
       if: ${{ matrix.toolchain == 'stable' }}
       with:
           toolchain: ${{ matrix.toolchain }}
-          profile: minimal
-          override: true
           components: rustfmt
     - name: Format checks
       if: ${{ matrix.toolchain == 'stable' }}
