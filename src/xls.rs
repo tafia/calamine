@@ -264,7 +264,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
-        let mut draw_group: Vec<u8> = Vec::new();
+            let mut draw_group: Vec<u8> = Vec::new();
         {
             let wb = &stream;
             let records = RecordIter { stream: wb };
@@ -387,6 +387,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
+                    0x0204 => cells.extend(parse_label(r.data, &encoding)?), // 516: Label [MS-XLS 2.4.148]
                     0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
@@ -421,14 +422,14 @@ impl<RS: Read + Seek> Xls<RS> {
                             &xtis,
                             &encoding,
                         )
-                        .unwrap_or_else(|e| {
-                            debug!("{}", e);
-                            format!(
-                                "Unrecognised formula \
+                            .unwrap_or_else(|e| {
+                                debug!("{}", e);
+                                format!(
+                                    "Unrecognised formula \
                                  for cell ({}, {}): {:?}",
-                                row, col, e
-                            )
-                        });
+                                    row, col, e
+                                )
+                            });
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
                     _ => (),
@@ -468,7 +469,7 @@ fn parse_sheet_metadata(
             return Err(XlsError::Unrecognized {
                 typ: "BoundSheet8:hsState",
                 val: e,
-            })
+            });
         }
     };
     let typ = match r.data[5] {
@@ -480,7 +481,7 @@ fn parse_sheet_metadata(
             return Err(XlsError::Unrecognized {
                 typ: "BoundSheet8:dt",
                 val: e,
-            })
+            });
         }
     };
     r.data = &r.data[6..];
@@ -645,10 +646,10 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Stri
 
 /// XLUnicodeString [MS-XLS 2.5.294]
 fn parse_string(r: &[u8], encoding: &XlsEncoding) -> Result<String, XlsError> {
-    if r.len() < 2 {
+    if r.len() < 4 {
         return Err(XlsError::Len {
-            typ: "short string",
-            expected: 2,
+            typ: "string",
+            expected: 4,
             found: r.len(),
         });
     }
@@ -657,6 +658,23 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding) -> Result<String, XlsError> {
     let mut s = String::with_capacity(cch);
     let _ = encoding.decode_to(&r[3..], cch, &mut s, Some(high_byte));
     Ok(s)
+}
+
+fn parse_label(r: &[u8], encoding: &XlsEncoding) -> Result<Option<Cell<DataType>>, XlsError> {
+    if r.len() < 6 {
+        return Err(XlsError::Len {
+            typ: "label",
+            expected: 6,
+            found: r.len(),
+        });
+    }
+    let row = read_u16(r);
+    let col = read_u16(&r[2..]);
+    let _ixfe = read_u16(&r[4..]);
+    return Ok(Some(Cell::new(
+        (row as u32, col as u32),
+        DataType::String(parse_string(&r[6..], encoding)?),
+    )));
 }
 
 fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<DataType>>, XlsError> {
@@ -786,7 +804,7 @@ fn read_rich_extended_string(
 ) -> Result<String, XlsError> {
     if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
         return Err(XlsError::Len {
-            typ: "rick extended string",
+            typ: "rich extended string",
             expected: 3,
             found: r.data.len(),
         });
@@ -1146,7 +1164,7 @@ fn parse_formula(
                                 return Err(XlsError::Unrecognized {
                                     typ: "PtgAttrSpaceType",
                                     val,
-                                })
+                                });
                             }
                         };
                         let cch = rgce[1];
