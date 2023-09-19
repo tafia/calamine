@@ -264,7 +264,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
-            let mut draw_group: Vec<u8> = Vec::new();
+        let mut draw_group: Vec<u8> = Vec::new();
         {
             let wb = &stream;
             let records = RecordIter { stream: wb };
@@ -388,7 +388,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
                     0x0204 => cells.extend(parse_label(r.data, &encoding)?), // 516: Label [MS-XLS 2.4.148]
-                    0x0205 => cells.push(parse_bool_err(r.data)?), // 517: BoolErr
+                    0x0205 => cells.push(parse_bool_err(r.data)?),           // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
                         let val = DataType::String(parse_string(r.data, &encoding)?);
@@ -422,14 +422,14 @@ impl<RS: Read + Seek> Xls<RS> {
                             &xtis,
                             &encoding,
                         )
-                            .unwrap_or_else(|e| {
-                                debug!("{}", e);
-                                format!(
-                                    "Unrecognised formula \
+                        .unwrap_or_else(|e| {
+                            debug!("{}", e);
+                            format!(
+                                "Unrecognised formula \
                                  for cell ({}, {}): {:?}",
-                                    row, col, e
-                                )
-                            });
+                                row, col, e
+                            )
+                        });
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
                     _ => (),
