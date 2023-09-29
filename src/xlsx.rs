@@ -380,7 +380,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"definedName" => {
                     if let Some(a) = e
                         .attributes()
-                        .filter_map(|a| a.ok())
+                        .filter_map(std::result::Result::ok)
                         .find(|a| a.key == QName(b"name"))
                     {
                         let name = a.decode_and_unescape_value(&xml)?.to_string();
