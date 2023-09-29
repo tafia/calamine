@@ -1079,10 +1079,10 @@ fn parse_formula(
         }
     }
 
-    if stack.len() != 1 {
-        Err(XlsbError::StackLen)
-    } else {
+    if stack.len() == 1 {
         Ok(formula)
+    } else {
+        Err(XlsbError::StackLen)
     }
 }
 

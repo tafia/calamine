@@ -392,10 +392,10 @@ where
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        if !self.has_headers() {
-            visitor.visit_seq(self)
-        } else {
+        if self.has_headers() {
             visitor.visit_map(self)
+        } else {
+            visitor.visit_seq(self)
         }
     }
 
@@ -405,10 +405,10 @@ where
         _cells: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        if !self.has_headers() {
-            visitor.visit_seq(self)
-        } else {
+        if self.has_headers() {
             visitor.visit_map(self)
+        } else {
+            visitor.visit_seq(self)
         }
     }
 
