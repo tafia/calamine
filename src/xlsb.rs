@@ -377,7 +377,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
         }
     }
 
-    fn worksheet_range_from_path(&mut self, path: String) -> Result<Range<DataType>, XlsbError> {
+    fn worksheet_range_from_path(&mut self, path: &str) -> Result<Range<DataType>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
         let mut buf = vec![0; 1024];
         let formats = &self.formats;
@@ -651,7 +651,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             Some((_, path)) => path.clone(),
             None => return None,
         };
-        Some(self.worksheet_range_from_path(path))
+        Some(self.worksheet_range_from_path(&path))
     }
 
     /// MS-XLSB 2.1.7.62
@@ -669,7 +669,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         sheets
             .into_iter()
             .filter_map(|(name, path)| {
-                let ws = self.worksheet_range_from_path(path).ok()?;
+                let ws = self.worksheet_range_from_path(&path).ok()?;
                 Some((name, ws))
             })
             .collect()
