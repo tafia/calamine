@@ -87,7 +87,7 @@
 - docs: add `deserialize_with` example in readme
 - fix: Skip phonetic run
 - fix: Fix XLS float parsing error
-- docs: Correct MBSC to MBCS in vba.rs (mispelled before)
+- docs: Correct MBSC to MBCS in vba.rs (misspelled before)
 - style: use 2018 edition paths
 - fix: Add the ability to read formula values from XLSB
 - fix: support integral date types

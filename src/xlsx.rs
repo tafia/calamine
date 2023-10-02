@@ -68,7 +68,7 @@ pub enum XlsxError {
     /// There is no column component in the range string
     RangeWithoutColumnComponent,
     /// There is no row component in the range string
-    RangeWithoutRowCompontent,
+    RangeWithoutRowComponent,
     /// Unexpected error
     Unexpected(&'static str),
     /// Unrecognized data
@@ -121,7 +121,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::RangeWithoutColumnComponent => {
                 write!(f, "Range is missing the expected column component.")
             }
-            XlsxError::RangeWithoutRowCompontent => {
+            XlsxError::RangeWithoutRowComponent => {
                 write!(f, "Range is missing the expected row component.")
             }
             XlsxError::Unexpected(e) => write!(f, "{}", e),
@@ -380,7 +380,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"definedName" => {
                     if let Some(a) = e
                         .attributes()
-                        .filter_map(|a| a.ok())
+                        .filter_map(std::result::Result::ok)
                         .find(|a| a.key == QName(b"name"))
                     {
                         let name = a.decode_and_unescape_value(&xml)?.to_string();
@@ -1213,7 +1213,7 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
     }
     let row = row
         .checked_sub(1)
-        .ok_or(XlsxError::RangeWithoutRowCompontent)?;
+        .ok_or(XlsxError::RangeWithoutRowComponent)?;
     Ok((row, col.checked_sub(1)))
 }
 

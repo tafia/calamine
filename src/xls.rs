@@ -1320,12 +1320,12 @@ fn parse_formula(
             }
         }
     }
-    if stack.len() != 1 {
+    if stack.len() == 1 {
+        Ok(formula)
+    } else {
         Err(XlsError::InvalidFormula {
             stack_size: stack.len(),
         })
-    } else {
-        Ok(formula)
     }
 }
 
