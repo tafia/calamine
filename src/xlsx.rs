@@ -1222,8 +1222,8 @@ fn read_string(
     xml: &mut XlsReader<'_>,
     QName(closing): QName,
 ) -> Result<Option<String>, XlsxError> {
-    let mut buf = Vec::new();
-    let mut val_buf = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
+    let mut val_buf = Vec::with_capacity(1024);
     let mut rich_buffer: Option<String> = None;
     let mut is_phonetic_text = false;
     loop {
