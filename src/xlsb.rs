@@ -193,7 +193,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
             Ok(iter) => iter,
             Err(_) => return Ok(()), // it is fine if path does not exists
         };
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
         let mut number_formats = BTreeMap::new();
 
         loop {
@@ -248,7 +248,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
             Ok(iter) => iter,
             Err(_) => return Ok(()), // it is fine if path does not exists
         };
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
 
         let _ = iter.next_skip_blocks(0x009F, &[], &mut buf)?; // BrtBeginSst
         let len = read_usize(&buf[4..8]);
@@ -273,7 +273,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
         relationships: &BTreeMap<Vec<u8>, String>,
     ) -> Result<(), XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
 
         loop {
             match iter.read_type()? {
@@ -379,7 +379,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
     fn worksheet_range_from_path(&mut self, path: &str) -> Result<Range<DataType>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
         let formats = &self.formats;
         // BrtWsDim
         let _ = iter.next_skip_blocks(
@@ -492,7 +492,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
     fn worksheet_formula_from_path(&mut self, path: String) -> Result<Range<String>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
 
         // BrtWsDim
         let _ = iter.next_skip_blocks(
