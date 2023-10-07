@@ -146,7 +146,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     .trim_text(false)
                     .check_comments(false)
                     .expand_empty_elements(true);
-                let mut buf = Vec::new();
+                let mut buf: Vec<u8> = Vec::with_capacity(64);
 
                 loop {
                     match xml.read_event_into(&mut buf) {

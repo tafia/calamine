@@ -191,7 +191,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             None => return Ok(()),
             Some(x) => x?,
         };
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(1024);
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
@@ -217,8 +217,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         let mut number_formats = BTreeMap::new();
 
-        let mut buf = Vec::new();
-        let mut inner_buf = Vec::new();
+        let mut buf = Vec::with_capacity(1024);
+        let mut inner_buf = Vec::with_capacity(1024);
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
@@ -291,8 +291,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
         let mut defined_names = Vec::new();
-        let mut buf = Vec::new();
-        let mut val_buf = Vec::new();
+        let mut buf = Vec::with_capacity(1024);
+        let mut val_buf = Vec::with_capacity(1024);
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
@@ -417,7 +417,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
         let mut relationships = BTreeMap::new();
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(64);
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
@@ -456,7 +456,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let rel_path = format!("{}/_rels{}.rels", base_folder, file_name);
 
             let mut table_locations = Vec::new();
-            let mut buf = Vec::new();
+            let mut buf = Vec::with_capacity(64);
             // we need another mutable borrow of self.zip later so we enclose this borrow within braces
             {
                 let mut xml = match xml_reader(&mut self.zip, &rel_path) {
@@ -732,8 +732,8 @@ where
         &mut Vec<Cell<T>>,
     ) -> Result<(), XlsxError>,
 {
-    let mut cells = Vec::new();
-    let mut buf = Vec::new();
+    let mut cells = Vec::with_capacity(1024);
+    let mut buf = Vec::with_capacity(1024);
     'xml: loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
@@ -841,7 +841,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
                             xml.read_to_end_into(e.name(), &mut Vec::new())?;
                         }
                         b"f" => {
-                            let mut f_buf = Vec::new();
+                            let mut f_buf = Vec::with_capacity(512);
                             let mut f = String::new();
                             loop {
                                 match xml.read_event_into(&mut f_buf)? {
@@ -937,8 +937,8 @@ where
         &BytesStart<'_>,
     ) -> Result<(), XlsxError>,
 {
-    let mut buf = Vec::new();
-    let mut cell_buf = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
+    let mut cell_buf = Vec::with_capacity(1024);
 
     let mut row_index = 0;
     let mut col_index = 0;
