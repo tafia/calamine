@@ -209,7 +209,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("content.xml")),
         Err(e) => return Err(OdsError::Zip(e)),
     };
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
     let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
     let mut sheets_metadata = Vec::new();
@@ -292,9 +292,9 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
     let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
     let mut cols = Vec::new();
-    let mut buf = Vec::new();
-    let mut row_buf = Vec::new();
-    let mut cell_buf = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
+    let mut row_buf = Vec::with_capacity(1024);
+    let mut cell_buf = Vec::with_capacity(1024);
     cols.push(0);
     loop {
         match reader.read_event_into(&mut buf) {
@@ -587,7 +587,7 @@ fn get_datatype(
 
 fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, String)>, OdsError> {
     let mut defined_names = Vec::new();
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     loop {
         buf.clear();
         match reader.read_event_into(&mut buf) {
