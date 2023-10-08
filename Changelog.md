@@ -10,6 +10,15 @@
 
 ## Unreleased
 
+## 0.22.1
+
+- fix: regression on `Range::get`
+- chore: update GitHub actions
+- fix: spelling of formula error type
+- feat: support label cells for xls
+- refactor: clippy
+- perf: preallocate several buffers
+
 ## 0.22.0
 
 - docs: improve `de_opt_f64` example.
