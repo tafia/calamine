@@ -286,7 +286,7 @@ The filesize on disk is `186MB`. `calamine` read just that and nothing more. `Cl
 #### Disk Write
 ![bytes_to_disk](https://github.com/RoloEdits/calamine/assets/12489689/1bde4d93-eb50-472d-bd4a-40471f39b2da)
 
-As the programs have no writing involed, I thought this would be a pointless exercize and an empty section, but Excelize is doing something very strange here. I have no clue what its writing. The other two had expected behavior. The programs had no logic for writing and therefore nothing was written.
+As the programs have no writing involved, I thought this would be a pointless exercise and an empty section, but Excelize is doing something very strange here. I have no clue what its writing. The other two had expected behavior. The programs had no logic for writing and therefore nothing was written.
 
 #### Memory
 ![mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/fdc1129e-bc0f-4133-9a2c-9eb09d7c0390)
@@ -295,7 +295,7 @@ As the programs have no writing involed, I thought this would be a pointless exe
 > [!NOTE]
 > `ClosedXML` was reporting a constant `2.5TB` of virtual memory usage, so it was excluded from the chart.
 
-The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of of memory right after, with the memory usage droping down again. The sudden jump at the end is when the sheet is being read into memory. The other two, being garbage collected, have a more linear climb all the way through.
+The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of of memory right after, with the memory usage dropping down again. The sudden jump at the end is when the sheet is being read into memory. The other two, being garbage collected, have a more linear climb all the way through.
 
 #### CPU
 ![cpu_usage](https://github.com/RoloEdits/calamine/assets/12489689/3cf046ba-7661-4bc5-8507-24a8960dfdc3)
