@@ -295,7 +295,7 @@ As the programs have no writing involved, I thought this would be a pointless ex
 > [!NOTE]
 > `ClosedXML` was reporting a constant `2.5TB` of virtual memory usage, so it was excluded from the chart.
 
-The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of of memory right after, with the memory usage dropping down again. The sudden jump at the end is when the sheet is being read into memory. The other two, being garbage collected, have a more linear climb all the way through.
+The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of memory right after, with the memory usage dropping down again. The sudden jump at the end is when the sheet is being read into memory. The other two, being garbage collected, have a more linear climb all the way through.
 
 #### CPU
 ![cpu_usage](https://github.com/RoloEdits/calamine/assets/12489689/3cf046ba-7661-4bc5-8507-24a8960dfdc3)
