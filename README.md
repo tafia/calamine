@@ -208,6 +208,7 @@ import (
 )
 
 func main() {
+        // Open workbook
         file, err := excelize.OpenFile(`NYC_311_SR_2010-2020-sample-1M.xlsx`)
 
         if err != nil {
@@ -222,6 +223,7 @@ func main() {
                 }
         }()
 
+        // Select worksheet
         rows, err := file.Rows("NYC_311_SR_2010-2020-sample-1M")
         if err != nil {
                 fmt.Println(err)
@@ -299,7 +301,7 @@ v2.8.0 excelize.exe
   Range (min … max):   236.798 s … 240.167 s    10 runs
 ```
 
-`calamine` comes is 1.75x faster than `excelize`, 7.05x faster than `ClosedXML`, and 9.43x faster than `openpyxl`.
+`calamine` is 1.75x faster than `excelize`, 7.05x faster than `ClosedXML`, and 9.43x faster than `openpyxl`.
 
 The spreadsheet has a range of 1,000,001 rows and 41 columns, for a total of 41,000,041 cells in the range. Of those, 28,056,975 cells had values.
 
