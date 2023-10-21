@@ -169,7 +169,12 @@ Browse the [examples](https://github.com/tafia/calamine/tree/master/examples) di
 
 ## Performance
 
-As `calamine` is readonly, the comparisons will only involve reading an excel `xlsx` file and then iterating over the rows. Along with `calamine`, two other libraries were chosen, from two different languages, [`excelize`](https://github.com/qax-os/excelize) written in `go` and [`ClosedXML`](https://github.com/ClosedXML/ClosedXML) written in `C#`. The benchmarks were done using this [dataset](https://raw.githubusercontent.com/wiki/jqnatividad/qsv/files/NYC_311_SR_2010-2020-sample-1M.7z), a `186MB` `xlsx` file. The plotting data was gotten from the [`sysinfo`](https://github.com/GuillaumeGomez/sysinfo) crate, at a sample interval of `200ms`. The program samples the reported values for the running process and records it.
+As `calamine` is readonly, the comparisons will only involve reading an excel `xlsx` file and then iterating over the rows. Along with `calamine`, three other libraries were chosen, from three different languages:
+- [`excelize`](https://github.com/qax-os/excelize) written in `go`
+- [`ClosedXML`](https://github.com/ClosedXML/ClosedXML) written in `C#`
+- [`openpyxl`](https://foss.heptapod.net/openpyxl/openpyxl) written in `python`
+
+The benchmarks were done using this [dataset](https://raw.githubusercontent.com/wiki/jqnatividad/qsv/files/NYC_311_SR_2010-2020-sample-1M.7z), a `186MB` `xlsx` file when the `csv` is converted. The plotting data was gotten from the [`sysinfo`](https://github.com/GuillaumeGomez/sysinfo) crate, at a sample interval of `200ms`. The program samples the reported values for the running process and records it.
 
 The programs are all structured to follow the same constructs:
 
@@ -192,6 +197,7 @@ fn main() {
     for _row in sheet.rows() {}
 }
 ```
+
 `excelize`:
 ```go
 package main
@@ -202,7 +208,6 @@ import (
 )
 
 func main() {
-        // Open workbook
         file, err := excelize.OpenFile(`NYC_311_SR_2010-2020-sample-1M.xlsx`)
 
         if err != nil {
@@ -217,19 +222,18 @@ func main() {
                 }
         }()
 
-        // Get worksheet
-        rows, err := file.GetRows("NYC_311_SR_2010-2020-sample-1M")
+        rows, err := file.Rows("NYC_311_SR_2010-2020-sample-1M")
         if err != nil {
                 fmt.Println(err)
                 return
         }
 
         // Iterate over rows
-        for _, row := range rows {
-                _ = row
+        for rows.Next() {
         }
 }
 ```
+
 `ClosedXML`:
 ```csharp
 using ClosedXML.Excel;
@@ -254,6 +258,25 @@ internal class Program
 }
 ```
 
+`openpyxl`:
+```python
+from openpyxl import load_workbook
+
+# Open workbook
+wb = load_workbook(
+    filename=r'NYC_311_SR_2010-2020-sample-1M.xlsx', read_only=True)
+
+# Get worksheet
+ws = wb['NYC_311_SR_2010-2020-sample-1M']
+
+# Iterate over rows
+for row in ws.rows:
+    _ = row
+
+# Close the workbook after reading
+wb.close()
+```
+
 ### Benchmarks
 
 The benchmarking was done using [`hyperfine`](https://github.com/sharkdp/hyperfine) with `--warmup 3` on an `AMD RYZEN 9 5900X @ 4.0GHz` running `Windows 11`. Both `calamine` and `ClosedXML` were built in release mode.
@@ -264,43 +287,62 @@ The benchmarking was done using [`hyperfine`](https://github.com/sharkdp/hyperfi
   Range (min … max):   24.980 s … 26.369 s    10 runs
 
 v2.8.0 excelize.exe
-  Time (mean ± σ):     199.709 s ± 11.671 s    [User: 158.678 s, System: 69.350 s]
-  Range (min … max):   193.934 s … 232.725 s    10 runs
+  Time (mean ± σ):     44.254 s ±  0.574 s    [User: 46.071 s, System: 7.754 s]
+  Range (min … max):   42.947 s … 44.911 s    10 runs
 
 0.102.1 closedxml.exe
   Time (mean ± σ):     178.343 s ±  3.673 s    [User: 177.442 s, System: 2.612 s]
   Range (min … max):   173.232 s … 185.086 s    10 runs
+
+3.0.10 openpyxl.py
+  Time (mean ± σ):     238.554 s ±  1.062 s    [User: 238.016 s, System: 0.661 s]
+  Range (min … max):   236.798 s … 240.167 s    10 runs
 ```
 
-The spreadsheet has a range of 1,000,001 rows and 41 columns, for a total of 41,000,041 cells in the range. Of those, 28,056,975 cells had values. Going off of that number, `calamine` had a rate of 1,122,279 cells per second. `excelize` had 140,989 cells per second. `ClosedXML` had 157,320 cells per second.
+`calamine` comes is 1.75x faster than `excelize`, 7.05x faster than `ClosedXML`, and 9.43x faster than `openpyxl`.
 
-`calamine` comes is 7.9x faster than `excelize`, and 7x faster than `ClosedXML`.
+The spreadsheet has a range of 1,000,001 rows and 41 columns, for a total of 41,000,041 cells in the range. Of those, 28,056,975 cells had values.
+
+Going off of that number:
+- `calamine` =>  1,122,279 cells per second
+- `excelize` => 633,998 cells per second
+- `ClosedXML` => 157,320 cells per second
+- `openpyxl` => 117,612 cells per second
 
 ### Plots
 
 #### Disk Read
-![bytes_from_disk](https://github.com/RoloEdits/calamine/assets/12489689/b662c037-f34b-437e-b6b8-331f07e2a15b)
+![bytes_from_disk](https://github.com/RoloEdits/calamine/assets/12489689/fcca1147-d73f-4d1c-b273-e7e4c183ab29)
 
-The filesize on disk is `186MB`. `calamine` read just that and nothing more. `ClosedXML` read a little more, `208MB`. `Excelize` on the other hand managed to read `2.12GB` from disk. `calamine` did a 1:1 here, with `ClosedXML` just a little over that. And `excelize` read the file 11x over.
+As stated, the filesize on disk is `186MB`:
+- `calamine` => `186MB`
+- `ClosedXML` => `208MB`.
+- `openpyxl` =>  `192MB`.
+- `excelize` => `1.5GB`.
+
+When asking one of the maintainers of `excelize`, I got this [response](https://github.com/qax-os/excelize/issues/1695#issuecomment-1772239230):
+> To avoid high memory usage for reading large files, this library allows user-specific UnzipXMLSizeLimit options when opening the workbook, to set the memory limit on the unzipping worksheet and shared string table in bytes, worksheet XML will be extracted to the system temporary directory when the file size is over this value, so you can see that data written in reading mode, and you can change the default for that to avoid this behavior.
+>
+> \- xuri
 
 #### Disk Write
-![bytes_to_disk](https://github.com/RoloEdits/calamine/assets/12489689/1bde4d93-eb50-472d-bd4a-40471f39b2da)
+![bytes_to_disk](https://github.com/RoloEdits/calamine/assets/12489689/befa9893-7658-41a7-8cbd-b0ce5a7d9341)
 
-As the programs have no writing involved, I thought this would be a pointless exercise and an empty section, but Excelize is doing something very strange here. I have no clue what its writing. The other two had expected behavior. The programs had no logic for writing and therefore nothing was written.
+As seen in the previous section, `excelize` is writting to disk to save memory. The others don't employ that kind of mechanism.
 
 #### Memory
-![mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/fdc1129e-bc0f-4133-9a2c-9eb09d7c0390)
+![mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/c83fdf6b-1442-4e22-8eca-84cbc1db4a26)
 
-![virt_mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/59009854-3863-4fbc-8c3a-5ba422429f13)
+![virt_mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/840a96ed-33d7-44f7-8276-80bb7a02557f)
 > [!NOTE]
 > `ClosedXML` was reporting a constant `2.5TB` of virtual memory usage, so it was excluded from the chart.
 
-The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of memory right after, with the memory usage dropping down again. The sudden jump at the end is when the sheet is being read into memory. The other two, being garbage collected, have a more linear climb all the way through.
+The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of memory right after, with the memory usage dropping down again. The sudden jump at the end is when the sheet is being read into memory. The others, being garbage collected, have a more linear climb all the way through.
 
 #### CPU
-![cpu_usage](https://github.com/RoloEdits/calamine/assets/12489689/3cf046ba-7661-4bc5-8507-24a8960dfdc3)
+![cpu_usage](https://github.com/RoloEdits/calamine/assets/12489689/c3aa55a8-b008-48ee-ba04-c08bd91c1f6f)
 
-Very noisy chart, but `calamine` and `ClosedXML` are very close on CPU usage. `excelize`'s spikes must be from the GC?
+Very noisy chart, but `excelize`'s spikes must be from the GC?
 
 ## Unsupported
 
