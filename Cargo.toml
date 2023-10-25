@@ -11,7 +11,7 @@ keywords = ["excel", "ods", "xls", "xlsx", "xlsb"]
 categories = ["encoding", "parsing", "text-processing"]
 exclude = ["tests/**/*"]
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.65"
 
 [dependencies]
 byteorder = "1.4"
