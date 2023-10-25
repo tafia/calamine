@@ -1,4 +1,4 @@
-use crate::DataType;
+use crate::{datatype::DataTypeRef, DataType};
 
 /// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
 static EXCEL_1900_1904_DIFF: i64 = 1462;
@@ -104,16 +104,26 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
 }
 
 // convert f64 to date, if format == Date
-pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
+#[inline]
+pub fn format_excel_f64_ref<'a>(
+    value: f64,
+    format: Option<&CellFormat>,
+    is_1904: bool,
+) -> DataTypeRef<'static> {
     match format {
-        Some(CellFormat::DateTime) => DataType::DateTime(if is_1904 {
+        Some(CellFormat::DateTime) => DataTypeRef::DateTime(if is_1904 {
             value + EXCEL_1900_1904_DIFF as f64
         } else {
             value
         }),
-        Some(CellFormat::TimeDelta) => DataType::Duration(value),
-        _ => DataType::Float(value),
+        Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
+        _ => DataTypeRef::Float(value),
     }
+}
+
+// convert f64 to date, if format == Date
+pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
+    format_excel_f64_ref(value, format, is_1904).into()
 }
 
 /// Ported from openpyxl, MIT License

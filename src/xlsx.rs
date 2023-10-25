@@ -12,8 +12,9 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::datatype::DataTypeRef;
 use crate::formats::{
-    builtin_format_by_id, detect_custom_number_format, format_excel_f64, CellFormat,
+    builtin_format_by_id, detect_custom_number_format, format_excel_f64_ref, CellFormat,
 };
 use crate::vba::VbaProject;
 use crate::{
@@ -21,7 +22,7 @@ use crate::{
     SheetVisible, Table,
 };
 
-type XlsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
+type XlReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
 /// Maximum number of rows allowed in an xlsx file
 pub const MAX_ROWS: u32 = 1_048_576;
@@ -720,18 +721,18 @@ impl InnerTableMetadata {
     }
 }
 
-fn worksheet<T, F>(
-    strings: &[String],
+fn worksheet<'s, T, F>(
+    strings: &'s [String],
     formats: &[CellFormat],
-    mut xml: XlsReader<'_>,
+    mut xml: XlReader<'_>,
     read_data: &mut F,
 ) -> Result<Range<T>, XlsxError>
 where
     T: CellType,
     F: FnMut(
-        &[String],
+        &'s [String],
         &[CellFormat],
-        &mut XlsReader<'_>,
+        &mut XlReader<'_>,
         &mut Vec<Cell<T>>,
     ) -> Result<(), XlsxError>,
 {
@@ -739,40 +740,53 @@ where
     let mut buf = Vec::with_capacity(1024);
     'xml: loop {
         buf.clear();
-        match xml.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                match e.local_name().as_ref() {
-                    b"dimension" => {
-                        for a in e.attributes() {
-                            if let Attribute {
-                                key: QName(b"ref"),
-                                value: rdim,
-                            } = a.map_err(XlsxError::XmlAttr)?
-                            {
-                                let len = get_dimension(&rdim)?.len();
-                                if len < 1_000_000 {
-                                    // it is unlikely to have more than that
-                                    // there may be of empty cells
-                                    cells.reserve(len as usize);
-                                }
-                                continue 'xml;
-                            }
+        match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
+            Event::Start(ref e) => match e.local_name().as_ref() {
+                b"dimension" => {
+                    for a in e.attributes() {
+                        if let Attribute {
+                            key: QName(b"ref"),
+                            value: rdim,
+                        } = a.map_err(XlsxError::XmlAttr)?
+                        {
+                            let len = get_dimension(&rdim)?.len();
+                            cells.reserve(len as usize);
+                            continue 'xml;
                         }
-                        return Err(XlsxError::UnexpectedNode("dimension"));
                     }
-                    b"sheetData" => {
-                        read_data(strings, formats, &mut xml, &mut cells)?;
-                        break;
-                    }
-                    _ => (),
+                    return Err(XlsxError::UnexpectedNode("dimension"));
                 }
-            }
-            Ok(Event::Eof) => break,
-            Err(e) => return Err(XlsxError::Xml(e)),
+                b"sheetData" => {
+                    buf.clear();
+                    read_data(strings, formats, &mut xml, &mut cells)?;
+                    break;
+                }
+                _ => (),
+            },
+            Event::Eof => break,
             _ => (),
         }
     }
     Ok(Range::from_sparse(cells))
+}
+
+impl<RS: Read + Seek> Xlsx<RS> {
+    /// Get worksheet range where shared string values are only borrowed
+    pub fn worksheet_range_ref<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Option<Result<Range<DataTypeRef<'a>>, XlsxError>> {
+        let (_, path) = self.sheets.iter().find(|&&(ref n, _)| n == name)?;
+        let xml = xml_reader(&mut self.zip, path);
+        let is_1904 = self.is_1904;
+        let strings = &self.strings;
+        let formats = &self.formats;
+        xml.map(|xml| {
+            worksheet(strings, formats, xml?, &mut |s, f, xml, cells| {
+                read_sheet_data(xml, s, f, cells, is_1904)
+            })
+        })
+    }
 }
 
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
@@ -803,12 +817,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
-        self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
-            let len = f.size() as usize;
+        let mut f = self.zip.by_name("xl/vbaProject.bin").ok()?;
+        let len = f.size() as usize;
+        Some(
             VbaProject::new(&mut f, len)
                 .map(Cow::Owned)
-                .map_err(XlsxError::Vba)
-        })
+                .map_err(XlsxError::Vba),
+        )
     }
 
     fn metadata(&self) -> &Metadata {
@@ -816,26 +831,19 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsxError>> {
-        let xml = match self.sheets.iter().find(|&(n, _)| n == name) {
-            Some((_, path)) => xml_reader(&mut self.zip, path),
-            None => return None,
-        };
-        let is_1904 = self.is_1904;
-        let strings = &self.strings;
-        let formats = &self.formats;
-        xml.map(|xml| {
-            worksheet(strings, formats, xml?, &mut |s, f, xml, cells| {
-                read_sheet_data(xml, s, f, cells, is_1904)
-            })
-        })
+        Some(self.worksheet_range_ref(name)?.map(|rge| {
+            let inner = rge.inner.into_iter().map(|v| v.into()).collect();
+            Range {
+                start: rge.start,
+                end: rge.end,
+                inner,
+            }
+        }))
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsxError>> {
-        let xml = match self.sheets.iter().find(|&(n, _)| n == name) {
-            Some((_, path)) => xml_reader(&mut self.zip, path),
-            None => return None,
-        };
-
+        let (_, path) = self.sheets.iter().find(|&&(ref n, _)| n == name)?;
+        let xml = xml_reader(&mut self.zip, path);
         let strings = &self.strings;
         let formats = &self.formats;
         xml.map(|xml| {
@@ -883,6 +891,12 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
                     &mut |s, f, xml, cells| read_sheet_data(xml, s, f, cells, is_1904),
                 )
                 .ok()?;
+                let inner = range.inner.into_iter().map(|v| v.into()).collect();
+                let range = Range {
+                    start: range.start,
+                    end: range.end,
+                    inner,
+                };
                 Some((name, range))
             })
             .collect()
@@ -897,7 +911,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
-) -> Option<Result<XlsReader<'a>, XlsxError>> {
+) -> Option<Result<XlReader<'a>, XlsxError>> {
     match zip.by_name(path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
@@ -928,7 +942,7 @@ fn get_attribute<'a>(atts: Attributes<'a>, n: QName) -> Result<Option<&'a [u8]>,
 }
 
 fn read_sheet<T, F>(
-    xml: &mut XlsReader<'_>,
+    xml: &mut XlReader<'_>,
     cells: &mut Vec<Cell<T>>,
     push_cell: &mut F,
 ) -> Result<(), XlsxError>
@@ -936,7 +950,7 @@ where
     T: CellType,
     F: FnMut(
         &mut Vec<Cell<T>>,
-        &mut XlsReader<'_>,
+        &mut XlReader<'_>,
         &BytesStart<'_>,
         (u32, u32),
         &BytesStart<'_>,
@@ -994,21 +1008,21 @@ where
 }
 
 /// read sheetData node
-fn read_sheet_data(
-    xml: &mut XlsReader<'_>,
-    strings: &[String],
+fn read_sheet_data<'s>(
+    xml: &mut XlReader<'_>,
+    strings: &'s [String],
     formats: &[CellFormat],
-    cells: &mut Vec<Cell<DataType>>,
+    cells: &mut Vec<Cell<DataTypeRef<'s>>>,
     is_1904: bool,
 ) -> Result<(), XlsxError> {
     /// read the contents of a <v> cell
-    fn read_value(
+    fn read_value<'s, 'a>(
         v: String,
-        strings: &[String],
+        strings: &'s [String],
         formats: &[CellFormat],
-        c_element: &BytesStart<'_>,
+        c_element: &BytesStart<'a>,
         is_1904: bool,
-    ) -> Result<DataType, XlsxError> {
+    ) -> Result<DataTypeRef<'s>, XlsxError> {
         let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
             Ok(Some(style)) => {
                 let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
@@ -1016,24 +1030,23 @@ fn read_sheet_data(
             }
             _ => Some(&CellFormat::Other),
         };
-
         match get_attribute(c_element.attributes(), QName(b"t"))? {
             Some(b"s") => {
                 // shared string
                 let idx: usize = v.parse()?;
-                Ok(DataType::String(strings[idx].clone()))
+                Ok(DataTypeRef::SharedString(&strings[idx]))
             }
             Some(b"b") => {
                 // boolean
-                Ok(DataType::Bool(v != "0"))
+                Ok(DataTypeRef::Bool(v != "0"))
             }
             Some(b"e") => {
                 // error
-                Ok(DataType::Error(v.parse()?))
+                Ok(DataTypeRef::Error(v.parse()?))
             }
             Some(b"d") => {
                 // date
-                Ok(DataType::DateTimeIso(v))
+                Ok(DataTypeRef::DateTimeIso(v))
             }
             Some(b"str") => {
                 // see http://officeopenxml.com/SScontentOverview.php
@@ -1046,15 +1059,17 @@ fn read_sheet_data(
                 // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
                 // We do try an initial parse as Float for utility, but fall back to a string
                 // representation if that fails
-                v.parse().map(DataType::Float).or(Ok(DataType::String(v)))
+                v.parse()
+                    .map(DataTypeRef::Float)
+                    .or(Ok(DataTypeRef::String(v)))
             }
             Some(b"n") => {
                 // n - number
                 if v.is_empty() {
-                    Ok(DataType::Empty)
+                    Ok(DataTypeRef::Empty)
                 } else {
                     v.parse()
-                        .map(|n| format_excel_f64(n, cell_format, is_1904))
+                        .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
                         .map_err(XlsxError::ParseFloat)
                 }
             }
@@ -1062,8 +1077,8 @@ fn read_sheet_data(
                 // If type is not known, we try to parse as Float for utility, but fall back to
                 // String if this fails.
                 v.parse()
-                    .map(|n| format_excel_f64(n, cell_format, is_1904))
-                    .or(Ok(DataType::String(v)))
+                    .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
+                    .or(Ok(DataTypeRef::String(v)))
             }
             Some(b"is") => {
                 // this case should be handled in outer loop over cell elements, in which
@@ -1084,7 +1099,7 @@ fn read_sheet_data(
             b"is" => {
                 // inlineStr
                 if let Some(s) = read_string(xml, e.name())? {
-                    cells.push(Cell::new(pos, DataType::String(s)));
+                    cells.push(Cell::new(pos, DataTypeRef::String(s)));
                 }
             }
             b"v" => {
@@ -1101,7 +1116,7 @@ fn read_sheet_data(
                     }
                 }
                 match read_value(v, strings, formats, c_element, is_1904)? {
-                    DataType::Empty => (),
+                    DataTypeRef::Empty => (),
                     v => cells.push(Cell::new(pos, v)),
                 }
             }
@@ -1223,10 +1238,7 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 }
 
 /// attempts to read either a simple or richtext string
-fn read_string(
-    xml: &mut XlsReader<'_>,
-    QName(closing): QName,
-) -> Result<Option<String>, XlsxError> {
+fn read_string(xml: &mut XlReader<'_>, QName(closing): QName) -> Result<Option<String>, XlsxError> {
     let mut buf = Vec::with_capacity(1024);
     let mut val_buf = Vec::with_capacity(1024);
     let mut rich_buffer: Option<String> = None;

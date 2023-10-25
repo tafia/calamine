@@ -74,6 +74,7 @@ mod de;
 mod errors;
 pub mod vba;
 
+use datatype::DataTypeRef;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::cmp::{max, min};
@@ -279,6 +280,7 @@ where
 pub trait CellType: Default + Clone + PartialEq {}
 
 impl CellType for DataType {}
+impl<'a> CellType for DataTypeRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 
