@@ -5,6 +5,7 @@ use std::io::{Read, Seek};
 use std::str::FromStr;
 
 use log::warn;
+use nested::Nested;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
@@ -169,7 +170,7 @@ type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
     /// Shared strings
-    strings: Vec<String>,
+    strings: Nested<String>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
@@ -718,7 +719,7 @@ impl InnerTableMetadata {
 }
 
 fn worksheet<T, F>(
-    strings: &[String],
+    strings: &Nested<String>,
     formats: &[CellFormat],
     mut xml: XlsReader<'_>,
     read_data: &mut F,
@@ -726,7 +727,7 @@ fn worksheet<T, F>(
 where
     T: CellType,
     F: FnMut(
-        &[String],
+        &Nested<String>,
         &[CellFormat],
         &mut XlsReader<'_>,
         &mut Vec<Cell<T>>,
@@ -778,7 +779,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     fn new(reader: RS) -> Result<Self, XlsxError> {
         let mut xlsx = Xlsx {
             zip: ZipArchive::new(reader)?,
-            strings: Vec::new(),
+            strings: Nested::new(),
             formats: Vec::new(),
             is_1904: false,
             sheets: Vec::new(),
@@ -991,7 +992,7 @@ where
 /// read sheetData node
 fn read_sheet_data(
     xml: &mut XlsReader<'_>,
-    strings: &[String],
+    strings: &Nested<String>,
     formats: &[CellFormat],
     cells: &mut Vec<Cell<DataType>>,
     is_1904: bool,
@@ -999,7 +1000,7 @@ fn read_sheet_data(
     /// read the contents of a <v> cell
     fn read_value(
         v: String,
-        strings: &[String],
+        strings: &Nested<String>,
         formats: &[CellFormat],
         c_element: &BytesStart<'_>,
         is_1904: bool,
@@ -1016,7 +1017,7 @@ fn read_sheet_data(
             Some(b"s") => {
                 // shared string
                 let idx: usize = v.parse()?;
-                Ok(DataType::String(strings[idx].clone()))
+                Ok(DataType::String(strings[idx].to_owned()))
             }
             Some(b"b") => {
                 // boolean
