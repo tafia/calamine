@@ -750,7 +750,9 @@ where
                         } = a.map_err(XlsxError::XmlAttr)?
                         {
                             let len = get_dimension(&rdim)?.len();
-                            cells.reserve(len as usize);
+                            if len < 1_000_000 {
+                                cells.reserve(len as usize);
+                            }
                             continue 'xml;
                         }
                     }
