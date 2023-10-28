@@ -69,6 +69,7 @@ mod ods;
 mod xls;
 mod xlsb;
 mod xlsx;
+mod xlsx_iter;
 
 mod de;
 mod errors;
