@@ -3,12 +3,12 @@ use quick_xml::{
     name::QName,
 };
 
+use super::{
+    get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
+};
 use crate::{
     datatype::DataTypeRef,
     formats::{format_excel_f64_ref, CellFormat},
-    xlsx::{
-        get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
-    },
     Cell, XlsxError,
 };
 
@@ -133,6 +133,60 @@ impl<'a> XlsxCellReader<'a> {
             }
         }
     }
+
+    pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(ref row_element))
+                    if row_element.local_name().as_ref() == b"row" =>
+                {
+                    let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
+                    if let Some(range) = attribute {
+                        let row = get_row(range)?;
+                        self.row_index = row;
+                    }
+                }
+                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
+                    let pos = if let Some(range) = attribute {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+                    let mut value = None;
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::Start(ref e)) => {
+                                if let Some(f) = read_formula(&mut self.xml, e)? {
+                                    value = Some(f);
+                                }
+                            }
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+                    return Ok(value.map(|value| Cell::new(pos, value)));
+                }
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+    }
 }
 
 fn read_value<'s>(
@@ -247,5 +301,32 @@ fn read_v<'s>(
             let t = std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();
             Err(XlsxError::CellTAttribute(t))
         }
+    }
+}
+
+fn read_formula<'s>(
+    xml: &mut XlReader<'_>,
+    e: &BytesStart<'_>,
+) -> Result<Option<String>, XlsxError> {
+    match e.local_name().as_ref() {
+        b"is" | b"v" => {
+            xml.read_to_end_into(e.name(), &mut Vec::new())?;
+            Ok(None)
+        }
+        b"f" => {
+            let mut f_buf = Vec::with_capacity(512);
+            let mut f = String::new();
+            loop {
+                match xml.read_event_into(&mut f_buf)? {
+                    Event::Text(t) => f.push_str(&t.unescape()?),
+                    Event::End(end) if end.name() == e.name() => break,
+                    Event::Eof => return Err(XlsxError::XmlEof("f")),
+                    _ => (),
+                }
+                f_buf.clear();
+            }
+            Ok(Some(f))
+        }
+        _ => Err(XlsxError::UnexpectedNode("v, f, or is")),
     }
 }
