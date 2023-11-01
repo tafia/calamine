@@ -69,14 +69,14 @@ from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OdsError::Io(e) => write!(f, "I/O error: {}", e),
-            OdsError::Zip(e) => write!(f, "Zip error: {:?}", e),
-            OdsError::Xml(e) => write!(f, "Xml error: {}", e),
-            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
-            OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
-            OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
-            OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
-            OdsError::ParseBool(e) => write!(f, "Parse bool error: {}", e),
+            OdsError::Io(e) => write!(f, "I/O error: {e}"),
+            OdsError::Zip(e) => write!(f, "Zip error: {e:?}"),
+            OdsError::Xml(e) => write!(f, "Xml error: {e}"),
+            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {e}"),
+            OdsError::Parse(e) => write!(f, "Parse string error: {e}"),
+            OdsError::ParseInt(e) => write!(f, "Parse integer error: {e}"),
+            OdsError::ParseFloat(e) => write!(f, "Parse float error: {e}"),
+            OdsError::ParseBool(e) => write!(f, "Parse bool error: {e}"),
             OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {mime:?}"),
             OdsError::FileNotFound(file) => write!(f, "'{file}' file not found in archive"),
             OdsError::Eof(node) => write!(f, "Expecting '{node}' node, found end of xml file"),
