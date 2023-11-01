@@ -115,12 +115,12 @@ where
     }
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, Self::Error>> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Self::Error> {
         match *self {
-            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xls)),
-            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xlsx)),
-            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xlsb)),
-            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Ods)),
+            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map_err(Error::Xls),
+            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsb),
+            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map_err(Error::Ods),
         }
     }
 

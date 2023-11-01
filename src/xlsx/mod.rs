@@ -815,26 +815,19 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         })
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsxError>> {
-        let mut cell_reader = match self.worksheet_cells_reader(name) {
-            Ok(reader) => reader,
-            Err(XlsxError::WorksheetNotFound(_)) => return None,
-            Err(e) => return Some(Err(e)),
-        };
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsxError> {
+        let mut cell_reader = self.worksheet_cells_reader(name)?;
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
         if len < 100_000 {
             cells.reserve(len as usize);
         }
-        loop {
-            match cell_reader.next_formula() {
-                // Ok(Some(cell)) if cell.get_value().is_empty() => (),
-                Ok(Some(cell)) => cells.push(cell),
-                Ok(None) => break,
-                Err(e) => return Some(Err(e)),
+        while let Some(cell) = cell_reader.next_formula()? {
+            if !cell.val.is_empty() {
+                cells.push(cell);
             }
         }
-        Some(Ok(Range::from_sparse(cells)))
+        Ok(Range::from_sparse(cells))
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {

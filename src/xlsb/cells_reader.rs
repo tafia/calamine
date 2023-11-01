@@ -5,13 +5,15 @@ use crate::{
     Cell, CellErrorType, Dimensions, XlsbError,
 };
 
-use super::{cell_format, wide_str, RecordIter};
+use super::{cell_format, parse_formula, wide_str, RecordIter};
 
 /// A cells reader for xlsb files
 pub struct XlsbCellsReader<'a> {
     iter: RecordIter<'a>,
     formats: &'a [CellFormat],
     strings: &'a [String],
+    extern_sheets: &'a [String],
+    metadata_names: &'a [(String, String)],
     typ: u16,
     row: u32,
     is_1904: bool,
@@ -24,6 +26,8 @@ impl<'a> XlsbCellsReader<'a> {
         mut iter: RecordIter<'a>,
         formats: &'a [CellFormat],
         strings: &'a [String],
+        extern_sheets: &'a [String],
+        metadata_names: &'a [(String, String)],
         is_1904: bool,
     ) -> Result<Self, XlsbError> {
         let mut buf = Vec::with_capacity(1024);
@@ -55,6 +59,8 @@ impl<'a> XlsbCellsReader<'a> {
             formats,
             is_1904,
             strings,
+            extern_sheets,
+            metadata_names,
             dimensions,
             typ: 0,
             row: 0,
@@ -127,6 +133,52 @@ impl<'a> XlsbCellsReader<'a> {
                     // BrtCellIsst
                     let isst = read_usize(&self.buf[8..12]);
                     DataTypeRef::SharedString(&self.strings[isst])
+                }
+                0x0000 => {
+                    // BrtRowHdr
+                    self.row = read_u32(&self.buf);
+                    if self.row > 0x0010_0000 {
+                        return Ok(None); // invalid row
+                    }
+                    continue;
+                }
+                0x0092 => return Ok(None), // BrtEndSheetData
+                _ => continue, // anything else, ignore and try next, without changing idx
+            };
+            break value;
+        };
+        let col = read_u32(&self.buf);
+        Ok(Some(Cell::new((self.row, col), value)))
+    }
+
+    pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsbError> {
+        let value = loop {
+            self.typ = self.iter.read_type()?;
+            let _ = self.iter.fill_buffer(&mut self.buf)?;
+
+            let value = match self.typ {
+                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
+                0x0008 => {
+                    // BrtFmlaString
+                    let cch = read_u32(&self.buf[8..]) as usize;
+                    let formula = &self.buf[14 + cch * 2..];
+                    let cce = read_u32(formula) as usize;
+                    let rgce = &formula[4..4 + cce];
+                    parse_formula(rgce, &self.extern_sheets, &self.metadata_names)?
+                }
+                0x0009 => {
+                    // BrtFmlaNum
+                    let formula = &self.buf[18..];
+                    let cce = read_u32(formula) as usize;
+                    let rgce = &formula[4..4 + cce];
+                    parse_formula(rgce, &self.extern_sheets, &self.metadata_names)?
+                }
+                0x000A | 0x000B => {
+                    // BrtFmlaBool | BrtFmlaError
+                    let formula = &self.buf[11..];
+                    let cce = read_u32(formula) as usize;
+                    let rgce = &formula[4..4 + cce];
+                    parse_formula(rgce, &self.extern_sheets, &self.metadata_names)?
                 }
                 0x0000 => {
                     // BrtRowHdr

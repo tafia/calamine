@@ -185,8 +185,11 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.to_owned())
     }
 
     #[cfg(feature = "picture")]

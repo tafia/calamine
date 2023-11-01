@@ -524,10 +524,10 @@ fn formula_xlsx() {
 
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
@@ -540,10 +540,10 @@ fn formula_xlsb() {
 
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
@@ -590,10 +590,10 @@ fn formula_xls() {
 
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
@@ -605,10 +605,10 @@ fn formula_ods() {
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
     for s in excel.sheet_names().to_owned() {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["of:=[.B1]+$$OneRange".to_string()]]);
 }
 
@@ -1285,7 +1285,7 @@ fn issue304_xls_formula() {
     setup();
     let path = format!("{}/tests/xls_formula.xls", env!("CARGO_MANIFEST_DIR"));
     let mut wb: Xls<_> = open_workbook(&path).unwrap();
-    let formula = wb.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = wb.worksheet_formula("Sheet1").unwrap();
     let mut rows = formula.rows();
     assert_eq!(rows.next(), Some(&["A1*2".to_owned()][..]));
     assert_eq!(rows.next(), Some(&["2*Sheet2!A1".to_owned()][..]));

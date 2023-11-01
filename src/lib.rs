@@ -49,7 +49,6 @@
 //!     println!("found {} formula in '{}'",
 //!              workbook
 //!                 .worksheet_formula(&s)
-//!                 .expect("sheet not found")
 //!                 .expect("error while getting formula")
 //!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
 //!                 .count(),
@@ -230,7 +229,7 @@ where
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)>;
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
+    fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
     /// Get all sheet names of this workbook, in workbook order
     ///

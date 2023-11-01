@@ -236,8 +236,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .collect()
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.clone()))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.clone())
     }
 
     #[cfg(feature = "picture")]
