@@ -18,7 +18,8 @@ use crate::datatype::DataTypeRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, Table,
+    Cell, CellErrorType, DataType, Dimensions, Metadata, Range, Reader, Sheet, SheetType,
+    SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -84,6 +85,8 @@ pub enum XlsxError {
     Password,
     /// Worksheet not found
     WorksheetNotFound(String),
+    /// Table not found
+    TableNotFound(String),
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -132,6 +135,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::CellError(e) => write!(f, "Unsupported cell error value '{e}'"),
             XlsxError::WorksheetNotFound(n) => write!(f, "Worksheet '{n}' not found"),
             XlsxError::Password => write!(f, "Workbook is password protected"),
+            XlsxError::TableNotFound(n) => write!(f, "Table '{n}' not found"),
         }
     }
 }
@@ -671,34 +675,27 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     /// Get the table by name
     // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more efficient
-    pub fn table_by_name(
-        &mut self,
-        table_name: &str,
-    ) -> Option<Result<Table<DataType>, XlsxError>> {
+    pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<DataType>, XlsxError> {
         let match_table_meta = self
             .tables
             .as_ref()
             .expect("Tables must be loaded before they are referenced")
             .iter()
-            .find(|(table, ..)| table == table_name)?;
+            .find(|(table, ..)| table == table_name)
+            .ok_or_else(|| XlsxError::TableNotFound(table_name.into()))?;
         let name = match_table_meta.0.to_owned();
         let sheet_name = match_table_meta.1.clone();
         let columns = match_table_meta.2.clone();
         let start_dim = match_table_meta.3.start;
         let end_dim = match_table_meta.3.end;
-        let r_range = self.worksheet_range(&sheet_name)?;
-        match r_range {
-            Ok(range) => {
-                let tbl_rng = range.range(start_dim, end_dim);
-                Some(Ok(Table {
-                    name,
-                    sheet_name,
-                    columns,
-                    data: tbl_rng,
-                }))
-            }
-            Err(e) => Some(Err(e)),
-        }
+        let range = self.worksheet_range(&sheet_name)?;
+        let tbl_rng = range.range(start_dim, end_dim);
+        Ok(Table {
+            name,
+            sheet_name,
+            columns,
+            data: tbl_rng,
+        })
     }
 }
 
@@ -745,12 +742,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn worksheet_range_ref<'a>(
         &'a mut self,
         name: &str,
-    ) -> Option<Result<Range<DataTypeRef<'a>>, XlsxError>> {
-        let mut cell_reader = match self.worksheet_cells_reader(name) {
-            Ok(reader) => reader,
-            Err(XlsxError::WorksheetNotFound(_)) => return None,
-            Err(e) => return Some(Err(e)),
-        };
+    ) -> Result<Range<DataTypeRef<'a>>, XlsxError> {
+        let mut cell_reader = self.worksheet_cells_reader(name)?;
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
         if len < 100_000 {
@@ -764,10 +757,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 })) => (),
                 Ok(Some(cell)) => cells.push(cell),
                 Ok(None) => break,
-                Err(e) => return Some(Err(e)),
+                Err(e) => return Err(e),
             }
         }
-        Some(Ok(Range::from_sparse(cells)))
+        Ok(Range::from_sparse(cells))
     }
 }
 
@@ -812,15 +805,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsxError>> {
-        Some(self.worksheet_range_ref(name)?.map(|rge| {
-            let inner = rge.inner.into_iter().map(|v| v.into()).collect();
-            Range {
-                start: rge.start,
-                end: rge.end,
-                inner,
-            }
-        }))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsxError> {
+        let rge = self.worksheet_range_ref(name)?;
+        let inner = rge.inner.into_iter().map(|v| v.into()).collect();
+        Ok(Range {
+            start: rge.start,
+            end: rge.end,
+            inner,
+        })
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsxError>> {
@@ -854,7 +846,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         names
             .into_iter()
             .filter_map(|n| {
-                let rge = self.worksheet_range(&n)?.ok()?;
+                let rge = self.worksheet_range(&n).ok()?;
                 Some((n, rge))
             })
             .collect()
@@ -900,18 +892,6 @@ pub(crate) fn get_attribute<'a>(
         }
     }
     Ok(None)
-}
-
-#[derive(Debug, PartialEq, Default, Clone, Copy)]
-pub(crate) struct Dimensions {
-    start: (u32, u32),
-    end: (u32, u32),
-}
-
-impl Dimensions {
-    pub fn len(&self) -> u64 {
-        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
-    }
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers

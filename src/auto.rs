@@ -105,12 +105,12 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Self::Error> {
         match *self {
-            Sheets::Xls(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xls)),
-            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xlsx)),
-            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xlsb)),
-            Sheets::Ods(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Ods)),
+            Sheets::Xls(ref mut e) => e.worksheet_range(name).map_err(Error::Xls),
+            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsb),
+            Sheets::Ods(ref mut e) => e.worksheet_range(name).map_err(Error::Ods),
         }
     }
 

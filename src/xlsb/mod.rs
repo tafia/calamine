@@ -1,3 +1,7 @@
+mod cells_reader;
+
+pub use cells_reader::XlsbCellsReader;
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
@@ -13,6 +17,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::datatype::DataTypeRef;
 use crate::formats::{
     builtin_format_by_code, detect_custom_number_format, format_excel_f64, CellFormat,
 };
@@ -74,6 +79,8 @@ pub enum XlsbError {
         /// value found
         val: String,
     },
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, XlsbError, Io);
@@ -83,28 +90,30 @@ from_err!(quick_xml::Error, XlsbError, Xml);
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            XlsbError::Io(e) => write!(f, "I/O error: {}", e),
-            XlsbError::Zip(e) => write!(f, "Zip error: {}", e),
-            XlsbError::Xml(e) => write!(f, "Xml error: {}", e),
-            XlsbError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
-            XlsbError::Vba(e) => write!(f, "Vba error: {}", e),
+            XlsbError::Io(e) => write!(f, "I/O error: {e}"),
+            XlsbError::Zip(e) => write!(f, "Zip error: {e}"),
+            XlsbError::Xml(e) => write!(f, "Xml error: {e}"),
+            XlsbError::XmlAttr(e) => write!(f, "Xml attribute error: {e}"),
+            XlsbError::Vba(e) => write!(f, "Vba error: {e}"),
             XlsbError::Mismatch { expected, found } => {
-                write!(f, "Expecting {}, got {:X}", expected, found)
+                write!(f, "Expecting {expected}, got {found:X}")
             }
-            XlsbError::FileNotFound(file) => write!(f, "File not found: '{}'", file),
+            XlsbError::FileNotFound(file) => write!(f, "File not found: '{file}'"),
             XlsbError::StackLen => write!(f, "Invalid stack length"),
-            XlsbError::UnsupportedType(t) => write!(f, "Unsupported type {:X}", t),
-            XlsbError::Etpg(t) => write!(f, "Unsupported etpg {:X}", t),
-            XlsbError::IfTab(t) => write!(f, "Unsupported iftab {:X}", t),
-            XlsbError::BErr(t) => write!(f, "Unsupported BErr {:X}", t),
-            XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {:X}", t),
-            XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {:X}", t),
+            XlsbError::UnsupportedType(t) => write!(f, "Unsupported type {t:X}"),
+            XlsbError::Etpg(t) => write!(f, "Unsupported etpg {t:X}"),
+            XlsbError::IfTab(t) => write!(f, "Unsupported iftab {t:X}"),
+            XlsbError::BErr(t) => write!(f, "Unsupported BErr {t:X}"),
+            XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {t:X}"),
+            XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {t:X}"),
             XlsbError::WideStr { ws_len, buf_len } => write!(
                 f,
-                "Wide str length exceeds buffer length ({} > {})",
-                ws_len, buf_len
+                "Wide str length exceeds buffer length ({ws_len} > {buf_len})",
             ),
-            XlsbError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: {}", typ, val),
+            XlsbError::Unrecognized { typ, val } => {
+                write!(f, "Unrecognized {typ}: {val}")
+            }
+            XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -377,6 +386,19 @@ impl<RS: Read + Seek> Xlsb<RS> {
         }
     }
 
+    /// Get a cells reader for a given worksheet
+    pub fn worksheet_cells_reader<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<XlsbCellsReader<'a>, XlsbError> {
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
+            None => return Err(XlsbError::WorksheetNotFound(name.into())),
+        };
+        let iter = RecordIter::from_zip(&mut self.zip, &path)?;
+        XlsbCellsReader::new(iter, &self.formats, &self.strings, self.is_1904)
+    }
+
     fn worksheet_range_from_path(&mut self, path: &str) -> Result<Range<DataType>, XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
         let mut buf = Vec::with_capacity(1024);
@@ -646,12 +668,15 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
-            Some((_, path)) => path.clone(),
-            None => return None,
-        };
-        Some(self.worksheet_range_from_path(&path))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsbError> {
+        let mut cells_reader = self.worksheet_cells_reader(name)?;
+        let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
+        while let Some(cell) = cells_reader.next_cell()? {
+            if cell.val != DataTypeRef::Empty {
+                cells.push(Cell::new(cell.pos, DataType::from(cell.val)));
+            }
+        }
+        Ok(Range::from_sparse(cells))
     }
 
     /// MS-XLSB 2.1.7.62
@@ -681,7 +706,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 }
 
-struct RecordIter<'a> {
+pub(crate) struct RecordIter<'a> {
     b: [u8; 1],
     r: BufReader<ZipFile<'a>>,
 }

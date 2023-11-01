@@ -15,7 +15,7 @@
 //! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
-//! if let Some(Ok(range)) = workbook.worksheet_range("Sheet1") {
+//! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
@@ -133,6 +133,18 @@ impl fmt::Display for CellErrorType {
     }
 }
 
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
+pub(crate) struct Dimensions {
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+}
+
+impl Dimensions {
+    pub fn len(&self) -> u64 {
+        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+    }
+}
+
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
@@ -204,12 +216,15 @@ where
 
     /// Creates a new instance.
     fn new(reader: RS) -> Result<Self, Self::Error>;
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
+
     /// Initialize
     fn metadata(&self) -> &Metadata;
+
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>>;
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Self::Error>;
 
     /// Fetch all worksheet data & paths
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)>;
@@ -249,7 +264,7 @@ where
     /// sheet_name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
-        self.worksheet_range(&name)
+        Some(self.worksheet_range(&name))
     }
 
     /// Get all pictures, tuple as (ext: String, data: Vec<u8>)
@@ -618,8 +633,7 @@ impl<T: CellType> Range<T> {
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {
