@@ -1490,7 +1490,7 @@ fn any_sheets_ods() {
 }
 
 #[test]
-fn text_encoding_issue() {
+fn issue_374() {
     let path = format!("{}/tests/biff5_write.xls", env!("CARGO_MANIFEST_DIR"));
     let mut workbook: Xls<_> = open_workbook(path).unwrap();
 
@@ -1503,7 +1503,7 @@ fn text_encoding_issue() {
         .unwrap()
         .unwrap();
 
-    let second_row = range.rows().into_iter().nth(1).unwrap();
+    let second_row = range.rows().nth(1).unwrap();
     let cell_text = second_row.get(3).unwrap().to_string();
 
     assert_eq!("sheetjs", cell_text);

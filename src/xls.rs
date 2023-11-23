@@ -261,7 +261,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xtis = Vec::new();
         let mut formats = BTreeMap::new();
         let mut xfs = Vec::new();
-        let mut biff = 8; // BIFF version
+        let mut biff = 8; // Binary Interchange File Format (BIFF) version
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
@@ -461,34 +461,19 @@ impl<RS: Read + Seek> Xls<RS> {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Bof {
-    dt: u16,
-    biff_version: u16,
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/4d6a3d1e-d7c5-405f-bbae-d01e9cb79366
+struct Bof {
+    /// Binary Interchange File Format
     biff: u8,
-    guess: bool,
 }
 
-impl Default for Bof {
-    fn default() -> Self {
-        Self {
-            dt: 0,
-            biff: 8,
-            biff_version: 0x0600,
-            guess: false,
-        }
-    }
-}
-
-/// [MS-XLS] 2.4.21
+/// BOF [MS-XLS] 2.4.21
 fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
     let mut dt = 0;
     let biff_version = read_u16(&r.data[..2]);
-    r.data = &r.data[2..];
 
     if r.data.len() >= 2 {
-        dt = read_u16(r.data);
-        r.data = &r.data[2..];
+        dt = read_u16(&r.data[2..]);
     };
 
     let mut biff = match biff_version {
@@ -503,18 +488,17 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
         // BIFF2
         0x0200 | 0x0002 | 0x0007 => 2,
         _ => {
-            if r.data.len() > 6 {
-                return Err(XlsError::Unrecognized {
-                    typ: "Unexpected BIFF Ver",
-                    val: 0, // TODO: return biff version
+            if r.data[4..].len() > 6 {
+                return Err(XlsError::Len {
+                    typ: "BOF data length",
+                    expected: 6,
+                    found: r.data.len(),
                 });
             } else {
                 8
             }
         }
     };
-
-    let guess = biff_version == 0;
 
     if biff_version == 0 && dt == 0x1000 {
         biff = 5;
@@ -523,16 +507,7 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
         biff = 2;
     }
 
-    let bof = Bof {
-        biff,
-        dt,
-        biff_version,
-        guess,
-    };
-
-    r.data = &r.data[..r.data.len()];
-
-    Ok(bof)
+    Ok(Bof { biff })
 }
 
 /// BoundSheet8 [MS-XLS 2.4.28]
@@ -747,7 +722,7 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: u8) -> Result<String, Xl
     }
     let cch = read_u16(r) as usize;
 
-    let (high_byte, start) = if (biff >= 2 && biff <= 5) || biff >= 12 {
+    let (high_byte, start) = if (2..=5).contains(&biff) || biff >= 12 {
         (None, 2)
     } else {
         (Some(r[2] & 0x1 != 0), 3)
