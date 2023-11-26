@@ -261,7 +261,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xtis = Vec::new();
         let mut formats = BTreeMap::new();
         let mut xfs = Vec::new();
-        let mut biff = 8; // Binary Interchange File Format (BIFF) version
+        let mut biff = Biff::Biff8; // Binary Interchange File Format (BIFF) version
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
@@ -301,7 +301,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // RRTabId
                     0x0085 => {
-                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding, biff)?;
+                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding, &biff)?;
                         self.metadata.sheets.push(sheet.clone());
                         sheet_names.push((pos, sheet.name)); // BoundSheet8
                     }
@@ -393,11 +393,11 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
-                    0x0204 => cells.extend(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
-                    0x0205 => cells.push(parse_bool_err(r.data)?),                 // 517: BoolErr
+                    0x0204 => cells.extend(parse_label(r.data, &encoding, &biff)?), // 516: Label [MS-XLS 2.4.148]
+                    0x0205 => cells.push(parse_bool_err(r.data)?),                  // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
-                        let val = DataType::String(parse_string(r.data, &encoding, biff)?);
+                        let val = DataType::String(parse_string(r.data, &encoding, &biff)?);
                         cells.push(Cell::new(fmla_pos, val))
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
@@ -464,7 +464,18 @@ impl<RS: Read + Seek> Xls<RS> {
 /// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/4d6a3d1e-d7c5-405f-bbae-d01e9cb79366
 struct Bof {
     /// Binary Interchange File Format
-    biff: u8,
+    biff: Biff,
+}
+
+/// https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes
+enum Biff {
+    Biff2,
+    Biff3,
+    Biff4,
+    Biff5,
+    Biff8,
+    // Used by MS-XLSB Workbook(2.1.7.61) or Worksheet(2.1.7.61) which are not supported yet.
+    // Biff12,
 }
 
 /// BOF [MS-XLS] 2.4.21
@@ -472,40 +483,25 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
     let mut dt = 0;
     let biff_version = read_u16(&r.data[..2]);
 
-    if r.data.len() >= 2 {
+    if r.data.len() >= 4 {
         dt = read_u16(&r.data[2..]);
     };
 
-    let mut biff = match biff_version {
-        // BIFF8
-        0x0600 => 8,
-        // BIFF5
-        0x0500 => 5,
-        // BIFF4
-        0x0400 => 4,
-        // BIFF3
-        0x0300 => 3,
-        // BIFF2
-        0x0200 | 0x0002 | 0x0007 => 2,
-        _ => {
-            if r.data[4..].len() > 6 {
-                return Err(XlsError::Len {
-                    typ: "BOF data length",
-                    expected: 6,
-                    found: r.data.len(),
-                });
+    let biff = match biff_version {
+        0x0200 | 0x0002 | 0x0007 => Biff::Biff2,
+        0x0300 => Biff::Biff3,
+        0x0400 => Biff::Biff4,
+        0x0500 => Biff::Biff5,
+        0x0600 => Biff::Biff8,
+        0 => {
+            if dt == 0x1000 {
+                Biff::Biff5
             } else {
-                8
+                Biff::Biff8
             }
         }
+        _ => Biff::Biff8,
     };
-
-    if biff_version == 0 && dt == 0x1000 {
-        biff = 5;
-    }
-    if biff == 8 && biff_version == 0 && dt == 16 {
-        biff = 2;
-    }
 
     Ok(Bof { biff })
 }
@@ -514,7 +510,7 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
 fn parse_sheet_metadata(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
-    biff: u8,
+    biff: &Biff,
 ) -> Result<(usize, Sheet), XlsError> {
     let pos = read_u32(r.data) as usize;
     let visible = match r.data[4] & 0b0011_1111 {
@@ -687,7 +683,7 @@ fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> DataType {
 fn parse_short_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
-    biff: u8,
+    biff: &Biff,
 ) -> Result<String, XlsError> {
     if r.data.len() < 2 {
         return Err(XlsError::Len {
@@ -701,7 +697,7 @@ fn parse_short_string(
     r.data = &r.data[1..];
     let mut high_byte = None;
 
-    if biff == 8 {
+    if matches!(biff, Biff::Biff8) {
         high_byte = Some(r.data[0] & 0x1 != 0);
         r.data = &r.data[1..];
     }
@@ -712,7 +708,7 @@ fn parse_short_string(
 }
 
 /// XLUnicodeString [MS-XLS 2.5.294]
-fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: u8) -> Result<String, XlsError> {
+fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: &Biff) -> Result<String, XlsError> {
     if r.len() < 4 {
         return Err(XlsError::Len {
             typ: "string",
@@ -722,10 +718,9 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: u8) -> Result<String, Xl
     }
     let cch = read_u16(r) as usize;
 
-    let (high_byte, start) = if (2..=5).contains(&biff) || biff >= 12 {
-        (None, 2)
-    } else {
-        (Some(r[2] & 0x1 != 0), 3)
+    let (high_byte, start) = match biff {
+        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
+        _ => (Some(r[2] & 0x1 != 0), 3),
     };
 
     let mut s = String::with_capacity(cch);
@@ -736,7 +731,7 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: u8) -> Result<String, Xl
 fn parse_label(
     r: &[u8],
     encoding: &XlsEncoding,
-    biff: u8,
+    biff: &Biff,
 ) -> Result<Option<Cell<DataType>>, XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
