@@ -1488,3 +1488,18 @@ fn any_sheets_ods() {
         ]
     );
 }
+
+#[test]
+fn issue_102() {
+    setup();
+
+    let path = format!("{}/tests/pass_protected.xlsx", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xlsx<_>, std::string::String>(path),
+            Err(calamine::XlsxError::Password)
+        ),
+        "Is expeced to return XlsxError::Password error"
+    );
+}

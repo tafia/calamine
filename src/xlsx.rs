@@ -80,6 +80,8 @@ pub enum XlsxError {
     },
     /// Cell error
     CellError(String),
+    /// Workbook is password protected
+    Password,
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -127,6 +129,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::Unexpected(e) => write!(f, "{}", e),
             XlsxError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: {}", typ, val),
             XlsxError::CellError(e) => write!(f, "Unsupported cell error value '{}'", e),
+            XlsxError::Password => write!(f, "Workbook is password protected"),
         }
     }
 }
@@ -775,7 +778,9 @@ where
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     type Error = XlsxError;
 
-    fn new(reader: RS) -> Result<Self, XlsxError> {
+    fn new(mut reader: RS) -> Result<Self, XlsxError> {
+        check_for_password_protected(&mut reader)?;
+
         let mut xlsx = Xlsx {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
@@ -1268,6 +1273,19 @@ fn read_string(
             _ => (),
         }
     }
+}
+
+fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
+    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
+    reader.seek(std::io::SeekFrom::Start(0))?;
+
+    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
+        if cfb.has_directory("EncryptedPackage") {
+            return Err(XlsxError::Password);
+        }
+    };
+
+    Ok(())
 }
 
 #[test]
