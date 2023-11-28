@@ -301,7 +301,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // RRTabId
                     0x0085 => {
-                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding, &biff)?;
+                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding, biff)?;
                         self.metadata.sheets.push(sheet.clone());
                         sheet_names.push((pos, sheet.name)); // BoundSheet8
                     }
@@ -393,11 +393,11 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
-                    0x0204 => cells.extend(parse_label(r.data, &encoding, &biff)?), // 516: Label [MS-XLS 2.4.148]
-                    0x0205 => cells.push(parse_bool_err(r.data)?),                  // 517: BoolErr
+                    0x0204 => cells.extend(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
+                    0x0205 => cells.push(parse_bool_err(r.data)?),                 // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
-                        let val = DataType::String(parse_string(r.data, &encoding, &biff)?);
+                        let val = DataType::String(parse_string(r.data, &encoding, biff)?);
                         cells.push(Cell::new(fmla_pos, val))
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
@@ -468,6 +468,7 @@ struct Bof {
 }
 
 /// https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes
+#[derive(Clone, Copy)]
 enum Biff {
     Biff2,
     Biff3,
@@ -510,7 +511,7 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
 fn parse_sheet_metadata(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
-    biff: &Biff,
+    biff: Biff,
 ) -> Result<(usize, Sheet), XlsError> {
     let pos = read_u32(r.data) as usize;
     let visible = match r.data[4] & 0b0011_1111 {
@@ -683,7 +684,7 @@ fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> DataType {
 fn parse_short_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
-    biff: &Biff,
+    biff: Biff,
 ) -> Result<String, XlsError> {
     if r.data.len() < 2 {
         return Err(XlsError::Len {
@@ -708,7 +709,7 @@ fn parse_short_string(
 }
 
 /// XLUnicodeString [MS-XLS 2.5.294]
-fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: &Biff) -> Result<String, XlsError> {
+fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
     if r.len() < 4 {
         return Err(XlsError::Len {
             typ: "string",
@@ -731,7 +732,7 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: &Biff) -> Result<String,
 fn parse_label(
     r: &[u8],
     encoding: &XlsEncoding,
-    biff: &Biff,
+    biff: Biff,
 ) -> Result<Option<Cell<DataType>>, XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
