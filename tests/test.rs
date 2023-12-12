@@ -1488,6 +1488,7 @@ fn any_sheets_ods() {
         ]
     );
 }
+
 #[test]
 fn custom_date_xlsx() {
     use calamine::OsmosXlsxConfig;
