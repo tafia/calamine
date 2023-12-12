@@ -10,6 +10,13 @@
 
 ## Unreleased
 
+## 0.23.0
+
+- feat: add new `DataTypeRef` available from `worksheet_range_ref` to reduce memory usage
+- docs: add benchmark plot
+- fix: truncated text in xls
+- feat: detect if workbook is password protected
+
 ## 0.22.1
 
 - fix: regression on `Range::get`
