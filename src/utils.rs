@@ -15,7 +15,7 @@ macro_rules! from_err {
 /// Converts a &[u8] into an iterator of `u32`s
 pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
     assert_eq!(s.len() % 4, 0);
-    s.chunks_exact(4)
+    s.chunks(4)
         .map(|data| u32::from_le_bytes(data.try_into().unwrap()))
 }
 
@@ -32,6 +32,11 @@ pub fn read_i32(s: &[u8]) -> i32 {
 #[inline]
 pub fn read_u16(s: &[u8]) -> u16 {
     u16::from_le_bytes(s[..2].try_into().unwrap())
+}
+
+#[inline]
+pub fn read_i16(s: &[u8]) -> i16 {
+    i16::from_le_bytes(s[..2].try_into().unwrap())
 }
 
 #[inline]

@@ -74,10 +74,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let sheets = xl.sheet_names().to_owned();
 
     for s in sheets {
-        let range = xl
-            .worksheet_range(&s)
-            .unwrap()
-            .map_err(FileStatus::RangeError)?;
+        let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
             .flat_map(|r| {

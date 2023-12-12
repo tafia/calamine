@@ -15,7 +15,7 @@
 //! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
-//! if let Some(Ok(range)) = workbook.worksheet_range("Sheet1") {
+//! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
@@ -49,7 +49,6 @@
 //!     println!("found {} formula in '{}'",
 //!              workbook
 //!                 .worksheet_formula(&s)
-//!                 .expect("sheet not found")
 //!                 .expect("error while getting formula")
 //!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
 //!                 .count(),
@@ -64,6 +63,7 @@ mod utils;
 mod auto;
 mod cfb;
 mod datatype;
+mod formats;
 mod ods;
 mod xls;
 mod xlsb;
@@ -73,6 +73,7 @@ mod de;
 mod errors;
 pub mod vba;
 
+use datatype::DataTypeRef;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::cmp::{max, min};
@@ -131,15 +132,75 @@ impl fmt::Display for CellErrorType {
     }
 }
 
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
+pub(crate) struct Dimensions {
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+}
+
+impl Dimensions {
+    pub fn len(&self) -> u64 {
+        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+    }
+}
+
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
 /// in the Reader implementations
 #[derive(Debug, Default)]
 pub struct Metadata {
-    sheets: Vec<String>,
+    sheets: Vec<Sheet>,
     /// Map of sheet names/sheet path within zip archive
     names: Vec<(String, String)>,
+}
+
+/// Type of sheet
+///
+/// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/1edadf56-b5cd-4109-abe7-76651bbe2722
+/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 12.3.2, 12.3.7 and 12.3.24
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SheetType {
+    /// WorkSheet
+    WorkSheet,
+    /// DialogSheet
+    DialogSheet,
+    /// MacroSheet
+    MacroSheet,
+    /// ChartSheet
+    ChartSheet,
+    /// VBA module
+    Vba,
+}
+
+/// Type of visible sheet
+///
+/// http://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html#__RefHeading__1417896_253892949
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/74cb1d22-b931-4bf8-997d-17517e2416e9
+/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 18.18.68
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SheetVisible {
+    /// Visible
+    Visible,
+    /// Hidden
+    Hidden,
+    /// The sheet is hidden and cannot be displayed using the user interface. It is supported only by Excel formats.
+    VeryHidden,
+}
+
+/// Metadata of sheet
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sheet {
+    /// Name
+    pub name: String,
+    /// Type
+    /// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
+    pub typ: SheetType,
+    /// Visible
+    pub visible: SheetVisible,
 }
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
@@ -154,18 +215,21 @@ where
 
     /// Creates a new instance.
     fn new(reader: RS) -> Result<Self, Self::Error>;
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
+
     /// Initialize
     fn metadata(&self) -> &Metadata;
+
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>>;
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Self::Error>;
 
     /// Fetch all worksheet data & paths
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)>;
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
+    fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
     /// Get all sheet names of this workbook, in workbook order
     ///
@@ -177,7 +241,16 @@ where
     /// let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    fn sheet_names(&self) -> &[String] {
+    fn sheet_names(&self) -> Vec<String> {
+        self.metadata()
+            .sheets
+            .iter()
+            .map(|s| s.name.to_owned())
+            .collect()
+    }
+
+    /// Fetch all sheets metadata
+    fn sheets_metadata(&self) -> &[Sheet] {
         &self.metadata().sheets
     }
 
@@ -190,8 +263,12 @@ where
     /// sheet_name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
-        self.worksheet_range(&name)
+        Some(self.worksheet_range(&name))
     }
+
+    /// Get all pictures, tuple as (ext: String, data: Vec<u8>)
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
 }
 
 /// Convenient function to open a file with a BufReader<File>
@@ -217,6 +294,7 @@ where
 pub trait CellType: Default + Clone + PartialEq {}
 
 impl CellType for DataType {}
+impl<'a> CellType for DataTypeRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 
@@ -494,9 +572,18 @@ impl<T: CellType> Range<T> {
     }
 
     /// Get cell value from **relative position**.
+    ///
+    /// Unlike using the Index trait, this will not panic but rather yield `None` if out of range.
+    /// Otherwise, returns the cell value. The coordinate format is (row, column).
+    ///
     pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
         let (row, col) = relative_position;
-        self.inner.get(row * self.width() + col)
+        let (height, width) = self.get_size();
+        if col >= width || row >= height {
+            None
+        } else {
+            self.inner.get(row * width + col)
+        }
     }
 
     /// Get an iterator over inner rows
@@ -545,8 +632,7 @@ impl<T: CellType> Range<T> {
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {
@@ -761,18 +847,20 @@ pub struct Rows<'a, T: CellType> {
 impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     type Item = &'a [T];
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(|c| c.next())
+        self.inner.as_mut().and_then(std::iter::Iterator::next)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner
             .as_ref()
-            .map_or((0, Some(0)), |ch| ch.size_hint())
+            .map_or((0, Some(0)), std::iter::Iterator::size_hint)
     }
 }
 
 impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(|c| c.next_back())
+        self.inner
+            .as_mut()
+            .and_then(std::iter::DoubleEndedIterator::next_back)
     }
 }
 
