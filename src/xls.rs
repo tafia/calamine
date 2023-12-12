@@ -70,6 +70,8 @@ pub enum XlsError {
     /// Invalid OfficeArt Record
     #[cfg(feature = "picture")]
     Art(&'static str),
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, XlsError, Io);
@@ -79,11 +81,11 @@ from_err!(crate::vba::VbaError, XlsError, Vba);
 impl std::fmt::Display for XlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            XlsError::Io(e) => write!(f, "I/O error: {}", e),
-            XlsError::Cfb(e) => write!(f, "Cfb error: {}", e),
-            XlsError::Vba(e) => write!(f, "Vba error: {}", e),
+            XlsError::Io(e) => write!(f, "I/O error: {e}"),
+            XlsError::Cfb(e) => write!(f, "Cfb error: {e}"),
+            XlsError::Vba(e) => write!(f, "Vba error: {e}"),
             XlsError::StackLen => write!(f, "Invalid stack length"),
-            XlsError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: 0x{:0X}", typ, val),
+            XlsError::Unrecognized { typ, val } => write!(f, "Unrecognized {typ}: 0x{val:0X}"),
             XlsError::Password => write!(f, "Workbook is password protected"),
             XlsError::Len {
                 expected,
@@ -91,22 +93,22 @@ impl std::fmt::Display for XlsError {
                 typ,
             } => write!(
                 f,
-                "Invalid {} length, expected {} maximum, found {}",
-                typ, expected, found
+                "Invalid {typ} length, expected {expected} maximum, found {found}",
             ),
             XlsError::ContinueRecordTooShort => write!(
                 f,
                 "Continued record too short while reading extended string"
             ),
-            XlsError::EoStream(s) => write!(f, "End of stream '{}'", s),
+            XlsError::EoStream(s) => write!(f, "End of stream '{s}'"),
             XlsError::InvalidFormula { stack_size } => {
-                write!(f, "Invalid formula (stack size: {})", stack_size)
+                write!(f, "Invalid formula (stack size: {stack_size})")
             }
-            XlsError::IfTab(iftab) => write!(f, "Invalid iftab {:X}", iftab),
-            XlsError::Etpg(etpg) => write!(f, "Invalid etpg {:X}", etpg),
+            XlsError::IfTab(iftab) => write!(f, "Invalid iftab {iftab:X}"),
+            XlsError::Etpg(etpg) => write!(f, "Invalid etpg {etpg:X}"),
             XlsError::NoVba => write!(f, "No VBA project"),
             #[cfg(feature = "picture")]
-            XlsError::Art(s) => write!(f, "Invalid art record '{}'", s),
+            XlsError::Art(s) => write!(f, "Invalid art record '{s}'"),
+            XlsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -220,8 +222,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsError>> {
-        self.sheets.get(name).map(|r| Ok(r.0.clone()))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsError> {
+        self.sheets
+            .get(name)
+            .map(|r| r.0.clone())
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
@@ -231,8 +236,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .collect()
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.clone()))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.clone())
     }
 
     #[cfg(feature = "picture")]

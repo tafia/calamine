@@ -56,6 +56,8 @@ pub enum OdsError {
         /// Found
         found: String,
     },
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, OdsError, Io);
@@ -67,20 +69,21 @@ from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OdsError::Io(e) => write!(f, "I/O error: {}", e),
-            OdsError::Zip(e) => write!(f, "Zip error: {:?}", e),
-            OdsError::Xml(e) => write!(f, "Xml error: {}", e),
-            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
-            OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
-            OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
-            OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
-            OdsError::ParseBool(e) => write!(f, "Parse bool error: {}", e),
-            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {:?}", mime),
-            OdsError::FileNotFound(file) => write!(f, "'{}' file not found in archive", file),
-            OdsError::Eof(node) => write!(f, "Expecting '{}' node, found end of xml file", node),
+            OdsError::Io(e) => write!(f, "I/O error: {e}"),
+            OdsError::Zip(e) => write!(f, "Zip error: {e:?}"),
+            OdsError::Xml(e) => write!(f, "Xml error: {e}"),
+            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {e}"),
+            OdsError::Parse(e) => write!(f, "Parse string error: {e}"),
+            OdsError::ParseInt(e) => write!(f, "Parse integer error: {e}"),
+            OdsError::ParseFloat(e) => write!(f, "Parse float error: {e}"),
+            OdsError::ParseBool(e) => write!(f, "Parse bool error: {e}"),
+            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {mime:?}"),
+            OdsError::FileNotFound(file) => write!(f, "'{file}' file not found in archive"),
+            OdsError::Eof(node) => write!(f, "Expecting '{node}' node, found end of xml file"),
             OdsError::Mismatch { expected, found } => {
-                write!(f, "Expecting '{}', found '{}'", expected, found)
+                write!(f, "Expecting '{expected}', found '{found}'")
             }
+            OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -167,8 +170,11 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.0.to_owned()))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.0.to_owned())
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
@@ -179,8 +185,11 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.to_owned())
     }
 
     #[cfg(feature = "picture")]

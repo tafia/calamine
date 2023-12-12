@@ -360,6 +360,53 @@ where
     }
 }
 
+/// An enum to represent all different data types that can appear as
+/// a value in a worksheet cell
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum DataTypeRef<'a> {
+    /// Signed integer
+    Int(i64),
+    /// Float
+    Float(f64),
+    /// String
+    String(String),
+    /// Shared String
+    SharedString(&'a str),
+    /// Boolean
+    Bool(bool),
+    /// Date or Time
+    DateTime(f64),
+    /// Duration
+    Duration(f64),
+    /// Date, Time or DateTime in ISO 8601
+    DateTimeIso(String),
+    /// Duration in ISO 8601
+    DurationIso(String),
+    /// Error
+    Error(CellErrorType),
+    /// Empty cell
+    #[default]
+    Empty,
+}
+
+impl<'a> From<DataTypeRef<'a>> for DataType {
+    fn from(value: DataTypeRef<'a>) -> Self {
+        match value {
+            DataTypeRef::Int(v) => DataType::Int(v),
+            DataTypeRef::Float(v) => DataType::Float(v),
+            DataTypeRef::String(v) => DataType::String(v),
+            DataTypeRef::SharedString(v) => DataType::String(v.into()),
+            DataTypeRef::Bool(v) => DataType::Bool(v),
+            DataTypeRef::DateTime(v) => DataType::DateTime(v),
+            DataTypeRef::Duration(v) => DataType::Duration(v),
+            DataTypeRef::DateTimeIso(v) => DataType::DateTimeIso(v),
+            DataTypeRef::DurationIso(v) => DataType::DurationIso(v),
+            DataTypeRef::Error(v) => DataType::Error(v),
+            DataTypeRef::Empty => DataType::Empty,
+        }
+    }
+}
+
 #[cfg(all(test, feature = "dates"))]
 mod date_tests {
     use super::*;
