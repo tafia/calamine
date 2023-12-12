@@ -11,7 +11,7 @@ keywords = ["excel", "ods", "xls", "xlsx", "xlsb"]
 categories = ["encoding", "parsing", "text-processing"]
 exclude = ["tests/**/*"]
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.65"
 
 [dependencies]
 byteorder = "1.4"
@@ -20,7 +20,7 @@ encoding_rs = "0.8"
 log = "0.4"
 once_cell = { version = "1.18", optional = true }
 serde = "1.0"
-quick-xml = { version = "0.30", features = ["encoding"] }
+quick-xml = { version = "0.31", features = ["encoding"] }
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = [
     "serde",
