@@ -1488,3 +1488,23 @@ fn any_sheets_ods() {
         ]
     );
 }
+
+#[test]
+fn issue_374() {
+    let path = format!("{}/tests/biff5_write.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut workbook: Xls<_> = open_workbook(path).unwrap();
+
+    let first_sheet_name = workbook.sheet_names().first().unwrap().to_owned();
+
+    assert_eq!("SheetJS", first_sheet_name);
+
+    let range = workbook
+        .worksheet_range(&first_sheet_name)
+        .unwrap()
+        .unwrap();
+
+    let second_row = range.rows().nth(1).unwrap();
+    let cell_text = second_row.get(3).unwrap().to_string();
+
+    assert_eq!("sheetjs", cell_text);
+}
