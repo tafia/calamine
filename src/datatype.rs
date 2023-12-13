@@ -59,6 +59,26 @@ impl DataTypeTrait for DataType {
         matches!(*self, DataType::String(_))
     }
 
+    #[cfg(feature = "dates")]
+    fn is_duration(&self) -> bool {
+        matches!(*self, DataType::Duration(_))
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_duration_iso(&self) -> bool {
+        matches!(*self, DataType::DurationIso(_))
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_datetime(&self) -> bool {
+        matches!(*self, DataType::DateTime(_))
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_datetime_iso(&self) -> bool {
+        matches!(*self, DataType::DateTimeIso(_))
+    }
+
     fn get_int(&self) -> Option<i64> {
         if let DataType::Int(v) = self {
             Some(*v)
@@ -398,6 +418,26 @@ impl DataTypeTrait for DataTypeRef<'_> {
         matches!(*self, DataTypeRef::String(_) | DataTypeRef::SharedString(_))
     }
 
+    #[cfg(feature = "dates")]
+    fn is_duration(&self) -> bool {
+        matches!(*self, DataTypeRef::Duration(_))
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_duration_iso(&self) -> bool {
+        matches!(*self, DataTypeRef::DurationIso(_))
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_datetime(&self) -> bool {
+        matches!(*self, DataTypeRef::DateTime(_))
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_datetime_iso(&self) -> bool {
+        matches!(*self, DataTypeRef::DateTimeIso(_))
+    }
+
     fn get_int(&self) -> Option<i64> {
         if let DataTypeRef::Int(v) = self {
             Some(*v)
@@ -552,6 +592,22 @@ pub trait DataTypeTrait {
 
     /// Assess if datatype is a string
     fn is_string(&self) -> bool;
+
+    /// Assess if datatype is a duration
+    #[cfg(feature = "dates")]
+    fn is_duration(&self) -> bool;
+
+    /// Assess if datatype is an ISO8601 duration
+    #[cfg(feature = "dates")]
+    fn is_duration_iso(&self) -> bool;
+
+    /// Assess if datatype is a datetime
+    #[cfg(feature = "dates")]
+    fn is_datetime(&self) -> bool;
+
+    /// Assess if datatype is an ISO8601 datetime
+    #[cfg(feature = "dates")]
+    fn is_datetime_iso(&self) -> bool;
 
     /// Try getting int value
     fn get_int(&self) -> Option<i64>;
