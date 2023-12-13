@@ -16,7 +16,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{DataType, DataTypeTrait, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";

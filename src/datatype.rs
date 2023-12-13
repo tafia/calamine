@@ -40,54 +40,47 @@ pub enum DataType {
     Empty,
 }
 
-impl DataType {
-    /// Assess if datatype is empty
-    pub fn is_empty(&self) -> bool {
+/// An enum to represent all different data types that can appear as
+/// a value in a worksheet cell
+impl DataTypeTrait for DataType {
+    fn is_empty(&self) -> bool {
         *self == DataType::Empty
     }
-    /// Assess if datatype is a int
-    pub fn is_int(&self) -> bool {
+    fn is_int(&self) -> bool {
         matches!(*self, DataType::Int(_))
     }
-    /// Assess if datatype is a float
-    pub fn is_float(&self) -> bool {
+    fn is_float(&self) -> bool {
         matches!(*self, DataType::Float(_))
     }
-    /// Assess if datatype is a bool
-    pub fn is_bool(&self) -> bool {
+    fn is_bool(&self) -> bool {
         matches!(*self, DataType::Bool(_))
     }
-    /// Assess if datatype is a string
-    pub fn is_string(&self) -> bool {
+    fn is_string(&self) -> bool {
         matches!(*self, DataType::String(_))
     }
 
-    /// Try getting int value
-    pub fn get_int(&self) -> Option<i64> {
+    fn get_int(&self) -> Option<i64> {
         if let DataType::Int(v) = self {
             Some(*v)
         } else {
             None
         }
     }
-    /// Try getting float value
-    pub fn get_float(&self) -> Option<f64> {
+    fn get_float(&self) -> Option<f64> {
         if let DataType::Float(v) = self {
             Some(*v)
         } else {
             None
         }
     }
-    /// Try getting bool value
-    pub fn get_bool(&self) -> Option<bool> {
+    fn get_bool(&self) -> Option<bool> {
         if let DataType::Bool(v) = self {
             Some(*v)
         } else {
             None
         }
     }
-    /// Try getting string value
-    pub fn get_string(&self) -> Option<&str> {
+    fn get_string(&self) -> Option<&str> {
         if let DataType::String(v) = self {
             Some(&**v)
         } else {
@@ -95,8 +88,7 @@ impl DataType {
         }
     }
 
-    /// Try converting data type into a string
-    pub fn as_string(&self) -> Option<String> {
+    fn as_string(&self) -> Option<String> {
         match self {
             DataType::Float(v) => Some(v.to_string()),
             DataType::Int(v) => Some(v.to_string()),
@@ -104,8 +96,8 @@ impl DataType {
             _ => None,
         }
     }
-    /// Try converting data type into an int
-    pub fn as_i64(&self) -> Option<i64> {
+
+    fn as_i64(&self) -> Option<i64> {
         match self {
             DataType::Int(v) => Some(*v),
             DataType::Float(v) => Some(*v as i64),
@@ -113,8 +105,8 @@ impl DataType {
             _ => None,
         }
     }
-    /// Try converting data type into a float
-    pub fn as_f64(&self) -> Option<f64> {
+
+    fn as_f64(&self) -> Option<f64> {
         match self {
             DataType::Int(v) => Some(*v as f64),
             DataType::Float(v) => Some(*v),
@@ -122,9 +114,8 @@ impl DataType {
             _ => None,
         }
     }
-    /// Try converting data type into a date
     #[cfg(feature = "dates")]
-    pub fn as_date(&self) -> Option<chrono::NaiveDate> {
+    fn as_date(&self) -> Option<chrono::NaiveDate> {
         use std::str::FromStr;
         match self {
             DataType::DateTimeIso(s) => self
@@ -135,9 +126,8 @@ impl DataType {
         }
     }
 
-    /// Try converting data type into a time
     #[cfg(feature = "dates")]
-    pub fn as_time(&self) -> Option<chrono::NaiveTime> {
+    fn as_time(&self) -> Option<chrono::NaiveTime> {
         use std::str::FromStr;
         match self {
             DataType::DateTimeIso(s) => self
@@ -149,9 +139,8 @@ impl DataType {
         }
     }
 
-    /// Try converting data type into a duration
     #[cfg(feature = "dates")]
-    pub fn as_duration(&self) -> Option<chrono::Duration> {
+    fn as_duration(&self) -> Option<chrono::Duration> {
         use chrono::Timelike;
 
         match self {
@@ -170,9 +159,8 @@ impl DataType {
         }
     }
 
-    /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
-    pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+    fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
         use std::str::FromStr;
 
         match self {
@@ -389,54 +377,52 @@ pub enum DataTypeRef<'a> {
     Empty,
 }
 
-impl DataTypeRef<'_> {
-    /// Assess if datatype is empty
-    pub fn is_empty(&self) -> bool {
+impl DataTypeTrait for DataTypeRef<'_> {
+    fn is_empty(&self) -> bool {
         *self == DataTypeRef::Empty
     }
-    /// Assess if datatype is a int
-    pub fn is_int(&self) -> bool {
+
+    fn is_int(&self) -> bool {
         matches!(*self, DataTypeRef::Int(_))
     }
-    /// Assess if datatype is a float
-    pub fn is_float(&self) -> bool {
+
+    fn is_float(&self) -> bool {
         matches!(*self, DataTypeRef::Float(_))
     }
-    /// Assess if datatype is a bool
-    pub fn is_bool(&self) -> bool {
+
+    fn is_bool(&self) -> bool {
         matches!(*self, DataTypeRef::Bool(_))
     }
-    /// Assess if datatype is a string
-    pub fn is_string(&self) -> bool {
+
+    fn is_string(&self) -> bool {
         matches!(*self, DataTypeRef::String(_) | DataTypeRef::SharedString(_))
     }
 
-    /// Try getting int value
-    pub fn get_int(&self) -> Option<i64> {
+    fn get_int(&self) -> Option<i64> {
         if let DataTypeRef::Int(v) = self {
             Some(*v)
         } else {
             None
         }
     }
-    /// Try getting float value
-    pub fn get_float(&self) -> Option<f64> {
+
+    fn get_float(&self) -> Option<f64> {
         if let DataTypeRef::Float(v) = self {
             Some(*v)
         } else {
             None
         }
     }
-    /// Try getting bool value
-    pub fn get_bool(&self) -> Option<bool> {
+
+    fn get_bool(&self) -> Option<bool> {
         if let DataTypeRef::Bool(v) = self {
             Some(*v)
         } else {
             None
         }
     }
-    /// Try getting string value
-    pub fn get_string(&self) -> Option<&str> {
+
+    fn get_string(&self) -> Option<&str> {
         match self {
             DataTypeRef::String(v) => Some(&**v),
             DataTypeRef::SharedString(v) => Some(v),
@@ -444,8 +430,7 @@ impl DataTypeRef<'_> {
         }
     }
 
-    /// Try converting data type into a string
-    pub fn as_string(&self) -> Option<String> {
+    fn as_string(&self) -> Option<String> {
         match self {
             DataTypeRef::Float(v) => Some(v.to_string()),
             DataTypeRef::Int(v) => Some(v.to_string()),
@@ -454,8 +439,8 @@ impl DataTypeRef<'_> {
             _ => None,
         }
     }
-    /// Try converting data type into an int
-    pub fn as_i64(&self) -> Option<i64> {
+
+    fn as_i64(&self) -> Option<i64> {
         match self {
             DataTypeRef::Int(v) => Some(*v),
             DataTypeRef::Float(v) => Some(*v as i64),
@@ -464,8 +449,8 @@ impl DataTypeRef<'_> {
             _ => None,
         }
     }
-    /// Try converting data type into a float
-    pub fn as_f64(&self) -> Option<f64> {
+
+    fn as_f64(&self) -> Option<f64> {
         match self {
             DataTypeRef::Int(v) => Some(*v as f64),
             DataTypeRef::Float(v) => Some(*v),
@@ -474,9 +459,9 @@ impl DataTypeRef<'_> {
             _ => None,
         }
     }
-    /// Try converting data type into a date
+
     #[cfg(feature = "dates")]
-    pub fn as_date(&self) -> Option<chrono::NaiveDate> {
+    fn as_date(&self) -> Option<chrono::NaiveDate> {
         use std::str::FromStr;
         match self {
             DataTypeRef::DateTimeIso(s) => self
@@ -487,9 +472,8 @@ impl DataTypeRef<'_> {
         }
     }
 
-    /// Try converting data type into a time
     #[cfg(feature = "dates")]
-    pub fn as_time(&self) -> Option<chrono::NaiveTime> {
+    fn as_time(&self) -> Option<chrono::NaiveTime> {
         use std::str::FromStr;
         match self {
             DataTypeRef::DateTimeIso(s) => self
@@ -503,9 +487,8 @@ impl DataTypeRef<'_> {
         }
     }
 
-    /// Try converting data type into a duration
     #[cfg(feature = "dates")]
-    pub fn as_duration(&self) -> Option<chrono::Duration> {
+    fn as_duration(&self) -> Option<chrono::Duration> {
         use chrono::Timelike;
 
         match self {
@@ -524,9 +507,8 @@ impl DataTypeRef<'_> {
         }
     }
 
-    /// Try converting data type into a datetime
     #[cfg(feature = "dates")]
-    pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+    fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
         use std::str::FromStr;
 
         match self {
@@ -551,6 +533,62 @@ impl DataTypeRef<'_> {
             _ => None,
         }
     }
+}
+
+/// A trait to represent all different data types that can appear as
+/// a value in a worksheet cell
+pub trait DataTypeTrait {
+    /// Assess if datatype is empty
+    fn is_empty(&self) -> bool;
+
+    /// Assess if datatype is a int
+    fn is_int(&self) -> bool;
+
+    /// Assess if datatype is a float
+    fn is_float(&self) -> bool;
+
+    /// Assess if datatype is a bool
+    fn is_bool(&self) -> bool;
+
+    /// Assess if datatype is a string
+    fn is_string(&self) -> bool;
+
+    /// Try getting int value
+    fn get_int(&self) -> Option<i64>;
+
+    /// Try getting float value
+    fn get_float(&self) -> Option<f64>;
+
+    /// Try getting bool value
+    fn get_bool(&self) -> Option<bool>;
+
+    /// Try getting string value
+    fn get_string(&self) -> Option<&str>;
+
+    /// Try converting data type into a string
+    fn as_string(&self) -> Option<String>;
+
+    /// Try converting data type into an int
+    fn as_i64(&self) -> Option<i64>;
+
+    /// Try converting data type into a float
+    fn as_f64(&self) -> Option<f64>;
+
+    /// Try converting data type into a date
+    #[cfg(feature = "dates")]
+    fn as_date(&self) -> Option<chrono::NaiveDate>;
+
+    /// Try converting data type into a time
+    #[cfg(feature = "dates")]
+    fn as_time(&self) -> Option<chrono::NaiveTime>;
+
+    /// Try converting data type into a duration
+    #[cfg(feature = "dates")]
+    fn as_duration(&self) -> Option<chrono::Duration>;
+
+    /// Try converting data type into a datetime
+    #[cfg(feature = "dates")]
+    fn as_datetime(&self) -> Option<chrono::NaiveDateTime>;
 }
 
 impl<'a> From<DataTypeRef<'a>> for DataType {
