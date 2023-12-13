@@ -389,6 +389,170 @@ pub enum DataTypeRef<'a> {
     Empty,
 }
 
+impl DataTypeRef<'_> {
+    /// Assess if datatype is empty
+    pub fn is_empty(&self) -> bool {
+        *self == DataTypeRef::Empty
+    }
+    /// Assess if datatype is a int
+    pub fn is_int(&self) -> bool {
+        matches!(*self, DataTypeRef::Int(_))
+    }
+    /// Assess if datatype is a float
+    pub fn is_float(&self) -> bool {
+        matches!(*self, DataTypeRef::Float(_))
+    }
+    /// Assess if datatype is a bool
+    pub fn is_bool(&self) -> bool {
+        matches!(*self, DataTypeRef::Bool(_))
+    }
+    /// Assess if datatype is a string
+    pub fn is_string(&self) -> bool {
+        matches!(*self, DataTypeRef::String(_) | DataTypeRef::SharedString(_))
+    }
+
+    /// Try getting int value
+    pub fn get_int(&self) -> Option<i64> {
+        if let DataTypeRef::Int(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting float value
+    pub fn get_float(&self) -> Option<f64> {
+        if let DataTypeRef::Float(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting bool value
+    pub fn get_bool(&self) -> Option<bool> {
+        if let DataTypeRef::Bool(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Try getting string value
+    pub fn get_string(&self) -> Option<&str> {
+        match self {
+            DataTypeRef::String(v) => Some(&**v),
+            DataTypeRef::SharedString(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Try converting data type into a string
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            DataTypeRef::Float(v) => Some(v.to_string()),
+            DataTypeRef::Int(v) => Some(v.to_string()),
+            DataTypeRef::String(v) => Some(v.clone()),
+            DataTypeRef::SharedString(v) => Some(v.to_string()),
+            _ => None,
+        }
+    }
+    /// Try converting data type into an int
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            DataTypeRef::Int(v) => Some(*v),
+            DataTypeRef::Float(v) => Some(*v as i64),
+            DataTypeRef::String(v) => v.parse::<i64>().ok(),
+            DataTypeRef::SharedString(v) => v.parse::<i64>().ok(),
+            _ => None,
+        }
+    }
+    /// Try converting data type into a float
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            DataTypeRef::Int(v) => Some(*v as f64),
+            DataTypeRef::Float(v) => Some(*v),
+            DataTypeRef::String(v) => v.parse::<f64>().ok(),
+            DataTypeRef::SharedString(v) => v.parse::<f64>().ok(),
+            _ => None,
+        }
+    }
+    /// Try converting data type into a date
+    #[cfg(feature = "dates")]
+    pub fn as_date(&self) -> Option<chrono::NaiveDate> {
+        use std::str::FromStr;
+        match self {
+            DataTypeRef::DateTimeIso(s) => self
+                .as_datetime()
+                .map(|dt| dt.date())
+                .or_else(|| chrono::NaiveDate::from_str(s).ok()),
+            _ => self.as_datetime().map(|dt| dt.date()),
+        }
+    }
+
+    /// Try converting data type into a time
+    #[cfg(feature = "dates")]
+    pub fn as_time(&self) -> Option<chrono::NaiveTime> {
+        use std::str::FromStr;
+        match self {
+            DataTypeRef::DateTimeIso(s) => self
+                .as_datetime()
+                .map(|dt| dt.time())
+                .or_else(|| chrono::NaiveTime::from_str(s).ok()),
+            DataTypeRef::DurationIso(s) => {
+                chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%S%.fS").ok()
+            }
+            _ => self.as_datetime().map(|dt| dt.time()),
+        }
+    }
+
+    /// Try converting data type into a duration
+    #[cfg(feature = "dates")]
+    pub fn as_duration(&self) -> Option<chrono::Duration> {
+        use chrono::Timelike;
+
+        match self {
+            DataTypeRef::Duration(days) => {
+                let ms = days * MS_MULTIPLIER;
+                Some(chrono::Duration::milliseconds(ms.round() as i64))
+            }
+            // need replace in the future to smth like chrono::Duration::from_str()
+            // https://github.com/chronotope/chrono/issues/579
+            DataTypeRef::DurationIso(_) => self.as_time().map(|t| {
+                chrono::Duration::nanoseconds(
+                    t.num_seconds_from_midnight() as i64 * 1_000_000_000 + t.nanosecond() as i64,
+                )
+            }),
+            _ => None,
+        }
+    }
+
+    /// Try converting data type into a datetime
+    #[cfg(feature = "dates")]
+    pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+        use std::str::FromStr;
+
+        match self {
+            DataTypeRef::Int(x) => {
+                let days = x - 25569;
+                let secs = days * 86400;
+                chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
+            }
+            DataTypeRef::Float(f) | DataTypeRef::DateTime(f) => {
+                let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
+                    chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap()
+                });
+                let f = if *f >= 60.0 { *f } else { *f + 1.0 };
+                let ms = f * MS_MULTIPLIER;
+                let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
+                excel_epoch.checked_add_signed(excel_duration)
+            }
+            DataTypeRef::DateTimeIso(s) => chrono::NaiveDateTime::from_str(s).ok(),
+            _ => None,
+        }
+    }
+}
+
 impl<'a> From<DataTypeRef<'a>> for DataType {
     fn from(value: DataTypeRef<'a>) -> Self {
         match value {
