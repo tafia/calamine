@@ -64,6 +64,7 @@ mod utils;
 mod auto;
 mod cfb;
 mod datatype;
+mod formats;
 mod ods;
 mod xls;
 mod xlsb;
@@ -137,9 +138,57 @@ impl fmt::Display for CellErrorType {
 /// in the Reader implementations
 #[derive(Debug, Default)]
 pub struct Metadata {
-    sheets: Vec<String>,
+    sheets: Vec<Sheet>,
     /// Map of sheet names/sheet path within zip archive
     names: Vec<(String, String)>,
+}
+
+/// Type of sheet
+///
+/// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/1edadf56-b5cd-4109-abe7-76651bbe2722
+/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 12.3.2, 12.3.7 and 12.3.24
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SheetType {
+    /// WorkSheet
+    WorkSheet,
+    /// DialogSheet
+    DialogSheet,
+    /// MacroSheet
+    MacroSheet,
+    /// ChartSheet
+    ChartSheet,
+    /// VBA module
+    Vba,
+}
+
+/// Type of visible sheet
+///
+/// http://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html#__RefHeading__1417896_253892949
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/74cb1d22-b931-4bf8-997d-17517e2416e9
+/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 18.18.68
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SheetVisible {
+    /// Visible
+    Visible,
+    /// Hidden
+    Hidden,
+    /// The sheet is hidden and cannot be displayed using the user interface. It is supported only by Excel formats.
+    VeryHidden,
+}
+
+/// Metadata of sheet
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sheet {
+    /// Name
+    pub name: String,
+    /// Type
+    /// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
+    pub typ: SheetType,
+    /// Visible
+    pub visible: SheetVisible,
 }
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
@@ -177,7 +226,16 @@ where
     /// let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
-    fn sheet_names(&self) -> &[String] {
+    fn sheet_names(&self) -> Vec<String> {
+        self.metadata()
+            .sheets
+            .iter()
+            .map(|s| s.name.to_owned())
+            .collect()
+    }
+
+    /// Fetch all sheets metadata
+    fn sheets_metadata(&self) -> &[Sheet] {
         &self.metadata().sheets
     }
 
@@ -192,6 +250,10 @@ where
         let name = self.sheet_names().get(n)?.to_string();
         self.worksheet_range(&name)
     }
+
+    /// Get all pictures, tuple as (ext: String, data: Vec<u8>)
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
 }
 
 /// Convenient function to open a file with a BufReader<File>
@@ -494,9 +556,18 @@ impl<T: CellType> Range<T> {
     }
 
     /// Get cell value from **relative position**.
+    ///
+    /// Unlike using the Index trait, this will not panic but rather yield `None` if out of range.
+    /// Otherwise, returns the cell value. The coordinate format is (row, column).
+    ///
     pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
         let (row, col) = relative_position;
-        self.inner.get(row * self.width() + col)
+        let (height, width) = self.get_size();
+        if col >= width || row >= height {
+            None
+        } else {
+            self.inner.get(row * width + col)
+        }
     }
 
     /// Get an iterator over inner rows
@@ -761,18 +832,20 @@ pub struct Rows<'a, T: CellType> {
 impl<'a, T: 'a + CellType> Iterator for Rows<'a, T> {
     type Item = &'a [T];
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(|c| c.next())
+        self.inner.as_mut().and_then(std::iter::Iterator::next)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner
             .as_ref()
-            .map_or((0, Some(0)), |ch| ch.size_hint())
+            .map_or((0, Some(0)), std::iter::Iterator::size_hint)
     }
 }
 
 impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.as_mut().and_then(|c| c.next_back())
+        self.inner
+            .as_mut()
+            .and_then(std::iter::DoubleEndedIterator::next_back)
     }
 }
 

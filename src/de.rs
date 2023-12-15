@@ -392,10 +392,10 @@ where
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        if !self.has_headers() {
-            visitor.visit_seq(self)
-        } else {
+        if self.has_headers() {
             visitor.visit_map(self)
+        } else {
+            visitor.visit_seq(self)
         }
     }
 
@@ -405,10 +405,10 @@ where
         _cells: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        if !self.has_headers() {
-            visitor.visit_seq(self)
-        } else {
+        if self.has_headers() {
             visitor.visit_map(self)
+        } else {
+            visitor.visit_seq(self)
         }
     }
 
@@ -512,11 +512,7 @@ impl<'a> ToCellDeserializer<'a> for DataType {
 
     #[inline]
     fn is_empty(&self) -> bool {
-        if let DataType::Empty = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, DataType::Empty)
     }
 }
 
@@ -569,6 +565,9 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
             DataType::Int(v) => visitor.visit_i64(*v),
             DataType::Empty => visitor.visit_unit(),
             DataType::DateTime(v) => visitor.visit_f64(*v),
+            DataType::Duration(v) => visitor.visit_f64(*v),
+            DataType::DateTimeIso(v) => visitor.visit_str(v),
+            DataType::DurationIso(v) => visitor.visit_str(v),
             DataType::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
@@ -587,6 +586,9 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
             DataType::Int(v) => visitor.visit_str(&v.to_string()),
             DataType::Bool(v) => visitor.visit_str(&v.to_string()),
             DataType::DateTime(v) => visitor.visit_str(&v.to_string()),
+            DataType::Duration(v) => visitor.visit_str(&v.to_string()),
+            DataType::DateTimeIso(v) => visitor.visit_str(v),
+            DataType::DurationIso(v) => visitor.visit_str(v),
             DataType::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
@@ -638,6 +640,9 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
             DataType::Float(v) => visitor.visit_bool(*v != 0.),
             DataType::Int(v) => visitor.visit_bool(*v != 0),
             DataType::DateTime(v) => visitor.visit_bool(*v != 0.),
+            DataType::Duration(v) => visitor.visit_bool(*v != 0.),
+            DataType::DateTimeIso(_) => visitor.visit_bool(true),
+            DataType::DurationIso(_) => visitor.visit_bool(true),
             DataType::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,

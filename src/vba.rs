@@ -4,12 +4,11 @@
 //! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::collections::BTreeMap;
-use std::convert::TryInto;
 use std::io::Read;
 use std::path::PathBuf;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::{debug, warn, Level};
+use tracing::{debug, warn};
 
 use crate::cfb::{Cfb, XlsEncoding};
 use crate::utils::read_u16;
@@ -95,7 +94,7 @@ impl VbaProject {
     pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
-        let stream = crate::cfb::decompress_stream(&*stream)?;
+        let stream = crate::cfb::decompress_stream(&stream)?;
         let stream = &mut &*stream;
 
         // read dir information record (not used)
@@ -160,7 +159,7 @@ impl VbaProject {
     pub fn get_module(&self, name: &str) -> Result<String, VbaError> {
         debug!("read module {}", name);
         let data = self.get_module_raw(name)?;
-        Ok(self.encoding.decode_all(data, None))
+        Ok(self.encoding.decode_all(data))
     }
 
     /// Reads module content (MBCS encoded) and output it as-is (binary output)
@@ -216,7 +215,7 @@ impl Reference {
                         references.push(reference);
                     }
                     let name = read_variable_record(stream, 1)?;
-                    let name = encoding.decode_all(name, None);
+                    let name = encoding.decode_all(name);
                     reference = Reference {
                         name: name.clone(),
                         description: name,
@@ -264,9 +263,9 @@ impl Reference {
                     *stream = &stream[4..];
                     let absolute = read_variable_record(stream, 1)?; // project libid absolute
                     {
-                        let absolute = encoding.decode_all(absolute, None);
-                        reference.path = if absolute.starts_with("*\\C") {
-                            absolute[3..].into()
+                        let absolute = encoding.decode_all(absolute);
+                        reference.path = if let Some(stripped) = absolute.strip_prefix("*\\C") {
+                            stripped.into()
                         } else {
                             absolute.into()
                         };
@@ -292,7 +291,7 @@ impl Reference {
         if libid.is_empty() || libid.ends_with(b"##") {
             return Ok(());
         }
-        let libid = encoding.decode_all(libid, None);
+        let libid = encoding.decode_all(libid);
         let mut parts = libid.rsplit('#');
         match (parts.next(), parts.next()) {
             (Some(desc), Some(path)) => {
@@ -327,10 +326,8 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
     // PROJECTSYSKIND
     *stream = &stream[10..];
 
-    // PROJECTCOMPATVERSION is an optional field with a length of 10 bytes
-    // | id (2 bytes) | size (4 bytes) | version (4 bytes) |
-    if 0x004A == read_u16(&stream[0..2]) {
-        debug!("file contains a PROJECTCOMPATVERSION");
+    // PROJECTCOMPATVERSION (optional)
+    if read_u16(&stream[0..2]) == 0x004A {
         *stream = &stream[10..];
     }
 
@@ -374,12 +371,12 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
     for _ in 0..module_len {
         // name
         let name = check_variable_record(0x0019, stream)?;
-        let name = encoding.decode_all(name, None);
+        let name = encoding.decode_all(name);
 
         check_variable_record(0x0047, stream)?; // unicode
 
         let stream_name = check_variable_record(0x001A, stream)?; // stream name
-        let stream_name = encoding.decode_all(stream_name, None);
+        let stream_name = encoding.decode_all(stream_name);
 
         check_variable_record(0x0032, stream)?; // stream name unicode
         check_variable_record(0x001C, stream)?; // doc string

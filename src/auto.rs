@@ -31,12 +31,12 @@ where
 {
     let path = path.as_ref();
     Ok(match path.extension().and_then(|e| e.to_str()) {
-        Some("xls") | Some("xla") => Sheets::Xls(open_workbook(&path).map_err(Error::Xls)?),
+        Some("xls") | Some("xla") => Sheets::Xls(open_workbook(path).map_err(Error::Xls)?),
         Some("xlsx") | Some("xlsm") | Some("xlam") => {
-            Sheets::Xlsx(open_workbook(&path).map_err(Error::Xlsx)?)
+            Sheets::Xlsx(open_workbook(path).map_err(Error::Xlsx)?)
         }
-        Some("xlsb") => Sheets::Xlsb(open_workbook(&path).map_err(Error::Xlsb)?),
-        Some("ods") => Sheets::Ods(open_workbook(&path).map_err(Error::Ods)?),
+        Some("xlsb") => Sheets::Xlsb(open_workbook(path).map_err(Error::Xlsb)?),
+        Some("ods") => Sheets::Ods(open_workbook(path).map_err(Error::Ods)?),
         _ => {
             if let Ok(ret) = open_workbook::<Xls<_>, _>(path) {
                 return Ok(Sheets::Xls(ret));
@@ -55,7 +55,7 @@ where
 
 /// Opens a workbook from the given bytes.
 ///
-/// Whenever possible use the statically known `open_workbook_from_bytes` function instead
+/// Whenever possible use the statically known `open_workbook_from_rs` function instead
 pub fn open_workbook_auto_from_rs<RS>(data: RS) -> Result<Sheets<RS>, Error>
 where
     RS: std::io::Read + std::io::Seek + Clone,
@@ -66,7 +66,7 @@ where
         return Ok(Sheets::Xlsx(ret));
     } else if let Ok(ret) = open_workbook_from_rs::<Xlsb<RS>, RS>(data.clone()) {
         return Ok(Sheets::Xlsb(ret));
-    } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data.clone()) {
+    } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data) {
         return Ok(Sheets::Ods(ret));
     } else {
         return Err(Error::Msg("Cannot detect file format"));
@@ -130,6 +130,16 @@ where
             Sheets::Xlsx(ref mut e) => e.worksheets(),
             Sheets::Xlsb(ref mut e) => e.worksheets(),
             Sheets::Ods(ref mut e) => e.worksheets(),
+        }
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        match *self {
+            Sheets::Xls(ref e) => e.pictures(),
+            Sheets::Xlsx(ref e) => e.pictures(),
+            Sheets::Xlsb(ref e) => e.pictures(),
+            Sheets::Ods(ref e) => e.pictures(),
         }
     }
 }

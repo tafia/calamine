@@ -10,6 +10,54 @@
 
 ## Unreleased
 
+## 0.22.1
+
+- fix: regression on `Range::get`
+- chore: update GitHub actions
+- fix: spelling of formula error type
+- feat: support label cells for xls
+- refactor: clippy
+- perf: preallocate several buffers
+
+## 0.22.0
+
+- docs: improve `de_opt_f64` example.
+- docs: remove datetime notice from README
+- feat: add support of sheet type and visibility
+- style: clippy
+- chore: bump MSRV to 1.63 (breaking)
+- chore: set edition to 2021
+- feat: implement blank string handling
+
+## 0.21.2:
+
+- fix: formula with string not displaying properly
+
+## 0.21.1
+
+- chore: bump MSRv to 1.60.0 due to log dependencies
+- fix: xls: formula values ignored
+- fix: xls: formula (string) not displayed properly
+
+## 0.21.0
+
+- fix: (xlsx) support `r` attribute
+- fix: support `PROJECTCOMPATVERSION` in vba
+- fix: incorrect date parsing due to excel bug
+- feat: support for duration
+- test: add MSRV
+
+## 0.20.0
+
+- refactor: bump dependencies
+- feat: __(all) parse format/style information to infer cell as datetime__
+- feat: (ods) support number-columns-repeated attribute
+- refactor: multiple clippy refactorings
+
+## 0.19.2
+
+- feat: Extract picture data by turning `picture` feature on
+
 ## 0.19.1
 
 - fix: wrong range len calculation
@@ -48,7 +96,7 @@
 - docs: add `deserialize_with` example in readme
 - fix: Skip phonetic run
 - fix: Fix XLS float parsing error
-- docs: Correct MBSC to MBCS in vba.rs (mispelled before)
+- docs: Correct MBSC to MBCS in vba.rs (misspelled before)
 - style: use 2018 edition paths
 - fix: Add the ability to read formula values from XLSB
 - fix: support integral date types
