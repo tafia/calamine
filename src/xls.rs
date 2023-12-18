@@ -280,7 +280,8 @@ impl<RS: Read + Seek> Xls<RS> {
             for record in records {
                 let mut r = record?;
                 match r.typ {
-                    0x0012 if read_u16(r.data) != 0 => return Err(XlsError::Password),
+                    // 2.4.117 FilePass
+                    0x002F if read_u16(r.data) != 0 => return Err(XlsError::Password),
                     // CodePage
                     0x0042 => {
                         if self.options.force_codepage.is_none() {

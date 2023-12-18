@@ -1514,3 +1514,16 @@ fn issue_374() {
 
     assert_eq!("sheetjs", cell_text);
 }
+
+#[test]
+fn issue_385() {
+    let path = format!("{}/tests/issue_385.xls", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xls<_>, std::string::String>(path),
+            Err(calamine::XlsError::Password)
+        ),
+        "Is expeced to return XlsError::Password error"
+    );
+}
