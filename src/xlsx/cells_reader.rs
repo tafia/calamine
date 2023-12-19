@@ -176,7 +176,7 @@ impl<'a> XlsxCellReader<'a> {
                         }
                     }
                     self.col_index += 1;
-                    return Ok(value.map(|value| Cell::new(pos, value)));
+                    return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
                 }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);

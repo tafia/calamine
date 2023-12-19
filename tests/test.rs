@@ -1527,3 +1527,41 @@ fn issue_385() {
         "Is expeced to return XlsError::Password error"
     );
 }
+
+#[test]
+fn issue_384_multiple_formula() {
+    let path = format!("{}/tests/formula.issue.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
+
+    // first check values
+    let range = workbook.worksheet_range("Sheet1").unwrap();
+    let expected = [
+        (0, 0, DataType::Float(23.)),
+        (0, 2, DataType::Float(23.)),
+        (12, 6, DataType::Float(2.)),
+        (13, 9, DataType::String("US".into())),
+    ];
+    let expected = expected
+        .iter()
+        .map(|(r, c, v)| (*r, *c, v))
+        .collect::<Vec<_>>();
+    assert_eq!(range.used_cells().collect::<Vec<_>>(), expected);
+
+    // check formula
+    let formula = workbook.worksheet_formula("Sheet1").unwrap();
+    let formula = formula
+        .used_cells()
+        .map(|(r, c, v)| (r, c, v.as_str()))
+        .collect::<Vec<_>>();
+    let expected = [
+        (0, 0, "C1+E5"),
+        // (0, 2, DataType::Float(23.)),
+        (12, 6, "SUM(1+1)"),
+        (
+            13,
+            9,
+            "IF(OR(Q22=\"\",Q22=\"United States\"),\"US\",\"Foreign\")",
+        ),
+    ];
+    assert_eq!(formula, expected)
+}
