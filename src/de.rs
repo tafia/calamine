@@ -560,7 +560,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
             Data::Bool(v) => visitor.visit_bool(*v),
             Data::Int(v) => visitor.visit_i64(*v),
             Data::Empty => visitor.visit_unit(),
-            Data::DateTime(v) => visitor.visit_f64(v.as_f64()),
+            Data::DateTime(v) => visitor.visit_f64(v.as_float()),
             Data::DateTimeIso(v) => visitor.visit_str(v),
             Data::DurationIso(v) => visitor.visit_str(v),
             Data::Error(ref err) => Err(DeError::CellError {
@@ -633,7 +633,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
             Data::Empty => visitor.visit_bool(false),
             Data::Float(v) => visitor.visit_bool(*v != 0.),
             Data::Int(v) => visitor.visit_bool(*v != 0),
-            Data::DateTime(v) => visitor.visit_bool(v.as_f64() != 0.),
+            Data::DateTime(v) => visitor.visit_bool(v.as_float() != 0.),
             Data::DateTimeIso(_) => visitor.visit_bool(true),
             Data::DurationIso(_) => visitor.visit_bool(true),
             Data::Error(ref err) => Err(DeError::CellError {

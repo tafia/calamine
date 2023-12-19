@@ -39,7 +39,7 @@ fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<(
                     write!(dest, "{}", s)
                 }
                 Data::Float(ref f) => write!(dest, "{}", f),
-                Data::DateTime(ref d) => write!(dest, "{}", d.as_f64()),
+                Data::DateTime(ref d) => write!(dest, "{}", d.as_float()),
                 Data::Int(ref i) => write!(dest, "{}", i),
                 Data::Error(ref e) => write!(dest, "{:?}", e),
                 Data::Bool(ref b) => write!(dest, "{}", b),

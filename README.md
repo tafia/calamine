@@ -65,7 +65,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let data_type = calamine::DataType::deserialize(deserializer)?;
-    if let Some(float) = data_type.as_f64() {
+    if let Some(float) = data_type.as_float() {
         Ok(Some(float))
     } else {
         Ok(None)
@@ -84,7 +84,6 @@ fn main() ->  Result<(), Box<dyn std::error::Error>> {
         RangeDeserializerBuilder::with_headers(&COLUMNS).from_range::<_, ExcelRow>(&range)?;
   }
 ```
-
 
 ### Reader: Simple
 
@@ -160,7 +159,7 @@ for s in sheets {
 
 ## Features
 
-- `dates`: Add date related fn to `DataType`. 
+- `dates`: Add date related fn to `DataType`.
 - `picture`: Extract picture data.
 
 ### Others
