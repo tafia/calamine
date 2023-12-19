@@ -10,6 +10,10 @@
 
 ## Unreleased
 
+## 0.23.1
+
+- fix: `worksheet_formula` not returning all formula
+
 ## 0.23.0
 
 - feat: add new `DataTypeRef` available from `worksheet_range_ref` to reduce memory usage
