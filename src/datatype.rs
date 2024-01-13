@@ -11,6 +11,10 @@ use super::CellErrorType;
 static EXCEL_EPOCH: OnceCell<chrono::NaiveDateTime> = OnceCell::new();
 
 #[cfg(feature = "dates")]
+/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
+const EXCEL_1900_1904_DIFF: f64 = 1462.;
+
+#[cfg(feature = "dates")]
 const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
 /// An enum to represent all different data types that can appear as
@@ -26,9 +30,7 @@ pub enum DataType {
     /// Boolean
     Bool(bool),
     /// Date or Time
-    DateTime(f64),
-    /// Duration
-    Duration(f64),
+    DateTime(ExcelDateTime),
     /// Date, Time or DateTime in ISO 8601
     DateTimeIso(String),
     /// Duration in ISO 8601
@@ -155,10 +157,7 @@ impl DataType {
         use chrono::Timelike;
 
         match self {
-            DataType::Duration(days) => {
-                let ms = days * MS_MULTIPLIER;
-                Some(chrono::Duration::milliseconds(ms.round() as i64))
-            }
+            DataType::DateTime(v) => v.as_duration(),
             // need replace in the future to smth like chrono::Duration::from_str()
             // https://github.com/chronotope/chrono/issues/579
             DataType::DurationIso(_) => self.as_time().map(|t| {
@@ -181,7 +180,7 @@ impl DataType {
                 let secs = days * 86400;
                 chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
             }
-            DataType::Float(f) | DataType::DateTime(f) => {
+            DataType::Float(f) => {
                 let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
                     chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
                         .unwrap()
@@ -193,6 +192,7 @@ impl DataType {
                 let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
                 excel_epoch.checked_add_signed(excel_duration)
             }
+            DataType::DateTime(v) => v.as_datetime(),
             DataType::DateTimeIso(s) => chrono::NaiveDateTime::from_str(s).ok(),
             _ => None,
         }
@@ -240,7 +240,6 @@ impl fmt::Display for DataType {
             DataType::String(ref e) => write!(f, "{}", e),
             DataType::Bool(ref e) => write!(f, "{}", e),
             DataType::DateTime(ref e) => write!(f, "{}", e),
-            DataType::Duration(ref e) => write!(f, "{}", e),
             DataType::DateTimeIso(ref e) => write!(f, "{}", e),
             DataType::DurationIso(ref e) => write!(f, "{}", e),
             DataType::Error(ref e) => write!(f, "{}", e),
@@ -375,9 +374,7 @@ pub enum DataTypeRef<'a> {
     /// Boolean
     Bool(bool),
     /// Date or Time
-    DateTime(f64),
-    /// Duration
-    Duration(f64),
+    DateTime(ExcelDateTime),
     /// Date, Time or DateTime in ISO 8601
     DateTimeIso(String),
     /// Duration in ISO 8601
@@ -398,12 +395,78 @@ impl<'a> From<DataTypeRef<'a>> for DataType {
             DataTypeRef::SharedString(v) => DataType::String(v.into()),
             DataTypeRef::Bool(v) => DataType::Bool(v),
             DataTypeRef::DateTime(v) => DataType::DateTime(v),
-            DataTypeRef::Duration(v) => DataType::Duration(v),
             DataTypeRef::DateTimeIso(v) => DataType::DateTimeIso(v),
             DataTypeRef::DurationIso(v) => DataType::DurationIso(v),
             DataTypeRef::Error(v) => DataType::Error(v),
             DataTypeRef::Empty => DataType::Empty,
         }
+    }
+}
+
+/// Excel datetime type. Possible: date, time, datetime, duration.
+/// At this time we can only determine datetime (date and time are datetime too) and duration.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExcelDateTimeType {
+    /// DateTime
+    DateTime,
+    /// TimeDelta (Duration)
+    TimeDelta,
+}
+
+/// Structure for Excel date and time representation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExcelDateTime {
+    value: f64,
+    datetime_type: ExcelDateTimeType,
+    is_1904: bool,
+}
+
+impl ExcelDateTime {
+    /// Creates a new `ExcelDateTime`
+    pub fn new(value: f64, datetime_type: ExcelDateTimeType, is_1904: bool) -> Self {
+        ExcelDateTime {
+            value,
+            datetime_type,
+            is_1904,
+        }
+    }
+
+    /// Converting data type into a float
+    pub fn as_f64(&self) -> f64 {
+        self.value
+    }
+
+    /// Try converting data type into a duration
+    #[cfg(feature = "dates")]
+    pub fn as_duration(&self) -> Option<chrono::Duration> {
+        let ms = self.value * MS_MULTIPLIER;
+        Some(chrono::Duration::milliseconds(ms.round() as i64))
+    }
+
+    /// Try converting data type into a datetime
+    #[cfg(feature = "dates")]
+    pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+        let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
+            chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+        });
+        let f = if self.is_1904 {
+            self.value + EXCEL_1900_1904_DIFF
+        } else {
+            self.value
+        };
+        let f = if f >= 60.0 { f } else { f + 1.0 };
+        let ms = f * MS_MULTIPLIER;
+        let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
+        excel_epoch.checked_add_signed(excel_duration)
+    }
+}
+
+impl fmt::Display for ExcelDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        write!(f, "{}", self.value)
     }
 }
 

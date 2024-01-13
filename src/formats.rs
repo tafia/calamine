@@ -1,7 +1,4 @@
-use crate::{datatype::DataTypeRef, DataType};
-
-/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
-static EXCEL_1900_1904_DIFF: i64 = 1462;
+use crate::datatype::{DataType, DataTypeRef, ExcelDateTime, ExcelDateTimeType};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CellFormat {
@@ -91,14 +88,16 @@ pub fn builtin_format_by_code(code: u16) -> CellFormat {
 // convert i64 to date, if format == Date
 pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
     match format {
-        Some(CellFormat::DateTime) => DataType::DateTime(
-            (if is_1904 {
-                value + EXCEL_1900_1904_DIFF
-            } else {
-                value
-            }) as f64,
-        ),
-        Some(CellFormat::TimeDelta) => DataType::Duration(value as f64),
+        Some(CellFormat::DateTime) => DataType::DateTime(ExcelDateTime::new(
+            value as f64,
+            ExcelDateTimeType::DateTime,
+            is_1904,
+        )),
+        Some(CellFormat::TimeDelta) => DataType::DateTime(ExcelDateTime::new(
+            value as f64,
+            ExcelDateTimeType::TimeDelta,
+            is_1904,
+        )),
         _ => DataType::Int(value),
     }
 }
@@ -111,12 +110,16 @@ pub fn format_excel_f64_ref<'a>(
     is_1904: bool,
 ) -> DataTypeRef<'static> {
     match format {
-        Some(CellFormat::DateTime) => DataTypeRef::DateTime(if is_1904 {
-            value + EXCEL_1900_1904_DIFF as f64
-        } else {
-            value
-        }),
-        Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
+        Some(CellFormat::DateTime) => DataTypeRef::DateTime(ExcelDateTime::new(
+            value,
+            ExcelDateTimeType::DateTime,
+            is_1904,
+        )),
+        Some(CellFormat::TimeDelta) => DataTypeRef::DateTime(ExcelDateTime::new(
+            value,
+            ExcelDateTimeType::TimeDelta,
+            is_1904,
+        )),
         _ => DataTypeRef::Float(value),
     }
 }
