@@ -75,6 +75,8 @@ pub enum XlsbError {
         /// value found
         val: String,
     },
+    /// Workbook is password protected
+    Password,
     /// Worksheet not found
     WorksheetNotFound(String),
 }
@@ -109,6 +111,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Unrecognized { typ, val } => {
                 write!(f, "Unrecognized {typ}: {val}")
             }
+            XlsbError::Password => write!(f, "Workbook is password protected"),
             XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
@@ -434,7 +437,9 @@ impl<RS: Read + Seek> Xlsb<RS> {
 impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
 
-    fn new(reader: RS) -> Result<Self, XlsbError> {
+    fn new(mut reader: RS) -> Result<Self, XlsbError> {
+        check_for_password_protected(&mut reader)?;
+
         let mut xlsb = Xlsb {
             zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
@@ -920,4 +925,17 @@ fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellForm
     let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]);
 
     formats.get(style_ref as usize)
+}
+
+fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
+    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
+    reader.seek(std::io::SeekFrom::Start(0))?;
+
+    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
+        if cfb.has_directory("EncryptedPackage") {
+            return Err(XlsbError::Password);
+        }
+    };
+
+    Ok(())
 }
