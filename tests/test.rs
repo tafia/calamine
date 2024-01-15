@@ -1529,6 +1529,19 @@ fn issue_385() {
 }
 
 #[test]
+fn pass_protected_xlsb() {
+    let path = format!("{}/tests/pass_protected.xlsb", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, std::string::String>(path),
+            Err(calamine::XlsbError::Password)
+        ),
+        "Is expeced to return XlsbError::Password error"
+    );
+}
+
+#[test]
 fn pass_protected_ods() {
     let path = format!("{}/tests/pass_protected.ods", env!("CARGO_MANIFEST_DIR"));
 
