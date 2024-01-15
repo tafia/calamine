@@ -56,6 +56,8 @@ pub enum OdsError {
         /// Found
         found: String,
     },
+    /// Workbook is password protected
+    Password,
     /// Worksheet not found
     WorksheetNotFound(String),
 }
@@ -83,6 +85,7 @@ impl std::fmt::Display for OdsError {
             OdsError::Mismatch { expected, found } => {
                 write!(f, "Expecting '{expected}', found '{found}'")
             }
+            OdsError::Password => write!(f, "Workbook is password protected"),
             OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
@@ -136,6 +139,8 @@ where
             Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("mimetype")),
             Err(e) => return Err(OdsError::Zip(e)),
         }
+
+        check_for_password_protected(&mut zip)?;
 
         #[cfg(feature = "picture")]
         let pictures = read_pictures(&mut zip)?;
@@ -202,6 +207,50 @@ struct Content {
     sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
     sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+}
+
+/// Check password protection
+fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Result<(), OdsError> {
+    let mut reader = match zip.by_name("META-INF/manifest.xml") {
+        Ok(f) => {
+            let mut r = XmlReader::from_reader(BufReader::new(f));
+            r.check_end_names(false)
+                .trim_text(false)
+                .check_comments(false)
+                .expand_empty_elements(true);
+            r
+        }
+        Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("META-INF/manifest.xml")),
+        Err(e) => return Err(OdsError::Zip(e)),
+    };
+
+    let mut buf = Vec::new();
+    let mut inner = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"manifest:file-entry") => {
+                loop {
+                    match reader.read_event_into(&mut inner) {
+                        Ok(Event::Start(ref e))
+                            if e.name() == QName(b"manifest:encryption-data") =>
+                        {
+                            return Err(OdsError::Password)
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(OdsError::Xml(e)),
+                        _ => (),
+                    }
+                }
+                inner.clear()
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(OdsError::Xml(e)),
+            _ => (),
+        }
+        buf.clear()
+    }
+
+    Ok(())
 }
 
 /// Parses content.xml and store the result in `self.content`

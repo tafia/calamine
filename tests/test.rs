@@ -1530,6 +1530,19 @@ fn issue_385() {
 }
 
 #[test]
+fn pass_protected_ods() {
+    let path = format!("{}/tests/pass_protected.ods", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Ods<_>, std::string::String>(path),
+            Err(calamine::OdsError::Password)
+        ),
+        "Is expeced to return OdsError::Password error"
+    );
+}
+
+#[test]
 fn issue_384_multiple_formula() {
     let path = format!("{}/tests/formula.issue.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
