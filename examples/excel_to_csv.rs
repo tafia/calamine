@@ -1,4 +1,4 @@
-use calamine::{open_workbook_auto, DataType, Range, Reader};
+use calamine::{open_workbook_auto, Data, Range, Reader};
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -29,21 +29,21 @@ fn main() {
     write_range(&mut dest, &range).unwrap();
 }
 
-fn write_range<W: Write>(dest: &mut W, range: &Range<DataType>) -> std::io::Result<()> {
+fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {
             match *c {
-                DataType::Empty => Ok(()),
-                DataType::String(ref s)
-                | DataType::DateTimeIso(ref s)
-                | DataType::DurationIso(ref s) => write!(dest, "{}", s),
-                DataType::Float(ref f) | DataType::DateTime(ref f) | DataType::Duration(ref f) => {
+                Data::Empty => Ok(()),
+                Data::String(ref s) | Data::DateTimeIso(ref s) | Data::DurationIso(ref s) => {
+                    write!(dest, "{}", s)
+                }
+                Data::Float(ref f) | Data::DateTime(ref f) | Data::Duration(ref f) => {
                     write!(dest, "{}", f)
                 }
-                DataType::Int(ref i) => write!(dest, "{}", i),
-                DataType::Error(ref e) => write!(dest, "{:?}", e),
-                DataType::Bool(ref b) => write!(dest, "{}", b),
+                Data::Int(ref i) => write!(dest, "{}", i),
+                Data::Error(ref e) => write!(dest, "{:?}", e),
+                Data::Bool(ref b) => write!(dest, "{}", b),
             }?;
             if i != n {
                 write!(dest, ";")?;
