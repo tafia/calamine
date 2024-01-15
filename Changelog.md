@@ -10,6 +10,9 @@
 
 ## Unreleased
 
+- refactor: rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`
+- feat: introduce a `DataType` trait implemented by both `Data` and `DataRef`.
+
 ## 0.23.1
 
 - fix: `worksheet_formula` not returning all formula
@@ -146,7 +149,7 @@
 - fix: xls - allow sectors ending after eof (truncate them!)
 
 ## 0.15.0
-- feat: codepage/encoding_rs for codpage mapping 
+- feat: codepage/encoding_rs for codpage mapping
 
 ## 0.14.10
 - fix: serde map do not stop at first empty value
