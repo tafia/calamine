@@ -175,22 +175,8 @@ impl DataType {
         use std::str::FromStr;
 
         match self {
-            DataType::Int(x) => {
-                let days = x - 25569;
-                let secs = days * 86400;
-                chrono::NaiveDateTime::from_timestamp_opt(secs, 0)
-            }
-            DataType::Float(f) => {
-                let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
-                    chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
-                        .unwrap()
-                        .and_time(chrono::NaiveTime::MIN)
-                });
-                let f = if *f >= 60.0 { *f } else { *f + 1.0 };
-                let ms = f * MS_MULTIPLIER;
-                let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
-                excel_epoch.checked_add_signed(excel_duration)
-            }
+            DataType::Int(x) => ExcelDateTime::from_value_only(*x as f64).as_datetime(),
+            DataType::Float(f) => ExcelDateTime::from_value_only(*f).as_datetime(),
             DataType::DateTime(v) => v.as_datetime(),
             DataType::DateTimeIso(s) => chrono::NaiveDateTime::from_str(s).ok(),
             _ => None,
@@ -430,6 +416,15 @@ impl ExcelDateTime {
         }
     }
 
+    /// Is used only for converting excel value to chrono
+    #[cfg(feature = "dates")]
+    fn from_value_only(value: f64) -> Self {
+        ExcelDateTime {
+            value,
+            ..Default::default()
+        }
+    }
+
     /// Converting data type into a float
     pub fn as_f64(&self) -> f64 {
         self.value
@@ -459,6 +454,16 @@ impl ExcelDateTime {
         let ms = f * MS_MULTIPLIER;
         let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
         excel_epoch.checked_add_signed(excel_duration)
+    }
+}
+
+impl Default for ExcelDateTime {
+    fn default() -> Self {
+        ExcelDateTime {
+            value: 0.,
+            datetime_type: ExcelDateTimeType::DateTime,
+            is_1904: false,
+        }
     }
 }
 
