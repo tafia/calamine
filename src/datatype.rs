@@ -184,8 +184,7 @@ impl DataType {
                 let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
                     chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
                         .unwrap()
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
+                        .and_time(chrono::NaiveTime::MIN)
                 });
                 let f = if *f >= 60.0 { *f } else { *f + 1.0 };
                 let ms = f * MS_MULTIPLIER;
@@ -449,8 +448,7 @@ impl ExcelDateTime {
         let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
             chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
                 .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
+                .and_time(chrono::NaiveTime::MIN)
         });
         let f = if self.is_1904 {
             self.value + EXCEL_1900_1904_DIFF
