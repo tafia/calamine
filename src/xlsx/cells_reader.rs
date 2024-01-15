@@ -269,9 +269,7 @@ fn read_v<'s>(
             // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
             // We do try an initial parse as Float for utility, but fall back to a string
             // representation if that fails
-            v.parse()
-                .map(DataRef::Float)
-                .or(Ok(DataRef::String(v)))
+            v.parse().map(DataRef::Float).or(Ok(DataRef::String(v)))
         }
         Some(b"n") => {
             // n - number

@@ -17,9 +17,7 @@ use crate::formats::{
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
-use crate::{
-    Cell, CellErrorType, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
-};
+use crate::{Cell, CellErrorType, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
@@ -558,11 +556,7 @@ fn parse_sheet_metadata(
     Ok((pos, Sheet { name, visible, typ }))
 }
 
-fn parse_number(
-    r: &[u8],
-    formats: &[CellFormat],
-    is_1904: bool,
-) -> Result<Cell<Data>, XlsError> {
+fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
     if r.len() < 14 {
         return Err(XlsError::Len {
             typ: "number",

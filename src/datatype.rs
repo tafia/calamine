@@ -520,9 +520,7 @@ impl DataType for DataRef<'_> {
                 .as_datetime()
                 .map(|dt| dt.time())
                 .or_else(|| chrono::NaiveTime::from_str(s).ok()),
-            DataRef::DurationIso(s) => {
-                chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%S%.fS").ok()
-            }
+            DataRef::DurationIso(s) => chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%S%.fS").ok(),
             _ => self.as_datetime().map(|dt| dt.time()),
         }
     }

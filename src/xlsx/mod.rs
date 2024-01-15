@@ -18,8 +18,8 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible, Table,
+    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+    Table,
 };
 pub use cells_reader::XlsxCellReader;
 
