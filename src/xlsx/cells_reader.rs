@@ -7,7 +7,7 @@ use super::{
     get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
 };
 use crate::{
-    datatype::DataTypeRef,
+    datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     Cell, XlsxError,
 };
@@ -75,7 +75,7 @@ impl<'a> XlsxCellReader<'a> {
         self.dimensions
     }
 
-    pub fn next_cell(&mut self) -> Result<Option<Cell<DataTypeRef<'a>>>, XlsxError> {
+    pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsxError> {
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
@@ -101,7 +101,7 @@ impl<'a> XlsxCellReader<'a> {
                     } else {
                         (self.row_index, self.col_index)
                     };
-                    let mut value = DataTypeRef::Empty;
+                    let mut value = DataRef::Empty;
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
@@ -196,11 +196,11 @@ fn read_value<'s>(
     xml: &mut XlReader<'_>,
     e: &BytesStart<'_>,
     c_element: &BytesStart<'_>,
-) -> Result<DataTypeRef<'s>, XlsxError> {
+) -> Result<DataRef<'s>, XlsxError> {
     Ok(match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
-            read_string(xml, e.name())?.map_or(DataTypeRef::Empty, DataTypeRef::String)
+            read_string(xml, e.name())?.map_or(DataRef::Empty, DataRef::String)
         }
         b"v" => {
             // value
@@ -219,7 +219,7 @@ fn read_value<'s>(
         }
         b"f" => {
             xml.read_to_end_into(e.name(), &mut Vec::new())?;
-            DataTypeRef::Empty
+            DataRef::Empty
         }
         _n => return Err(XlsxError::UnexpectedNode("v, f, or is")),
     })
@@ -232,7 +232,7 @@ fn read_v<'s>(
     formats: &[CellFormat],
     c_element: &BytesStart<'_>,
     is_1904: bool,
-) -> Result<DataTypeRef<'s>, XlsxError> {
+) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
         Ok(Some(style)) => {
             let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
@@ -244,39 +244,37 @@ fn read_v<'s>(
         Some(b"s") => {
             // shared string
             let idx: usize = v.parse()?;
-            Ok(DataTypeRef::SharedString(&strings[idx]))
+            Ok(DataRef::SharedString(&strings[idx]))
         }
         Some(b"b") => {
             // boolean
-            Ok(DataTypeRef::Bool(v != "0"))
+            Ok(DataRef::Bool(v != "0"))
         }
         Some(b"e") => {
             // error
-            Ok(DataTypeRef::Error(v.parse()?))
+            Ok(DataRef::Error(v.parse()?))
         }
         Some(b"d") => {
             // date
-            Ok(DataTypeRef::DateTimeIso(v))
+            Ok(DataRef::DateTimeIso(v))
         }
         Some(b"str") => {
             // see http://officeopenxml.com/SScontentOverview.php
             // str - refers to formula cells
             // * <c .. t='v' .. > indicates calculated value (this case)
             // * <c .. t='f' .. > to the formula string (ignored case
-            // TODO: Fully support a DataType::Formula representing both Formula string &
+            // TODO: Fully support a Data::Formula representing both Formula string &
             // last calculated value?
             //
             // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
             // We do try an initial parse as Float for utility, but fall back to a string
             // representation if that fails
-            v.parse()
-                .map(DataTypeRef::Float)
-                .or(Ok(DataTypeRef::String(v)))
+            v.parse().map(DataRef::Float).or(Ok(DataRef::String(v)))
         }
         Some(b"n") => {
             // n - number
             if v.is_empty() {
-                Ok(DataTypeRef::Empty)
+                Ok(DataRef::Empty)
             } else {
                 v.parse()
                     .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
@@ -288,7 +286,7 @@ fn read_v<'s>(
             // String if this fails.
             v.parse()
                 .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
-                .or(Ok(DataTypeRef::String(v)))
+                .or(Ok(DataRef::String(v)))
         }
         Some(b"is") => {
             // this case should be handled in outer loop over cell elements, in which

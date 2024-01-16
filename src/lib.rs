@@ -8,7 +8,7 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Reader, open_workbook, Xlsx, DataType};
+//! use calamine::{Reader, open_workbook, Xlsx, Data};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
@@ -22,7 +22,7 @@
 //!              total_cells, non_empty_cells);
 //!     // alternatively, we can manually filter rows
 //!     assert_eq!(non_empty_cells, range.rows()
-//!         .flat_map(|r| r.iter().filter(|&c| c != &DataType::Empty)).count());
+//!         .flat_map(|r| r.iter().filter(|&c| c != &Data::Empty)).count());
 //! }
 //!
 //! // Check if the workbook has a vba project
@@ -73,7 +73,6 @@ mod de;
 mod errors;
 pub mod vba;
 
-use datatype::DataTypeRef;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::cmp::{max, min};
@@ -84,7 +83,7 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 
 pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
-pub use crate::datatype::DataType;
+pub use crate::datatype::{Data, DataRef, DataType};
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
@@ -223,10 +222,10 @@ where
     fn metadata(&self) -> &Metadata;
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Self::Error>;
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error>;
 
     /// Fetch all worksheet data & paths
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)>;
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)>;
 
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
@@ -261,7 +260,7 @@ where
 
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
-    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
+    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<Data>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range(&name))
     }
@@ -293,8 +292,8 @@ where
 /// A trait to constrain cells
 pub trait CellType: Default + Clone + PartialEq {}
 
-impl CellType for DataType {}
-impl<'a> CellType for DataTypeRef<'a> {}
+impl CellType for Data {}
+impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 
@@ -478,12 +477,12 @@ impl<T: CellType> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::{Range, Data};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
-    /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Empty));
-    /// range.set_value((2, 1), DataType::Float(1.0));
-    /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Float(1.0)));
+    /// assert_eq!(range.get_value((2, 1)), Some(&Data::Empty));
+    /// range.set_value((2, 1), Data::Float(1.0));
+    /// assert_eq!(range.get_value((2, 1)), Some(&Data::Float(1.0)));
     /// ```
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
         assert!(
@@ -554,7 +553,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::{Range, Data};
     ///
     /// let range: Range<usize> = Range::new((1, 0), (5, 2));
     /// assert_eq!(range.get_value((0, 0)), None);
@@ -590,10 +589,10 @@ impl<T: CellType> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::{Range, Data};
     ///
-    /// let range: Range<DataType> = Range::new((0, 0), (5, 2));
-    /// // with rows item row: &[DataType]
+    /// let range: Range<Data> = Range::new((0, 0), (5, 2));
+    /// // with rows item row: &[Data]
     /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
     /// ```
     pub fn rows(&self) -> Rows<'_, T> {
@@ -663,19 +662,19 @@ impl<T: CellType> Range<T> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Range, DataType};
+    /// # use calamine::{Range, Data};
     /// let mut a = Range::new((1, 1), (3, 3));
-    /// a.set_value((1, 1), DataType::Bool(true));
-    /// a.set_value((2, 2), DataType::Bool(true));
+    /// a.set_value((1, 1), Data::Bool(true));
+    /// a.set_value((2, 2), Data::Bool(true));
     ///
     /// let b = a.range((2, 2), (5, 5));
-    /// assert_eq!(b.get_value((2, 2)), Some(&DataType::Bool(true)));
-    /// assert_eq!(b.get_value((3, 3)), Some(&DataType::Empty));
+    /// assert_eq!(b.get_value((2, 2)), Some(&Data::Bool(true)));
+    /// assert_eq!(b.get_value((3, 3)), Some(&Data::Empty));
     ///
     /// let c = a.range((0, 0), (2, 2));
-    /// assert_eq!(c.get_value((0, 0)), Some(&DataType::Empty));
-    /// assert_eq!(c.get_value((1, 1)), Some(&DataType::Bool(true)));
-    /// assert_eq!(c.get_value((2, 2)), Some(&DataType::Bool(true)));
+    /// assert_eq!(c.get_value((0, 0)), Some(&Data::Empty));
+    /// assert_eq!(c.get_value((1, 1)), Some(&Data::Bool(true)));
+    /// assert_eq!(c.get_value((2, 2)), Some(&Data::Bool(true)));
     /// ```
     pub fn range(&self, start: (u32, u32), end: (u32, u32)) -> Range<T> {
         let mut other = Range::new(start, end);
