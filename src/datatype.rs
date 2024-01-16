@@ -650,6 +650,18 @@ impl ExcelDateTime {
         }
     }
 
+    /// True if excel datetime has duration format ([hh]:mm:ss, for example)
+    #[cfg(feature = "dates")]
+    pub fn is_duration(&self) -> bool {
+        matches!(self.datetime_type, ExcelDateTimeType::TimeDelta)
+    }
+
+    /// True if excel datetime has datetime format (not duration)
+    #[cfg(feature = "dates")]
+    pub fn is_datetime(&self) -> bool {
+        matches!(self.datetime_type, ExcelDateTimeType::DateTime)
+    }
+
     /// Converting data type into a float
     pub fn as_f64(&self) -> f64 {
         self.value
