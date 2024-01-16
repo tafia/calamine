@@ -1,5 +1,5 @@
 use crate::{
-    datatype::DataTypeRef,
+    datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::{read_f64, read_i32, read_u32, read_usize},
     Cell, CellErrorType, Dimensions, XlsbError,
@@ -72,14 +72,14 @@ impl<'a> XlsbCellsReader<'a> {
         self.dimensions
     }
 
-    pub fn next_cell(&mut self) -> Result<Option<Cell<DataTypeRef<'a>>>, XlsbError> {
+    pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsbError> {
         // loop until end of sheet
         let value = loop {
             self.buf.clear();
             self.typ = self.iter.read_type()?;
             let _ = self.iter.fill_buffer(&mut self.buf)?;
             let value = match self.typ {
-                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
+                // 0x0001 => continue, // Data::Empty, // BrtCellBlank
                 0x0002 => {
                     // BrtCellRk MS-XLSB 2.5.122
                     let d100 = (self.buf[8] & 1) != 0;
@@ -96,7 +96,7 @@ impl<'a> XlsbCellsReader<'a> {
                                 self.is_1904,
                             )
                         } else {
-                            DataTypeRef::Int(v)
+                            DataRef::Int(v)
                         }
                     } else {
                         let mut v = [0u8; 8];
@@ -119,20 +119,18 @@ impl<'a> XlsbCellsReader<'a> {
                         c => return Err(XlsbError::CellError(c)),
                     };
                     // BrtCellError
-                    DataTypeRef::Error(error)
+                    DataRef::Error(error)
                 }
-                0x0004 | 0x000A => DataTypeRef::Bool(self.buf[8] != 0), // BrtCellBool or BrtFmlaBool
+                0x0004 | 0x000A => DataRef::Bool(self.buf[8] != 0), // BrtCellBool or BrtFmlaBool
                 0x0005 | 0x0009 => {
                     let v = read_f64(&self.buf[8..16]);
                     format_excel_f64_ref(v, cell_format(&self.formats, &self.buf), self.is_1904)
                 } // BrtCellReal or BrtFmlaNum
-                0x0006 | 0x0008 => {
-                    DataTypeRef::String(wide_str(&self.buf[8..], &mut 0)?.into_owned())
-                } // BrtCellSt or BrtFmlaString
+                0x0006 | 0x0008 => DataRef::String(wide_str(&self.buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&self.buf[8..12]);
-                    DataTypeRef::SharedString(&self.strings[isst])
+                    DataRef::SharedString(&self.strings[isst])
                 }
                 0x0000 => {
                     // BrtRowHdr
@@ -157,7 +155,7 @@ impl<'a> XlsbCellsReader<'a> {
             let _ = self.iter.fill_buffer(&mut self.buf)?;
 
             let value = match self.typ {
-                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
+                // 0x0001 => continue, // Data::Empty, // BrtCellBlank
                 0x0008 => {
                     // BrtFmlaString
                     let cch = read_u32(&self.buf[8..]) as usize;

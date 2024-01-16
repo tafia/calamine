@@ -1,4 +1,4 @@
-use crate::datatype::{DataType, DataTypeRef, ExcelDateTime, ExcelDateTimeType};
+use crate::datatype::{Data, DataRef, ExcelDateTime, ExcelDateTimeType};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CellFormat {
@@ -86,19 +86,19 @@ pub fn builtin_format_by_code(code: u16) -> CellFormat {
 }
 
 // convert i64 to date, if format == Date
-pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
+pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> Data {
     match format {
-        Some(CellFormat::DateTime) => DataType::DateTime(ExcelDateTime::new(
+        Some(CellFormat::DateTime) => Data::DateTime(ExcelDateTime::new(
             value as f64,
             ExcelDateTimeType::DateTime,
             is_1904,
         )),
-        Some(CellFormat::TimeDelta) => DataType::DateTime(ExcelDateTime::new(
+        Some(CellFormat::TimeDelta) => Data::DateTime(ExcelDateTime::new(
             value as f64,
             ExcelDateTimeType::TimeDelta,
             is_1904,
         )),
-        _ => DataType::Int(value),
+        _ => Data::Int(value),
     }
 }
 
@@ -108,24 +108,24 @@ pub fn format_excel_f64_ref<'a>(
     value: f64,
     format: Option<&CellFormat>,
     is_1904: bool,
-) -> DataTypeRef<'static> {
+) -> DataRef<'static> {
     match format {
-        Some(CellFormat::DateTime) => DataTypeRef::DateTime(ExcelDateTime::new(
+        Some(CellFormat::DateTime) => DataRef::DateTime(ExcelDateTime::new(
             value,
             ExcelDateTimeType::DateTime,
             is_1904,
         )),
-        Some(CellFormat::TimeDelta) => DataTypeRef::DateTime(ExcelDateTime::new(
+        Some(CellFormat::TimeDelta) => DataRef::DateTime(ExcelDateTime::new(
             value,
             ExcelDateTimeType::TimeDelta,
             is_1904,
         )),
-        _ => DataTypeRef::Float(value),
+        _ => DataRef::Float(value),
     }
 }
 
 // convert f64 to date, if format == Date
-pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
+pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) -> Data {
     format_excel_f64_ref(value, format, is_1904).into()
 }
 

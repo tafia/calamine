@@ -1,9 +1,9 @@
-use calamine::DataType::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
+use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, ExcelDateTime, ExcelDateTimeType, Ods, Reader, Sheet,
-    SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Reader,
+    Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
-use calamine::{CellErrorType::*, DataType};
+use calamine::{CellErrorType::*, Data};
 use std::io::Cursor;
 use std::sync::Once;
 
@@ -1383,10 +1383,10 @@ fn issue304_xls_values() {
     let mut wb: Xls<_> = open_workbook(&path).unwrap();
     let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
-    assert_eq!(rows.next(), Some(&[DataType::Float(10.)][..]));
-    assert_eq!(rows.next(), Some(&[DataType::Float(20.)][..]));
-    assert_eq!(rows.next(), Some(&[DataType::Float(110.)][..]));
-    assert_eq!(rows.next(), Some(&[DataType::Float(65.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(10.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(20.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(110.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(65.)][..]));
     assert_eq!(rows.next(), None);
 }
 
@@ -1397,10 +1397,10 @@ fn issue334_xls_values_string() {
     let mut wb: Xls<_> = open_workbook(&path).unwrap();
     let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
-    assert_eq!(rows.next(), Some(&[DataType::String("aa".into())][..]));
-    assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
-    assert_eq!(rows.next(), Some(&[DataType::String("aa".into())][..]));
-    assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("aa".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("bb".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("aa".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("bb".into())][..]));
     assert_eq!(rows.next(), None);
 }
 
@@ -1612,6 +1612,19 @@ fn issue_385() {
 }
 
 #[test]
+fn pass_protected_xlsb() {
+    let path = format!("{}/tests/pass_protected.xlsb", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, std::string::String>(path),
+            Err(calamine::XlsbError::Password)
+        ),
+        "Is expeced to return XlsbError::Password error"
+    );
+}
+
+#[test]
 fn pass_protected_ods() {
     let path = format!("{}/tests/pass_protected.ods", env!("CARGO_MANIFEST_DIR"));
 
@@ -1632,10 +1645,10 @@ fn issue_384_multiple_formula() {
     // first check values
     let range = workbook.worksheet_range("Sheet1").unwrap();
     let expected = [
-        (0, 0, DataType::Float(23.)),
-        (0, 2, DataType::Float(23.)),
-        (12, 6, DataType::Float(2.)),
-        (13, 9, DataType::String("US".into())),
+        (0, 0, Data::Float(23.)),
+        (0, 2, Data::Float(23.)),
+        (12, 6, Data::Float(2.)),
+        (13, 9, Data::String("US".into())),
     ];
     let expected = expected
         .iter()
@@ -1651,7 +1664,7 @@ fn issue_384_multiple_formula() {
         .collect::<Vec<_>>();
     let expected = [
         (0, 0, "C1+E5"),
-        // (0, 2, DataType::Float(23.)),
+        // (0, 2, Data::Float(23.)),
         (12, 6, "SUM(1+1)"),
         (
             13,

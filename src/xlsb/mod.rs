@@ -17,11 +17,11 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use crate::datatype::DataTypeRef;
+use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Cell, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -75,6 +75,8 @@ pub enum XlsbError {
         /// value found
         val: String,
     },
+    /// Workbook is password protected
+    Password,
     /// Worksheet not found
     WorksheetNotFound(String),
 }
@@ -109,6 +111,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Unrecognized { typ, val } => {
                 write!(f, "Unrecognized {typ}: {val}")
             }
+            XlsbError::Password => write!(f, "Workbook is password protected"),
             XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
@@ -434,7 +437,9 @@ impl<RS: Read + Seek> Xlsb<RS> {
 impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
 
-    fn new(reader: RS) -> Result<Self, XlsbError> {
+    fn new(mut reader: RS) -> Result<Self, XlsbError> {
+        check_for_password_protected(&mut reader)?;
+
         let mut xlsb = Xlsb {
             zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
@@ -470,12 +475,12 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsbError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {
         let mut cells_reader = self.worksheet_cells_reader(name)?;
         let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
         while let Some(cell) = cells_reader.next_cell()? {
-            if cell.val != DataTypeRef::Empty {
-                cells.push(Cell::new(cell.pos, DataType::from(cell.val)));
+            if cell.val != DataRef::Empty {
+                cells.push(Cell::new(cell.pos, Data::from(cell.val)));
             }
         }
         Ok(Range::from_sparse(cells))
@@ -494,7 +499,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         let sheets = self
             .sheets
             .iter()
@@ -920,4 +925,17 @@ fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellForm
     let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]);
 
     formats.get(style_ref as usize)
+}
+
+fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
+    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
+    reader.seek(std::io::SeekFrom::Start(0))?;
+
+    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
+        if cfb.has_directory("EncryptedPackage") {
+            return Err(XlsbError::Password);
+        }
+    };
+
+    Ok(())
 }

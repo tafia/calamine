@@ -14,12 +14,12 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use crate::datatype::DataTypeRef;
+use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, DataType, Dimensions, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible, Table,
+    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+    Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -675,7 +675,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     /// Get the table by name
     // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more efficient
-    pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<DataType>, XlsxError> {
+    pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<Data>, XlsxError> {
         let match_table_meta = self
             .tables
             .as_ref()
@@ -742,7 +742,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn worksheet_range_ref<'a>(
         &'a mut self,
         name: &str,
-    ) -> Result<Range<DataTypeRef<'a>>, XlsxError> {
+    ) -> Result<Range<DataRef<'a>>, XlsxError> {
         let mut cell_reader = self.worksheet_cells_reader(name)?;
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
@@ -752,7 +752,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         loop {
             match cell_reader.next_cell() {
                 Ok(Some(Cell {
-                    val: DataTypeRef::Empty,
+                    val: DataRef::Empty,
                     ..
                 })) => (),
                 Ok(Some(cell)) => cells.push(cell),
@@ -805,7 +805,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsxError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsxError> {
         let rge = self.worksheet_range_ref(name)?;
         let inner = rge.inner.into_iter().map(|v| v.into()).collect();
         Ok(Range {
@@ -830,7 +830,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         let names = self
             .sheets
             .iter()
