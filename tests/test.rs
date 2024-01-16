@@ -1,9 +1,7 @@
-use calamine::Data::{
-    Bool, DateTime, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
-};
+use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataType, Ods, Reader, Sheet, SheetType, SheetVisible, Xls,
-    Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Reader,
+    Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use std::io::Cursor;
@@ -749,8 +747,22 @@ fn date_xls() {
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.632060185185185,
+            ExcelDateTimeType::TimeDelta,
+            false
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -773,8 +785,22 @@ fn date_xls_1904() {
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            42735.0,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.632060185185185,
+            ExcelDateTimeType::TimeDelta,
+            true
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -797,8 +823,22 @@ fn date_xlsx() {
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            false
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -821,8 +861,22 @@ fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            42735.0,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            true
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -939,8 +993,22 @@ fn date_xlsb() {
     let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            false
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -963,8 +1031,22 @@ fn date_xlsb_1904() {
     let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            42735.0,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            true
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {

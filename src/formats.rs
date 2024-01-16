@@ -1,7 +1,4 @@
-use crate::{datatype::DataRef, Data};
-
-/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
-static EXCEL_1900_1904_DIFF: i64 = 1462;
+use crate::datatype::{Data, DataRef, ExcelDateTime, ExcelDateTimeType};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CellFormat {
@@ -91,14 +88,16 @@ pub fn builtin_format_by_code(code: u16) -> CellFormat {
 // convert i64 to date, if format == Date
 pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> Data {
     match format {
-        Some(CellFormat::DateTime) => Data::DateTime(
-            (if is_1904 {
-                value + EXCEL_1900_1904_DIFF
-            } else {
-                value
-            }) as f64,
-        ),
-        Some(CellFormat::TimeDelta) => Data::Duration(value as f64),
+        Some(CellFormat::DateTime) => Data::DateTime(ExcelDateTime::new(
+            value as f64,
+            ExcelDateTimeType::DateTime,
+            is_1904,
+        )),
+        Some(CellFormat::TimeDelta) => Data::DateTime(ExcelDateTime::new(
+            value as f64,
+            ExcelDateTimeType::TimeDelta,
+            is_1904,
+        )),
         _ => Data::Int(value),
     }
 }
@@ -111,12 +110,16 @@ pub fn format_excel_f64_ref<'a>(
     is_1904: bool,
 ) -> DataRef<'static> {
     match format {
-        Some(CellFormat::DateTime) => DataRef::DateTime(if is_1904 {
-            value + EXCEL_1900_1904_DIFF as f64
-        } else {
-            value
-        }),
-        Some(CellFormat::TimeDelta) => DataRef::Duration(value),
+        Some(CellFormat::DateTime) => DataRef::DateTime(ExcelDateTime::new(
+            value,
+            ExcelDateTimeType::DateTime,
+            is_1904,
+        )),
+        Some(CellFormat::TimeDelta) => DataRef::DateTime(ExcelDateTime::new(
+            value,
+            ExcelDateTimeType::TimeDelta,
+            is_1904,
+        )),
         _ => DataRef::Float(value),
     }
 }
