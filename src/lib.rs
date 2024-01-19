@@ -767,7 +767,7 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
 }
 
 /// A struct to iterate over all cells
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Cells<'a, T: CellType> {
     width: usize,
     inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
@@ -800,7 +800,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Cells<'a, T> {
 impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 
 /// A struct to iterate over used cells
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UsedCells<'a, T: CellType> {
     width: usize,
     inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
@@ -838,7 +838,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
 }
 
 /// An iterator to read `Range` struct row by row
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Rows<'a, T: CellType> {
     inner: Option<std::slice::Chunks<'a, T>>,
 }
