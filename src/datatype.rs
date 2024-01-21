@@ -138,7 +138,7 @@ impl DataType for Data {
         }
     }
 
-    fn as_i64(&self) -> Option<i64> {
+    fn as_int(&self) -> Option<i64> {
         match self {
             Data::Int(v) => Some(*v),
             Data::Float(v) => Some(*v as i64),
@@ -147,7 +147,7 @@ impl DataType for Data {
         }
     }
 
-    fn as_f64(&self) -> Option<f64> {
+    fn as_float(&self) -> Option<f64> {
         match self {
             Data::Int(v) => Some(*v as f64),
             Data::Float(v) => Some(*v),
@@ -446,7 +446,7 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    fn as_i64(&self) -> Option<i64> {
+    fn as_int(&self) -> Option<i64> {
         match self {
             DataRef::Int(v) => Some(*v),
             DataRef::Float(v) => Some(*v as i64),
@@ -456,7 +456,7 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    fn as_f64(&self) -> Option<f64> {
+    fn as_float(&self) -> Option<f64> {
         match self {
             DataRef::Int(v) => Some(*v as f64),
             DataRef::Float(v) => Some(*v),
@@ -525,10 +525,10 @@ pub trait DataType {
     fn as_string(&self) -> Option<String>;
 
     /// Try converting data type into an int
-    fn as_i64(&self) -> Option<i64>;
+    fn as_int(&self) -> Option<i64>;
 
     /// Try converting data type into a float
-    fn as_f64(&self) -> Option<f64>;
+    fn as_float(&self) -> Option<f64>;
 
     /// Try converting data type into a date
     #[cfg(feature = "dates")]
@@ -590,7 +590,7 @@ pub trait DataType {
         use std::str::FromStr;
 
         if self.is_int() || self.is_float() {
-            self.as_f64()
+            self.as_float()
                 .map(|f| ExcelDateTime::from_value_only(f).as_datetime())
         } else if self.is_datetime() {
             self.get_datetime().map(|d| d.as_datetime())
@@ -671,7 +671,7 @@ impl ExcelDateTime {
     }
 
     /// Converting data type into a float
-    pub fn as_f64(&self) -> f64 {
+    pub fn as_float(&self) -> f64 {
         self.value
     }
 
