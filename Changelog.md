@@ -12,6 +12,8 @@
 
 - refactor: rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`
 - feat: introduce a `DataType` trait implemented by both `Data` and `DataRef`.
+- feat: `Data` and `DataType` now return `Some(0{.0})` and `Some(1{.0})` rather than `None` when `.as_i64` or `.as_f64`
+  is used on a Bool value
 
 ## 0.23.1
 
