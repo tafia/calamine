@@ -152,7 +152,7 @@ impl DataType for Data {
         match self {
             Data::Int(v) => Some(*v as f64),
             Data::Float(v) => Some(*v),
-            Data::Bool(v) => Some((*v).into()),
+            Data::Bool(v) => Some((*v as i32).into()),
             Data::String(v) => v.parse::<f64>().ok(),
             _ => None,
         }
@@ -463,7 +463,7 @@ impl DataType for DataRef<'_> {
         match self {
             DataRef::Int(v) => Some(*v as f64),
             DataRef::Float(v) => Some(*v),
-            DataRef::Bool(v) => Some((*v).into()),
+            DataRef::Bool(v) => Some((*v as i32).into()),
             DataRef::String(v) => v.parse::<f64>().ok(),
             DataRef::SharedString(v) => v.parse::<f64>().ok(),
             _ => None,
