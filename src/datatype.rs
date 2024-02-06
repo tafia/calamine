@@ -142,6 +142,7 @@ impl DataType for Data {
         match self {
             Data::Int(v) => Some(*v),
             Data::Float(v) => Some(*v as i64),
+            Data::Bool(v) => Some(*v as i64),
             Data::String(v) => v.parse::<i64>().ok(),
             _ => None,
         }
@@ -151,6 +152,7 @@ impl DataType for Data {
         match self {
             Data::Int(v) => Some(*v as f64),
             Data::Float(v) => Some(*v),
+            Data::Bool(v) => Some((*v as i32).into()),
             Data::String(v) => v.parse::<f64>().ok(),
             _ => None,
         }
@@ -450,6 +452,7 @@ impl DataType for DataRef<'_> {
         match self {
             DataRef::Int(v) => Some(*v),
             DataRef::Float(v) => Some(*v as i64),
+            DataRef::Bool(v) => Some(*v as i64),
             DataRef::String(v) => v.parse::<i64>().ok(),
             DataRef::SharedString(v) => v.parse::<i64>().ok(),
             _ => None,
@@ -460,6 +463,7 @@ impl DataType for DataRef<'_> {
         match self {
             DataRef::Int(v) => Some(*v as f64),
             DataRef::Float(v) => Some(*v),
+            DataRef::Bool(v) => Some((*v as i32).into()),
             DataRef::String(v) => v.parse::<f64>().ok(),
             DataRef::SharedString(v) => v.parse::<f64>().ok(),
             _ => None,
@@ -802,5 +806,21 @@ mod tests {
         assert_eq!(Data::Float(100.0), 100.0f64);
         assert_eq!(Data::Bool(true), true);
         assert_eq!(Data::Int(100), 100i64);
+    }
+
+    #[test]
+    fn test_as_i64_with_bools() {
+        assert_eq!(Data::Bool(true).as_i64(), Some(1));
+        assert_eq!(Data::Bool(false).as_i64(), Some(0));
+        assert_eq!(DataRef::Bool(true).as_i64(), Some(1));
+        assert_eq!(DataRef::Bool(false).as_i64(), Some(0));
+    }
+
+    #[test]
+    fn test_as_f64_with_bools() {
+        assert_eq!(Data::Bool(true).as_f64(), Some(1.0));
+        assert_eq!(Data::Bool(false).as_f64(), Some(0.0));
+        assert_eq!(DataRef::Bool(true).as_f64(), Some(1.0));
+        assert_eq!(DataRef::Bool(false).as_f64(), Some(0.0));
     }
 }
