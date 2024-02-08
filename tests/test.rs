@@ -1674,3 +1674,14 @@ fn issue_384_multiple_formula() {
     ];
     assert_eq!(formula, expected)
 }
+
+#[test]
+fn issue_401_empty_tables() {
+    setup();
+
+    let path = format!("{}/tests/date.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    excel.load_tables().unwrap();
+    let tables = excel.table_names();
+    assert!(tables.is_empty());
+}
