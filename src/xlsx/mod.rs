@@ -658,6 +658,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .map(|(name, ..)| name)
             .collect()
     }
+
     /// Get the names of all the tables in a sheet
     pub fn table_names_in_sheet(&self, sheet_name: &str) -> Vec<&String> {
         self.tables

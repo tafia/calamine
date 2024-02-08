@@ -10,10 +10,16 @@
 
 ## Unreleased
 
-- refactor: rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`
+## 0.24.0
+
+- refactor (breaking): rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`
 - feat: introduce a `DataType` trait implemented by both `Data` and `DataRef`.
 - feat: `Data` and `DataType` now return `Some(0{.0})` and `Some(1{.0})` rather than `None` when `.as_i64` or `.as_f64`
   is used on a Bool value
+- fix: getting tables names on xlsx workbook without _rels files
+- refactor: DateTime(f64) to DateTime(ExcelDateTime)
+- feat: detect xlsb/ods password protected files
+- feat: introduce is_x methods for date and time variants
 
 ## 0.23.1
 
