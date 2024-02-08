@@ -459,6 +459,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     // sheets must be added before this is called!!
     fn read_table_metadata(&mut self) -> Result<(), XlsxError> {
+        let mut new_tables = Vec::new();
         for (sheet_name, sheet_path) in &self.sheets {
             let last_folder_index = sheet_path.rfind('/').expect("should be in a folder");
             let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
@@ -522,7 +523,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                 }
             }
-            let mut new_tables = Vec::new();
             for table_file in table_locations {
                 let mut xml = match xml_reader(&mut self.zip, &table_file) {
                     None => continue,
@@ -606,12 +606,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     dims,
                 ));
             }
-            if let Some(tables) = &mut self.tables {
-                tables.append(&mut new_tables);
-            } else {
-                self.tables = Some(new_tables);
-            }
         }
+        self.tables = Some(new_tables);
         Ok(())
     }
 
