@@ -4,7 +4,7 @@ use serde::{self, forward_to_deserialize_any, Deserialize};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
-use super::{CellErrorType, CellType, DataType, Range, Rows};
+use super::{CellErrorType, CellType, Data, Range, Rows};
 
 /// A cell deserialization specific error enum
 #[derive(Debug)]
@@ -106,27 +106,26 @@ impl RangeDeserializerBuilder<'static, &'static str> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{DataType, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
+    /// # use calamine::{Data, Error, open_workbook, Xlsx, Reader, RangeDeserializerBuilder};
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let range = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let range = workbook.worksheet_range("Sheet1")?;
     ///
     ///     let mut iter = RangeDeserializerBuilder::new()
     ///         .has_headers(false)
     ///         .from_range(&range)?;
     ///
     ///     if let Some(result) = iter.next() {
-    ///         let row: Vec<DataType> = result?;
-    ///         assert_eq!(row, [DataType::from("label"), DataType::from("value")]);
+    ///         let row: Vec<Data> = result?;
+    ///         assert_eq!(row, [Data::from("label"), Data::from("value")]);
     ///     } else {
     ///         return Err(From::from("expected at least three records but got none"));
     ///     }
     ///
     ///     if let Some(result) = iter.next() {
-    ///         let row: Vec<DataType> = result?;
-    ///         assert_eq!(row, [DataType::from("celsius"), DataType::from(22.2222)]);
+    ///         let row: Vec<Data> = result?;
+    ///         assert_eq!(row, [Data::from("celsius"), Data::from(22.2222)]);
     ///     } else {
     ///         return Err(From::from("expected at least three records but got one"));
     ///     }
@@ -154,8 +153,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let range = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let range = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = RangeDeserializerBuilder::with_headers(&["value", "label"]).from_range(&range)?;
     ///
     ///     if let Some(result) = iter.next() {
@@ -184,8 +182,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let range = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let range = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
     ///
     ///     if let Some(result) = iter.next() {
@@ -220,8 +217,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
 /// fn main() -> Result<(), Error> {
 ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
 ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-///     let range = workbook.worksheet_range("Sheet1")
-///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+///     let range = workbook.worksheet_range("Sheet1")?;
 ///
 ///     let mut iter = RangeDeserializerBuilder::new().from_range(&range)?;
 ///
@@ -344,10 +340,7 @@ where
     }
 }
 
-struct RowDeserializer<'header, 'cell, T>
-where
-    T: ToCellDeserializer<'cell>,
-{
+struct RowDeserializer<'header, 'cell, T> {
     cells: &'cell [T],
     headers: Option<&'header [String]>,
     iter: slice::Iter<'header, usize>, // iterator over column indexes
@@ -395,10 +388,10 @@ where
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        if !self.has_headers() {
-            visitor.visit_seq(self)
-        } else {
+        if self.has_headers() {
             visitor.visit_map(self)
+        } else {
+            visitor.visit_seq(self)
         }
     }
 
@@ -408,10 +401,10 @@ where
         _cells: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        if !self.has_headers() {
-            visitor.visit_seq(self)
-        } else {
+        if self.has_headers() {
             visitor.visit_map(self)
+        } else {
+            visitor.visit_seq(self)
         }
     }
 
@@ -467,7 +460,7 @@ where
             .headers
             .expect("Cannot map-deserialize range without headers");
 
-        while let Some(i) = self.iter.next() {
+        for i in self.iter.by_ref() {
             if !self.cells[*i].is_empty() {
                 self.peek = Some(*i);
                 let de = BorrowedStrDeserializer::<Self::Error>::new(&headers[*i]);
@@ -503,11 +496,11 @@ pub trait ToCellDeserializer<'a>: CellType {
     fn is_empty(&self) -> bool;
 }
 
-impl<'a> ToCellDeserializer<'a> for DataType {
-    type Deserializer = DataTypeDeserializer<'a>;
+impl<'a> ToCellDeserializer<'a> for Data {
+    type Deserializer = DataDeserializer<'a>;
 
-    fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> DataTypeDeserializer<'a> {
-        DataTypeDeserializer {
+    fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> DataDeserializer<'a> {
+        DataDeserializer {
             data_type: self,
             pos,
         }
@@ -515,11 +508,7 @@ impl<'a> ToCellDeserializer<'a> for DataType {
 
     #[inline]
     fn is_empty(&self) -> bool {
-        if let DataType::Empty = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Data::Empty)
     }
 }
 
@@ -530,15 +519,15 @@ macro_rules! deserialize_num {
             V: Visitor<'de>,
         {
             match self.data_type {
-                DataType::Float(v) => visitor.$visit(*v as $typ),
-                DataType::Int(v) => visitor.$visit(*v as $typ),
-                DataType::String(ref s) => {
+                Data::Float(v) => visitor.$visit(*v as $typ),
+                Data::Int(v) => visitor.$visit(*v as $typ),
+                Data::String(ref s) => {
                     let v = s.parse().map_err(|_| {
                         DeError::Custom(format!("Expecting {}, got '{}'", stringify!($typ), s))
                     })?;
                     visitor.$visit(v)
                 }
-                DataType::Error(ref err) => Err(DeError::CellError {
+                Data::Error(ref err) => Err(DeError::CellError {
                     err: err.clone(),
                     pos: self.pos,
                 }),
@@ -552,13 +541,13 @@ macro_rules! deserialize_num {
     };
 }
 
-/// A deserializer for the `DataType` type.
-pub struct DataTypeDeserializer<'a> {
-    data_type: &'a DataType,
+/// A deserializer for the `Data` type.
+pub struct DataDeserializer<'a> {
+    data_type: &'a Data,
     pos: (u32, u32),
 }
 
-impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
+impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     type Error = DeError;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -566,13 +555,15 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::String(v) => visitor.visit_str(v),
-            DataType::Float(v) => visitor.visit_f64(*v),
-            DataType::Bool(v) => visitor.visit_bool(*v),
-            DataType::Int(v) => visitor.visit_i64(*v),
-            DataType::Empty => visitor.visit_unit(),
-            DataType::DateTime(v) => visitor.visit_f64(*v),
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::String(v) => visitor.visit_str(v),
+            Data::Float(v) => visitor.visit_f64(*v),
+            Data::Bool(v) => visitor.visit_bool(*v),
+            Data::Int(v) => visitor.visit_i64(*v),
+            Data::Empty => visitor.visit_unit(),
+            Data::DateTime(v) => visitor.visit_f64(v.as_f64()),
+            Data::DateTimeIso(v) => visitor.visit_str(v),
+            Data::DurationIso(v) => visitor.visit_str(v),
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -584,13 +575,15 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::String(v) => visitor.visit_str(v),
-            DataType::Empty => visitor.visit_str(""),
-            DataType::Float(v) => visitor.visit_str(&v.to_string()),
-            DataType::Int(v) => visitor.visit_str(&v.to_string()),
-            DataType::Bool(v) => visitor.visit_str(&v.to_string()),
-            DataType::DateTime(v) => visitor.visit_str(&v.to_string()),
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::String(v) => visitor.visit_str(v),
+            Data::Empty => visitor.visit_str(""),
+            Data::Float(v) => visitor.visit_str(&v.to_string()),
+            Data::Int(v) => visitor.visit_str(&v.to_string()),
+            Data::Bool(v) => visitor.visit_str(&v.to_string()),
+            Data::DateTime(v) => visitor.visit_str(&v.to_string()),
+            Data::DateTimeIso(v) => visitor.visit_str(v),
+            Data::DurationIso(v) => visitor.visit_str(v),
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -602,9 +595,9 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::String(v) => visitor.visit_bytes(v.as_bytes()),
-            DataType::Empty => visitor.visit_bytes(&[]),
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::String(v) => visitor.visit_bytes(v.as_bytes()),
+            Data::Empty => visitor.visit_bytes(&[]),
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -631,17 +624,19 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::Bool(v) => visitor.visit_bool(*v),
-            DataType::String(ref v) => match &**v {
+            Data::Bool(v) => visitor.visit_bool(*v),
+            Data::String(ref v) => match &**v {
                 "TRUE" | "true" | "True" => visitor.visit_bool(true),
                 "FALSE" | "false" | "False" => visitor.visit_bool(false),
                 d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),
             },
-            DataType::Empty => visitor.visit_bool(false),
-            DataType::Float(v) => visitor.visit_bool(*v != 0.),
-            DataType::Int(v) => visitor.visit_bool(*v != 0),
-            DataType::DateTime(v) => visitor.visit_bool(*v != 0.),
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::Empty => visitor.visit_bool(false),
+            Data::Float(v) => visitor.visit_bool(*v != 0.),
+            Data::Int(v) => visitor.visit_bool(*v != 0),
+            Data::DateTime(v) => visitor.visit_bool(v.as_f64() != 0.),
+            Data::DateTimeIso(_) => visitor.visit_bool(true),
+            Data::DurationIso(_) => visitor.visit_bool(true),
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -653,10 +648,10 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::String(ref s) if s.len() == 1 => {
+            Data::String(ref s) if s.len() == 1 => {
                 visitor.visit_char(s.chars().next().expect("s not empty"))
             }
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -669,8 +664,8 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::Empty => visitor.visit_unit(),
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::Empty => visitor.visit_unit(),
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -683,7 +678,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         V: Visitor<'de>,
     {
         match self.data_type {
-            DataType::Empty => visitor.visit_none(),
+            Data::Empty => visitor.visit_none(),
             _ => visitor.visit_some(self),
         }
     }
@@ -711,8 +706,8 @@ impl<'a, 'de> serde::Deserializer<'de> for DataTypeDeserializer<'a> {
         use serde::de::IntoDeserializer;
 
         match self.data_type {
-            DataType::String(s) => visitor.visit_enum(s.as_str().into_deserializer()),
-            DataType::Error(ref err) => Err(DeError::CellError {
+            Data::String(s) => visitor.visit_enum(s.as_str().into_deserializer()),
+            Data::Error(ref err) => Err(DeError::CellError {
                 err: err.clone(),
                 pos: self.pos,
             }),
@@ -750,7 +745,7 @@ mod tests {
 
         assert_eq!(
             Content::deserialize(
-                super::DataType::String("Foo".to_string()).to_cell_deserializer((0, 0))
+                super::Data::String("Foo".to_string()).to_cell_deserializer((0, 0))
             )
             .unwrap(),
             Content::Foo

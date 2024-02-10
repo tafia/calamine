@@ -3,3 +3,6 @@ Cargo.lock
 *.bk
 .vim
 /.idea/
+fuzz.xlsx
+.idea
+nyc.rs

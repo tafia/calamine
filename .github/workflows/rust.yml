@@ -7,15 +7,17 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       matrix:
-        toolchain: [ stable, beta, nightly ]
+        toolchain: 
+          - "1.65"  # MSRV
+          - stable
+          - beta
+          - nightly
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@master
       with:
           toolchain: ${{ matrix.toolchain }}
-          profile: minimal
-          override: true
     - name: Toolchain version
       run: |
         cargo -vV
@@ -25,14 +27,12 @@ jobs:
         cargo build
     - name: Run tests
       run: |
-        cargo test
+        cargo test --features dates
     - name: Install rustfmt
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@master
       if: ${{ matrix.toolchain == 'stable' }}
       with:
           toolchain: ${{ matrix.toolchain }}
-          profile: minimal
-          override: true
           components: rustfmt
     - name: Format checks
       if: ${{ matrix.toolchain == 'stable' }}

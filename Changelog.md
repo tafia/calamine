@@ -10,6 +10,89 @@
 
 ## Unreleased
 
+## 0.24.0
+
+- refactor (breaking): rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`
+- feat: introduce a `DataType` trait implemented by both `Data` and `DataRef`.
+- feat: `Data` and `DataType` now return `Some(0{.0})` and `Some(1{.0})` rather than `None` when `.as_i64` or `.as_f64`
+  is used on a Bool value
+- fix: getting tables names on xlsx workbook without _rels files
+- refactor: DateTime(f64) to DateTime(ExcelDateTime)
+- feat: detect xlsb/ods password protected files
+- feat: introduce is_x methods for date and time variants
+
+## 0.23.1
+
+- fix: `worksheet_formula` not returning all formula
+
+## 0.23.0
+
+- feat: add new `DataTypeRef` available from `worksheet_range_ref` to reduce memory usage
+- docs: add benchmark plot
+- fix: truncated text in xls
+- feat: detect if workbook is password protected
+
+## 0.22.1
+
+- fix: regression on `Range::get`
+- chore: update GitHub actions
+- fix: spelling of formula error type
+- feat: support label cells for xls
+- refactor: clippy
+- perf: preallocate several buffers
+
+## 0.22.0
+
+- docs: improve `de_opt_f64` example.
+- docs: remove datetime notice from README
+- feat: add support of sheet type and visibility
+- style: clippy
+- chore: bump MSRV to 1.63 (breaking)
+- chore: set edition to 2021
+- feat: implement blank string handling
+
+## 0.21.2:
+
+- fix: formula with string not displaying properly
+
+## 0.21.1
+
+- chore: bump MSRv to 1.60.0 due to log dependencies
+- fix: xls: formula values ignored
+- fix: xls: formula (string) not displayed properly
+
+## 0.21.0
+
+- fix: (xlsx) support `r` attribute
+- fix: support `PROJECTCOMPATVERSION` in vba
+- fix: incorrect date parsing due to excel bug
+- feat: support for duration
+- test: add MSRV
+
+## 0.20.0
+
+- refactor: bump dependencies
+- feat: __(all) parse format/style information to infer cell as datetime__
+- feat: (ods) support number-columns-repeated attribute
+- refactor: multiple clippy refactorings
+
+## 0.19.2
+
+- feat: Extract picture data by turning `picture` feature on
+
+## 0.19.1
+
+- fix: wrong range len calculation
+- fix: date precision
+
+## 0.19.0
+
+- fix: Several decoding issues in xls and xlsb
+- fix: Wrong decimal parsing
+- refactor: bump dependencies (quick-xml in particular and chrono)
+- feat: always return sheet names in lexicographic order (BTreeMap)
+- chore: remove travis
+
 ## 0.18.0
 
 - fix: Allow empty value cells in xlsx
@@ -35,7 +118,7 @@
 - docs: add `deserialize_with` example in readme
 - fix: Skip phonetic run
 - fix: Fix XLS float parsing error
-- docs: Correct MBSC to MBCS in vba.rs (mispelled before)
+- docs: Correct MBSC to MBCS in vba.rs (misspelled before)
 - style: use 2018 edition paths
 - fix: Add the ability to read formula values from XLSB
 - fix: support integral date types
@@ -74,7 +157,7 @@
 - fix: xls - allow sectors ending after eof (truncate them!)
 
 ## 0.15.0
-- feat: codepage/encoding_rs for codpage mapping 
+- feat: codepage/encoding_rs for codpage mapping
 
 ## 0.14.10
 - fix: serde map do not stop at first empty value

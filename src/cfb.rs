@@ -21,7 +21,6 @@ const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
 #[derive(Debug)]
 pub enum CfbError {
     Io(std::io::Error),
-
     Ole,
     EmptyRootDir,
     StreamNotFound(String),
@@ -221,8 +220,8 @@ impl Header {
                 version,
                 sector_size,
                 dir_len,
-                fat_len,
                 dir_start,
+                fat_len,
                 mini_fat_len,
                 mini_fat_start,
                 difat_start,
@@ -420,8 +419,7 @@ pub struct XlsEncoding {
 
 impl XlsEncoding {
     pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
-        let e =
-            codepage::to_encoding(codepage).ok_or_else(|| CfbError::CodePageNotFound(codepage))?;
+        let e = codepage::to_encoding(codepage).ok_or(CfbError::CodePageNotFound(codepage))?;
         Ok(XlsEncoding { encoding: e })
     }
 
@@ -467,9 +465,7 @@ impl XlsEncoding {
         (l, ub)
     }
 
-    pub fn decode_all(&self, stream: &[u8], high_byte: Option<bool>) -> String {
-        let mut s = String::with_capacity(stream.len());
-        let _ = self.decode_to(stream, stream.len(), &mut s, high_byte);
-        s
+    pub fn decode_all(&self, stream: &[u8]) -> String {
+        self.encoding.decode(stream).0.into_owned()
     }
 }

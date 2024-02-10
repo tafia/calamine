@@ -5,17 +5,18 @@
 //! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
+use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{DataType, Metadata, Range, Reader};
+use crate::{Data, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -31,12 +32,16 @@ pub enum OdsError {
     Zip(zip::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
+    /// Xml attribute error
+    XmlAttr(quick_xml::events::attributes::AttrError),
     /// Error while parsing string
     Parse(std::string::ParseError),
     /// Error while parsing integer
     ParseInt(std::num::ParseIntError),
     /// Error while parsing float
     ParseFloat(std::num::ParseFloatError),
+    /// Error while parsing bool
+    ParseBool(std::str::ParseBoolError),
 
     /// Invalid MIME
     InvalidMime(Vec<u8>),
@@ -44,13 +49,17 @@ pub enum OdsError {
     FileNotFound(&'static str),
     /// Unexpected end of file
     Eof(&'static str),
-    /// Unexpexted error
+    /// Unexpected error
     Mismatch {
         /// Expected
         expected: &'static str,
         /// Found
         found: String,
     },
+    /// Workbook is password protected
+    Password,
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, OdsError, Io);
@@ -62,18 +71,22 @@ from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OdsError::Io(e) => write!(f, "I/O error: {}", e),
-            OdsError::Zip(e) => write!(f, "Zip error: {}", e),
-            OdsError::Xml(e) => write!(f, "Xml error: {}", e),
-            OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
-            OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
-            OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
-            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {:?}", mime),
-            OdsError::FileNotFound(file) => write!(f, "'{}' file not found in archive", file),
-            OdsError::Eof(node) => write!(f, "Expecting '{}' node, found end of xml file", node),
+            OdsError::Io(e) => write!(f, "I/O error: {e}"),
+            OdsError::Zip(e) => write!(f, "Zip error: {e:?}"),
+            OdsError::Xml(e) => write!(f, "Xml error: {e}"),
+            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {e}"),
+            OdsError::Parse(e) => write!(f, "Parse string error: {e}"),
+            OdsError::ParseInt(e) => write!(f, "Parse integer error: {e}"),
+            OdsError::ParseFloat(e) => write!(f, "Parse float error: {e}"),
+            OdsError::ParseBool(e) => write!(f, "Parse bool error: {e}"),
+            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {mime:?}"),
+            OdsError::FileNotFound(file) => write!(f, "'{file}' file not found in archive"),
+            OdsError::Eof(node) => write!(f, "Expecting '{node}' node, found end of xml file"),
             OdsError::Mismatch { expected, found } => {
-                write!(f, "Expecting '{}', found '{}'", expected, found)
+                write!(f, "Expecting '{expected}', found '{found}'")
             }
+            OdsError::Password => write!(f, "Workbook is password protected"),
+            OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -97,23 +110,21 @@ impl std::error::Error for OdsError {
 /// # Reference
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-pub struct Ods<RS>
+pub struct Ods<RS> {
+    sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
+    metadata: Metadata,
+    marker: PhantomData<RS>,
+    #[cfg(feature = "picture")]
+    pictures: Option<Vec<(String, Vec<u8>)>>,
+}
+
+impl<RS> Reader<RS> for Ods<RS>
 where
     RS: Read + Seek,
 {
-    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
-    metadata: Metadata,
-    marker: PhantomData<RS>,
-}
-
-impl<RS: Read + Seek> Reader for Ods<RS> {
-    type RS = RS;
     type Error = OdsError;
 
-    fn new(reader: RS) -> Result<Self, OdsError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(reader: RS) -> Result<Self, OdsError> {
         let mut zip = ZipArchive::new(reader)?;
 
         // check mimetype
@@ -129,13 +140,18 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
             Err(e) => return Err(OdsError::Zip(e)),
         }
 
+        check_for_password_protected(&mut zip)?;
+
+        #[cfg(feature = "picture")]
+        let pictures = read_pictures(&mut zip)?;
+
         let Content {
             sheets,
-            sheet_names,
+            sheets_metadata,
             defined_names,
         } = parse_content(zip)?;
         let metadata = Metadata {
-            sheets: sheet_names,
+            sheets: sheets_metadata,
             names: defined_names,
         };
 
@@ -143,6 +159,8 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
             marker: PhantomData,
             metadata,
             sheets,
+            #[cfg(feature = "picture")]
+            pictures,
         })
     }
 
@@ -157,27 +175,82 @@ impl<RS: Read + Seek> Reader for Ods<RS> {
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.0.to_owned()))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.0.to_owned())
     }
 
-    /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
-    }
-
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         self.sheets
             .iter()
             .map(|(name, (range, _formula))| (name.to_owned(), range.clone()))
             .collect()
     }
+
+    /// Read worksheet data in corresponding worksheet path
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.to_owned())
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
+    }
 }
 
 struct Content {
-    sheets: HashMap<String, (Range<DataType>, Range<String>)>,
-    sheet_names: Vec<String>,
+    sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
+    sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+}
+
+/// Check password protection
+fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Result<(), OdsError> {
+    let mut reader = match zip.by_name("META-INF/manifest.xml") {
+        Ok(f) => {
+            let mut r = XmlReader::from_reader(BufReader::new(f));
+            r.check_end_names(false)
+                .trim_text(false)
+                .check_comments(false)
+                .expand_empty_elements(true);
+            r
+        }
+        Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("META-INF/manifest.xml")),
+        Err(e) => return Err(OdsError::Zip(e)),
+    };
+
+    let mut buf = Vec::new();
+    let mut inner = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"manifest:file-entry") => {
+                loop {
+                    match reader.read_event_into(&mut inner) {
+                        Ok(Event::Start(ref e))
+                            if e.name() == QName(b"manifest:encryption-data") =>
+                        {
+                            return Err(OdsError::Password)
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(OdsError::Xml(e)),
+                        _ => (),
+                    }
+                }
+                inner.clear()
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(OdsError::Xml(e)),
+            _ => (),
+        }
+        buf.clear()
+    }
+
+    Ok(())
 }
 
 /// Parses content.xml and store the result in `self.content`
@@ -186,7 +259,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
             r.check_end_names(false)
-                .trim_text(true)
+                .trim_text(false)
                 .check_comments(false)
                 .expand_empty_elements(true);
             r
@@ -194,27 +267,69 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("content.xml")),
         Err(e) => return Err(OdsError::Zip(e)),
     };
-    let mut buf = Vec::new();
-    let mut sheets = HashMap::new();
+    let mut buf = Vec::with_capacity(1024);
+    let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
-    let mut sheet_names = Vec::new();
+    let mut sheets_metadata = Vec::new();
+    let mut styles = HashMap::new();
+    let mut style_name: Option<String> = None;
     loop {
-        match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table" => {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"style:style") => {
+                style_name = e
+                    .try_get_attribute(b"style:name")?
+                    .map(|a| a.decode_and_unescape_value(&reader))
+                    .transpose()
+                    .map_err(OdsError::Xml)?
+                    .map(|x| x.to_string())
+            }
+            Ok(Event::Start(ref e))
+                if style_name.clone().is_some() && e.name() == QName(b"style:table-properties") =>
+            {
+                let visible = match e.try_get_attribute(b"table:display")? {
+                    Some(a) => match a
+                        .decode_and_unescape_value(&reader)
+                        .map_err(OdsError::Xml)?
+                        .parse()
+                        .map_err(OdsError::ParseBool)?
+                    {
+                        true => SheetVisible::Visible,
+                        false => SheetVisible::Hidden,
+                    },
+                    None => SheetVisible::Visible,
+                };
+                styles.insert(style_name.clone(), visible);
+            }
+            Ok(Event::Start(ref e)) if e.name() == QName(b"table:table") => {
+                let visible = styles
+                    .get(
+                        &e.try_get_attribute(b"table:style-name")?
+                            .map(|a| a.decode_and_unescape_value(&reader))
+                            .transpose()
+                            .map_err(OdsError::Xml)?
+                            .map(|x| x.to_string()),
+                    )
+                    .map(|v| v.to_owned())
+                    .unwrap_or(SheetVisible::Visible);
                 if let Some(ref a) = e
                     .attributes()
                     .filter_map(|a| a.ok())
-                    .find(|a| a.key == b"table:name")
+                    .find(|a| a.key == QName(b"table:name"))
                 {
                     let name = a
-                        .unescape_and_decode_value(&reader)
-                        .map_err(OdsError::Xml)?;
+                        .decode_and_unescape_value(&reader)
+                        .map_err(OdsError::Xml)?
+                        .to_string();
                     let (range, formulas) = read_table(&mut reader)?;
-                    sheet_names.push(name.clone());
+                    sheets_metadata.push(Sheet {
+                        name: name.clone(),
+                        typ: SheetType::WorkSheet,
+                        visible,
+                    });
                     sheets.insert(name, (range, formulas));
                 }
             }
-            Ok(Event::Start(ref e)) if e.name() == b"table:named-expressions" => {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"table:named-expressions") => {
                 defined_names = read_named_expressions(&mut reader)?;
             }
             Ok(Event::Eof) => break,
@@ -225,22 +340,31 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     }
     Ok(Content {
         sheets,
-        sheet_names,
+        sheets_metadata,
         defined_names,
     })
 }
 
-fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<String>), OdsError> {
+fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<Data>, Range<String>), OdsError> {
     let mut cells = Vec::new();
+    let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
     let mut cols = Vec::new();
-    let mut buf = Vec::new();
-    let mut row_buf = Vec::new();
-    let mut cell_buf = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
+    let mut row_buf = Vec::with_capacity(1024);
+    let mut cell_buf = Vec::with_capacity(1024);
     cols.push(0);
     loop {
-        match reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == b"table:table-row" => {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"table:table-row") => {
+                let row_repeats = match e.try_get_attribute(b"table:number-rows-repeated")? {
+                    Some(c) => c
+                        .decode_and_unescape_value(reader)
+                        .map_err(OdsError::Xml)?
+                        .parse()
+                        .map_err(OdsError::ParseInt)?,
+                    None => 1,
+                };
                 read_row(
                     reader,
                     &mut row_buf,
@@ -249,28 +373,43 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<Stri
                     &mut formulas,
                 )?;
                 cols.push(cells.len());
+                rows_repeats.push(row_repeats);
             }
-            Ok(Event::End(ref e)) if e.name() == b"table:table" => break,
+            Ok(Event::End(ref e)) if e.name() == QName(b"table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
         }
         buf.clear();
     }
-    Ok((get_range(cells, &cols), get_range(formulas, &cols)))
+    Ok((
+        get_range(cells, &cols, &rows_repeats),
+        get_range(formulas, &cols, &rows_repeats),
+    ))
 }
 
-fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) -> Range<T> {
+fn is_empty_row<T: Default + Clone + PartialEq>(row: &[T]) -> bool {
+    row.iter().all(|x| x == &T::default())
+}
+
+fn get_range<T: Default + Clone + PartialEq>(
+    mut cells: Vec<T>,
+    cols: &[usize],
+    rows_repeats: &[usize],
+) -> Range<T> {
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
-    let mut col_min = std::usize::MAX;
+    let mut col_min = usize::MAX;
     let mut col_max = 0;
+    let mut first_empty_rows_repeated = 0;
     {
         for (i, w) in cols.windows(2).enumerate() {
             let row = &cells[w[0]..w[1]];
             if let Some(p) = row.iter().position(|c| c != &T::default()) {
                 if row_min.is_none() {
                     row_min = Some(i);
+                    first_empty_rows_repeated =
+                        rows_repeats.iter().take(i).sum::<usize>().saturating_sub(i);
                 }
                 row_max = i;
                 if p < col_min {
@@ -291,26 +430,55 @@ fn get_range<T: Default + Clone + PartialEq>(mut cells: Vec<T>, cols: &[usize]) 
 
     // rebuild cells into its smallest non empty area
     let cells_len = (row_max + 1 - row_min) * (col_max + 1 - col_min);
-    if cells.len() != cells_len {
+    {
         let mut new_cells = Vec::with_capacity(cells_len);
         let empty_cells = vec![T::default(); col_max + 1];
-        for w in cols.windows(2).skip(row_min).take(row_max + 1) {
+        let mut empty_row_repeats = 0;
+        for (w, row_repeats) in cols
+            .windows(2)
+            .skip(row_min)
+            .take(row_max + 1)
+            .zip(rows_repeats.iter().skip(row_min).take(row_max + 1))
+        {
             let row = &cells[w[0]..w[1]];
-            match row.len().cmp(&(col_max + 1)) {
-                std::cmp::Ordering::Less => {
-                    new_cells.extend_from_slice(&row[col_min..]);
-                    new_cells.extend_from_slice(&empty_cells[row.len()..]);
+            let row_repeats = *row_repeats;
+
+            if is_empty_row(row) {
+                empty_row_repeats = row_repeats;
+                continue;
+            }
+
+            if empty_row_repeats > 0 {
+                row_max = row_max + empty_row_repeats - 1;
+                for _ in 0..empty_row_repeats {
+                    new_cells.extend_from_slice(&empty_cells);
                 }
-                std::cmp::Ordering::Equal => {
-                    new_cells.extend_from_slice(&row[col_min..]);
-                }
-                std::cmp::Ordering::Greater => {
-                    new_cells.extend_from_slice(&row[col_min..=col_max]);
+                empty_row_repeats = 0;
+            };
+
+            if row_repeats > 1 {
+                row_max = row_max + row_repeats - 1;
+            };
+
+            for _ in 0..row_repeats {
+                match row.len().cmp(&(col_max + 1)) {
+                    std::cmp::Ordering::Less => {
+                        new_cells.extend_from_slice(&row[col_min..]);
+                        new_cells.extend_from_slice(&empty_cells[row.len()..]);
+                    }
+                    std::cmp::Ordering::Equal => {
+                        new_cells.extend_from_slice(&row[col_min..]);
+                    }
+                    std::cmp::Ordering::Greater => {
+                        new_cells.extend_from_slice(&row[col_min..=col_max]);
+                    }
                 }
             }
         }
         cells = new_cells;
     }
+    let row_min = row_min + first_empty_rows_repeated;
+    let row_max = row_max + first_empty_rows_repeated;
     Range {
         start: (row_min as u32, col_min as u32),
         end: (row_max as u32, col_max as u32),
@@ -322,21 +490,24 @@ fn read_row(
     reader: &mut OdsReader<'_>,
     row_buf: &mut Vec<u8>,
     cell_buf: &mut Vec<u8>,
-    cells: &mut Vec<DataType>,
+    cells: &mut Vec<Data>,
     formulas: &mut Vec<String>,
 ) -> Result<(), OdsError> {
+    let mut empty_col_repeats = 0;
     loop {
         row_buf.clear();
-        match reader.read_event(row_buf) {
+        match reader.read_event_into(row_buf) {
             Ok(Event::Start(ref e))
-                if e.name() == b"table:table-cell" || e.name() == b"table:covered-table-cell" =>
+                if e.name() == QName(b"table:table-cell")
+                    || e.name() == QName(b"table:covered-table-cell") =>
             {
                 let mut repeats = 1;
                 for a in e.attributes() {
-                    let a = a?;
-                    if a.key == b"table:number-columns-repeated" {
+                    let a = a.map_err(OdsError::XmlAttr)?;
+                    if a.key == QName(b"table:number-columns-repeated") {
                         repeats = reader
-                            .decode(&a.value)
+                            .decoder()
+                            .decode(&a.value)?
                             .parse()
                             .map_err(OdsError::ParseInt)?;
                         break;
@@ -344,15 +515,26 @@ fn read_row(
                 }
 
                 let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
-                for _ in 0..repeats {
-                    cells.push(value.clone());
-                    formulas.push(formula.clone());
+
+                for _ in 0..empty_col_repeats {
+                    cells.push(Data::Empty);
+                    formulas.push("".to_string());
+                }
+                empty_col_repeats = 0;
+
+                if value.is_empty() && formula.is_empty() {
+                    empty_col_repeats = repeats;
+                } else {
+                    for _ in 0..repeats {
+                        cells.push(value.clone());
+                        formulas.push(formula.clone());
+                    }
                 }
                 if !is_closed {
-                    reader.read_to_end(e.name(), cell_buf)?;
+                    reader.read_to_end_into(e.name(), cell_buf)?;
                 }
             }
-            Ok(Event::End(ref e)) if e.name() == b"table:table-row" => break,
+            Ok(Event::End(ref e)) if e.name() == QName(b"table:table-row") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {
@@ -365,40 +547,51 @@ fn read_row(
     Ok(())
 }
 
-/// Converts table-cell element into a `DataType`
+/// Converts table-cell element into a `Data`
 ///
 /// ODF 1.2-19.385
 fn get_datatype(
     reader: &mut OdsReader<'_>,
     atts: Attributes<'_>,
     buf: &mut Vec<u8>,
-) -> Result<(DataType, String, bool), OdsError> {
+) -> Result<(Data, String, bool), OdsError> {
     let mut is_string = false;
     let mut is_value_set = false;
-    let mut val = DataType::Empty;
+    let mut val = Data::Empty;
     let mut formula = String::new();
     for a in atts {
-        let a = a?;
+        let a = a.map_err(OdsError::XmlAttr)?;
         match a.key {
-            b"office:value" if !is_value_set => {
-                let v = reader.decode(&a.value);
-                val = DataType::Float(v.parse().map_err(OdsError::ParseFloat)?);
+            QName(b"office:value") if !is_value_set => {
+                let v = reader.decoder().decode(&a.value)?;
+                val = Data::Float(v.parse().map_err(OdsError::ParseFloat)?);
                 is_value_set = true;
             }
-            b"office:string-value" | b"office:date-value" | b"office:time-value"
+            QName(b"office:string-value" | b"office:date-value" | b"office:time-value")
                 if !is_value_set =>
             {
-                val = DataType::String(a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?);
+                let attr = a
+                    .decode_and_unescape_value(reader)
+                    .map_err(OdsError::Xml)?
+                    .to_string();
+                val = match a.key {
+                    QName(b"office:date-value") => Data::DateTimeIso(attr),
+                    QName(b"office:time-value") => Data::DurationIso(attr),
+                    _ => Data::String(attr),
+                };
                 is_value_set = true;
             }
-            b"office:boolean-value" if !is_value_set => {
+            QName(b"office:boolean-value") if !is_value_set => {
                 let b = &*a.value == b"TRUE" || &*a.value == b"true";
-                val = DataType::Bool(b);
+                val = Data::Bool(b);
                 is_value_set = true;
             }
-            b"office:value-type" if !is_value_set => is_string = &*a.value == b"string",
-            b"table:formula" => {
-                formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?;
+            QName(b"office:value-type") if !is_value_set => is_string = &*a.value == b"string",
+            QName(b"table:formula") => {
+                formula = a
+                    .decode_and_unescape_value(reader)
+                    .map_err(OdsError::Xml)?
+                    .to_string();
             }
             _ => (),
         }
@@ -410,25 +603,35 @@ fn get_datatype(
         let mut first_paragraph = true;
         loop {
             buf.clear();
-            match reader.read_event(buf) {
+            match reader.read_event_into(buf) {
                 Ok(Event::Text(ref e)) => {
-                    s.push_str(&e.unescape_and_decode(reader)?);
+                    s.push_str(&e.unescape()?);
                 }
                 Ok(Event::End(ref e))
-                    if e.name() == b"table:table-cell"
-                        || e.name() == b"table:covered-table-cell" =>
+                    if e.name() == QName(b"table:table-cell")
+                        || e.name() == QName(b"table:covered-table-cell") =>
                 {
-                    return Ok((DataType::String(s), formula, true));
+                    return Ok((Data::String(s), formula, true));
                 }
-                Ok(Event::Start(ref e)) if e.name() == b"text:p" => {
+                Ok(Event::Start(ref e)) if e.name() == QName(b"text:p") => {
                     if first_paragraph {
                         first_paragraph = false;
                     } else {
                         s.push('\n');
                     }
                 }
-                Ok(Event::Start(ref e)) if e.name() == b"text:s" => {
-                    s.push(' ');
+                Ok(Event::Start(ref e)) if e.name() == QName(b"text:s") => {
+                    let count = match e.try_get_attribute("text:c")? {
+                        Some(c) => c
+                            .decode_and_unescape_value(reader)
+                            .map_err(OdsError::Xml)?
+                            .parse()
+                            .map_err(OdsError::ParseInt)?,
+                        None => 1,
+                    };
+                    for _ in 0..count {
+                        s.push(' ');
+                    }
                 }
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),
@@ -442,23 +645,30 @@ fn get_datatype(
 
 fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, String)>, OdsError> {
     let mut defined_names = Vec::new();
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     loop {
         buf.clear();
-        match reader.read_event(&mut buf) {
+        match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e))
-                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" =>
+                if e.name() == QName(b"table:named-range")
+                    || e.name() == QName(b"table:named-expression") =>
             {
                 let mut name = String::new();
                 let mut formula = String::new();
                 for a in e.attributes() {
-                    let a = a.map_err(OdsError::Xml)?;
+                    let a = a.map_err(OdsError::XmlAttr)?;
                     match a.key {
-                        b"table:name" => {
-                            name = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
+                        QName(b"table:name") => {
+                            name = a
+                                .decode_and_unescape_value(reader)
+                                .map_err(OdsError::Xml)?
+                                .to_string();
                         }
-                        b"table:cell-range-address" | b"table:expression" => {
-                            formula = a.unescape_and_decode_value(reader).map_err(OdsError::Xml)?
+                        QName(b"table:cell-range-address" | b"table:expression") => {
+                            formula = a
+                                .decode_and_unescape_value(reader)
+                                .map_err(OdsError::Xml)?
+                                .to_string();
                         }
                         _ => (),
                     }
@@ -466,8 +676,9 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
                 defined_names.push((name, formula));
             }
             Ok(Event::End(ref e))
-                if e.name() == b"table:named-range" || e.name() == b"table:named-expression" => {}
-            Ok(Event::End(ref e)) if e.name() == b"table:named-expressions" => break,
+                if e.name() == QName(b"table:named-range")
+                    || e.name() == QName(b"table:named-expression") => {}
+            Ok(Event::End(ref e)) if e.name() == QName(b"table:named-expressions") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {
@@ -478,4 +689,37 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
         }
     }
     Ok(defined_names)
+}
+
+/// Read pictures
+#[cfg(feature = "picture")]
+fn read_pictures<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+) -> Result<Option<Vec<(String, Vec<u8>)>>, OdsError> {
+    let mut pics = Vec::new();
+    for i in 0..zip.len() {
+        let mut zfile = zip.by_index(i)?;
+        let zname = zfile.name().to_owned();
+        // no Thumbnails
+        if zname.starts_with("Pictures") {
+            let name_ext: Vec<&str> = zname.split(".").collect();
+            if let Some(ext) = name_ext.last() {
+                if [
+                    "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps", "bmp",
+                    "wpg",
+                ]
+                .contains(ext)
+                {
+                    let mut buf: Vec<u8> = Vec::new();
+                    zfile.read_to_end(&mut buf)?;
+                    pics.push((ext.to_string(), buf));
+                }
+            }
+        }
+    }
+    if pics.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(pics))
+    }
 }

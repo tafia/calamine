@@ -1,5 +1,9 @@
+mod cells_reader;
+
+pub use cells_reader::XlsbCellsReader;
+
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 use std::string::String;
 
@@ -8,13 +12,16 @@ use log::debug;
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
+use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::datatype::DataRef;
+use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, DataType, Metadata, Range, Reader};
+use crate::{Cell, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -25,6 +32,8 @@ pub enum XlsbError {
     Zip(zip::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
+    /// Xml attribute error
+    XmlAttr(quick_xml::events::attributes::AttrError),
     /// Vba error
     Vba(crate::vba::VbaError),
 
@@ -59,6 +68,17 @@ pub enum XlsbError {
         /// buffer length
         buf_len: usize,
     },
+    /// Unrecognized data
+    Unrecognized {
+        /// data type
+        typ: &'static str,
+        /// value found
+        val: String,
+    },
+    /// Workbook is password protected
+    Password,
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, XlsbError, Io);
@@ -68,26 +88,31 @@ from_err!(quick_xml::Error, XlsbError, Xml);
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            XlsbError::Io(e) => write!(f, "I/O error: {}", e),
-            XlsbError::Zip(e) => write!(f, "Zip error: {}", e),
-            XlsbError::Xml(e) => write!(f, "Xml error: {}", e),
-            XlsbError::Vba(e) => write!(f, "Vba error: {}", e),
+            XlsbError::Io(e) => write!(f, "I/O error: {e}"),
+            XlsbError::Zip(e) => write!(f, "Zip error: {e}"),
+            XlsbError::Xml(e) => write!(f, "Xml error: {e}"),
+            XlsbError::XmlAttr(e) => write!(f, "Xml attribute error: {e}"),
+            XlsbError::Vba(e) => write!(f, "Vba error: {e}"),
             XlsbError::Mismatch { expected, found } => {
-                write!(f, "Expecting {}, got {:X}", expected, found)
+                write!(f, "Expecting {expected}, got {found:X}")
             }
-            XlsbError::FileNotFound(file) => write!(f, "File not found: '{}'", file),
+            XlsbError::FileNotFound(file) => write!(f, "File not found: '{file}'"),
             XlsbError::StackLen => write!(f, "Invalid stack length"),
-            XlsbError::UnsupportedType(t) => write!(f, "Unsupported type {:X}", t),
-            XlsbError::Etpg(t) => write!(f, "Unsupported etpg {:X}", t),
-            XlsbError::IfTab(t) => write!(f, "Unsupported iftab {:X}", t),
-            XlsbError::BErr(t) => write!(f, "Unsupported BErr {:X}", t),
-            XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {:X}", t),
-            XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {:X}", t),
+            XlsbError::UnsupportedType(t) => write!(f, "Unsupported type {t:X}"),
+            XlsbError::Etpg(t) => write!(f, "Unsupported etpg {t:X}"),
+            XlsbError::IfTab(t) => write!(f, "Unsupported iftab {t:X}"),
+            XlsbError::BErr(t) => write!(f, "Unsupported BErr {t:X}"),
+            XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {t:X}"),
+            XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {t:X}"),
             XlsbError::WideStr { ws_len, buf_len } => write!(
                 f,
-                "Wide str length exceeds buffer length ({} > {})",
-                ws_len, buf_len
+                "Wide str length exceeds buffer length ({ws_len} > {buf_len})",
             ),
+            XlsbError::Unrecognized { typ, val } => {
+                write!(f, "Unrecognized {typ}: {val}")
+            }
+            XlsbError::Password => write!(f, "Workbook is password protected"),
+            XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -105,21 +130,23 @@ impl std::error::Error for XlsbError {
 }
 
 /// A Xlsb reader
-pub struct Xlsb<RS>
-where
-    RS: Read + Seek,
-{
+pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
     strings: Vec<String>,
+    /// Cell (number) formats
+    formats: Vec<CellFormat>,
+    is_1904: bool,
     metadata: Metadata,
+    #[cfg(feature = "picture")]
+    pictures: Option<Vec<(String, Vec<u8>)>>,
 }
 
 impl<RS: Read + Seek> Xlsb<RS> {
     /// MS-XLSB
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
-        let mut relationships = HashMap::new();
+    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsbError> {
+        let mut relationships = BTreeMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
                 let mut xml = XmlReader::from_reader(BufReader::new(f));
@@ -127,26 +154,26 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     .trim_text(false)
                     .check_comments(false)
                     .expand_empty_elements(true);
-                let mut buf = Vec::new();
+                let mut buf: Vec<u8> = Vec::with_capacity(64);
 
                 loop {
-                    match xml.read_event(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.name() == b"Relationship" => {
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(ref e)) if e.name() == QName(b"Relationship") => {
                             let mut id = None;
                             let mut target = None;
                             for a in e.attributes() {
-                                match a? {
+                                match a.map_err(XlsbError::XmlAttr)? {
                                     Attribute {
-                                        key: b"Id",
+                                        key: QName(b"Id"),
                                         value: v,
                                     } => {
                                         id = Some(v.to_vec());
                                     }
                                     Attribute {
-                                        key: b"Target",
+                                        key: QName(b"Target"),
                                         value: v,
                                     } => {
-                                        target = Some(xml.decode(&v).into_owned());
+                                        target = Some(xml.decoder().decode(&v)?.into_owned());
                                     }
                                     _ => (),
                                 }
@@ -168,13 +195,68 @@ impl<RS: Read + Seek> Xlsb<RS> {
         Ok(relationships)
     }
 
+    /// MS-XLSB 2.1.7.50 Styles
+    fn read_styles(&mut self) -> Result<(), XlsbError> {
+        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/styles.bin") {
+            Ok(iter) => iter,
+            Err(_) => return Ok(()), // it is fine if path does not exists
+        };
+        let mut buf = Vec::with_capacity(1024);
+        let mut number_formats = BTreeMap::new();
+
+        loop {
+            match iter.read_type()? {
+                0x0267 => {
+                    // BrtBeginFmts
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
+
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002C, &[], &mut buf)?; // BrtFmt
+                        let fmt_code = read_u16(&buf);
+                        let fmt_str = wide_str(&buf[2..], &mut 0)?;
+                        number_formats
+                            .insert(fmt_code, detect_custom_number_format(fmt_str.as_ref()));
+                    }
+                }
+                0x0269 => {
+                    // BrtBeginCellXFs
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002F, &[], &mut buf)?; // BrtXF
+                        let fmt_code = read_u16(&buf[2..4]);
+                        match builtin_format_by_code(fmt_code) {
+                            CellFormat::DateTime => self.formats.push(CellFormat::DateTime),
+                            CellFormat::TimeDelta => self.formats.push(CellFormat::TimeDelta),
+                            CellFormat::Other => {
+                                self.formats.push(
+                                    number_formats
+                                        .get(&fmt_code)
+                                        .copied()
+                                        .unwrap_or(CellFormat::Other),
+                                );
+                            }
+                        }
+                    }
+                    // BrtBeginCellXFs is always present and always after BrtBeginFmts
+                    break;
+                }
+                _ => (),
+            }
+            buf.clear();
+        }
+
+        Ok(())
+    }
+
     /// MS-XLSB 2.1.7.45
     fn read_shared_strings(&mut self) -> Result<(), XlsbError> {
         let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/sharedStrings.bin") {
             Ok(iter) => iter,
             Err(_) => return Ok(()), // it is fine if path does not exists
         };
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
 
         let _ = iter.next_skip_blocks(0x009F, &[], &mut buf)?; // BrtBeginSst
         let len = read_usize(&buf[4..8]);
@@ -194,27 +276,19 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsbError> {
+    fn read_workbook(
+        &mut self,
+        relationships: &BTreeMap<Vec<u8>, String>,
+    ) -> Result<(), XlsbError> {
         let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
-        let mut buf = vec![0; 1024];
+        let mut buf = Vec::with_capacity(1024);
 
-        // BrtBeginBundleShs
-        let _ = iter.next_skip_blocks(
-            0x008F,
-            &[
-                (0x0083, None),         // BrtBeginBook
-                (0x0080, None),         // BrtFileVersion
-                (0x0099, None),         // BrtWbProp
-                (0x02A4, Some(0x0224)), // File Sharing
-                (0x0025, Some(0x0026)), // AC blocks
-                (0x02A5, Some(0x0216)), // Book protection(iso)
-                (0x0087, Some(0x0088)), // BOOKVIEWS
-            ],
-            &mut buf,
-        )?;
         loop {
             match iter.read_type()? {
-                0x0090 => break, // BrtEndBundleShs
+                0x0099 => {
+                    let _ = iter.fill_buffer(&mut buf)?;
+                    self.is_1904 = &buf[0] & 0x1 != 0;
+                } // BrtWbProp
                 0x009C => {
                     // BrtBundleSh
                     let len = iter.fill_buffer(&mut buf)?;
@@ -222,21 +296,45 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     if rel_len != 0xFFFF_FFFF {
                         let rel_len = rel_len as usize * 2;
                         let relid = &buf[12..12 + rel_len];
-                        // converts utf16le to utf8 for HashMap search
+                        // converts utf16le to utf8 for BTreeMap search
                         let relid = UTF_16LE.decode(relid).0;
                         let path = format!("xl/{}", relationships[relid.as_bytes()]);
+                        // ST_SheetState
+                        let visible = match read_u32(&buf) {
+                            0 => SheetVisible::Visible,
+                            1 => SheetVisible::Hidden,
+                            2 => SheetVisible::VeryHidden,
+                            v => {
+                                return Err(XlsbError::Unrecognized {
+                                    typ: "BoundSheet8:hsState",
+                                    val: v.to_string(),
+                                })
+                            }
+                        };
+                        let typ = match path.split('/').nth(1) {
+                            Some("worksheets") => SheetType::WorkSheet,
+                            Some("chartsheets") => SheetType::ChartSheet,
+                            Some("dialogsheets") => SheetType::DialogSheet,
+                            _ => {
+                                return Err(XlsbError::Unrecognized {
+                                    typ: "BoundSheet8:dt",
+                                    val: path.to_string(),
+                                })
+                            }
+                        };
                         let name = wide_str(&buf[12 + rel_len..len], &mut 0)?;
-                        self.metadata.sheets.push(name.to_string());
+                        self.metadata.sheets.push(Sheet {
+                            name: name.to_string(),
+                            typ,
+                            visible,
+                        });
                         self.sheets.push((name.into_owned(), path));
-                    }
+                    };
                 }
-                typ => {
-                    return Err(XlsbError::Mismatch {
-                        expected: "end of sheet",
-                        found: typ,
-                    });
-                }
+                0x0090 => break, // BrtEndBundleShs
+                _ => (),
             }
+            buf.clear();
         }
 
         // BrtName
@@ -287,211 +385,78 @@ impl<RS: Read + Seek> Xlsb<RS> {
         }
     }
 
-    fn worksheet_range_from_path(&mut self, path: String) -> Result<Range<DataType>, XlsbError> {
-        let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
-        let mut buf = vec![0; 1024];
-
-        // BrtWsDim
-        let _ = iter.next_skip_blocks(
-            0x0094,
-            &[
-                (0x0081, None), // BrtBeginSheet
-                (0x0093, None), // BrtWsProp
-            ],
-            &mut buf,
-        )?;
-        let (start, end) = parse_dimensions(&buf[..16]);
-        let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-        let mut cells = if len < 1_000_000 {
-            Vec::with_capacity(len as usize)
-        } else {
-            Vec::new()
+    /// Get a cells reader for a given worksheet
+    pub fn worksheet_cells_reader<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<XlsbCellsReader<'a>, XlsbError> {
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
+            None => return Err(XlsbError::WorksheetNotFound(name.into())),
         };
-
-        // BrtBeginSheetData
-        let _ = iter.next_skip_blocks(
-            0x0091,
-            &[
-                (0x0085, Some(0x0086)), // Views
-                (0x0025, Some(0x0026)), // AC blocks
-                (0x01E5, None),         // BrtWsFmtInfo
-                (0x0186, Some(0x0187)), // Col Infos
-            ],
-            &mut buf,
-        )?;
-
-        // Initialization: first BrtRowHdr
-        let mut typ: u16;
-        let mut row = 0u32;
-
-        // loop until end of sheet
-        loop {
-            typ = iter.read_type()?;
-            let _ = iter.fill_buffer(&mut buf)?;
-
-            let value = match typ {
-                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
-                0x0002 => {
-                    // BrtCellRk MS-XLSB 2.5.122
-                    let d100 = (buf[8] & 1) != 0;
-                    let is_int = (buf[8] & 2) != 0;
-                    buf[8] &= 0xFC;
-                    if is_int {
-                        let v = (read_i32(&buf[8..12]) >> 2) as i64;
-                        if d100 {
-                            DataType::Float((v as f64) / 100.0)
-                        } else {
-                            DataType::Int(v)
-                        }
-                    } else {
-                        let mut v = [0u8; 8];
-                        v[4..].copy_from_slice(&buf[8..12]);
-                        let v = read_f64(&v);
-                        DataType::Float(if d100 { v / 100.0 } else { v })
-                    }
-                }
-                0x0003 => {
-                    let error = match buf[8] {
-                        0x00 => CellErrorType::Null,
-                        0x07 => CellErrorType::Div0,
-                        0x0F => CellErrorType::Value,
-                        0x17 => CellErrorType::Ref,
-                        0x1D => CellErrorType::Name,
-                        0x24 => CellErrorType::Num,
-                        0x2A => CellErrorType::NA,
-                        0x2B => CellErrorType::GettingData,
-                        c => return Err(XlsbError::CellError(c)),
-                    };
-                    // BrtCellError
-                    DataType::Error(error)
-                }
-                0x0004 | 0x000A => DataType::Bool(buf[8] != 0), // BrtCellBool or BrtFmlaBool
-                0x0005 | 0x0009 => DataType::Float(read_f64(&buf[8..16])), // BrtCellReal or BrtFmlaFloat
-                0x0006 | 0x0008 => DataType::String(wide_str(&buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
-                0x0007 => {
-                    // BrtCellIsst
-                    let isst = read_usize(&buf[8..12]);
-                    DataType::String(self.strings[isst].clone())
-                }
-                0x0000 => {
-                    // BrtRowHdr
-                    row = read_u32(&buf);
-                    if row > 0x0010_0000 {
-                        return Ok(Range::from_sparse(cells)); // invalid row
-                    }
-                    continue;
-                }
-                0x0092 => return Ok(Range::from_sparse(cells)), // BrtEndSheetData
-                _ => continue, // anything else, ignore and try next, without changing idx
-            };
-
-            let col = read_u32(&buf);
-            cells.push(Cell::new((row, col), value));
-        }
+        let iter = RecordIter::from_zip(&mut self.zip, &path)?;
+        XlsbCellsReader::new(
+            iter,
+            &self.formats,
+            &self.strings,
+            &self.extern_sheets,
+            &self.metadata.names,
+            self.is_1904,
+        )
     }
 
-    fn worksheet_formula_from_path(&mut self, path: String) -> Result<Range<String>, XlsbError> {
-        let mut iter = RecordIter::from_zip(&mut self.zip, &path)?;
-        let mut buf = vec![0; 1024];
-
-        // BrtWsDim
-        let _ = iter.next_skip_blocks(
-            0x0094,
-            &[
-                (0x0081, None), // BrtBeginSheet
-                (0x0093, None), // BrtWsProp
-            ],
-            &mut buf,
-        )?;
-        let (start, end) = parse_dimensions(&buf[..16]);
-        let len = (end.0 - start.0 + 1) * (end.1 - start.1 + 1);
-        let mut cells = if len < 1_000_000 {
-            Vec::with_capacity(len as usize)
-        } else {
-            Vec::new()
-        };
-
-        // BrtBeginSheetData
-        let _ = iter.next_skip_blocks(
-            0x0091,
-            &[
-                (0x0085, Some(0x0086)), // Views
-                (0x0025, Some(0x0026)), // AC blocks
-                (0x01E5, None),         // BrtWsFmtInfo
-                (0x0186, Some(0x0187)), // Col Infos
-            ],
-            &mut buf,
-        )?;
-
-        // Initialization: first BrtRowHdr
-        let mut typ: u16;
-        let mut row = 0u32;
-
-        // loop until end of sheet
-        loop {
-            typ = iter.read_type()?;
-            let _ = iter.fill_buffer(&mut buf)?;
-
-            let value = match typ {
-                // 0x0001 => continue, // DataType::Empty, // BrtCellBlank
-                0x0008 => {
-                    // BrtFmlaString
-                    let cch = read_u32(&buf[8..]) as usize;
-                    let formula = &buf[14 + cch * 2..];
-                    let cce = read_u32(formula) as usize;
-                    let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.metadata.names)?
-                }
-                0x0009 => {
-                    // BrtFmlaNum
-                    let formula = &buf[18..];
-                    let cce = read_u32(formula) as usize;
-                    let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.metadata.names)?
-                }
-                0x000A | 0x000B => {
-                    // BrtFmlaBool | BrtFmlaError
-                    let formula = &buf[11..];
-                    let cce = read_u32(formula) as usize;
-                    let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.metadata.names)?
-                }
-                0x0000 => {
-                    // BrtRowHdr
-                    row = read_u32(&buf);
-                    if row > 0x0010_0000 {
-                        return Ok(Range::from_sparse(cells)); // invalid row
+    #[cfg(feature = "picture")]
+    fn read_pictures(&mut self) -> Result<(), XlsbError> {
+        let mut pics = Vec::new();
+        for i in 0..self.zip.len() {
+            let mut zfile = self.zip.by_index(i)?;
+            let zname = zfile.name().to_owned();
+            if zname.starts_with("xl/media") {
+                let name_ext: Vec<&str> = zname.split(".").collect();
+                if let Some(ext) = name_ext.last() {
+                    if [
+                        "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
+                        "bmp", "wpg",
+                    ]
+                    .contains(ext)
+                    {
+                        let mut buf: Vec<u8> = Vec::new();
+                        zfile.read_to_end(&mut buf)?;
+                        pics.push((ext.to_string(), buf));
                     }
-                    continue;
                 }
-                0x0092 => return Ok(Range::from_sparse(cells)), // BrtEndSheetData
-                _ => continue, // anything else, ignore and try next, without changing idx
-            };
-
-            let col = read_u32(&buf);
-            cells.push(Cell::new((row, col), value));
+            }
         }
+        if !pics.is_empty() {
+            self.pictures = Some(pics);
+        }
+        Ok(())
     }
 }
 
-impl<RS: Read + Seek> Reader for Xlsb<RS> {
-    type RS = RS;
+impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
 
-    fn new(reader: RS) -> Result<Self, XlsbError>
-    where
-        RS: Read + Seek,
-    {
+    fn new(mut reader: RS) -> Result<Self, XlsbError> {
+        check_for_password_protected(&mut reader)?;
+
         let mut xlsb = Xlsb {
             zip: ZipArchive::new(reader)?,
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
+            formats: Vec::new(),
+            is_1904: false,
             metadata: Metadata::default(),
+            #[cfg(feature = "picture")]
+            pictures: None,
         };
         xlsb.read_shared_strings()?;
+        xlsb.read_styles()?;
         let relationships = xlsb.read_relationships()?;
         xlsb.read_workbook(&relationships)?;
+        #[cfg(feature = "picture")]
+        xlsb.read_pictures()?;
 
         Ok(xlsb)
     }
@@ -510,37 +475,52 @@ impl<RS: Read + Seek> Reader for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
-            None => return None,
-        };
-        Some(self.worksheet_range_from_path(path))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {
+        let mut cells_reader = self.worksheet_cells_reader(name)?;
+        let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
+        while let Some(cell) = cells_reader.next_cell()? {
+            if cell.val != DataRef::Empty {
+                cells.push(Cell::new(cell.pos, Data::from(cell.val)));
+            }
+        }
+        Ok(Range::from_sparse(cells))
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsbError>> {
-        let path = match self.sheets.iter().find(|&&(ref n, _)| n == name) {
-            Some(&(_, ref path)) => path.clone(),
-            None => return None,
-        };
-        Some(self.worksheet_formula_from_path(path))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsbError> {
+        let mut cells_reader = self.worksheet_cells_reader(name)?;
+        let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
+        while let Some(cell) = cells_reader.next_formula()? {
+            if !cell.val.is_empty() {
+                cells.push(cell);
+            }
+        }
+        Ok(Range::from_sparse(cells))
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
-        let sheets = self.sheets.clone();
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+        let sheets = self
+            .sheets
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
         sheets
             .into_iter()
-            .filter_map(|(name, path)| {
-                let ws = self.worksheet_range_from_path(path).ok()?;
+            .filter_map(|name| {
+                let ws = self.worksheet_range(&name).ok()?;
                 Some((name, ws))
             })
             .collect()
     }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
+    }
 }
 
-struct RecordIter<'a> {
+pub(crate) struct RecordIter<'a> {
     b: [u8; 1],
     r: BufReader<ZipFile<'a>>,
 }
@@ -617,7 +597,7 @@ impl<'a> RecordIter<'a> {
     }
 }
 
-fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str>, XlsbError> {
+fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, XlsbError> {
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
         return Err(XlsbError::WideStr {
@@ -628,13 +608,6 @@ fn wide_str<'a, 'b>(buf: &'a [u8], str_len: &'b mut usize) -> Result<Cow<'a, str
     *str_len = 4 + len * 2;
     let s = &buf[4..*str_len];
     Ok(UTF_16LE.decode(s).0)
-}
-
-fn parse_dimensions(buf: &[u8]) -> ((u32, u32), (u32, u32)) {
-    (
-        (read_u32(&buf[0..4]), read_u32(&buf[8..12])),
-        (read_u32(&buf[4..8]), read_u32(&buf[12..16])),
-    )
 }
 
 /// Formula parsing
@@ -762,7 +735,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = read_u16(&rgce[0..2]) as usize;
-                formula.push_str(&*UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
+                formula.push_str(&UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
                 formula.push('\"');
                 rgce = &rgce[2 + 2 * cch..];
             }
@@ -877,7 +850,9 @@ fn parse_formula(
             0x23 | 0x43 | 0x63 => {
                 let iname = read_u32(rgce) as usize - 1; // one-based
                 stack.push(formula.len());
-                formula.push_str(&names[iname].0);
+                if let Some(name) = names.get(iname) {
+                    formula.push_str(&name.0);
+                }
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {
@@ -936,9 +911,31 @@ fn parse_formula(
         }
     }
 
-    if stack.len() != 1 {
-        Err(XlsbError::StackLen)
-    } else {
+    if stack.len() == 1 {
         Ok(formula)
+    } else {
+        Err(XlsbError::StackLen)
     }
+}
+
+fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellFormat> {
+    // Parses a Cell (MS-XLSB 2.5.9) and determines if it references a Date format
+
+    // iStyleRef is stored as a 24bit integer starting at the fifth byte
+    let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]);
+
+    formats.get(style_ref as usize)
+}
+
+fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
+    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
+    reader.seek(std::io::SeekFrom::Start(0))?;
+
+    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
+        if cfb.has_directory("EncryptedPackage") {
+            return Err(XlsbError::Password);
+        }
+    };
+
+    Ok(())
 }
