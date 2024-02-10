@@ -17,7 +17,9 @@ use crate::formats::{
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{
+    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+};
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
@@ -196,7 +198,7 @@ impl<RS: Read + Seek> Xls<RS> {
             formats: Vec::new(),
             #[cfg(feature = "picture")]
             pictures: None,
-            merged_regions: None
+            merged_regions: None,
         };
 
         xls.parse_workbook(reader, cfb)?;
@@ -208,12 +210,15 @@ impl<RS: Read + Seek> Xls<RS> {
 
     /// Get the merged regions of all the sheets
     pub fn merged_regions(&self) -> &Vec<(String, String, Dimensions)> {
-        self.merged_regions.as_ref().expect("Merged Regions must be loaded before the are referenced")
+        self.merged_regions
+            .as_ref()
+            .expect("Merged Regions must be loaded before the are referenced")
     }
 
     /// Get the merged regions by sheet name
     pub fn merged_regions_by_sheet(&self, name: &str) -> Vec<(&String, &String, &Dimensions)> {
-        self.merged_regions().iter()
+        self.merged_regions()
+            .iter()
             .filter(|s| (**s).0 == name)
             .map(|(name, sheet, region)| (name, sheet, region))
             .collect()
@@ -789,29 +794,6 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
         }
     }
     Ok(None)
-}
-
-/// Dimensions info
-#[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Copy, Clone)]
-pub struct Dimensions {
-    /// start: (row, col)
-    pub start: (u32, u32),
-    /// end: (row, col)
-    pub end: (u32, u32),
-}
-
-impl Dimensions {
-    /// create dimensions info with start position and end position
-    pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
-        Self {
-            start,
-            end
-        }
-    }
-    /// check if a position is in it
-    pub fn contains(&self, row: u32, col: u32) -> bool {
-        row >= self.start.0 && row <= self.end.0 && col >= self.start.1 && col <= self.end.1
-    }
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
