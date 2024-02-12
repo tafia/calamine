@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-use calamine::{open_workbook_auto, DataType, Error, Reader};
+use calamine::{open_workbook_auto, Data, Error, Reader};
 use glob::{glob, GlobError, GlobResult};
 
 #[derive(Debug)]
@@ -74,15 +74,12 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
     let sheets = xl.sheet_names().to_owned();
 
     for s in sheets {
-        let range = xl
-            .worksheet_range(&s)
-            .unwrap()
-            .map_err(FileStatus::RangeError)?;
+        let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
             .flat_map(|r| {
                 r.iter().filter(|c| {
-                    if let DataType::Error(_) = **c {
+                    if let Data::Error(_) = **c {
                         true
                     } else {
                         false

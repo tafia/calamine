@@ -3,7 +3,7 @@
 use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
-    open_workbook, open_workbook_from_rs, DataType, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_from_rs, Data, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -105,26 +105,26 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error> {
         match *self {
-            Sheets::Xls(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xls)),
-            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xlsx)),
-            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Xlsb)),
-            Sheets::Ods(ref mut e) => e.worksheet_range(name).map(|r| r.map_err(Error::Ods)),
+            Sheets::Xls(ref mut e) => e.worksheet_range(name).map_err(Error::Xls),
+            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsb),
+            Sheets::Ods(ref mut e) => e.worksheet_range(name).map_err(Error::Ods),
         }
     }
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, Self::Error>> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Self::Error> {
         match *self {
-            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xls)),
-            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xlsx)),
-            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Xlsb)),
-            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map(|r| r.map_err(Error::Ods)),
+            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map_err(Error::Xls),
+            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsb),
+            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map_err(Error::Ods),
         }
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         match *self {
             Sheets::Xls(ref mut e) => e.worksheets(),
             Sheets::Xlsx(ref mut e) => e.worksheets(),

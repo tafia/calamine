@@ -10,6 +10,7 @@ An Excel/OpenDocument Spreadsheets file reader/deserializer, in pure Rust.
 ## Description
 
 **calamine** is a pure Rust library to read and deserialize any spreadsheet file:
+
 - excel like (`xls`, `xlsx`, `xlsm`, `xlsb`, `xla`, `xlam`)
 - opendocument spreadsheets (`ods`)
 
@@ -47,25 +48,23 @@ fn example() -> Result<(), Error> {
 Note if you want to deserialize a column that may have invalid types (i.e. a float where some values may be strings), you can use Serde's `deserialize_with` field attribute:
 
 ```rust
-use serde::Deserialize;
+use serde::{DataType, Deserialize};
 use calamine::{RangeDeserializerBuilder, Reader, Xlsx};
 
-
 #[derive(Deserialize)]
-struct ExcelRow {
+struct Record {
     metric: String,
     #[serde(deserialize_with = "de_opt_f64")]
     value: Option<f64>,
 }
-
 
 // Convert value cell to Some(f64) if float or int, else None
 fn de_opt_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let data_type = calamine::DataType::deserialize(deserializer)?;
-    if let Some(float) = data_type.as_f64() {
+    let data = calamine::Data::deserialize(deserializer)?;
+    if let Some(float) = data.as_f64() {
         Ok(Some(float))
     } else {
         Ok(None)
@@ -81,10 +80,14 @@ fn main() ->  Result<(), Box<dyn std::error::Error>> {
       .ok_or(calamine::Error::Msg("Cannot find Sheet1"))??;
 
     let iter_result =
-        RangeDeserializerBuilder::with_headers(&COLUMNS).from_range::<_, ExcelRow>(&range)?;
-  }
-```
+        RangeDeserializerBuilder::with_headers(&["metric", "value"]).from_range(&range)?;
 
+    for result in iter_results {
+        let record: Record = result?;
+        println!("metric={:?}, value={:?}", record.metric, record.value);
+    }
+}
+```
 
 ### Reader: Simple
 
@@ -102,6 +105,7 @@ if let Some(Ok(r)) = excel.worksheet_range("Sheet1") {
 ### Reader: More complex
 
 Let's assume
+
 - the file type (xls, xlsx ...) cannot be known at static time
 - we need to get all data from the workbook
 - we need to parse the vba
@@ -160,7 +164,7 @@ for s in sheets {
 
 ## Features
 
-- `dates`: Add date related fn to `DataType`. 
+- `dates`: Add date related fn to `DataType`.
 - `picture`: Extract picture data.
 
 ### Others
@@ -170,6 +174,7 @@ Browse the [examples](https://github.com/tafia/calamine/tree/master/examples) di
 ## Performance
 
 As `calamine` is readonly, the comparisons will only involve reading an excel `xlsx` file and then iterating over the rows. Along with `calamine`, three other libraries were chosen, from three different languages:
+
 - [`excelize`](https://github.com/qax-os/excelize) written in `go`
 - [`ClosedXML`](https://github.com/ClosedXML/ClosedXML) written in `C#`
 - [`openpyxl`](https://foss.heptapod.net/openpyxl/openpyxl) written in `python`
@@ -179,6 +184,7 @@ The benchmarks were done using this [dataset](https://raw.githubusercontent.com/
 The programs are all structured to follow the same constructs:
 
 `calamine`:
+
 ```rust
 use calamine::{open_workbook, Reader, Xlsx};
 
@@ -199,6 +205,7 @@ fn main() {
 ```
 
 `excelize`:
+
 ```go
 package main
 
@@ -237,6 +244,7 @@ func main() {
 ```
 
 `ClosedXML`:
+
 ```csharp
 using ClosedXML.Excel;
 
@@ -261,6 +269,7 @@ internal class Program
 ```
 
 `openpyxl`:
+
 ```python
 from openpyxl import load_workbook
 
@@ -306,6 +315,7 @@ v2.8.0 excelize.exe
 The spreadsheet has a range of 1,000,001 rows and 41 columns, for a total of 41,000,041 cells in the range. Of those, 28,056,975 cells had values.
 
 Going off of that number:
+
 - `calamine` =>  1,122,279 cells per second
 - `excelize` => 633,998 cells per second
 - `ClosedXML` => 157,320 cells per second
@@ -314,9 +324,11 @@ Going off of that number:
 ### Plots
 
 #### Disk Read
+
 ![bytes_from_disk](https://github.com/RoloEdits/calamine/assets/12489689/fcca1147-d73f-4d1c-b273-e7e4c183ab29)
 
 As stated, the filesize on disk is `186MB`:
+
 - `calamine` => `186MB`
 - `ClosedXML` => `208MB`.
 - `openpyxl` =>  `192MB`.
@@ -328,11 +340,13 @@ When asking one of the maintainers of `excelize`, I got this [response](https://
 > \- xuri
 
 #### Disk Write
+
 ![bytes_to_disk](https://github.com/RoloEdits/calamine/assets/12489689/befa9893-7658-41a7-8cbd-b0ce5a7d9341)
 
 As seen in the previous section, `excelize` is writting to disk to save memory. The others don't employ that kind of mechanism.
 
 #### Memory
+
 ![mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/c83fdf6b-1442-4e22-8eca-84cbc1db4a26)
 
 ![virt_mem_usage](https://github.com/RoloEdits/calamine/assets/12489689/840a96ed-33d7-44f7-8276-80bb7a02557f)
@@ -342,6 +356,7 @@ As seen in the previous section, `excelize` is writting to disk to save memory. 
 The stepping and falling for `calamine` is from the grows of `Vec`s and the freeing of memory right after, with the memory usage dropping down again. The sudden jump at the end is when the sheet is being read into memory. The others, being garbage collected, have a more linear climb all the way through.
 
 #### CPU
+
 ![cpu_usage](https://github.com/RoloEdits/calamine/assets/12489689/c3aa55a8-b008-48ee-ba04-c08bd91c1f6f)
 
 Very noisy chart, but `excelize`'s spikes must be from the GC?
@@ -351,6 +366,7 @@ Very noisy chart, but `excelize`'s spikes must be from the GC?
 Many (most) part of the specifications are not implemented, the focus has been put on reading cell **values** and **vba** code.
 
 The main unsupported items are:
+
 - no support for writing excel files, this is a read-only library
 - no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
 - no support for reading VB for opendocuments

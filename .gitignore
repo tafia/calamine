@@ -4,3 +4,4 @@ Cargo.lock
 .vim
 fuzz.xlsx
 .idea
+nyc.rs
