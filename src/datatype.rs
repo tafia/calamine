@@ -76,6 +76,10 @@ impl DataType for Data {
         matches!(*self, Data::DateTimeIso(_))
     }
 
+    fn is_error(&self) -> bool {
+        matches!(*self, Data::Error(_))
+    }
+
     fn get_int(&self) -> Option<i64> {
         if let Data::Int(v) = self {
             Some(*v)
@@ -125,6 +129,13 @@ impl DataType for Data {
     fn get_duration_iso(&self) -> Option<&str> {
         match self {
             Data::DurationIso(v) => Some(&**v),
+            _ => None,
+        }
+    }
+
+    fn get_error(&self) -> Option<&CellErrorType> {
+        match self {
+            Data::Error(e) => Some(e),
             _ => None,
         }
     }
@@ -382,6 +393,10 @@ impl DataType for DataRef<'_> {
         matches!(*self, DataRef::DateTimeIso(_))
     }
 
+    fn is_error(&self) -> bool {
+        matches!(*self, DataRef::Error(_))
+    }
+
     fn get_int(&self) -> Option<i64> {
         if let DataRef::Int(v) = self {
             Some(*v)
@@ -438,6 +453,13 @@ impl DataType for DataRef<'_> {
         }
     }
 
+    fn get_error(&self) -> Option<&CellErrorType> {
+        match self {
+            DataRef::Error(e) => Some(e),
+            _ => None,
+        }
+    }
+
     fn as_string(&self) -> Option<String> {
         match self {
             DataRef::Float(v) => Some(v.to_string()),
@@ -489,6 +511,9 @@ pub trait DataType {
     /// Assess if datatype is a string
     fn is_string(&self) -> bool;
 
+    /// Assess if datatype is a CellErrorType
+    fn is_error(&self) -> bool;
+
     /// Assess if datatype is an ISO8601 duration
     #[cfg(feature = "dates")]
     fn is_duration_iso(&self) -> bool;
@@ -524,6 +549,9 @@ pub trait DataType {
     /// Try getting duration ISO8601 value
     #[cfg(feature = "dates")]
     fn get_duration_iso(&self) -> Option<&str>;
+
+    /// Try getting Error value
+    fn get_error(&self) -> Option<&CellErrorType>;
 
     /// Try converting data type into a string
     fn as_string(&self) -> Option<String>;
