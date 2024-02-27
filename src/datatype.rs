@@ -1,7 +1,6 @@
+use std::cell::OnceCell;
 use std::fmt;
 
-#[cfg(feature = "dates")]
-use once_cell::sync::OnceCell;
 use serde::de::Visitor;
 use serde::{self, Deserialize};
 
