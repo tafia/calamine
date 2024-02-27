@@ -1,14 +1,14 @@
 use std::fmt;
-
 #[cfg(feature = "dates")]
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
+
 use serde::de::Visitor;
 use serde::{self, Deserialize};
 
 use super::CellErrorType;
 
 #[cfg(feature = "dates")]
-static EXCEL_EPOCH: OnceCell<chrono::NaiveDateTime> = OnceCell::new();
+static EXCEL_EPOCH: OnceLock<chrono::NaiveDateTime> = OnceLock::new();
 
 #[cfg(feature = "dates")]
 /// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
