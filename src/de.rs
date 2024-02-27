@@ -1,6 +1,6 @@
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{self, DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
-use serde::{self, forward_to_deserialize_any, Deserialize};
+use serde::{self, forward_to_deserialize_any, Deserialize, Deserializer};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
@@ -163,7 +163,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     ///         Ok(())
     ///     } else {
-    ///         return Err(From::from("expected at least one record but got none"));
+    ///         Err(From::from("expected at least one record but got none"))
     ///     }
     /// }
     /// ```
@@ -192,7 +192,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     ///
     ///         Ok(())
     ///     } else {
-    ///         return Err(From::from("expected at least one record but got none"));
+    ///         Err(From::from("expected at least one record but got none"))
     ///     }
     /// }
     /// ```
@@ -205,6 +205,87 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
         D: DeserializeOwned,
     {
         RangeDeserializer::new(self, range)
+    }
+}
+
+impl<'h> RangeDeserializerBuilder<'h, &str> {
+    /// Build a `RangeDeserializer` from this configuration and keep only selected headers
+    /// from the specified deserialization struct.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use calamine::{open_workbook, Error, RangeDeserializerBuilder, Reader, Xlsx};
+    /// # use serde_derive::Deserialize;
+    /// #[derive(Deserialize)]
+    /// struct Record {
+    ///     label: String,
+    ///     value: f64,
+    /// }
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///     let range = workbook.worksheet_range("Sheet1")?;
+    ///     let mut iter =
+    ///         RangeDeserializerBuilder::with_deserialize_headers::<Record>().from_range(&range)?;
+    ///
+    ///     if let Some(result) = iter.next() {
+    ///         let record: Record = result?;
+    ///         assert_eq!(record.label, "celsius");
+    ///         assert_eq!(record.value, 22.2222);
+    ///
+    ///         Ok(())
+    ///     } else {
+    ///         Err(From::from("expected at least one record but got none"))
+    ///     }
+    /// }
+    /// ```
+    pub fn with_deserialize_headers<'de, T>() -> Self
+    where
+        T: Deserialize<'de>,
+    {
+        struct StructFieldsDeserializer<'h> {
+            fields: &'h mut Option<&'static [&'static str]>,
+        }
+
+        impl<'de, 'h> Deserializer<'de> for StructFieldsDeserializer<'h> {
+            type Error = de::value::Error;
+
+            fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: Visitor<'de>,
+            {
+                Err(de::Error::custom("I'm just here for the fields"))
+            }
+
+            fn deserialize_struct<V>(
+                self,
+                _name: &'static str,
+                fields: &'static [&'static str],
+                _visitor: V,
+            ) -> Result<V::Value, Self::Error>
+            where
+                V: Visitor<'de>,
+            {
+                *self.fields = Some(fields); // get the names of the deserialized fields
+                Err(de::Error::custom("I'm just here for the fields"))
+            }
+
+            serde::forward_to_deserialize_any! {
+                bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string bytes
+                byte_buf option unit unit_struct newtype_struct seq tuple
+                tuple_struct map enum identifier ignored_any
+            }
+        }
+
+        let mut serialized_names = None;
+        let _ = T::deserialize(StructFieldsDeserializer {
+            fields: &mut serialized_names,
+        });
+        let headers = serialized_names.unwrap_or_default();
+
+        Self::with_headers(headers)
     }
 }
 
