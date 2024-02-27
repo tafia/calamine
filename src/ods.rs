@@ -16,7 +16,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Data, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -56,6 +56,10 @@ pub enum OdsError {
         /// Found
         found: String,
     },
+    /// Workbook is password protected
+    Password,
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, OdsError, Io);
@@ -67,20 +71,22 @@ from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OdsError::Io(e) => write!(f, "I/O error: {}", e),
-            OdsError::Zip(e) => write!(f, "Zip error: {:?}", e),
-            OdsError::Xml(e) => write!(f, "Xml error: {}", e),
-            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {}", e),
-            OdsError::Parse(e) => write!(f, "Parse string error: {}", e),
-            OdsError::ParseInt(e) => write!(f, "Parse integer error: {}", e),
-            OdsError::ParseFloat(e) => write!(f, "Parse float error: {}", e),
-            OdsError::ParseBool(e) => write!(f, "Parse bool error: {}", e),
-            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {:?}", mime),
-            OdsError::FileNotFound(file) => write!(f, "'{}' file not found in archive", file),
-            OdsError::Eof(node) => write!(f, "Expecting '{}' node, found end of xml file", node),
+            OdsError::Io(e) => write!(f, "I/O error: {e}"),
+            OdsError::Zip(e) => write!(f, "Zip error: {e:?}"),
+            OdsError::Xml(e) => write!(f, "Xml error: {e}"),
+            OdsError::XmlAttr(e) => write!(f, "Xml attribute error: {e}"),
+            OdsError::Parse(e) => write!(f, "Parse string error: {e}"),
+            OdsError::ParseInt(e) => write!(f, "Parse integer error: {e}"),
+            OdsError::ParseFloat(e) => write!(f, "Parse float error: {e}"),
+            OdsError::ParseBool(e) => write!(f, "Parse bool error: {e}"),
+            OdsError::InvalidMime(mime) => write!(f, "Invalid MIME type: {mime:?}"),
+            OdsError::FileNotFound(file) => write!(f, "'{file}' file not found in archive"),
+            OdsError::Eof(node) => write!(f, "Expecting '{node}' node, found end of xml file"),
             OdsError::Mismatch { expected, found } => {
-                write!(f, "Expecting '{}', found '{}'", expected, found)
+                write!(f, "Expecting '{expected}', found '{found}'")
             }
+            OdsError::Password => write!(f, "Workbook is password protected"),
+            OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -105,7 +111,7 @@ impl std::error::Error for OdsError {
 /// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
 /// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 pub struct Ods<RS> {
-    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     metadata: Metadata,
     marker: PhantomData<RS>,
     #[cfg(feature = "picture")]
@@ -133,6 +139,8 @@ where
             Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("mimetype")),
             Err(e) => return Err(OdsError::Zip(e)),
         }
+
+        check_for_password_protected(&mut zip)?;
 
         #[cfg(feature = "picture")]
         let pictures = read_pictures(&mut zip)?;
@@ -167,11 +175,14 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.0.to_owned()))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.0.to_owned())
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         self.sheets
             .iter()
             .map(|(name, (range, _formula))| (name.to_owned(), range.clone()))
@@ -179,8 +190,11 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, OdsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.to_owned()))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, OdsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.to_owned())
     }
 
     #[cfg(feature = "picture")]
@@ -190,9 +204,53 @@ where
 }
 
 struct Content {
-    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+}
+
+/// Check password protection
+fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Result<(), OdsError> {
+    let mut reader = match zip.by_name("META-INF/manifest.xml") {
+        Ok(f) => {
+            let mut r = XmlReader::from_reader(BufReader::new(f));
+            r.check_end_names(false)
+                .trim_text(false)
+                .check_comments(false)
+                .expand_empty_elements(true);
+            r
+        }
+        Err(ZipError::FileNotFound) => return Err(OdsError::FileNotFound("META-INF/manifest.xml")),
+        Err(e) => return Err(OdsError::Zip(e)),
+    };
+
+    let mut buf = Vec::new();
+    let mut inner = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name() == QName(b"manifest:file-entry") => {
+                loop {
+                    match reader.read_event_into(&mut inner) {
+                        Ok(Event::Start(ref e))
+                            if e.name() == QName(b"manifest:encryption-data") =>
+                        {
+                            return Err(OdsError::Password)
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(OdsError::Xml(e)),
+                        _ => (),
+                    }
+                }
+                inner.clear()
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(OdsError::Xml(e)),
+            _ => (),
+        }
+        buf.clear()
+    }
+
+    Ok(())
 }
 
 /// Parses content.xml and store the result in `self.content`
@@ -287,7 +345,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     })
 }
 
-fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<DataType>, Range<String>), OdsError> {
+fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<Data>, Range<String>), OdsError> {
     let mut cells = Vec::new();
     let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
@@ -432,7 +490,7 @@ fn read_row(
     reader: &mut OdsReader<'_>,
     row_buf: &mut Vec<u8>,
     cell_buf: &mut Vec<u8>,
-    cells: &mut Vec<DataType>,
+    cells: &mut Vec<Data>,
     formulas: &mut Vec<String>,
 ) -> Result<(), OdsError> {
     let mut empty_col_repeats = 0;
@@ -459,7 +517,7 @@ fn read_row(
                 let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
 
                 for _ in 0..empty_col_repeats {
-                    cells.push(DataType::Empty);
+                    cells.push(Data::Empty);
                     formulas.push("".to_string());
                 }
                 empty_col_repeats = 0;
@@ -489,24 +547,24 @@ fn read_row(
     Ok(())
 }
 
-/// Converts table-cell element into a `DataType`
+/// Converts table-cell element into a `Data`
 ///
 /// ODF 1.2-19.385
 fn get_datatype(
     reader: &mut OdsReader<'_>,
     atts: Attributes<'_>,
     buf: &mut Vec<u8>,
-) -> Result<(DataType, String, bool), OdsError> {
+) -> Result<(Data, String, bool), OdsError> {
     let mut is_string = false;
     let mut is_value_set = false;
-    let mut val = DataType::Empty;
+    let mut val = Data::Empty;
     let mut formula = String::new();
     for a in atts {
         let a = a.map_err(OdsError::XmlAttr)?;
         match a.key {
             QName(b"office:value") if !is_value_set => {
                 let v = reader.decoder().decode(&a.value)?;
-                val = DataType::Float(v.parse().map_err(OdsError::ParseFloat)?);
+                val = Data::Float(v.parse().map_err(OdsError::ParseFloat)?);
                 is_value_set = true;
             }
             QName(b"office:string-value" | b"office:date-value" | b"office:time-value")
@@ -517,15 +575,15 @@ fn get_datatype(
                     .map_err(OdsError::Xml)?
                     .to_string();
                 val = match a.key {
-                    QName(b"office:date-value") => DataType::DateTimeIso(attr),
-                    QName(b"office:time-value") => DataType::DurationIso(attr),
-                    _ => DataType::String(attr),
+                    QName(b"office:date-value") => Data::DateTimeIso(attr),
+                    QName(b"office:time-value") => Data::DurationIso(attr),
+                    _ => Data::String(attr),
                 };
                 is_value_set = true;
             }
             QName(b"office:boolean-value") if !is_value_set => {
                 let b = &*a.value == b"TRUE" || &*a.value == b"true";
-                val = DataType::Bool(b);
+                val = Data::Bool(b);
                 is_value_set = true;
             }
             QName(b"office:value-type") if !is_value_set => is_string = &*a.value == b"string",
@@ -553,7 +611,7 @@ fn get_datatype(
                     if e.name() == QName(b"table:table-cell")
                         || e.name() == QName(b"table:covered-table-cell") =>
                 {
-                    return Ok((DataType::String(s), formula, true));
+                    return Ok((Data::String(s), formula, true));
                 }
                 Ok(Event::Start(ref e)) if e.name() == QName(b"text:p") => {
                     if first_paragraph {

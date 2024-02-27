@@ -17,9 +17,7 @@ use crate::formats::{
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
-use crate::{
-    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
-};
+use crate::{Cell, CellErrorType, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
@@ -70,6 +68,8 @@ pub enum XlsError {
     /// Invalid OfficeArt Record
     #[cfg(feature = "picture")]
     Art(&'static str),
+    /// Worksheet not found
+    WorksheetNotFound(String),
 }
 
 from_err!(std::io::Error, XlsError, Io);
@@ -79,11 +79,11 @@ from_err!(crate::vba::VbaError, XlsError, Vba);
 impl std::fmt::Display for XlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            XlsError::Io(e) => write!(f, "I/O error: {}", e),
-            XlsError::Cfb(e) => write!(f, "Cfb error: {}", e),
-            XlsError::Vba(e) => write!(f, "Vba error: {}", e),
+            XlsError::Io(e) => write!(f, "I/O error: {e}"),
+            XlsError::Cfb(e) => write!(f, "Cfb error: {e}"),
+            XlsError::Vba(e) => write!(f, "Vba error: {e}"),
             XlsError::StackLen => write!(f, "Invalid stack length"),
-            XlsError::Unrecognized { typ, val } => write!(f, "Unrecognized {}: 0x{:0X}", typ, val),
+            XlsError::Unrecognized { typ, val } => write!(f, "Unrecognized {typ}: 0x{val:0X}"),
             XlsError::Password => write!(f, "Workbook is password protected"),
             XlsError::Len {
                 expected,
@@ -91,22 +91,22 @@ impl std::fmt::Display for XlsError {
                 typ,
             } => write!(
                 f,
-                "Invalid {} length, expected {} maximum, found {}",
-                typ, expected, found
+                "Invalid {typ} length, expected {expected} maximum, found {found}",
             ),
             XlsError::ContinueRecordTooShort => write!(
                 f,
                 "Continued record too short while reading extended string"
             ),
-            XlsError::EoStream(s) => write!(f, "End of stream '{}'", s),
+            XlsError::EoStream(s) => write!(f, "End of stream '{s}'"),
             XlsError::InvalidFormula { stack_size } => {
-                write!(f, "Invalid formula (stack size: {})", stack_size)
+                write!(f, "Invalid formula (stack size: {stack_size})")
             }
-            XlsError::IfTab(iftab) => write!(f, "Invalid iftab {:X}", iftab),
-            XlsError::Etpg(etpg) => write!(f, "Invalid etpg {:X}", etpg),
+            XlsError::IfTab(iftab) => write!(f, "Invalid iftab {iftab:X}"),
+            XlsError::Etpg(etpg) => write!(f, "Invalid etpg {etpg:X}"),
             XlsError::NoVba => write!(f, "No VBA project"),
             #[cfg(feature = "picture")]
-            XlsError::Art(s) => write!(f, "Invalid art record '{}'", s),
+            XlsError::Art(s) => write!(f, "Invalid art record '{s}'"),
+            XlsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
         }
     }
 }
@@ -139,7 +139,7 @@ pub struct XlsOptions {
 
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
-    sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
+    sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     vba: Option<VbaProject>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -220,19 +220,25 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, XlsError>> {
-        self.sheets.get(name).map(|r| Ok(r.0.clone()))
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsError> {
+        self.sheets
+            .get(name)
+            .map(|r| r.0.clone())
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         self.sheets
             .iter()
             .map(|(name, (data, _))| (name.to_owned(), data.clone()))
             .collect()
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Option<Result<Range<String>, XlsError>> {
-        self.sheets.get(name).map(|r| Ok(r.1.clone()))
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsError> {
+        self.sheets
+            .get(name)
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
+            .map(|r| r.1.clone())
     }
 
     #[cfg(feature = "picture")]
@@ -261,6 +267,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xtis = Vec::new();
         let mut formats = BTreeMap::new();
         let mut xfs = Vec::new();
+        let mut biff = Biff::Biff8; // Binary Interchange File Format (BIFF) version
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
         #[cfg(feature = "picture")]
@@ -271,7 +278,8 @@ impl<RS: Read + Seek> Xls<RS> {
             for record in records {
                 let mut r = record?;
                 match r.typ {
-                    0x0012 if read_u16(r.data) != 0 => return Err(XlsError::Password),
+                    // 2.4.117 FilePass
+                    0x002F if read_u16(r.data) != 0 => return Err(XlsError::Password),
                     // CodePage
                     0x0042 => {
                         if self.options.force_codepage.is_none() {
@@ -300,9 +308,14 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // RRTabId
                     0x0085 => {
-                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding)?;
+                        let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding, biff)?;
                         self.metadata.sheets.push(sheet.clone());
                         sheet_names.push((pos, sheet.name)); // BoundSheet8
+                    }
+                    // BOF
+                    0x0809 => {
+                        let bof = parse_bof(&mut r)?;
+                        biff = bof.biff;
                     }
                     0x0018 => {
                         // Lbl for defined_names
@@ -387,11 +400,11 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
-                    0x0204 => cells.extend(parse_label(r.data, &encoding)?), // 516: Label [MS-XLS 2.4.148]
-                    0x0205 => cells.push(parse_bool_err(r.data)?),           // 517: BoolErr
+                    0x0204 => cells.extend(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
+                    0x0205 => cells.push(parse_bool_err(r.data)?),                 // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
-                        let val = DataType::String(parse_string(r.data, &encoding)?);
+                        let val = Data::String(parse_string(r.data, &encoding, biff)?);
                         cells.push(Cell::new(fmla_pos, val))
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
@@ -455,10 +468,57 @@ impl<RS: Read + Seek> Xls<RS> {
     }
 }
 
+/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/4d6a3d1e-d7c5-405f-bbae-d01e9cb79366
+struct Bof {
+    /// Binary Interchange File Format
+    biff: Biff,
+}
+
+/// https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes
+#[derive(Clone, Copy)]
+enum Biff {
+    Biff2,
+    Biff3,
+    Biff4,
+    Biff5,
+    Biff8,
+    // Used by MS-XLSB Workbook(2.1.7.61) or Worksheet(2.1.7.61) which are not supported yet.
+    // Biff12,
+}
+
+/// BOF [MS-XLS] 2.4.21
+fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
+    let mut dt = 0;
+    let biff_version = read_u16(&r.data[..2]);
+
+    if r.data.len() >= 4 {
+        dt = read_u16(&r.data[2..]);
+    };
+
+    let biff = match biff_version {
+        0x0200 | 0x0002 | 0x0007 => Biff::Biff2,
+        0x0300 => Biff::Biff3,
+        0x0400 => Biff::Biff4,
+        0x0500 => Biff::Biff5,
+        0x0600 => Biff::Biff8,
+        0 => {
+            if dt == 0x1000 {
+                Biff::Biff5
+            } else {
+                Biff::Biff8
+            }
+        }
+        _ => Biff::Biff8,
+    };
+
+    Ok(Bof { biff })
+}
+
 /// BoundSheet8 [MS-XLS 2.4.28]
 fn parse_sheet_metadata(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
+    biff: Biff,
 ) -> Result<(usize, Sheet), XlsError> {
     let pos = read_u32(r.data) as usize;
     let visible = match r.data[4] & 0b0011_1111 {
@@ -485,7 +545,7 @@ fn parse_sheet_metadata(
         }
     };
     r.data = &r.data[6..];
-    let name = parse_short_string(r, encoding)?;
+    let name = parse_short_string(r, encoding, biff)?;
     let sheet_name = name
         .as_bytes()
         .iter()
@@ -496,11 +556,7 @@ fn parse_sheet_metadata(
     Ok((pos, Sheet { name, visible, typ }))
 }
 
-fn parse_number(
-    r: &[u8],
-    formats: &[CellFormat],
-    is_1904: bool,
-) -> Result<Cell<DataType>, XlsError> {
+fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
     if r.len() < 14 {
         return Err(XlsError::Len {
             typ: "number",
@@ -516,7 +572,7 @@ fn parse_number(
     Ok(Cell::new((row, col), format_excel_f64(v, format, is_1904)))
 }
 
-fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
+fn parse_bool_err(r: &[u8]) -> Result<Cell<Data>, XlsError> {
     if r.len() < 8 {
         return Err(XlsError::Len {
             typ: "BoolErr",
@@ -528,7 +584,7 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     let col = read_u16(&r[2..]);
     let pos = (row as u32, col as u32);
     match r[7] {
-        0x00 => Ok(Cell::new(pos, DataType::Bool(r[6] != 0))),
+        0x00 => Ok(Cell::new(pos, Data::Bool(r[6] != 0))),
         0x01 => Ok(Cell::new(pos, parse_err(r[6])?)),
         e => Err(XlsError::Unrecognized {
             typ: "fError",
@@ -537,16 +593,16 @@ fn parse_bool_err(r: &[u8]) -> Result<Cell<DataType>, XlsError> {
     }
 }
 
-fn parse_err(e: u8) -> Result<DataType, XlsError> {
+fn parse_err(e: u8) -> Result<Data, XlsError> {
     match e {
-        0x00 => Ok(DataType::Error(CellErrorType::Null)),
-        0x07 => Ok(DataType::Error(CellErrorType::Div0)),
-        0x0F => Ok(DataType::Error(CellErrorType::Value)),
-        0x17 => Ok(DataType::Error(CellErrorType::Ref)),
-        0x1D => Ok(DataType::Error(CellErrorType::Name)),
-        0x24 => Ok(DataType::Error(CellErrorType::Num)),
-        0x2A => Ok(DataType::Error(CellErrorType::NA)),
-        0x2B => Ok(DataType::Error(CellErrorType::GettingData)),
+        0x00 => Ok(Data::Error(CellErrorType::Null)),
+        0x07 => Ok(Data::Error(CellErrorType::Div0)),
+        0x0F => Ok(Data::Error(CellErrorType::Value)),
+        0x17 => Ok(Data::Error(CellErrorType::Ref)),
+        0x1D => Ok(Data::Error(CellErrorType::Name)),
+        0x24 => Ok(Data::Error(CellErrorType::Num)),
+        0x2A => Ok(Data::Error(CellErrorType::NA)),
+        0x2B => Ok(Data::Error(CellErrorType::GettingData)),
         e => Err(XlsError::Unrecognized {
             typ: "error",
             val: e,
@@ -554,7 +610,7 @@ fn parse_err(e: u8) -> Result<DataType, XlsError> {
     }
 }
 
-fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<DataType>, XlsError> {
+fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "rk",
@@ -573,7 +629,7 @@ fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data
 
 fn parse_mul_rk(
     r: &[u8],
-    cells: &mut Vec<Cell<DataType>>,
+    cells: &mut Vec<Cell<Data>>,
     formats: &[CellFormat],
     is_1904: bool,
 ) -> Result<(), XlsError> {
@@ -606,7 +662,7 @@ fn parse_mul_rk(
     Ok(())
 }
 
-fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> DataType {
+fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> Data {
     let d100 = (rk[2] & 1) != 0;
     let is_int = (rk[2] & 2) != 0;
     let format = formats.get(read_u16(rk) as usize);
@@ -628,7 +684,11 @@ fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> DataType {
 }
 
 /// ShortXLUnicodeString [MS-XLS 2.5.240]
-fn parse_short_string(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<String, XlsError> {
+fn parse_short_string(
+    r: &mut Record<'_>,
+    encoding: &XlsEncoding,
+    biff: Biff,
+) -> Result<String, XlsError> {
     if r.data.len() < 2 {
         return Err(XlsError::Len {
             typ: "short string",
@@ -636,16 +696,23 @@ fn parse_short_string(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Stri
             found: r.data.len(),
         });
     }
+
     let cch = r.data[0] as usize;
-    let high_byte = r.data[1] & 0x1 != 0;
-    r.data = &r.data[2..];
+    r.data = &r.data[1..];
+    let mut high_byte = None;
+
+    if matches!(biff, Biff::Biff8) {
+        high_byte = Some(r.data[0] & 0x1 != 0);
+        r.data = &r.data[1..];
+    }
+
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
+    let _ = encoding.decode_to(r.data, cch, &mut s, high_byte);
     Ok(s)
 }
 
 /// XLUnicodeString [MS-XLS 2.5.294]
-fn parse_string(r: &[u8], encoding: &XlsEncoding) -> Result<String, XlsError> {
+fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
     if r.len() < 4 {
         return Err(XlsError::Len {
             typ: "string",
@@ -654,13 +721,22 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding) -> Result<String, XlsError> {
         });
     }
     let cch = read_u16(r) as usize;
-    let high_byte = r[2] & 0x1 != 0;
+
+    let (high_byte, start) = match biff {
+        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
+        _ => (Some(r[2] & 0x1 != 0), 3),
+    };
+
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(&r[3..], cch, &mut s, Some(high_byte));
+    let _ = encoding.decode_to(&r[start..], cch, &mut s, high_byte);
     Ok(s)
 }
 
-fn parse_label(r: &[u8], encoding: &XlsEncoding) -> Result<Option<Cell<DataType>>, XlsError> {
+fn parse_label(
+    r: &[u8],
+    encoding: &XlsEncoding,
+    biff: Biff,
+) -> Result<Option<Cell<Data>>, XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
             typ: "label",
@@ -673,11 +749,11 @@ fn parse_label(r: &[u8], encoding: &XlsEncoding) -> Result<Option<Cell<DataType>
     let _ixfe = read_u16(&r[4..]);
     return Ok(Some(Cell::new(
         (row as u32, col as u32),
-        DataType::String(parse_string(&r[6..], encoding)?),
+        Data::String(parse_string(&r[6..], encoding, biff)?),
     )));
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<DataType>>, XlsError> {
+fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "label sst",
@@ -692,7 +768,7 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<DataType>
         if !s.is_empty() {
             return Ok(Some(Cell::new(
                 (row as u32, col as u32),
-                DataType::String(s.clone()),
+                Data::String(s.clone()),
             )));
         }
     }
@@ -1330,19 +1406,19 @@ fn parse_formula(
 }
 
 /// FormulaValue [MS-XLS 2.5.133]
-fn parse_formula_value(r: &[u8]) -> Result<Option<DataType>, XlsError> {
+fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
     match *r {
         // String, value should be in next record
         [0x00, .., 0xFF, 0xFF] => Ok(None),
-        [0x01, _, b, .., 0xFF, 0xFF] => Ok(Some(DataType::Bool(b != 0))),
+        [0x01, _, b, .., 0xFF, 0xFF] => Ok(Some(Data::Bool(b != 0))),
         [0x02, _, e, .., 0xFF, 0xFF] => parse_err(e).map(Some),
         // ignore, return blank string value
-        [0x03, _, .., 0xFF, 0xFF] => Ok(Some(DataType::String("".to_string()))),
+        [0x03, _, .., 0xFF, 0xFF] => Ok(Some(Data::String("".to_string()))),
         [e, .., 0xFF, 0xFF] => Err(XlsError::Unrecognized {
             typ: "error",
             val: e,
         }),
-        _ => Ok(Some(DataType::Float(read_f64(r)))),
+        _ => Ok(Some(Data::Float(read_f64(r)))),
     }
 }
 

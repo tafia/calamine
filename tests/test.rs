@@ -1,10 +1,9 @@
-use calamine::DataType::{
-    Bool, DateTime, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
-};
+use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, Ods, Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Reader,
+    Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
-use calamine::{CellErrorType::*, DataType};
+use calamine::{CellErrorType::*, Data};
 use std::io::Cursor;
 use std::sync::Once;
 
@@ -39,7 +38,7 @@ fn issue_2() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
         range,
         [
@@ -58,7 +57,7 @@ fn issue_3() {
     let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
+    let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(range, [[Float(1.), String("a".to_string())]]);
 }
 
@@ -70,7 +69,7 @@ fn issue_4() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue5").unwrap().unwrap();
+    let range = excel.worksheet_range("issue5").unwrap();
     range_eq!(range, [[Float(0.5)]]);
 }
 
@@ -82,7 +81,7 @@ fn issue_6() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue6").unwrap().unwrap();
+    let range = excel.worksheet_range("issue6").unwrap();
     range_eq!(
         range,
         [
@@ -101,7 +100,7 @@ fn error_file() {
     let path = format!("{}/tests/errors.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("Feuil1").unwrap().unwrap();
+    let range = excel.worksheet_range("Feuil1").unwrap();
     range_eq!(
         range,
         [
@@ -123,7 +122,7 @@ fn issue_9() {
     let path = format!("{}/tests/issue9.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("Feuil1").unwrap().unwrap();
+    let range = excel.worksheet_range("Feuil1").unwrap();
     range_eq!(
         range,
         [
@@ -157,7 +156,7 @@ fn xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
         range,
         [
@@ -175,7 +174,7 @@ fn xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
         range,
         [
@@ -193,7 +192,7 @@ fn xls() {
     let path = format!("{}/tests/issues.xls", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xls<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
         range,
         [
@@ -217,8 +216,7 @@ fn issue_195() {
     let mut excel: Xls<_> = open_workbook(&path).expect("can't open wb");
     let range = excel
         .worksheet_range("JLCPCB SMT Parts Library")
-        .expect("error in wks range")
-        .expect("sheet not found");
+        .expect("error in wks range");
     assert_eq!(range.get_size(), (52046, 12));
 }
 
@@ -229,7 +227,7 @@ fn ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("datatypes").unwrap().unwrap();
+    let range = excel.worksheet_range("datatypes").unwrap();
     range_eq!(
         range,
         [
@@ -242,7 +240,7 @@ fn ods() {
         ]
     );
 
-    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
         range,
         [
@@ -252,7 +250,7 @@ fn ods() {
         ]
     );
 
-    let range = excel.worksheet_range("issue5").unwrap().unwrap();
+    let range = excel.worksheet_range("issue5").unwrap();
     range_eq!(range, [[Float(0.5)]]);
 }
 
@@ -263,7 +261,7 @@ fn ods_covered() {
     let path = format!("{}/tests/covered.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("sheet1").unwrap().unwrap();
+    let range = excel.worksheet_range("sheet1").unwrap();
     range_eq!(
         range,
         [
@@ -279,7 +277,7 @@ fn special_cells() {
     let path = format!("{}/tests/special_cells.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("sheet1").unwrap().unwrap();
+    let range = excel.worksheet_range("sheet1").unwrap();
     range_eq!(
         range,
         [
@@ -301,7 +299,7 @@ fn special_chrs_xlsx() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("spc_chrs").unwrap().unwrap();
+    let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(
         range,
         [
@@ -324,7 +322,7 @@ fn special_chrs_xlsb() {
     let path = format!("{}/tests/issues.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("spc_chrs").unwrap().unwrap();
+    let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(
         range,
         [
@@ -347,7 +345,7 @@ fn special_chrs_ods() {
     let path = format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("spc_chrs").unwrap().unwrap();
+    let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(
         range,
         [
@@ -370,7 +368,7 @@ fn partial_richtext_ods() {
     let path = format!("{}/tests/richtext_issue.ods", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("datatypes").unwrap().unwrap();
+    let range = excel.worksheet_range("datatypes").unwrap();
     range_eq!(range, [[String("abc".to_string())]]);
 }
 
@@ -384,7 +382,7 @@ fn xlsx_richtext_namespaced() {
     );
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
+    let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
         range,
         [[
@@ -525,10 +523,10 @@ fn formula_xlsx() {
 
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
@@ -541,10 +539,10 @@ fn formula_xlsb() {
 
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
@@ -555,7 +553,7 @@ fn formula_vals_xlsb() {
     let path = format!("{}/tests/issue_182.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("formula_vals").unwrap().unwrap();
+    let range = excel.worksheet_range("formula_vals").unwrap();
     range_eq!(
         range,
         [[Float(3.)], [String("Ab".to_string())], [Bool(false)]]
@@ -569,7 +567,7 @@ fn float_vals_xlsb() {
     let path = format!("{}/tests/issue_186.xlsb", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsb<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
+    let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
         range,
         [
@@ -591,10 +589,10 @@ fn formula_xls() {
 
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
 }
 
@@ -606,10 +604,10 @@ fn formula_ods() {
     let mut excel: Ods<_> = open_workbook(&path).unwrap();
 
     for s in excel.sheet_names().to_owned() {
-        let _ = excel.worksheet_formula(&s).unwrap().unwrap();
+        let _ = excel.worksheet_formula(&s).unwrap();
     }
 
-    let formula = excel.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["of:=[.B1]+$$OneRange".to_string()]]);
 }
 
@@ -620,7 +618,7 @@ fn empty_sheet() {
     let path = format!("{}/tests/empty_sheet.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
     for s in excel.sheet_names().to_owned() {
-        let range = excel.worksheet_range(&s).unwrap().unwrap();
+        let range = excel.worksheet_range(&s).unwrap();
         assert_eq!(range.start(), None, "wrong start");
         assert_eq!(range.end(), None, "wrong end");
         assert_eq!(range.get_size(), (0, 0), "wrong size");
@@ -634,7 +632,7 @@ fn issue_120() {
     let path = format!("{}/tests/issues.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("issue2").unwrap().unwrap();
+    let range = excel.worksheet_range("issue2").unwrap();
     let end = range.end().unwrap();
 
     let a = range.get_value((0, end.1 + 1));
@@ -677,7 +675,7 @@ fn mul_rk() {
         env!("CARGO_MANIFEST_DIR")
     );
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
-    let range = xls.worksheet_range("Boys").unwrap().unwrap();
+    let range = xls.worksheet_range("Boys").unwrap();
     assert_eq!(range.get_value((6, 2)), Some(&Float(9.)));
 }
 
@@ -687,7 +685,7 @@ fn skip_phonetic_text() {
 
     let path = format!("{}/tests/rph.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
-    let range = xls.worksheet_range("Sheet1").unwrap().unwrap();
+    let range = xls.worksheet_range("Sheet1").unwrap();
     assert_eq!(
         range.get_value((0, 0)),
         Some(&String("課きく　毛こ".to_string()))
@@ -717,7 +715,6 @@ fn table() {
     assert_eq!(table_names[1], "OtherTable");
     let table = xls
         .table_by_name("Temperature")
-        .expect("Table should exist")
         .expect("Parsing table's sheet should not error");
     assert_eq!(table.name(), "Temperature");
     assert_eq!(table.columns()[0], "label");
@@ -730,7 +727,6 @@ fn table() {
     // Check the second table
     let table = xls
         .table_by_name("OtherTable")
-        .expect("Table should exist")
         .expect("Parsing table's sheet should not error");
     assert_eq!(table.name(), "OtherTable");
     assert_eq!(table.columns()[0], "label2");
@@ -751,8 +747,22 @@ fn date_xls() {
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.632060185185185,
+            ExcelDateTimeType::TimeDelta,
+            false
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -775,8 +785,22 @@ fn date_xls_1904() {
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            42735.0,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.632060185185185,
+            ExcelDateTimeType::TimeDelta,
+            true
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -799,8 +823,22 @@ fn date_xlsx() {
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            false
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -823,8 +861,22 @@ fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            42735.0,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            true
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -941,8 +993,22 @@ fn date_xlsb() {
     let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            false
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -965,8 +1031,22 @@ fn date_xlsb_1904() {
     let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
-    assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            42735.0,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            10.6320601851852,
+            ExcelDateTimeType::TimeDelta,
+            true
+        )))
+    );
 
     #[cfg(feature = "dates")]
     {
@@ -998,7 +1078,7 @@ fn issue_221() {
     let path = format!("{}/tests/issue221.xlsm", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
-    let range = excel.worksheet_range("Sheet1").unwrap().unwrap();
+    let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
         range,
         [
@@ -1037,12 +1117,10 @@ fn issue_261() {
 
     let range_a = workbook_fixed_by_excel
         .worksheet_range("Some Sheet")
-        .unwrap()
         .unwrap();
 
     let range_b = workbook_with_missing_r_attributes
         .worksheet_range("Some Sheet")
-        .unwrap()
         .unwrap();
 
     assert_eq!(range_a.cells().count(), 462);
@@ -1290,7 +1368,7 @@ fn issue304_xls_formula() {
     setup();
     let path = format!("{}/tests/xls_formula.xls", env!("CARGO_MANIFEST_DIR"));
     let mut wb: Xls<_> = open_workbook(&path).unwrap();
-    let formula = wb.worksheet_formula("Sheet1").unwrap().unwrap();
+    let formula = wb.worksheet_formula("Sheet1").unwrap();
     let mut rows = formula.rows();
     assert_eq!(rows.next(), Some(&["A1*2".to_owned()][..]));
     assert_eq!(rows.next(), Some(&["2*Sheet2!A1".to_owned()][..]));
@@ -1303,12 +1381,12 @@ fn issue304_xls_values() {
     setup();
     let path = format!("{}/tests/xls_formula.xls", env!("CARGO_MANIFEST_DIR"));
     let mut wb: Xls<_> = open_workbook(&path).unwrap();
-    let rge = wb.worksheet_range("Sheet1").unwrap().unwrap();
+    let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
-    assert_eq!(rows.next(), Some(&[DataType::Float(10.)][..]));
-    assert_eq!(rows.next(), Some(&[DataType::Float(20.)][..]));
-    assert_eq!(rows.next(), Some(&[DataType::Float(110.)][..]));
-    assert_eq!(rows.next(), Some(&[DataType::Float(65.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(10.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(20.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(110.)][..]));
+    assert_eq!(rows.next(), Some(&[Data::Float(65.)][..]));
     assert_eq!(rows.next(), None);
 }
 
@@ -1317,12 +1395,12 @@ fn issue334_xls_values_string() {
     setup();
     let path = format!("{}/tests/xls_ref_String.xls", env!("CARGO_MANIFEST_DIR"));
     let mut wb: Xls<_> = open_workbook(&path).unwrap();
-    let rge = wb.worksheet_range("Sheet1").unwrap().unwrap();
+    let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
-    assert_eq!(rows.next(), Some(&[DataType::String("aa".into())][..]));
-    assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
-    assert_eq!(rows.next(), Some(&[DataType::String("aa".into())][..]));
-    assert_eq!(rows.next(), Some(&[DataType::String("bb".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("aa".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("bb".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("aa".into())][..]));
+    assert_eq!(rows.next(), Some(&[Data::String("bb".into())][..]));
     assert_eq!(rows.next(), None);
 }
 
@@ -1514,4 +1592,123 @@ fn custom_date_xlsx() {
             }
         }
     }
+}
+
+#[test]
+fn issue_102() {
+    setup();
+
+    let path = format!("{}/tests/pass_protected.xlsx", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xlsx<_>, std::string::String>(path),
+            Err(calamine::XlsxError::Password)
+        ),
+        "Is expeced to return XlsxError::Password error"
+    );
+}
+
+#[test]
+fn issue_374() {
+    let path = format!("{}/tests/biff5_write.xls", env!("CARGO_MANIFEST_DIR"));
+    let mut workbook: Xls<_> = open_workbook(path).unwrap();
+
+    let first_sheet_name = workbook.sheet_names().first().unwrap().to_owned();
+
+    assert_eq!("SheetJS", first_sheet_name);
+
+    let range = workbook.worksheet_range(&first_sheet_name).unwrap();
+    let second_row = range.rows().nth(1).unwrap();
+    let cell_text = second_row.get(3).unwrap().to_string();
+
+    assert_eq!("sheetjs", cell_text);
+}
+
+#[test]
+fn issue_385() {
+    let path = format!("{}/tests/issue_385.xls", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xls<_>, std::string::String>(path),
+            Err(calamine::XlsError::Password)
+        ),
+        "Is expeced to return XlsError::Password error"
+    );
+}
+
+#[test]
+fn pass_protected_xlsb() {
+    let path = format!("{}/tests/pass_protected.xlsb", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, std::string::String>(path),
+            Err(calamine::XlsbError::Password)
+        ),
+        "Is expeced to return XlsbError::Password error"
+    );
+}
+
+#[test]
+fn pass_protected_ods() {
+    let path = format!("{}/tests/pass_protected.ods", env!("CARGO_MANIFEST_DIR"));
+
+    assert!(
+        matches!(
+            open_workbook::<Ods<_>, std::string::String>(path),
+            Err(calamine::OdsError::Password)
+        ),
+        "Is expeced to return OdsError::Password error"
+    );
+}
+
+#[test]
+fn issue_384_multiple_formula() {
+    let path = format!("{}/tests/formula.issue.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
+
+    // first check values
+    let range = workbook.worksheet_range("Sheet1").unwrap();
+    let expected = [
+        (0, 0, Data::Float(23.)),
+        (0, 2, Data::Float(23.)),
+        (12, 6, Data::Float(2.)),
+        (13, 9, Data::String("US".into())),
+    ];
+    let expected = expected
+        .iter()
+        .map(|(r, c, v)| (*r, *c, v))
+        .collect::<Vec<_>>();
+    assert_eq!(range.used_cells().collect::<Vec<_>>(), expected);
+
+    // check formula
+    let formula = workbook.worksheet_formula("Sheet1").unwrap();
+    let formula = formula
+        .used_cells()
+        .map(|(r, c, v)| (r, c, v.as_str()))
+        .collect::<Vec<_>>();
+    let expected = [
+        (0, 0, "C1+E5"),
+        // (0, 2, Data::Float(23.)),
+        (12, 6, "SUM(1+1)"),
+        (
+            13,
+            9,
+            "IF(OR(Q22=\"\",Q22=\"United States\"),\"US\",\"Foreign\")",
+        ),
+    ];
+    assert_eq!(formula, expected)
+}
+
+#[test]
+fn issue_401_empty_tables() {
+    setup();
+
+    let path = format!("{}/tests/date.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    excel.load_tables().unwrap();
+    let tables = excel.table_names();
+    assert!(tables.is_empty());
 }

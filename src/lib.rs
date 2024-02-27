@@ -8,21 +8,21 @@
 //!
 //! # Examples
 //! ```
-//! use calamine::{Reader, open_workbook, Xlsx, DataType};
+//! use calamine::{Reader, open_workbook, Xlsx, Data};
 //!
 //! // opens a new workbook
 //! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
 //! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
-//! if let Some(Ok(range)) = workbook.worksheet_range("Sheet1") {
+//! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
 //!              total_cells, non_empty_cells);
 //!     // alternatively, we can manually filter rows
 //!     assert_eq!(non_empty_cells, range.rows()
-//!         .flat_map(|r| r.iter().filter(|&c| c != &DataType::Empty)).count());
+//!         .flat_map(|r| r.iter().filter(|&c| c != &Data::Empty)).count());
 //! }
 //!
 //! // Check if the workbook has a vba project
@@ -49,7 +49,6 @@
 //!     println!("found {} formula in '{}'",
 //!              workbook
 //!                 .worksheet_formula(&s)
-//!                 .expect("sheet not found")
 //!                 .expect("error while getting formula")
 //!                 .rows().flat_map(|r| r.iter().filter(|f| !f.is_empty()))
 //!                 .count(),
@@ -84,7 +83,7 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 
 pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
-pub use crate::datatype::DataType;
+pub use crate::datatype::{Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeType};
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
@@ -129,6 +128,18 @@ impl fmt::Display for CellErrorType {
             CellErrorType::Value => write!(f, "#VALUE!"),
             CellErrorType::GettingData => write!(f, "#DATA!"),
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
+pub(crate) struct Dimensions {
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+}
+
+impl Dimensions {
+    pub fn len(&self) -> u64 {
+        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
     }
 }
 
@@ -203,18 +214,21 @@ where
 
     /// Creates a new instance.
     fn new(reader: RS) -> Result<Self, Self::Error>;
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
+
     /// Initialize
     fn metadata(&self) -> &Metadata;
+
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Option<Result<Range<DataType>, Self::Error>>;
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error>;
 
     /// Fetch all worksheet data & paths
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)>;
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)>;
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, _: &str) -> Option<Result<Range<String>, Self::Error>>;
+    fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
     /// Get all sheet names of this workbook, in workbook order
     ///
@@ -246,9 +260,9 @@ where
 
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
-    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
+    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<Data>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
-        self.worksheet_range(&name)
+        Some(self.worksheet_range(&name))
     }
 
     /// Get all pictures, tuple as (ext: String, data: Vec<u8>)
@@ -278,7 +292,8 @@ where
 /// A trait to constrain cells
 pub trait CellType: Default + Clone + PartialEq {}
 
-impl CellType for DataType {}
+impl CellType for Data {}
+impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 
@@ -462,12 +477,12 @@ impl<T: CellType> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::{Range, Data};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
-    /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Empty));
-    /// range.set_value((2, 1), DataType::Float(1.0));
-    /// assert_eq!(range.get_value((2, 1)), Some(&DataType::Float(1.0)));
+    /// assert_eq!(range.get_value((2, 1)), Some(&Data::Empty));
+    /// range.set_value((2, 1), Data::Float(1.0));
+    /// assert_eq!(range.get_value((2, 1)), Some(&Data::Float(1.0)));
     /// ```
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
         assert!(
@@ -538,7 +553,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::{Range, Data};
     ///
     /// let range: Range<usize> = Range::new((1, 0), (5, 2));
     /// assert_eq!(range.get_value((0, 0)), None);
@@ -574,10 +589,10 @@ impl<T: CellType> Range<T> {
     ///
     /// # Examples
     /// ```
-    /// use calamine::{Range, DataType};
+    /// use calamine::{Range, Data};
     ///
-    /// let range: Range<DataType> = Range::new((0, 0), (5, 2));
-    /// // with rows item row: &[DataType]
+    /// let range: Range<Data> = Range::new((0, 0), (5, 2));
+    /// // with rows item row: &[Data]
     /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
     /// ```
     pub fn rows(&self) -> Rows<'_, T> {
@@ -616,8 +631,7 @@ impl<T: CellType> Range<T> {
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")
-    ///         .ok_or(Error::Msg("Cannot find 'Sheet1'"))??;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {
@@ -648,19 +662,19 @@ impl<T: CellType> Range<T> {
     /// # Example
     ///
     /// ```
-    /// # use calamine::{Range, DataType};
+    /// # use calamine::{Range, Data};
     /// let mut a = Range::new((1, 1), (3, 3));
-    /// a.set_value((1, 1), DataType::Bool(true));
-    /// a.set_value((2, 2), DataType::Bool(true));
+    /// a.set_value((1, 1), Data::Bool(true));
+    /// a.set_value((2, 2), Data::Bool(true));
     ///
     /// let b = a.range((2, 2), (5, 5));
-    /// assert_eq!(b.get_value((2, 2)), Some(&DataType::Bool(true)));
-    /// assert_eq!(b.get_value((3, 3)), Some(&DataType::Empty));
+    /// assert_eq!(b.get_value((2, 2)), Some(&Data::Bool(true)));
+    /// assert_eq!(b.get_value((3, 3)), Some(&Data::Empty));
     ///
     /// let c = a.range((0, 0), (2, 2));
-    /// assert_eq!(c.get_value((0, 0)), Some(&DataType::Empty));
-    /// assert_eq!(c.get_value((1, 1)), Some(&DataType::Bool(true)));
-    /// assert_eq!(c.get_value((2, 2)), Some(&DataType::Bool(true)));
+    /// assert_eq!(c.get_value((0, 0)), Some(&Data::Empty));
+    /// assert_eq!(c.get_value((1, 1)), Some(&Data::Bool(true)));
+    /// assert_eq!(c.get_value((2, 2)), Some(&Data::Bool(true)));
     /// ```
     pub fn range(&self, start: (u32, u32), end: (u32, u32)) -> Range<T> {
         let mut other = Range::new(start, end);
@@ -753,7 +767,7 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
 }
 
 /// A struct to iterate over all cells
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Cells<'a, T: CellType> {
     width: usize,
     inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
@@ -786,7 +800,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Cells<'a, T> {
 impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 
 /// A struct to iterate over used cells
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UsedCells<'a, T: CellType> {
     width: usize,
     inner: std::iter::Enumerate<std::slice::Iter<'a, T>>,
@@ -824,7 +838,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
 }
 
 /// An iterator to read `Range` struct row by row
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Rows<'a, T: CellType> {
     inner: Option<std::slice::Chunks<'a, T>>,
 }
