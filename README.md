@@ -45,49 +45,44 @@ fn example() -> Result<(), Error> {
 }
 ```
 
-Note if you want to deserialize a column that may have invalid types (i.e. a float where some values may be strings), you can use Serde's `deserialize_with` field attribute:
+Calamine provides helper functions to deal with invalid type values. For instance if you
+want to deserialize a column which should contain floats but may also contain invalid values
+(i.e. strings), you can use the [`deserialize_as_f64_or_none`] helper function with Serde's
+[`deserialize_with`](https://serde.rs/field-attrs.html) field attribute:
 
 ```rust
-use serde::{DataType, Deserialize};
-use calamine::{RangeDeserializerBuilder, Reader, Xlsx};
+use calamine::{deserialize_as_f64_or_none, open_workbook, RangeDeserializerBuilder, Reader, Xlsx};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Record {
     metric: String,
-    #[serde(deserialize_with = "de_opt_f64")]
+    #[serde(deserialize_with = "deserialize_as_f64_or_none")]
     value: Option<f64>,
 }
 
-// Convert value cell to Some(f64) if float or int, else None
-fn de_opt_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let data = calamine::Data::deserialize(deserializer)?;
-    if let Some(float) = data.as_f64() {
-        Ok(Some(float))
-    } else {
-        Ok(None)
-    }
-}
-
-fn main() ->  Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("{}/tests/excel.xlsx", env!("CARGO_MANIFEST_DIR"));
     let mut excel: Xlsx<_> = open_workbook(path)?;
 
     let range = excel
-      .worksheet_range("Sheet1")
-      .ok_or(calamine::Error::Msg("Cannot find Sheet1"))??;
+        .worksheet_range("Sheet1")
+        .map_err(|_| calamine::Error::Msg("Cannot find Sheet1"))?;
 
-    let iter_result =
+    let iter_records =
         RangeDeserializerBuilder::with_headers(&["metric", "value"]).from_range(&range)?;
 
-    for result in iter_results {
+    for result in iter_records {
         let record: Record = result?;
         println!("metric={:?}, value={:?}", record.metric, record.value);
     }
+
+    Ok(())
 }
 ```
+
+The [`deserialize_as_f64_or_none`] function will discard all invalid values, if you want to
+return them as `String` you can use the [`deserialize_as_f64_or_string`] function instead.
 
 ### Reader: Simple
 

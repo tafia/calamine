@@ -10,6 +10,8 @@
 
 ## Unreleased
 
+- feat: added `is_error` and `get_error` methods to the `DataType` trait
+
 ## 0.24.0
 
 - refactor (breaking): rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`

@@ -73,7 +73,7 @@ mod de;
 mod errors;
 pub mod vba;
 
-use serde::de::DeserializeOwned;
+use serde::de::{Deserialize, DeserializeOwned, Deserializer};
 use std::borrow::Cow;
 use std::cmp::{max, min};
 use std::fmt;
@@ -901,4 +901,200 @@ impl<T> Table<T> {
     pub fn data(&self) -> &Range<T> {
         &self.data
     }
+}
+
+/// A helper function to deserialize cell values as `i64`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_i64`] method to the cell value, and returns
+/// `Ok(Some(value_as_i64))` if successful or `Ok(None)` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+pub fn deserialize_as_i64_or_none<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_i64())
+}
+
+/// A helper function to deserialize cell values as `i64`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_i64`] method to the cell value, and returns
+/// `Ok(Ok(value_as_i64))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+pub fn deserialize_as_i64_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Result<i64, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_i64().ok_or_else(|| data.to_string()))
+}
+
+/// A helper function to deserialize cell values as `f64`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_f64`] method to the cell value, and returns
+/// `Ok(Some(value_as_f64))` if successful or `Ok(None)` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+pub fn deserialize_as_f64_or_none<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_f64())
+}
+
+/// A helper function to deserialize cell values as `f64`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_f64`] method to the cell value, and returns
+/// `Ok(Ok(value_as_f64))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+pub fn deserialize_as_f64_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Result<f64, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_f64().ok_or_else(|| data.to_string()))
+}
+
+/// A helper function to deserialize cell values as `chrono::NaiveDate`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_date`] method to the cell value, and returns
+/// `Ok(Some(value_as_date))` if successful or `Ok(None)` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_date_or_none<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::NaiveDate>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_date())
+}
+
+/// A helper function to deserialize cell values as `chrono::NaiveDate`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_date`] method to the cell value, and returns
+/// `Ok(Ok(value_as_date))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_date_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Result<chrono::NaiveDate, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_date().ok_or_else(|| data.to_string()))
+}
+
+/// A helper function to deserialize cell values as `chrono::NaiveTime`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_time`] method to the cell value, and returns
+/// `Ok(Some(value_as_time))` if successful or `Ok(None)` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_time_or_none<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::NaiveTime>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_time())
+}
+
+/// A helper function to deserialize cell values as `chrono::NaiveTime`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_time`] method to the cell value, and returns
+/// `Ok(Ok(value_as_time))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_time_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Result<chrono::NaiveTime, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_time().ok_or_else(|| data.to_string()))
+}
+
+/// A helper function to deserialize cell values as `chrono::Duration`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_duration`] method to the cell value, and returns
+/// `Ok(Some(value_as_duration))` if successful or `Ok(None)` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_duration_or_none<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::Duration>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_duration())
+}
+
+/// A helper function to deserialize cell values as `chrono::Duration`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_duration`] method to the cell value, and returns
+/// `Ok(Ok(value_as_duration))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_duration_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Result<chrono::Duration, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_duration().ok_or_else(|| data.to_string()))
+}
+
+/// A helper function to deserialize cell values as `chrono::NaiveDateTime`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_datetime`] method to the cell value, and returns
+/// `Ok(Some(value_as_datetime))` if successful or `Ok(None)` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_datetime_or_none<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::NaiveDateTime>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_datetime())
+}
+
+/// A helper function to deserialize cell values as `chrono::NaiveDateTime`,
+/// useful when cells may also contain invalid values (i.e. strings).
+/// It applies the [`as_datetime`] method to the cell value, and returns
+/// `Ok(Ok(value_as_datetime))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
+/// therefore never failing. This function is intended to be used with Serde's
+/// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
+#[cfg(feature = "dates")]
+pub fn deserialize_as_datetime_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Result<chrono::NaiveDateTime, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data = Data::deserialize(deserializer)?;
+    Ok(data.as_datetime().ok_or_else(|| data.to_string()))
 }
