@@ -734,6 +734,34 @@ impl<T: CellType> Range<T> {
     }
 }
 
+impl<T: CellType + fmt::Display> Range<T> {
+    /// Get range headers.
+    ///
+    /// # Examples
+    /// ```
+    /// use calamine::{Range, Data};
+    ///
+    /// let mut range = Range::new((0, 0), (5, 2));
+    /// range.set_value((0, 0), Data::String(String::from("a")));
+    /// range.set_value((0, 1), Data::Int(1));
+    /// range.set_value((0, 2), Data::Bool(true));
+    /// let headers = range.headers();
+    /// assert_eq!(
+    ///     headers,
+    ///     Some(vec![
+    ///         String::from("a"),
+    ///         String::from("1"),
+    ///         String::from("true")
+    ///     ])
+    /// );
+    /// ```
+    pub fn headers(&self) -> Option<Vec<String>> {
+        self.rows()
+            .next()
+            .map(|row| row.iter().map(ToString::to_string).collect())
+    }
+}
+
 impl<T: CellType> Index<usize> for Range<T> {
     type Output = [T];
     fn index(&self, index: usize) -> &[T] {
