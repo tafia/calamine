@@ -131,13 +131,25 @@ impl fmt::Display for CellErrorType {
     }
 }
 
-#[derive(Debug, PartialEq, Default, Clone, Copy)]
-pub(crate) struct Dimensions {
+/// Dimensions info
+#[derive(Debug, Default, PartialEq, Eq, Hash, Ord, PartialOrd, Copy, Clone)]
+pub struct Dimensions {
+    /// start: (row, col)
     pub start: (u32, u32),
+    /// end: (row, col)
     pub end: (u32, u32),
 }
 
 impl Dimensions {
+    /// create dimensions info with start position and end position
+    pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
+        Self { start, end }
+    }
+    /// check if a position is in it
+    pub fn contains(&self, row: u32, col: u32) -> bool {
+        row >= self.start.0 && row <= self.end.0 && col >= self.start.1 && col <= self.end.1
+    }
+    /// len
     pub fn len(&self) -> u64 {
         (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
     }

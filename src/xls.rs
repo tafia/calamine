@@ -17,7 +17,9 @@ use crate::formats::{
 use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
-use crate::{Cell, CellErrorType, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{
+    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+};
 
 #[derive(Debug)]
 /// An enum to handle Xls specific errors
@@ -773,11 +775,6 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
         }
     }
     Ok(None)
-}
-
-struct Dimensions {
-    start: (u32, u32),
-    end: (u32, u32),
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
