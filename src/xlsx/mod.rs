@@ -735,7 +735,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         XlsxCellReader::new(xml, strings, formats, is_1904)
     }
 
-    /// Get worksheet range where shared string values are only borrowed
+    /// Get worksheet range where shared string values are only borrowed.
+    ///
+    /// This is implemented only for [`calamine::Xlsx`], as Xls and Ods formats
+    /// do not support lazy iteration.
     pub fn worksheet_range_ref<'a>(
         &'a mut self,
         name: &str,
