@@ -747,10 +747,10 @@ fn parse_label(
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let _ixfe = read_u16(&r[4..]);
-    return Ok(Some(Cell::new(
+    Ok(Some(Cell::new(
         (row as u32, col as u32),
         Data::String(parse_string(&r[6..], encoding, biff)?),
-    )));
+    )))
 }
 
 fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, XlsError> {
