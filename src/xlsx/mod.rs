@@ -376,30 +376,27 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             _ => (),
                         }
                     }
-                    let typ = match path.split('/').nth(1) {
-                        Some("worksheets") => SheetType::WorkSheet,
-                        Some("chartsheets") => SheetType::ChartSheet,
-                        Some("dialogsheets") => SheetType::DialogSheet,
-                        _ => {
-                            // NOTE(ted): Calamine, by default, sends an error.
-                            // Sometimes our customers send malformatted excel files to use.
-                            // We can just ignore this and try and default to WorkSheet.
-                            // Leaving this code here in case we want to rever thsi later.
-                            //
-                            // return Err(XlsxError::Unrecognized {
-                            //     typ: "sheet:type",
-                            //     val: path.to_string(),
-                            // })
+                    if !path.is_empty() {
+                        let typ = match path.split('/').nth(1) {
+                            Some("worksheets") => SheetType::WorkSheet,
+                            Some("chartsheets") => SheetType::ChartSheet,
+                            Some("dialogsheets") => SheetType::DialogSheet,
+                            _ => {
+                                return Err(XlsxError::Unrecognized {
+                                    typ: "sheet:type",
+                                    val: path.to_string(),
+                                })
+                            }
+                        };
 
-                            SheetType::WorkSheet
-                        }
-                    };
-                    self.metadata.sheets.push(Sheet {
-                        name: name.to_string(),
-                        typ,
-                        visible,
-                    });
-                    self.sheets.push((name, path));
+                        self.metadata.sheets.push(Sheet {
+                            name: name.to_string(),
+                            typ,
+                            visible,
+                        });
+
+                        self.sheets.push((name, path));
+                    }
                 }
                 Ok(Event::Start(ref e)) if e.name().as_ref() == b"workbookPr" => {
                     self.is_1904 = match e.try_get_attribute("date1904")? {
