@@ -381,10 +381,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         Some("chartsheets") => SheetType::ChartSheet,
                         Some("dialogsheets") => SheetType::DialogSheet,
                         _ => {
-                            return Err(XlsxError::Unrecognized {
-                                typ: "sheet:type",
-                                val: path.to_string(),
-                            })
+                            // NOTE(ted): Calamine, by default, sends an error.
+                            // Sometimes our customers send malformatted excel files to use.
+                            // We can just ignore this and try and default to WorkSheet.
+                            // Leaving this code here in case we want to rever thsi later.
+                            //
+                            // return Err(XlsxError::Unrecognized {
+                            //     typ: "sheet:type",
+                            //     val: path.to_string(),
+                            // })
+
+                            SheetType::WorkSheet
                         }
                     };
                     self.metadata.sheets.push(Sheet {
