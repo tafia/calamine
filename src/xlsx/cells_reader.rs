@@ -243,7 +243,7 @@ fn read_v<'s>(
     match get_attribute(c_element.attributes(), QName(b"t"))? {
         Some(b"s") => {
             // shared string
-            let idx: usize = v.parse()?;
+            let idx: usize = v.trim().parse()?;
             Ok(DataRef::SharedString(&strings[idx]))
         }
         Some(b"b") => {
