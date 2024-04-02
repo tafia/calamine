@@ -24,6 +24,7 @@ zip = { version = "0.6", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = [
     "serde",
 ], optional = true, default-features = false }
+regex = "1.10"
 
 [dev-dependencies]
 glob = "0.3"

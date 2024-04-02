@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,
 };
+use regex::Regex;
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
+    get_attribute, get_dimension, get_row, get_row_column, position_to_title, read_string,
+    Dimensions, XlReader,
 };
 use crate::{
     datatype::DataRef,
@@ -23,6 +27,7 @@ pub struct XlsxCellReader<'a> {
     col_index: u32,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
+    formulas: Vec<Option<(String, HashMap<String, (i32, i32)>)>>,
 }
 
 impl<'a> XlsxCellReader<'a> {
@@ -68,6 +73,7 @@ impl<'a> XlsxCellReader<'a> {
             col_index: 0,
             buf: Vec::with_capacity(1024),
             cell_buf: Vec::with_capacity(1024),
+            formulas: Vec::with_capacity(1024),
         })
     }
 
@@ -165,8 +171,111 @@ impl<'a> XlsxCellReader<'a> {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
                             Ok(Event::Start(ref e)) => {
+                                let mut offset_map: HashMap<String, (i32, i32)> = HashMap::new();
+                                let mut shared_index = None;
+                                let mut shared_ref = None;
+                                let shared =
+                                    get_attribute(e.attributes(), QName(b"t")).unwrap_or(None);
+                                match shared {
+                                    Some(b"shared") => {
+                                        shared_index = Some(
+                                            String::from_utf8(
+                                                get_attribute(e.attributes(), QName(b"si"))?
+                                                    .unwrap()
+                                                    .to_vec(),
+                                            )
+                                            .unwrap()
+                                            .parse::<u32>()?,
+                                        );
+                                        match get_attribute(e.attributes(), QName(b"ref"))? {
+                                            Some(res) => {
+                                                let reference = get_dimension(res)?;
+                                                if reference.start.0 != reference.end.0 {
+                                                    for i in
+                                                        0..=(reference.end.0 - reference.start.0)
+                                                    {
+                                                        offset_map.insert(
+                                                            position_to_title((
+                                                                reference.start.0 + i,
+                                                                reference.start.1,
+                                                            ))?,
+                                                            (
+                                                                (reference.start.0 as i64
+                                                                    - pos.0 as i64
+                                                                    + i as i64)
+                                                                    as i32,
+                                                                0,
+                                                            ),
+                                                        );
+                                                    }
+                                                } else if reference.start.1 != reference.end.1 {
+                                                    for i in
+                                                        0..=(reference.end.1 - reference.start.1)
+                                                    {
+                                                        offset_map.insert(
+                                                            position_to_title((
+                                                                reference.start.0,
+                                                                reference.start.1 + i,
+                                                            ))?,
+                                                            (
+                                                                0,
+                                                                (reference.start.1 as i64
+                                                                    - pos.1 as i64
+                                                                    + i as i64)
+                                                                    as i32,
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+                                                shared_ref = Some(reference);
+                                            }
+                                            None => {}
+                                        }
+                                    }
+                                    _ => {}
+                                }
                                 if let Some(f) = read_formula(&mut self.xml, e)? {
-                                    value = Some(f);
+                                    value = Some(f.clone());
+                                    if shared_index.is_some() && shared_ref.is_some() {
+                                        // original shared formula
+                                        while self.formulas.len() < shared_index.unwrap() as usize {
+                                            self.formulas.push(None);
+                                        }
+                                        self.formulas.push(Some((f, offset_map)));
+                                    }
+                                }
+                                if shared_index.is_some() && shared_ref.is_none() {
+                                    // shared formula
+                                    let cell_regex = Regex::new(r"[A-Z]+[0-9]+").unwrap();
+                                    if let Some((f, offset)) =
+                                        self.formulas[shared_index.unwrap() as usize].clone()
+                                    {
+                                        let cells = cell_regex
+                                            .find_iter(f.as_str())
+                                            .map(|x| get_row_column(x.as_str().as_bytes()));
+                                        let mut template = cell_regex
+                                            .replace_all(f.as_str(), r"\uffff")
+                                            .into_owned();
+                                        let ffff_regex = Regex::new(r"\\uffff").unwrap();
+                                        let (row, col) =
+                                            offset.get(&position_to_title(pos)?).unwrap();
+                                        for res in cells {
+                                            match res {
+                                                Ok(cell) => {
+                                                    // calculate new formula cell pos
+                                                    let name = position_to_title((
+                                                        (cell.0 as i64 + *col as i64) as u32,
+                                                        (cell.1 as i64 + *row as i64 + 1) as u32,
+                                                    ))?;
+                                                    template = ffff_regex
+                                                        .replace(&template, name.as_str())
+                                                        .into_owned();
+                                                }
+                                                Err(_) => {}
+                                            };
+                                        }
+                                        value = Some(template.clone());
+                                    };
                                 }
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
