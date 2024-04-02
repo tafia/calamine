@@ -1113,6 +1113,31 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     Ok(())
 }
 
+/// Convert the integer to Excelsheet column title.
+/// If the column number not in 1~16384, an Error is returned.
+pub(crate) fn column_number_to_name(num: u32) -> Result<String, XlsxError> {
+    if num < 1 || num > MAX_COLUMNS {
+        return Err(XlsxError::Unexpected("column number overflow"));
+    }
+    let mut col: Vec<u8> = Vec::new();
+    let mut num = num;
+    while num > 0 {
+        let integer: u8 = (num as u8 - 1) % 26 + 65;
+        col.push(integer);
+        num = (num - 1) / 26;
+    }
+    col.reverse();
+    match String::from_utf8(col) {
+        Ok(s) => Ok(s),
+        Err(_) => Err(XlsxError::NumericColumn(num as u8)),
+    }
+}
+
+pub(crate) fn position_to_title(cell: (u32, u32)) -> Result<String, XlsxError> {
+    let col = column_number_to_name(cell.0)?;
+    Ok(format!("{col}{}", cell.1 + 1).to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1172,6 +1197,26 @@ mod tests {
         assert_eq!(
             CellErrorType::from_str("#VALUE!").unwrap(),
             CellErrorType::Value
+        );
+    }
+
+    #[test]
+    fn test_column_number_to_name() {
+        assert_eq!(column_number_to_name(1).unwrap(), String::from("A"));
+        assert_eq!(column_number_to_name(37).unwrap(), String::from("AK"));
+        assert_eq!(
+            column_number_to_name(MAX_COLUMNS - 1).unwrap(),
+            String::from("XNU")
+        );
+    }
+
+    #[test]
+    fn test_position_to_title() {
+        assert_eq!(position_to_title((1, 1)).unwrap(), String::from("A1"));
+        assert_eq!(position_to_title((37, 1)).unwrap(), String::from("AK1"));
+        assert_eq!(
+            position_to_title((MAX_COLUMNS - 1, 1)).unwrap(),
+            String::from("XNU1")
         );
     }
 }
