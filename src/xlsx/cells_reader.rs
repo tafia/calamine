@@ -4,7 +4,7 @@ use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,
 };
-use regex::Regex;
+use regex::{Captures, Regex};
 
 use super::{
     get_attribute, get_dimension, get_row, get_row_column, position_to_title, read_string,
@@ -16,6 +16,22 @@ use crate::{
     Cell, XlsxError,
 };
 
+fn replace_all<E>(
+    re: &Regex,
+    haystack: &str,
+    replacement: impl Fn(&Captures) -> Result<String, E>,
+) -> Result<String, E> {
+    let mut new = String::with_capacity(haystack.len());
+    let mut last_match = 0;
+    for caps in re.captures_iter(haystack) {
+        let m = caps.get(0).unwrap();
+        new.push_str(&haystack[last_match..m.start()]);
+        new.push_str(&replacement(&caps)?);
+        last_match = m.end();
+    }
+    new.push_str(&haystack[last_match..]);
+    Ok(new)
+}
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a> {
     xml: XlReader<'a>,
@@ -250,31 +266,30 @@ impl<'a> XlsxCellReader<'a> {
                                     if let Some((f, offset)) =
                                         self.formulas[shared_index.unwrap() as usize].clone()
                                     {
-                                        let cells = cell_regex
-                                            .find_iter(f.as_str())
-                                            .map(|x| get_row_column(x.as_str().as_bytes()));
-                                        let mut template = cell_regex
-                                            .replace_all(f.as_str(), r"\uffff")
-                                            .into_owned();
-                                        let ffff_regex = Regex::new(r"\\uffff").unwrap();
                                         let (row, col) =
                                             offset.get(&position_to_title(pos)?).unwrap();
-                                        for res in cells {
-                                            match res {
-                                                Ok(cell) => {
-                                                    // calculate new formula cell pos
-                                                    let name = position_to_title((
-                                                        (cell.0 as i64 + *col as i64) as u32,
-                                                        (cell.1 as i64 + *row as i64 + 1) as u32,
-                                                    ))?;
-                                                    template = ffff_regex
-                                                        .replace(&template, name.as_str())
-                                                        .into_owned();
+                                        let replacement =
+                                            |caps: &Captures| -> Result<String, &'static str> {
+                                                match get_row_column(caps[0].as_bytes()) {
+                                                    Ok(cell) => {
+                                                        match position_to_title((
+                                                            (cell.0 as i64 + *col as i64) as u32,
+                                                            (cell.1 as i64 + *row as i64 + 1)
+                                                                as u32,
+                                                        )) {
+                                                            Ok(name) => Ok(name),
+                                                            Err(_) => Err("invalid cell reference"),
+                                                        }
+                                                    }
+                                                    Err(_) => Err("invalid cell reference"),
                                                 }
-                                                Err(_) => {}
                                             };
+                                        match replace_all(&cell_regex, f.as_str(), &replacement) {
+                                            Ok(s) => {
+                                                value = Some(s);
+                                            }
+                                            Err(_) => {}
                                         }
-                                        value = Some(template.clone());
                                     };
                                 }
                             }
