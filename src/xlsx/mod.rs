@@ -1212,11 +1212,11 @@ mod tests {
 
     #[test]
     fn test_position_to_title() {
-        assert_eq!(position_to_title((1, 1)).unwrap(), String::from("A1"));
-        assert_eq!(position_to_title((37, 1)).unwrap(), String::from("AK1"));
+        assert_eq!(position_to_title((1, 0)).unwrap(), String::from("A1"));
+        assert_eq!(position_to_title((37, 1)).unwrap(), String::from("AK2"));
         assert_eq!(
-            position_to_title((MAX_COLUMNS - 1, 1)).unwrap(),
-            String::from("XNU1")
+            position_to_title((MAX_COLUMNS - 1, 1_000_000)).unwrap(),
+            String::from("XNU1000001")
         );
     }
 }
