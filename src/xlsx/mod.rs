@@ -1116,26 +1116,27 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
 /// Convert the integer to Excelsheet column title.
 /// If the column number not in 1~16384, an Error is returned.
 pub(crate) fn column_number_to_name(num: u32) -> Result<String, XlsxError> {
-    if num < 1 || num > MAX_COLUMNS {
+    if num >= MAX_COLUMNS {
         return Err(XlsxError::Unexpected("column number overflow"));
     }
     let mut col: Vec<u8> = Vec::new();
-    let mut num = num;
+    let mut num = num + 1;
     while num > 0 {
-        let integer: u8 = (num as u8 - 1) % 26 + 65;
+        let integer = ((num - 1) % 26 + 65) as u8;
         col.push(integer);
         num = (num - 1) / 26;
     }
     col.reverse();
     match String::from_utf8(col) {
         Ok(s) => Ok(s),
-        Err(_) => Err(XlsxError::NumericColumn(num as u8)),
+        Err(_) => Err(XlsxError::Unexpected("not valid utf8")),
     }
 }
 
-pub(crate) fn position_to_title(cell: (u32, u32)) -> Result<String, XlsxError> {
-    let col = column_number_to_name(cell.0)?;
-    Ok(format!("{col}{}", cell.1 + 1).to_owned())
+/// Convert a cell coordinate to Excelsheet cell name.
+/// If the column number not in 1~16384, an Error is returned.
+pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<String, XlsxError> {
+    Ok(format!("{}{}", column_number_to_name(cell.1)?, cell.0 + 1,))
 }
 
 #[cfg(test)]
@@ -1202,21 +1203,19 @@ mod tests {
 
     #[test]
     fn test_column_number_to_name() {
-        assert_eq!(column_number_to_name(1).unwrap(), String::from("A"));
-        assert_eq!(column_number_to_name(37).unwrap(), String::from("AK"));
-        assert_eq!(
-            column_number_to_name(MAX_COLUMNS - 1).unwrap(),
-            String::from("XNU")
-        );
+        assert_eq!(column_number_to_name(0).unwrap(), "A");
+        assert_eq!(column_number_to_name(25).unwrap(), "Z");
+        assert_eq!(column_number_to_name(26).unwrap(), "AA");
+        assert_eq!(column_number_to_name(27).unwrap(), "AB");
+        assert_eq!(column_number_to_name(MAX_COLUMNS - 1).unwrap(), "XFD");
     }
 
     #[test]
     fn test_position_to_title() {
-        assert_eq!(position_to_title((1, 0)).unwrap(), String::from("A1"));
-        assert_eq!(position_to_title((37, 1)).unwrap(), String::from("AK2"));
+        assert_eq!(coordinate_to_name((0, 0)).unwrap(), "A1");
         assert_eq!(
-            position_to_title((MAX_COLUMNS - 1, 1_000_000)).unwrap(),
-            String::from("XNU1000001")
+            coordinate_to_name((1048_575, MAX_COLUMNS - 1)).unwrap(),
+            "XFD1048576"
         );
     }
 }
