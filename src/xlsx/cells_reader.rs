@@ -7,7 +7,7 @@ use quick_xml::{
 use regex::{Captures, Regex};
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, position_to_title, read_string,
+    coordinate_to_name, get_attribute, get_dimension, get_row, get_row_column, read_string,
     Dimensions, XlReader,
 };
 use crate::{
@@ -43,7 +43,7 @@ pub struct XlsxCellReader<'a> {
     col_index: u32,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
-    formulas: Vec<Option<(String, HashMap<String, (i32, i32)>)>>,
+    formulas: Vec<Option<(String, HashMap<String, (i64, i64)>)>>,
 }
 
 impl<'a> XlsxCellReader<'a> {
@@ -187,110 +187,137 @@ impl<'a> XlsxCellReader<'a> {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
                             Ok(Event::Start(ref e)) => {
-                                let mut offset_map: HashMap<String, (i32, i32)> = HashMap::new();
-                                let mut shared_index = None;
-                                let mut shared_ref = None;
-                                let shared =
-                                    get_attribute(e.attributes(), QName(b"t")).unwrap_or(None);
-                                match shared {
+                                match get_attribute(e.attributes(), QName(b"t")).unwrap_or(None) {
                                     Some(b"shared") => {
-                                        shared_index = Some(
-                                            String::from_utf8(
-                                                get_attribute(e.attributes(), QName(b"si"))?
-                                                    .unwrap()
-                                                    .to_vec(),
-                                            )
-                                            .unwrap()
-                                            .parse::<u32>()?,
-                                        );
-                                        match get_attribute(e.attributes(), QName(b"ref"))? {
-                                            Some(res) => {
-                                                let reference = get_dimension(res)?;
-                                                if reference.start.0 != reference.end.0 {
-                                                    for i in
-                                                        0..=(reference.end.0 - reference.start.0)
-                                                    {
-                                                        offset_map.insert(
-                                                            position_to_title((
-                                                                reference.start.0 + i,
-                                                                reference.start.1,
-                                                            ))?,
-                                                            (
-                                                                (reference.start.0 as i64
-                                                                    - pos.0 as i64
-                                                                    + i as i64)
-                                                                    as i32,
-                                                                0,
-                                                            ),
-                                                        );
-                                                    }
-                                                } else if reference.start.1 != reference.end.1 {
-                                                    for i in
-                                                        0..=(reference.end.1 - reference.start.1)
-                                                    {
-                                                        offset_map.insert(
-                                                            position_to_title((
-                                                                reference.start.0,
-                                                                reference.start.1 + i,
-                                                            ))?,
-                                                            (
-                                                                0,
-                                                                (reference.start.1 as i64
-                                                                    - pos.1 as i64
-                                                                    + i as i64)
-                                                                    as i32,
-                                                            ),
-                                                        );
-                                                    }
-                                                }
-                                                shared_ref = Some(reference);
-                                            }
-                                            None => {}
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                                if let Some(f) = read_formula(&mut self.xml, e)? {
-                                    value = Some(f.clone());
-                                    if shared_index.is_some() && shared_ref.is_some() {
-                                        // original shared formula
-                                        while self.formulas.len() < shared_index.unwrap() as usize {
-                                            self.formulas.push(None);
-                                        }
-                                        self.formulas.push(Some((f, offset_map)));
-                                    }
-                                }
-                                if shared_index.is_some() && shared_ref.is_none() {
-                                    // shared formula
-                                    let cell_regex = Regex::new(r"[A-Z]+[0-9]+").unwrap();
-                                    if let Some((f, offset)) =
-                                        self.formulas[shared_index.unwrap() as usize].clone()
-                                    {
-                                        let (row, col) =
-                                            offset.get(&position_to_title(pos)?).unwrap();
-                                        let replacement =
-                                            |caps: &Captures| -> Result<String, &'static str> {
-                                                match get_row_column(caps[0].as_bytes()) {
-                                                    Ok(cell) => {
-                                                        match position_to_title((
-                                                            (cell.0 as i64 + *col as i64) as u32,
-                                                            (cell.1 as i64 + *row as i64 + 1)
-                                                                as u32,
-                                                        )) {
-                                                            Ok(name) => Ok(name),
-                                                            Err(_) => Err("invalid cell reference"),
+                                        // shared formula
+                                        let mut offset_map: HashMap<String, (i64, i64)> =
+                                            HashMap::new();
+                                        // get shared formula index
+                                        let shared_index =
+                                            match get_attribute(e.attributes(), QName(b"si"))? {
+                                                Some(res) => match std::str::from_utf8(res) {
+                                                    Ok(res) => match u32::from_str_radix(res, 10) {
+                                                        Ok(res) => res,
+                                                        Err(e) => {
+                                                            return Err(XlsxError::ParseInt(e));
                                                         }
+                                                    },
+                                                    Err(_) => {
+                                                        return Err(XlsxError::Unexpected(
+                                                            "si attribute must be a number",
+                                                        ));
                                                     }
-                                                    Err(_) => Err("invalid cell reference"),
+                                                },
+                                                None => {
+                                                    return Err(XlsxError::Unexpected(
+                                                        "si attribute is mandatory if it is shared",
+                                                    ));
                                                 }
                                             };
-                                        match replace_all(&cell_regex, f.as_str(), &replacement) {
-                                            Ok(s) => {
-                                                value = Some(s);
+                                        // get shared formula reference
+                                        let shared_ref =
+                                            match get_attribute(e.attributes(), QName(b"ref"))? {
+                                                Some(res) => {
+                                                    let reference = get_dimension(res)?;
+                                                    if reference.start.0 != reference.end.0 {
+                                                        for i in 0..=(reference.end.0
+                                                            - reference.start.0)
+                                                        {
+                                                            offset_map.insert(
+                                                                coordinate_to_name((
+                                                                    reference.start.0 + i,
+                                                                    reference.start.1,
+                                                                ))?,
+                                                                (
+                                                                    (reference.start.0 as i64
+                                                                        - pos.0 as i64
+                                                                        + i as i64),
+                                                                    0,
+                                                                ),
+                                                            );
+                                                        }
+                                                    } else if reference.start.1 != reference.end.1 {
+                                                        for i in 0..=(reference.end.1
+                                                            - reference.start.1)
+                                                        {
+                                                            offset_map.insert(
+                                                                coordinate_to_name((
+                                                                    reference.start.0,
+                                                                    reference.start.1 + i,
+                                                                ))?,
+                                                                (
+                                                                    0,
+                                                                    (reference.start.1 as i64
+                                                                        - pos.1 as i64
+                                                                        + i as i64),
+                                                                ),
+                                                            );
+                                                        }
+                                                    }
+                                                    Some(reference)
+                                                }
+                                                None => None,
+                                            };
+
+                                        if let Some(f) = read_formula(&mut self.xml, e)? {
+                                            value = Some(f.clone());
+                                            if let (si, true) = (shared_index, shared_ref.is_some())
+                                            {
+                                                // original shared formula
+                                                while self.formulas.len() < si as usize {
+                                                    self.formulas.push(None);
+                                                }
+                                                self.formulas.push(Some((f, offset_map)));
                                             }
-                                            Err(_) => {}
                                         }
-                                    };
+                                        if let (si, true) = (shared_index, shared_ref.is_none()) {
+                                            // shared formula
+                                            let cell_regex =
+                                                Regex::new(r"\b[A-Z]{1,3}\d+\b").unwrap();
+                                            if let Some((f, offset)) =
+                                                self.formulas[si as usize].clone()
+                                            {
+                                                if let Some((row, col)) =
+                                                    offset.get(&coordinate_to_name(pos)?)
+                                                {
+                                                    let replacement =
+                                                        |caps: &Captures| -> Result<String, String> {
+                                                            match get_row_column(caps[0].as_bytes()) {
+                                                                Ok(cell) => {
+                                                                    match coordinate_to_name((
+                                                                        (cell.0 as i64 + *row) as u32,
+                                                                        (cell.1 as i64 + *col) as u32,
+                                                                    )) {
+                                                                        Ok(name) => Ok(name),
+                                                                        Err(e) => {
+                                                                            Err(e.to_string())
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Err(e) => Err(e.to_string()),
+                                                            }
+                                                        };
+
+                                                    match replace_all(
+                                                        &cell_regex,
+                                                        f.as_str(),
+                                                        &replacement,
+                                                    ) {
+                                                        Ok(s) => {
+                                                            value = Some(s);
+                                                        }
+                                                        Err(_) => {}
+                                                    }
+                                                }
+                                            };
+                                        };
+                                    }
+                                    _ => {
+                                        // good old formula
+                                        if let Some(f) = read_formula(&mut self.xml, e)? {
+                                            value = Some(f);
+                                        }
+                                    }
                                 }
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
