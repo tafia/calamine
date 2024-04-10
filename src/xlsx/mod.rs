@@ -11,8 +11,8 @@ use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::Event;
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
-use zip::read::{ZipArchive, ZipFile};
-use zip::result::ZipError;
+use zip_next::read::{ZipArchive, ZipFile};
+use zip_next::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
@@ -37,7 +37,7 @@ pub enum XlsxError {
     /// Io error
     Io(std::io::Error),
     /// Zip error
-    Zip(zip::result::ZipError),
+    Zip(zip_next::result::ZipError),
     /// Vba error
     Vba(crate::vba::VbaError),
     /// Xml error
@@ -90,7 +90,7 @@ pub enum XlsxError {
 }
 
 from_err!(std::io::Error, XlsxError, Io);
-from_err!(zip::result::ZipError, XlsxError, Zip);
+from_err!(zip_next::result::ZipError, XlsxError, Zip);
 from_err!(crate::vba::VbaError, XlsxError, Vba);
 from_err!(quick_xml::Error, XlsxError, Xml);
 from_err!(std::string::ParseError, XlsxError, Parse);
