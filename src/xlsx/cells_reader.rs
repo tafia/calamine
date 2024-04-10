@@ -261,21 +261,20 @@ impl<'a> XlsxCellReader<'a> {
 
                                         if let Some(f) = read_formula(&mut self.xml, e)? {
                                             value = Some(f.clone());
-                                            if let (si, true) = (shared_index, shared_ref.is_some())
-                                            {
+                                            if shared_ref.is_some() {
                                                 // original shared formula
-                                                while self.formulas.len() < si as usize {
+                                                while self.formulas.len() < shared_index as usize {
                                                     self.formulas.push(None);
                                                 }
                                                 self.formulas.push(Some((f, offset_map)));
                                             }
                                         }
-                                        if let (si, true) = (shared_index, shared_ref.is_none()) {
+                                        if shared_ref.is_none() {
                                             // shared formula
                                             let cell_regex =
                                                 Regex::new(r"\b[A-Z]{1,3}\d+\b").unwrap();
                                             if let Some((f, offset)) =
-                                                self.formulas[si as usize].clone()
+                                                self.formulas[shared_index as usize].clone()
                                             {
                                                 if let Some((row, col)) =
                                                     offset.get(&coordinate_to_name(pos)?)
