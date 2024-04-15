@@ -919,7 +919,11 @@ fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
 ) -> Option<Result<XlReader<'a>, XlsxError>> {
-    match zip.by_name(path) {
+    let actual_path = zip
+        .file_names()
+        .find(|n| n.eq_ignore_ascii_case(path))?
+        .to_owned();
+    match zip.by_name(&actual_path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
             r.check_end_names(false)
