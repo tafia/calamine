@@ -12,8 +12,8 @@ use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
-use zip::read::{ZipArchive, ZipFile};
-use zip::result::ZipError;
+use zip_next::read::{ZipArchive, ZipFile};
+use zip_next::result::ZipError;
 
 use crate::vba::VbaProject;
 use crate::{Data, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
@@ -29,7 +29,7 @@ pub enum OdsError {
     /// Io error
     Io(std::io::Error),
     /// Zip error
-    Zip(zip::result::ZipError),
+    Zip(zip_next::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
     /// Xml attribute error
@@ -63,7 +63,7 @@ pub enum OdsError {
 }
 
 from_err!(std::io::Error, OdsError, Io);
-from_err!(zip::result::ZipError, OdsError, Zip);
+from_err!(zip_next::result::ZipError, OdsError, Zip);
 from_err!(quick_xml::Error, OdsError, Xml);
 from_err!(std::string::ParseError, OdsError, Parse);
 from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
