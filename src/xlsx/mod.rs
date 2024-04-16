@@ -1117,6 +1117,130 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     Ok(())
 }
 
+/// check if a char vector is a valid cell name  
+/// column name must be between A and XFD,
+/// last char must be digit
+fn valid_cell_name(name: &[char]) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    if name.len() < 2 {
+        return false;
+    }
+    if name.len() > 3 {
+        if name[3].is_ascii_alphabetic() {
+            return false;
+        }
+        if name[2].is_alphabetic() {
+            if "YZ".contains(name[0]) {
+                return false;
+            } else if name[0] == 'X' {
+                if name[1] == 'F' {
+                    if !"ABCD".contains(name[2]) {
+                        return false;
+                    };
+                } else if !"ABCDE".contains(name[1]) {
+                    return false;
+                }
+            }
+        }
+    }
+    match name.last() {
+        Some(c) => c.is_ascii_digit(),
+        _ => false,
+    }
+}
+
+/// advance the cell name by the offset
+fn replace_cell(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+    let cell = get_row_column(
+        name.into_iter()
+            .map(|c| *c as u8)
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )?;
+    coordinate_to_name((
+        (cell.0 as i64 + offset.0) as u32,
+        (cell.1 as i64 + offset.1) as u32,
+    ))
+}
+
+/// advance all valid cell names in the string by the offset
+fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+    let mut res: Vec<u8> = Vec::new();
+    let mut cell: Vec<char> = Vec::new();
+    let mut is_cell_row = false;
+    let mut in_quote = false;
+    for c in s.chars() {
+        if c == '"' {
+            in_quote = !in_quote;
+        }
+        if in_quote {
+            res.push(c as u8);
+            continue;
+        }
+        if c.is_ascii_alphabetic() {
+            if is_cell_row {
+                // two cell not possible stick togather in formula
+                res.extend(cell.iter().map(|c| *c as u8));
+                cell.clear();
+                is_cell_row = false;
+            }
+            cell.push(c);
+        } else if c.is_ascii_digit() {
+            is_cell_row = true;
+            cell.push(c);
+        } else {
+            if valid_cell_name(cell.as_ref()) {
+                res.extend(replace_cell(cell.as_ref(), offset)?);
+            } else {
+                res.extend(cell.iter().map(|c| *c as u8));
+            }
+            cell.clear();
+            is_cell_row = false;
+            res.push(c as u8);
+        }
+    }
+    if !cell.is_empty() {
+        if valid_cell_name(cell.as_ref()) {
+            res.extend(replace_cell(cell.as_ref(), offset)?);
+        } else {
+            res.extend(cell.iter().map(|c| *c as u8));
+        }
+    }
+    match String::from_utf8(res) {
+        Ok(s) => Ok(s),
+        Err(_) => Err(XlsxError::Unexpected("fail to convert cell name")),
+    }
+}
+
+/// Convert the integer to Excelsheet column title.  
+/// If the column number not in 1~16384, an Error is returned.
+pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
+    if num >= MAX_COLUMNS {
+        return Err(XlsxError::Unexpected("column number overflow"));
+    }
+    let mut col: Vec<u8> = Vec::new();
+    let mut num = num + 1;
+    while num > 0 {
+        let integer = ((num - 1) % 26 + 65) as u8;
+        col.push(integer);
+        num = (num - 1) / 26;
+    }
+    col.reverse();
+    Ok(col)
+}
+
+/// Convert a cell coordinate to Excelsheet cell name.  
+/// If the column number not in 1~16384, an Error is returned.
+pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError> {
+    let cell = &[
+        column_number_to_name(cell.1)?,
+        (cell.0 + 1).to_string().into_bytes(),
+    ];
+    Ok(cell.concat())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1176,6 +1300,41 @@ mod tests {
         assert_eq!(
             CellErrorType::from_str("#VALUE!").unwrap(),
             CellErrorType::Value
+        );
+    }
+
+    #[test]
+    fn test_column_number_to_name() {
+        assert_eq!(column_number_to_name(0).unwrap(), b"A");
+        assert_eq!(column_number_to_name(25).unwrap(), b"Z");
+        assert_eq!(column_number_to_name(26).unwrap(), b"AA");
+        assert_eq!(column_number_to_name(27).unwrap(), b"AB");
+        assert_eq!(column_number_to_name(MAX_COLUMNS - 1).unwrap(), b"XFD");
+    }
+
+    #[test]
+    fn test_coordinate_to_name() {
+        assert_eq!(coordinate_to_name((0, 0)).unwrap(), b"A1");
+        assert_eq!(
+            coordinate_to_name((MAX_ROWS - 1, MAX_COLUMNS - 1)).unwrap(),
+            b"XFD1048576"
+        );
+    }
+
+    #[test]
+    fn test_replace_cell_names() {
+        assert_eq!(replace_cell_names("A1", (1, 0)).unwrap(), "A2".to_owned());
+        assert_eq!(
+            replace_cell_names("CONCATENATE(A1, \"a\")", (1, 0)).unwrap(),
+            "CONCATENATE(A2, \"a\")".to_owned()
+        );
+        assert_eq!(
+            replace_cell_names(
+                "A1 is a cell, B1 is another, also C107, but XFE123 is not and \"A3\" in quote wont change.",
+                (1, 0)
+            )
+            .unwrap(),
+            "A2 is a cell, B2 is another, also C108, but XFE123 is not and \"A3\" in quote wont change.".to_owned()
         );
     }
 }
