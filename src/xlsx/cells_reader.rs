@@ -2,9 +2,11 @@ use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,
 };
+use std::{borrow::Borrow, collections::HashMap};
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
+    get_attribute, get_dimension, get_row, get_row_column, read_string, replace_cell_names,
+    Dimensions, XlReader,
 };
 use crate::{
     datatype::DataRef,
@@ -23,6 +25,7 @@ pub struct XlsxCellReader<'a> {
     col_index: u32,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
+    formulas: Vec<Option<(String, HashMap<(u32, u32), (i64, i64)>)>>,
 }
 
 impl<'a> XlsxCellReader<'a> {
@@ -68,6 +71,7 @@ impl<'a> XlsxCellReader<'a> {
             col_index: 0,
             buf: Vec::with_capacity(1024),
             cell_buf: Vec::with_capacity(1024),
+            formulas: Vec::with_capacity(1024),
         })
     }
 
@@ -165,9 +169,103 @@ impl<'a> XlsxCellReader<'a> {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
                             Ok(Event::Start(ref e)) => {
-                                if let Some(f) = read_formula(&mut self.xml, e)? {
-                                    value = Some(f);
+                                let formula = read_formula(&mut self.xml, e)?;
+                                if let Some(f) = formula.borrow() {
+                                    value = Some(f.clone());
                                 }
+                                match get_attribute(e.attributes(), QName(b"t")) {
+                                    Ok(Some(b"shared")) => {
+                                        // shared formula
+                                        let mut offset_map: HashMap<(u32, u32), (i64, i64)> =
+                                            HashMap::new();
+                                        // shared index
+                                        let shared_index =
+                                            match get_attribute(e.attributes(), QName(b"si"))? {
+                                                Some(res) => match std::str::from_utf8(res) {
+                                                    Ok(res) => match usize::from_str_radix(res, 10)
+                                                    {
+                                                        Ok(res) => res,
+                                                        Err(e) => {
+                                                            return Err(XlsxError::ParseInt(e));
+                                                        }
+                                                    },
+                                                    Err(_) => {
+                                                        return Err(XlsxError::Unexpected(
+                                                            "si attribute must be a number",
+                                                        ));
+                                                    }
+                                                },
+                                                None => {
+                                                    return Err(XlsxError::Unexpected(
+                                                        "si attribute is mandatory if it is shared",
+                                                    ));
+                                                }
+                                            };
+                                        // shared reference
+                                        match get_attribute(e.attributes(), QName(b"ref"))? {
+                                            Some(res) => {
+                                                // orignal reference formula
+                                                let reference = get_dimension(res)?;
+                                                if reference.start.0 != reference.end.0 {
+                                                    for i in
+                                                        0..=(reference.end.0 - reference.start.0)
+                                                    {
+                                                        offset_map.insert(
+                                                            (
+                                                                reference.start.0 + i,
+                                                                reference.start.1,
+                                                            ),
+                                                            (
+                                                                (reference.start.0 as i64
+                                                                    - pos.0 as i64
+                                                                    + i as i64),
+                                                                0,
+                                                            ),
+                                                        );
+                                                    }
+                                                } else if reference.start.1 != reference.end.1 {
+                                                    for i in
+                                                        0..=(reference.end.1 - reference.start.1)
+                                                    {
+                                                        offset_map.insert(
+                                                            (
+                                                                reference.start.0,
+                                                                reference.start.1 + i,
+                                                            ),
+                                                            (
+                                                                0,
+                                                                (reference.start.1 as i64
+                                                                    - pos.1 as i64
+                                                                    + i as i64),
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+
+                                                if let Some(f) = formula.borrow() {
+                                                    while self.formulas.len() < shared_index {
+                                                        self.formulas.push(None);
+                                                    }
+                                                    self.formulas
+                                                        .push(Some((f.clone(), offset_map)));
+                                                }
+                                                value = formula;
+                                            }
+                                            None => {
+                                                // calculated formula
+                                                if let Some(Some((f, offset_map))) =
+                                                    self.formulas.get(shared_index)
+                                                {
+                                                    if let Some(offset) = offset_map.get(&*&pos) {
+                                                        value =
+                                                            Some(replace_cell_names(f, *offset)?);
+                                                    }
+                                                }
+                                            }
+                                        };
+                                    }
+                                    _ => {}
+                                };
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
