@@ -1,7 +1,7 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Reader,
-    Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Range,
+    Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use std::collections::BTreeSet;
@@ -1877,4 +1877,23 @@ fn issue_401_empty_tables() {
     excel.load_tables().unwrap();
     let tables = excel.table_names();
     assert!(tables.is_empty());
+}
+
+#[test]
+fn issue_391_shared_formula() {
+    setup();
+
+    let path = format!("{}/tests/issue_391.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    let mut expect = Range::<std::string::String>::new((1, 0), (6, 0));
+    for (i, cell) in vec!["A1+1", "A2+1", "A3+1", "A4+1", "A5+1", "A6+1"]
+        .iter()
+        .enumerate()
+    {
+        expect.set_value((1 + i as u32, 0), cell.to_string());
+    }
+    let res = excel.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(expect.start(), res.start());
+    assert_eq!(expect.end(), res.end());
+    assert!(expect.cells().eq(res.cells()));
 }
