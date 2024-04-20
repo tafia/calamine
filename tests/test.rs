@@ -1897,3 +1897,26 @@ fn issue_391_shared_formula() {
     assert_eq!(expect.end(), res.end());
     assert!(expect.cells().eq(res.cells()));
 }
+
+#[test]
+fn issue_420_empty_s_attribute() {
+    setup();
+
+    let path = format!(
+        "{}/tests/empty_s_attribute.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [
+            [String("Name".to_string()), String("Value".to_string())],
+            [String("John".to_string()), Float(1.)],
+            [String("Sophia".to_string()), Float(2.)],
+            [String("Peter".to_string()), Float(3.)],
+            [String("Sam".to_string()), Float(4.)],
+        ]
+    );
+}
