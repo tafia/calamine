@@ -333,7 +333,10 @@ fn read_v<'s>(
 ) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
         Ok(Some(style)) => {
-            let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
+            let id: usize = match std::str::from_utf8(style).unwrap_or("0").parse() {
+                Ok(parsed_id) => parsed_id,
+                Err(_) => 0,
+            };
             formats.get(id)
         }
         _ => Some(&CellFormat::Other),
