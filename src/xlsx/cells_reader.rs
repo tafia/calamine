@@ -75,7 +75,7 @@ impl<'a> XlsxCellReader<'a> {
         })
     }
 
-    pub(crate) fn dimensions(&self) -> Dimensions {
+    pub fn dimensions(&self) -> Dimensions {
         self.dimensions
     }
 
