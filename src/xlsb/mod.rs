@@ -14,8 +14,8 @@ use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
-use zip_next::read::{ZipArchive, ZipFile};
-use zip_next::result::ZipError;
+use zip::read::{ZipArchive, ZipFile};
+use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
@@ -29,7 +29,7 @@ pub enum XlsbError {
     /// Io error
     Io(std::io::Error),
     /// Zip error
-    Zip(zip_next::result::ZipError),
+    Zip(zip::result::ZipError),
     /// Xml error
     Xml(quick_xml::Error),
     /// Xml attribute error
@@ -82,7 +82,7 @@ pub enum XlsbError {
 }
 
 from_err!(std::io::Error, XlsbError, Io);
-from_err!(zip_next::result::ZipError, XlsbError, Zip);
+from_err!(zip::result::ZipError, XlsbError, Zip);
 from_err!(quick_xml::Error, XlsbError, Xml);
 
 impl std::fmt::Display for XlsbError {
