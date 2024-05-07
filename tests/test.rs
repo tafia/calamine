@@ -1088,7 +1088,6 @@ fn date_row_deserializer() {
         .unwrap()
         .collect();
 
-    println!("{rows:?}");
     assert!(rows.is_ok());
     assert_eq!(
         rows.as_ref().unwrap().first().unwrap().date,
