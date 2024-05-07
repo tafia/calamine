@@ -1,9 +1,10 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Range,
-    Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataType, DeError, ExcelDateTime, ExcelDateTimeType, Ods,
+    Range, RangeDeserializerBuilder, Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
+use serde_derive::Deserialize;
 use std::collections::BTreeSet;
 use std::io::Cursor;
 use std::sync::Once;
@@ -1060,6 +1061,55 @@ fn date_xlsb_1904() {
             Some(duration)
         );
     }
+}
+
+#[test]
+#[cfg(feature = "dates")]
+fn date_row_deserializer() {
+    use calamine::{open_workbook, Reader, Xlsx};
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
+    #[derive(Debug, Clone, Deserialize)]
+    struct Row {
+        date: NaiveDateTime,
+    }
+
+    let path = format!("{}/tests/date_1904.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
+    let range = xls
+        .worksheet_range_at(0)
+        .unwrap()
+        .unwrap()
+        .range((0, 0), (2, 1));
+
+    let rows: Result<Vec<Row>, DeError> = RangeDeserializerBuilder::new()
+        .has_headers(false)
+        .from_range(&range)
+        .unwrap()
+        .collect();
+
+    assert!(rows.is_ok());
+    assert_eq!(
+        rows.as_ref().unwrap().first().unwrap().date,
+        NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2021, 1, 1).unwrap(),
+            NaiveTime::default()
+        )
+    );
+    assert_eq!(
+        rows.as_ref().unwrap().get(1).unwrap().date,
+        NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2021, 1, 2).unwrap(),
+            NaiveTime::default()
+        )
+    );
+    assert_eq!(
+        rows.as_ref().unwrap().last().unwrap().date,
+        NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(1904, 1, 11).unwrap(),
+            NaiveTime::from_hms_opt(15, 10, 10).unwrap()
+        )
+    );
 }
 
 #[test]
