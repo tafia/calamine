@@ -651,6 +651,36 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
         }
     }
 
+    #[cfg(feature = "chrono")]
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.data_type {
+            Data::String(v) => visitor.visit_str(v),
+            Data::Empty => visitor.visit_str(""),
+            Data::Float(v) => visitor.visit_str(&v.to_string()),
+            Data::Int(v) => visitor.visit_str(&v.to_string()),
+            Data::Bool(v) => visitor.visit_str(&v.to_string()),
+            Data::DateTime(v) => {
+                // format date so that chrono can actually parse it to a date time
+                let formatted_date = v
+                    .as_datetime()
+                    .map(|datetime| datetime.format("%Y-%m-%dT%H:%M:%S").to_string())
+                    .unwrap_or("".to_string());
+
+                visitor.visit_str(&formatted_date)
+            }
+            Data::DateTimeIso(v) => visitor.visit_str(v),
+            Data::DurationIso(v) => visitor.visit_str(v),
+            Data::Error(ref err) => Err(DeError::CellError {
+                err: err.clone(),
+                pos: self.pos,
+            }),
+        }
+    }
+
+    #[cfg(not(feature = "chrono"))]
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,

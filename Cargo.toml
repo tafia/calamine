@@ -22,7 +22,7 @@ serde = "1.0"
 quick-xml = { version = "0.31", features = ["encoding"] }
 zip = { version = "1.0", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = [
-    "serde",
+    "serde", "alloc"
 ], optional = true, default-features = false }
 
 [dev-dependencies]
