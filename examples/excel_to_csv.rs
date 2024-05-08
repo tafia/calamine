@@ -24,9 +24,13 @@ fn main() {
     let dest = sce.with_extension("csv");
     let mut dest = BufWriter::new(File::create(dest).unwrap());
     let mut xl = open_workbook_auto(&sce).unwrap();
-    let range = xl.worksheet_range(&sheet).unwrap();
-
-    write_range(&mut dest, &range).unwrap();
+    let range = xl.worksheet_range(&sheet);
+    if range.is_err() {
+        /// Capture error however you want
+        std::process::exit(1);
+    } else {
+        write_range(&mut dest, &range.unwrap()).unwrap();
+    }
 }
 
 fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<()> {
@@ -36,7 +40,7 @@ fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<(
             match *c {
                 Data::Empty => Ok(()),
                 Data::String(ref s) | Data::DateTimeIso(ref s) | Data::DurationIso(ref s) => {
-                    write!(dest, "{}", s)
+                    write!(dest, "\"{}\"", s.replace("\"", "\"\"")
                 }
                 Data::Float(ref f) => write!(dest, "{}", f),
                 Data::DateTime(ref d) => write!(dest, "{}", d.as_f64()),
@@ -45,7 +49,7 @@ fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<(
                 Data::Bool(ref b) => write!(dest, "{}", b),
             }?;
             if i != n {
-                write!(dest, ";")?;
+                write!(dest, ",")?;
             }
         }
         write!(dest, "\r\n")?;
