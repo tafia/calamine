@@ -808,6 +808,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ) -> Result<Range<DataRef<'a>>, XlsxError> {
         let mut cell_reader = self.worksheet_cells_reader(name)?;
         let len = cell_reader.dimensions().len();
+        let usize_len: usize = len as usize;
         let mut cells = Vec::new();
         if len < 100_000 {
             cells.reserve(len as usize);
@@ -821,6 +822,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Some(cell)) => cells.push(cell),
                 Ok(None) => break,
                 Err(e) => return Err(e),
+            }
+        }
+        /// Chcek for machine memory error
+        if cells.capacity() < usize_len {
+            match cells.try_reserve(len as usize - cells.capacity()) {
+                Ok(_) => (),
+                Err(e) => return Err(XlsxError::CellError(e.to_string())),
             }
         }
         Ok(Range::from_sparse(cells))
