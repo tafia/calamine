@@ -40,7 +40,7 @@ fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<(
             match *c {
                 Data::Empty => Ok(()),
                 Data::String(ref s) | Data::DateTimeIso(ref s) | Data::DurationIso(ref s) => {
-                    write!(dest, "\"{}\"", s.replace("\"", "\"\"")
+                    write!(dest, "\"{}\"", s.replace("\"", "\"\""))
                 }
                 Data::Float(ref f) => write!(dest, "{}", f),
                 Data::DateTime(ref d) => write!(dest, "{}", d.as_f64()),
