@@ -10,7 +10,16 @@
 
 ## Unreleased
 
+## 0.25.0 (2024-05-25)
+
 - feat: added `is_error` and `get_error` methods to the `DataType` trait
+- feat: add deserializer helper functions
+- feat: support get merged region
+- feat: add `Range::headers` method
+- feat: expose some `Dimensions` methods
+- fix: use case insensitive comparison when searching for file in xlsx
+- fix: do not panic when reading cell format with invalid index
+- chore: use `OnceLock` instead of once_cell crate (MSRV: 1.71)
 
 ## 0.24.0
 
