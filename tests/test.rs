@@ -1,7 +1,7 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataType, ExcelDateTime, ExcelDateTimeType, Ods, Range,
-    Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataType, Dimensions, ExcelDateTime, ExcelDateTimeType, Ods,
+    Range, Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use std::collections::BTreeSet;
@@ -1400,6 +1400,38 @@ fn issue_271() -> Result<(), calamine::Error> {
     assert_eq!(values.len(), 1);
 
     Ok(())
+}
+
+#[test]
+fn issue_305_merge_cells() {
+    let path = format!("{}/tests/merge_cells.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+    let merge_cells = excel.worksheet_merge_cells_at(0).unwrap().unwrap();
+
+    assert_eq!(
+        merge_cells,
+        vec![
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn issue_305_merge_cells_xls() {
+    let path = format!("{}/tests/merge_cells.xls", env!("CARGO_MANIFEST_DIR"));
+    let excel: Xls<_> = open_workbook(&path).unwrap();
+    let merge_cells = excel.worksheet_merge_cells_at(0).unwrap();
+
+    assert_eq!(
+        merge_cells,
+        vec![
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
 }
 
 // cargo test --features picture

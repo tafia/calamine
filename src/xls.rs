@@ -139,9 +139,15 @@ pub struct XlsOptions {
     pub force_codepage: Option<u16>,
 }
 
+struct SheetData {
+    range: Range<Data>,
+    formula: Range<String>,
+    merge_cells: Vec<Dimensions>,
+}
+
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
-    sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
+    sheets: BTreeMap<String, SheetData>,
     vba: Option<VbaProject>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -204,6 +210,19 @@ impl<RS: Read + Seek> Xls<RS> {
 
         Ok(xls)
     }
+
+    /// Gets the worksheet merge cell dimensions
+    pub fn worksheet_merge_cells(&self, name: &str) -> Option<Vec<Dimensions>> {
+        self.sheets.get(name).map(|r| r.merge_cells.clone())
+    }
+
+    /// Get the nth worksheet. Shortcut for getting the nth
+    /// sheet_name, then the corresponding worksheet.
+    pub fn worksheet_merge_cells_at(&self, n: usize) -> Option<Vec<Dimensions>> {
+        let sheet = self.metadata().sheets.get(n)?;
+
+        self.worksheet_merge_cells(&sheet.name)
+    }
 }
 
 impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
@@ -225,14 +244,14 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsError> {
         self.sheets
             .get(name)
-            .map(|r| r.0.clone())
+            .map(|r| r.range.clone())
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         self.sheets
             .iter()
-            .map(|(name, (data, _))| (name.to_owned(), data.clone()))
+            .map(|(name, sheet)| (name.to_owned(), sheet.range.clone()))
             .collect()
     }
 
@@ -240,7 +259,7 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         self.sheets
             .get(name)
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
-            .map(|r| r.1.clone())
+            .map(|r| r.formula.clone())
     }
 
     #[cfg(feature = "picture")]
@@ -390,6 +409,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
             let mut fmla_pos = (0, 0);
+            let mut merge_cells = Vec::new();
             for record in records {
                 let r = record?;
                 match r.typ {
@@ -412,7 +432,8 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
                     0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
-                    0x000A => break, // 10: EOF,
+                    0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?, // 229: Merge Cells
+                    0x000A => break,                                        // 10: EOF,
                     0x0006 => {
                         // 6: Formula
                         if r.data.len() < 20 {
@@ -452,7 +473,14 @@ impl<RS: Read + Seek> Xls<RS> {
             }
             let range = Range::from_sparse(cells);
             let formula = Range::from_sparse(formulas);
-            sheets.insert(name, (range, formula));
+            sheets.insert(
+                name,
+                SheetData {
+                    range,
+                    formula,
+                    merge_cells,
+                },
+            );
         }
 
         self.sheets = sheets;
@@ -627,6 +655,26 @@ fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data
         (row as u32, col as u32),
         rk_num(&r[4..10], formats, is_1904),
     ))
+}
+
+fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), XlsError> {
+    let count = read_u16(r);
+
+    for i in 0..count {
+        let offset: usize = (2 + i * 8).into();
+
+        let rf = read_u16(&r[offset + 0..]);
+        let rl = read_u16(&r[offset + 2..]);
+        let cf = read_u16(&r[offset + 4..]);
+        let cl = read_u16(&r[offset + 6..]);
+
+        merge_cells.push(Dimensions {
+            start: (rf.into(), cf.into()),
+            end: (rl.into(), cl.into()),
+        })
+    }
+
+    Ok(())
 }
 
 fn parse_mul_rk(
