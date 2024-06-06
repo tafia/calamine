@@ -21,7 +21,8 @@ use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFo
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, RichText, Sheet, SheetType,
+    SheetVisible,
 };
 
 /// A Xlsb specific error
@@ -142,7 +143,7 @@ pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
     sheets: Vec<(String, String)>,
-    strings: Vec<String>,
+    strings: Vec<RichText>,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
     is_1904: bool,
@@ -280,7 +281,8 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 ],
                 &mut buf,
             )?; // BrtSSTItem
-            self.strings.push(wide_str(&buf[1..], &mut 0)?.into_owned());
+            self.strings
+                .push(RichText::plain(wide_str(&buf[1..], &mut 0)?.into_owned()));
         }
         Ok(())
     }

@@ -11,7 +11,7 @@ use super::{
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
-    Cell, XlsxError,
+    Cell, RichText, XlsxError,
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
@@ -19,7 +19,7 @@ type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a> {
     xml: XlReader<'a>,
-    strings: &'a [String],
+    strings: &'a [RichText],
     formats: &'a [CellFormat],
     is_1904: bool,
     dimensions: Dimensions,
@@ -33,7 +33,7 @@ pub struct XlsxCellReader<'a> {
 impl<'a> XlsxCellReader<'a> {
     pub fn new(
         mut xml: XlReader<'a>,
-        strings: &'a [String],
+        strings: &'a [RichText],
         formats: &'a [CellFormat],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
@@ -287,7 +287,7 @@ impl<'a> XlsxCellReader<'a> {
 }
 
 fn read_value<'s>(
-    strings: &'s [String],
+    strings: &'s [RichText],
     formats: &[CellFormat],
     is_1904: bool,
     xml: &mut XlReader<'_>,
@@ -297,7 +297,12 @@ fn read_value<'s>(
     Ok(match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
-            read_string(xml, e.name())?.map_or(DataRef::Empty, DataRef::String)
+            let s = read_string(xml, e.name())?;
+            if s.is_empty() {
+                DataRef::Empty
+            } else {
+                DataRef::String(s)
+            }
         }
         b"v" => {
             // value
@@ -325,7 +330,7 @@ fn read_value<'s>(
 /// read the contents of a <v> cell
 fn read_v<'s>(
     v: String,
-    strings: &'s [String],
+    strings: &'s [RichText],
     formats: &[CellFormat],
     c_element: &BytesStart<'_>,
     is_1904: bool,
@@ -359,8 +364,19 @@ fn read_v<'s>(
             Ok(DataRef::DateTimeIso(v))
         }
         Some(b"str") => {
-            // string
-            Ok(DataRef::String(v))
+            // see http://officeopenxml.com/SScontentOverview.php
+            // str - refers to formula cells
+            // * <c .. t='v' .. > indicates calculated value (this case)
+            // * <c .. t='f' .. > to the formula string (ignored case
+            // TODO: Fully support a Data::Formula representing both Formula string &
+            // last calculated value?
+            //
+            // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
+            // We do try an initial parse as Float for utility, but fall back to a string
+            // representation if that fails
+            v.parse()
+                .map(DataRef::Float)
+                .or(Ok(DataRef::String(RichText::plain(v))))
         }
         Some(b"n") => {
             // n - number
@@ -377,7 +393,7 @@ fn read_v<'s>(
             // String if this fails.
             v.parse()
                 .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
-                .or(Ok(DataRef::String(v)))
+                .or(Ok(DataRef::String(RichText::plain(v))))
         }
         Some(b"is") => {
             // this case should be handled in outer loop over cell elements, in which

@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use log::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
@@ -18,8 +18,8 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    Cell, CellErrorType, Color, Data, Dimensions, FontFormat, HeaderRow, Metadata, Range, Reader,
+    ReaderRef, RichText, RichTextPart, Sheet, SheetType, SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -181,7 +181,7 @@ type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
     /// Shared strings
-    strings: Vec<String>,
+    strings: Vec<RichText>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
@@ -219,7 +219,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"si" => {
-                    if let Some(s) = read_string(&mut xml, e.name())? {
+                    let s = read_string(&mut xml, e.name())?;
+                    if !s.is_empty() {
                         self.strings.push(s);
                     }
                 }
@@ -1225,28 +1226,90 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 pub(crate) fn read_string(
     xml: &mut XlReader<'_>,
     QName(closing): QName,
-) -> Result<Option<String>, XlsxError> {
+) -> Result<RichText, XlsxError> {
     let mut buf = Vec::with_capacity(1024);
     let mut val_buf = Vec::with_capacity(1024);
-    let mut rich_buffer: Option<String> = None;
+    let mut rich_text = RichText::new();
+    let mut buffer_text: Option<String> = None;
+    let mut buffer_format: Option<FontFormat> = None;
     let mut is_phonetic_text = false;
     loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"r" => {
-                if rich_buffer.is_none() {
-                    // use a buffer since richtext has multiples <r> and <t> for the same cell
-                    rich_buffer = Some(String::new());
-                }
+                // use a buffer since richtext has multiples <r> and <t> for the same cell
+                buffer_text = None;
+                buffer_format = None;
+            }
+            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"r" => {
+                let part = RichTextPart {
+                    text: &buffer_text.take().unwrap_or_default(),
+                    format: Cow::Owned(buffer_format.take().unwrap_or_default()),
+                };
+                rich_text.add_element(part);
             }
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = true;
             }
-            Ok(Event::End(ref e)) if e.local_name().as_ref() == closing => {
-                return Ok(rich_buffer);
-            }
             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = false;
+            }
+            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"rPr" => {
+                val_buf.clear();
+                let mut format = FontFormat::default();
+                loop {
+                    match xml.read_event_into(&mut val_buf)? {
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"b" =>
+                        {
+                            format.bold = true;
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"i" =>
+                        {
+                            format.italic = true;
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"u" =>
+                        {
+                            format.underlined = true;
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"strike" =>
+                        {
+                            format.striked = true;
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"sz" =>
+                        {
+                            let value = get_attribute_string(xml, &event, b"val")?;
+                            format.size = value.parse()?;
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if [b"rFont".as_slice(), b"name".as_slice()]
+                                .contains(&event.local_name().as_ref()) =>
+                        {
+                            let value = get_attribute_string(xml, &event, b"val")?;
+                            format.name = Some(value.into_owned());
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"family" =>
+                        {
+                            let value = get_attribute_string(xml, &event, b"val")?;
+                            format.family_number = value.parse()?;
+                        }
+                        Event::Start(event) | Event::Empty(event)
+                            if event.local_name().as_ref() == b"color" =>
+                        {
+                            let value = parse_color(xml, event)?;
+                            format.color = value;
+                        }
+                        Event::End(end) if end.name() == e.name() => break,
+                        Event::Eof => return Err(XlsxError::XmlEof("rPr")),
+                        _ => (),
+                    }
+                }
+                buffer_format = Some(format);
             }
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
                 val_buf.clear();
@@ -1259,19 +1322,69 @@ pub(crate) fn read_string(
                         _ => (),
                     }
                 }
-                if let Some(ref mut s) = rich_buffer {
-                    s.push_str(&value);
-                } else {
-                    // consume any remaining events up to expected closing tag
-                    xml.read_to_end_into(QName(closing), &mut val_buf)?;
-                    return Ok(Some(value));
-                }
+                buffer_text = Some(value);
+            }
+            Ok(Event::End(ref e)) if e.name().as_ref() == closing => {
+                let part = RichTextPart {
+                    text: &buffer_text.unwrap_or_default(),
+                    format: Cow::Owned(buffer_format.unwrap_or_default()),
+                };
+                rich_text.add_element(part);
+                return Ok(rich_text);
             }
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
             Err(e) => return Err(XlsxError::Xml(e)),
             _ => (),
         }
     }
+}
+
+fn get_attribute_string<'a>(
+    xml: &XlReader<'_>,
+    event: &'a BytesStart<'a>,
+    key: &[u8],
+) -> Result<Cow<'a, str>, XlsxError> {
+    for attr in event.attributes() {
+        let attr = attr.map_err(XlsxError::XmlAttr)?;
+        if attr.key.0 == key {
+            let value = attr
+                .decode_and_unescape_value(xml.decoder())
+                .map_err(XlsxError::Xml)?;
+            return Ok(value);
+        }
+    }
+    Err(XlsxError::Unexpected("missing attribute"))
+}
+
+fn parse_color(xml: &XlReader<'_>, event: BytesStart<'_>) -> Result<Color, XlsxError> {
+    let mut theme: Option<u8> = None;
+    let mut tint: Option<f64> = None;
+    for attr in event.attributes() {
+        let attr = attr.map_err(XlsxError::XmlAttr)?;
+        let value = attr.decode_and_unescape_value(xml.decoder())?;
+        match attr.key.0 {
+            b"indexed" => return Ok(Color::Index(value.parse()?)),
+            b"rgb" => {
+                if value.len() == 8 {
+                    let a = u8::from_str_radix(&value[0..2], 16)?;
+                    let r = u8::from_str_radix(&value[2..4], 16)?;
+                    let g = u8::from_str_radix(&value[4..6], 16)?;
+                    let b = u8::from_str_radix(&value[6..8], 16)?;
+                    return Ok(Color::ARGB(a, r, g, b));
+                } else {
+                    return Err(XlsxError::Unexpected("rgb value was not of length 8"));
+                }
+            }
+            b"theme" => theme = Some(value.parse()?),
+            b"tint" => tint = Some(value.parse()?),
+            _ => (),
+        }
+    }
+    if let Some(theme) = theme {
+        let tint = tint.unwrap_or(0.0); // Correct?
+        return Ok(Color::Theme(theme, tint));
+    }
+    Err(XlsxError::Unexpected("missing attribute"))
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
@@ -1309,7 +1422,7 @@ fn read_merge_cells(xml: &mut XlReader<'_>) -> Result<Vec<Dimensions>, XlsxError
             Ok(Event::End(event)) if event.local_name().as_ref() == b"mergeCells" => {
                 break;
             }
-            Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("mergeCells")),
             Err(e) => return Err(XlsxError::Xml(e)),
             _ => (),
         }

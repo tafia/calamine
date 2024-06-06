@@ -637,6 +637,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     {
         match self.data_type {
             Data::String(v) => visitor.visit_str(v),
+            Data::RichText(v) => visitor.visit_str(v.text()),
             Data::Float(v) => visitor.visit_f64(*v),
             Data::Bool(v) => visitor.visit_bool(*v),
             Data::Int(v) => visitor.visit_i64(*v),
@@ -657,11 +658,12 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     {
         match self.data_type {
             Data::String(v) => visitor.visit_str(v),
+            Data::RichText(v) => visitor.visit_str(v.text()),
             Data::Empty => visitor.visit_str(""),
-            Data::Float(v) => visitor.visit_str(&v.to_string()),
-            Data::Int(v) => visitor.visit_str(&v.to_string()),
-            Data::Bool(v) => visitor.visit_str(&v.to_string()),
-            Data::DateTime(v) => visitor.visit_str(&v.to_string()),
+            Data::Float(v) => visitor.visit_string(v.to_string()),
+            Data::Int(v) => visitor.visit_string(v.to_string()),
+            Data::Bool(v) => visitor.visit_string(v.to_string()),
+            Data::DateTime(v) => visitor.visit_string(v.to_string()),
             Data::DateTimeIso(v) => visitor.visit_str(v),
             Data::DurationIso(v) => visitor.visit_str(v),
             Data::Error(ref err) => Err(DeError::CellError {
@@ -707,6 +709,11 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
         match self.data_type {
             Data::Bool(v) => visitor.visit_bool(*v),
             Data::String(ref v) => match &**v {
+                "TRUE" | "true" | "True" => visitor.visit_bool(true),
+                "FALSE" | "false" | "False" => visitor.visit_bool(false),
+                d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),
+            },
+            Data::RichText(ref v) => match v.text().as_str() {
                 "TRUE" | "true" | "True" => visitor.visit_bool(true),
                 "FALSE" | "false" | "False" => visitor.visit_bool(false),
                 d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),

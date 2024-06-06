@@ -2,7 +2,7 @@ use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::{read_f64, read_i32, read_u32, read_usize},
-    Cell, CellErrorType, Dimensions, XlsbError,
+    Cell, CellErrorType, Dimensions, RichText, XlsbError,
 };
 
 use super::{cell_format, parse_formula, wide_str, RecordIter};
@@ -11,7 +11,7 @@ use super::{cell_format, parse_formula, wide_str, RecordIter};
 pub struct XlsbCellsReader<'a> {
     iter: RecordIter<'a>,
     formats: &'a [CellFormat],
-    strings: &'a [String],
+    strings: &'a [RichText],
     extern_sheets: &'a [String],
     metadata_names: &'a [(String, String)],
     typ: u16,
@@ -25,7 +25,7 @@ impl<'a> XlsbCellsReader<'a> {
     pub(crate) fn new(
         mut iter: RecordIter<'a>,
         formats: &'a [CellFormat],
-        strings: &'a [String],
+        strings: &'a [RichText],
         extern_sheets: &'a [String],
         metadata_names: &'a [(String, String)],
         is_1904: bool,
@@ -126,7 +126,9 @@ impl<'a> XlsbCellsReader<'a> {
                     let v = read_f64(&self.buf[8..16]);
                     format_excel_f64_ref(v, cell_format(self.formats, &self.buf), self.is_1904)
                 } // BrtCellReal or BrtFmlaNum
-                0x0006 | 0x0008 => DataRef::String(wide_str(&self.buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
+                0x0006 | 0x0008 => DataRef::String(RichText::plain(
+                    wide_str(&self.buf[8..], &mut 0)?.into_owned(),
+                )), // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&self.buf[8..12]);
