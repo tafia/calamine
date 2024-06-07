@@ -2,7 +2,7 @@ use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::{read_f64, read_i32, read_u32, read_usize},
-    Cell, CellErrorType, Dimensions, XlsbError,
+    Cell, CellErrorType, Dimensions, RichText, XlsbError,
 };
 
 use super::{cell_format, parse_formula, wide_str, RecordIter};
@@ -11,7 +11,7 @@ use super::{cell_format, parse_formula, wide_str, RecordIter};
 pub struct XlsbCellsReader<'a> {
     iter: RecordIter<'a>,
     formats: &'a [CellFormat],
-    strings: &'a [String],
+    strings: &'a [RichText],
     extern_sheets: &'a [String],
     metadata_names: &'a [(String, String)],
     typ: u16,
@@ -25,7 +25,7 @@ impl<'a> XlsbCellsReader<'a> {
     pub(crate) fn new(
         mut iter: RecordIter<'a>,
         formats: &'a [CellFormat],
-        strings: &'a [String],
+        strings: &'a [RichText],
         extern_sheets: &'a [String],
         metadata_names: &'a [(String, String)],
         is_1904: bool,

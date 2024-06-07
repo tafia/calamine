@@ -65,6 +65,7 @@ mod cfb;
 mod datatype;
 mod formats;
 mod ods;
+mod style;
 mod xls;
 mod xlsb;
 mod xlsx;
@@ -87,6 +88,7 @@ pub use crate::datatype::{Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeT
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
+pub use crate::style::{Color, FontFormat, RichText, RichTextPart};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
 pub use crate::xlsx::{Xlsx, XlsxError};

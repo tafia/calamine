@@ -11,13 +11,13 @@ use super::{
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
-    Cell, XlsxError,
+    Cell, RichText, XlsxError,
 };
 
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a> {
     xml: XlReader<'a>,
-    strings: &'a [String],
+    strings: &'a [RichText],
     formats: &'a [CellFormat],
     is_1904: bool,
     dimensions: Dimensions,
@@ -31,7 +31,7 @@ pub struct XlsxCellReader<'a> {
 impl<'a> XlsxCellReader<'a> {
     pub fn new(
         mut xml: XlReader<'a>,
-        strings: &'a [String],
+        strings: &'a [RichText],
         formats: &'a [CellFormat],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
@@ -256,7 +256,7 @@ impl<'a> XlsxCellReader<'a> {
                                                 if let Some(Some((f, offset_map))) =
                                                     self.formulas.get(shared_index)
                                                 {
-                                                    if let Some(offset) = offset_map.get(&*&pos) {
+                                                    if let Some(offset) = offset_map.get(&pos) {
                                                         value =
                                                             Some(replace_cell_names(f, *offset)?);
                                                     }
@@ -288,7 +288,7 @@ impl<'a> XlsxCellReader<'a> {
 }
 
 fn read_value<'s>(
-    strings: &'s [String],
+    strings: &'s [RichText],
     formats: &[CellFormat],
     is_1904: bool,
     xml: &mut XlReader<'_>,
@@ -298,7 +298,14 @@ fn read_value<'s>(
     Ok(match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
-            read_string(xml, e.name())?.map_or(DataRef::Empty, DataRef::String)
+            let s = read_string(xml, e.name())?;
+            if s.is_empty() {
+                DataRef::Empty
+            } else if s.is_plain() {
+                DataRef::String(s.into_text())
+            } else {
+                DataRef::RichText(s)
+            }
         }
         b"v" => {
             // value
@@ -326,7 +333,7 @@ fn read_value<'s>(
 /// read the contents of a <v> cell
 fn read_v<'s>(
     v: String,
-    strings: &'s [String],
+    strings: &'s [RichText],
     formats: &[CellFormat],
     c_element: &BytesStart<'_>,
     is_1904: bool,
