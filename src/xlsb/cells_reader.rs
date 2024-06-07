@@ -126,9 +126,7 @@ impl<'a> XlsbCellsReader<'a> {
                     let v = read_f64(&self.buf[8..16]);
                     format_excel_f64_ref(v, cell_format(self.formats, &self.buf), self.is_1904)
                 } // BrtCellReal or BrtFmlaNum
-                0x0006 | 0x0008 => DataRef::String(RichText::plain(
-                    wide_str(&self.buf[8..], &mut 0)?.into_owned(),
-                )), // BrtCellSt or BrtFmlaString
+                0x0006 | 0x0008 => DataRef::String(wide_str(&self.buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&self.buf[8..12]);

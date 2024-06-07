@@ -300,8 +300,10 @@ fn read_value<'s>(
             let s = read_string(xml, e.name())?;
             if s.is_empty() {
                 DataRef::Empty
+            } else if s.is_plain() {
+                DataRef::String(s.into_text())
             } else {
-                DataRef::String(s)
+                DataRef::RichText(s)
             }
         }
         b"v" => {
@@ -374,9 +376,7 @@ fn read_v<'s>(
             // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
             // We do try an initial parse as Float for utility, but fall back to a string
             // representation if that fails
-            v.parse()
-                .map(DataRef::Float)
-                .or(Ok(DataRef::String(RichText::plain(v))))
+            v.parse().map(DataRef::Float).or(Ok(DataRef::String(v)))
         }
         Some(b"n") => {
             // n - number
@@ -393,7 +393,7 @@ fn read_v<'s>(
             // String if this fails.
             v.parse()
                 .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
-                .or(Ok(DataRef::String(RichText::plain(v))))
+                .or(Ok(DataRef::String(v)))
         }
         Some(b"is") => {
             // this case should be handled in outer loop over cell elements, in which

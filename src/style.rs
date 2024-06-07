@@ -52,13 +52,12 @@ impl RichText {
 
     /// Add a formatted text element to the rich text.
     #[inline]
-    pub fn add_element(&mut self, element: RichTextPart<'_>) -> &mut Self {
+    pub fn push(&mut self, element: RichTextPart<'_>) {
         if !element.text.is_empty() {
             self.text.push_str(element.text);
             self.formatted
                 .push((element.text.len(), element.format.into_owned()));
         }
-        self
     }
 
     /// Iterate over the differently formatted text elements.
@@ -104,7 +103,7 @@ pub struct FontFormat {
     /// Striked?
     pub striked: bool,
     /// Font size.
-    pub size: f64,
+    pub size: u16,
     /// Font color.
     pub color: Color,
     /// Font name (or default if none).
@@ -129,7 +128,7 @@ impl Default for FontFormat {
 }
 
 impl FontFormat {
-    const DEFAULT_FONT_SIZE: f64 = 11.0;
+    const DEFAULT_FONT_SIZE: u16 = 11;
     const DEFAULT_FONT_FAMILY: i32 = 2;
 
     /// Is this the default format?
@@ -138,7 +137,7 @@ impl FontFormat {
             && !self.italic
             && !self.underlined
             && !self.striked
-            && (self.size - Self::DEFAULT_FONT_SIZE).abs() < f64::EPSILON
+            && self.size == Self::DEFAULT_FONT_SIZE
             && self.color == Color::default()
             && self.name.is_none() // TODO: Detect file default value.
             && self.family_number == Self::DEFAULT_FONT_FAMILY
@@ -156,7 +155,7 @@ pub enum Color {
     Index(u8),
     /// Use the Theme color format, i.e. leave the color decision to the current theme of xlsx.
     /// You can determine the theme color id and tint by `theme_id` and `tint`.
-    Theme(u8, f64),
+    Theme(u8, f32),
     /// Using the ARGB color format.
     ARGB(u8, u8, u8, u8),
 }

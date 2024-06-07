@@ -61,7 +61,7 @@ impl DataType for Data {
         matches!(*self, Data::Bool(_))
     }
     fn is_string(&self) -> bool {
-        matches!(*self, Data::String(_))
+        matches!(*self, Data::String(_) | Data::RichText(_))
     }
 
     #[cfg(feature = "dates")]
@@ -105,10 +105,10 @@ impl DataType for Data {
         }
     }
     fn get_string(&self) -> Option<&str> {
-        if let Data::String(v) = self {
-            Some(&**v)
-        } else {
-            None
+        match self {
+            Data::String(v) => Some(v),
+            Data::RichText(v) => Some(v.text()),
+            _ => None,
         }
     }
 
@@ -148,6 +148,7 @@ impl DataType for Data {
             Data::Float(v) => Some(v.to_string()),
             Data::Int(v) => Some(v.to_string()),
             Data::String(v) => Some(v.clone()),
+            Data::RichText(v) => Some(v.text().clone()),
             _ => None,
         }
     }
@@ -158,6 +159,7 @@ impl DataType for Data {
             Data::Float(v) => Some(*v as i64),
             Data::Bool(v) => Some(*v as i64),
             Data::String(v) => v.parse::<i64>().ok(),
+            Data::RichText(v) => v.text().parse::<i64>().ok(),
             _ => None,
         }
     }
@@ -168,6 +170,7 @@ impl DataType for Data {
             Data::Float(v) => Some(*v),
             Data::Bool(v) => Some((*v as i32).into()),
             Data::String(v) => v.parse::<f64>().ok(),
+            Data::RichText(v) => v.text().parse::<f64>().ok(),
             _ => None,
         }
     }
@@ -175,13 +178,21 @@ impl DataType for Data {
 
 impl PartialEq<&str> for Data {
     fn eq(&self, other: &&str) -> bool {
-        matches!(*self, Data::String(ref s) if s == other)
+        match *self {
+            Data::String(ref s) if s == other => true,
+            Data::RichText(ref s) if s.text() == other => true,
+            _ => false,
+        }
     }
 }
 
 impl PartialEq<str> for Data {
     fn eq(&self, other: &str) -> bool {
-        matches!(*self, Data::String(ref s) if s == other)
+        match self {
+            Data::String(s) if s == other => true,
+            Data::RichText(s) if s.text() == other => true,
+            _ => false,
+        }
     }
 }
 
@@ -341,7 +352,9 @@ pub enum DataRef<'a> {
     /// Float
     Float(f64),
     /// String
-    String(RichText),
+    String(String),
+    /// Rich text
+    RichText(RichText),
     /// Shared String
     SharedString(&'a RichText),
     /// Boolean
@@ -377,7 +390,10 @@ impl DataType for DataRef<'_> {
     }
 
     fn is_string(&self) -> bool {
-        matches!(*self, DataRef::String(_) | DataRef::SharedString(_))
+        matches!(
+            *self,
+            DataRef::String(_) | DataRef::RichText(_) | DataRef::SharedString(_)
+        )
     }
 
     #[cfg(feature = "dates")]
@@ -425,7 +441,8 @@ impl DataType for DataRef<'_> {
 
     fn get_string(&self) -> Option<&str> {
         match self {
-            DataRef::String(v) => Some(v.text()),
+            DataRef::String(v) => Some(v),
+            DataRef::RichText(v) => Some(v.text()),
             DataRef::SharedString(v) => Some(v.text()),
             _ => None,
         }
@@ -466,7 +483,8 @@ impl DataType for DataRef<'_> {
         match self {
             DataRef::Float(v) => Some(v.to_string()),
             DataRef::Int(v) => Some(v.to_string()),
-            DataRef::String(v) => Some(v.text().clone()),
+            DataRef::String(v) => Some(v.clone()),
+            DataRef::RichText(v) => Some(v.text().clone()),
             DataRef::SharedString(v) => Some(v.text().clone()),
             _ => None,
         }
@@ -477,7 +495,8 @@ impl DataType for DataRef<'_> {
             DataRef::Int(v) => Some(*v),
             DataRef::Float(v) => Some(*v as i64),
             DataRef::Bool(v) => Some(*v as i64),
-            DataRef::String(v) => v.text().parse::<i64>().ok(),
+            DataRef::String(v) => v.parse::<i64>().ok(),
+            DataRef::RichText(v) => v.text().parse::<i64>().ok(),
             DataRef::SharedString(v) => v.text().parse::<i64>().ok(),
             _ => None,
         }
@@ -488,7 +507,8 @@ impl DataType for DataRef<'_> {
             DataRef::Int(v) => Some(*v as f64),
             DataRef::Float(v) => Some(*v),
             DataRef::Bool(v) => Some((*v as i32).into()),
-            DataRef::String(v) => v.text().parse::<f64>().ok(),
+            DataRef::String(v) => v.parse::<f64>().ok(),
+            DataRef::RichText(v) => v.text().parse::<f64>().ok(),
             DataRef::SharedString(v) => v.text().parse::<f64>().ok(),
             _ => None,
         }
@@ -497,13 +517,15 @@ impl DataType for DataRef<'_> {
 
 impl PartialEq<&str> for DataRef<'_> {
     fn eq(&self, other: &&str) -> bool {
-        matches!(*self, DataRef::String(ref s) if s.text() == other)
+        matches!(*self, DataRef::String(ref s) if s == other)
+            || matches!(*self, DataRef::RichText(ref s) if s.text() == other)
     }
 }
 
 impl PartialEq<str> for DataRef<'_> {
     fn eq(&self, other: &str) -> bool {
-        matches!(*self, DataRef::String(ref s) if s.text() == other)
+        matches!(*self, DataRef::String(ref s) if s == other)
+            || matches!(*self, DataRef::RichText(ref s) if s.text() == other)
     }
 }
 
@@ -670,13 +692,8 @@ impl<'a> From<DataRef<'a>> for Data {
         match value {
             DataRef::Int(v) => Data::Int(v),
             DataRef::Float(v) => Data::Float(v),
-            DataRef::String(v) => {
-                if v.is_plain() {
-                    Data::String(v.into_text())
-                } else {
-                    Data::RichText(v)
-                }
-            }
+            DataRef::String(v) => Data::String(v),
+            DataRef::RichText(v) => Data::RichText(v),
             DataRef::SharedString(v) => {
                 if v.is_plain() {
                     Data::String(v.text().clone())

@@ -1246,7 +1246,7 @@ pub(crate) fn read_string(
                     text: &buffer_text.take().unwrap_or_default(),
                     format: Cow::Owned(buffer_format.take().unwrap_or_default()),
                 };
-                rich_text.add_element(part);
+                rich_text.push(part);
             }
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = true;
@@ -1329,7 +1329,7 @@ pub(crate) fn read_string(
                     text: &buffer_text.unwrap_or_default(),
                     format: Cow::Owned(buffer_format.unwrap_or_default()),
                 };
-                rich_text.add_element(part);
+                rich_text.push(part);
                 return Ok(rich_text);
             }
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
@@ -1358,7 +1358,7 @@ fn get_attribute_string<'a>(
 
 fn parse_color(xml: &XlReader<'_>, event: BytesStart<'_>) -> Result<Color, XlsxError> {
     let mut theme: Option<u8> = None;
-    let mut tint: Option<f64> = None;
+    let mut tint: Option<f32> = None;
     for attr in event.attributes() {
         let attr = attr.map_err(XlsxError::XmlAttr)?;
         let value = attr.decode_and_unescape_value(xml.decoder())?;
