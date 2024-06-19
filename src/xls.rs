@@ -193,7 +193,7 @@ impl<RS: Read + Seek> Xls<RS> {
 
         // Reads vba once for all (better than reading all worksheets once for all)
         let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
+            None //Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
         } else {
             None
         };
