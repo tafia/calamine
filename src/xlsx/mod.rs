@@ -657,8 +657,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(ref e)) if e.local_name() == QName(b"mergeCell").into() => {
-                            if let Some(attr) = get_attribute(e.attributes(), QName(b"ref"))?
-                            {
+                            if let Some(attr) = get_attribute(e.attributes(), QName(b"ref"))? {
                                 let dismension = get_dimension(attr)?;
                                 regions.push((
                                     sheet_name.to_string(),
@@ -1233,12 +1232,7 @@ fn valid_cell_name(name: &[char]) -> bool {
 
 /// advance the cell name by the offset
 fn replace_cell(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(
-        name.iter()
-            .map(|c| *c as u8)
-            .collect::<Vec<_>>()
-            .as_slice(),
-    )?;
+    let cell = get_row_column(name.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
         (cell.1 as i64 + offset.1) as u32,
