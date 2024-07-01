@@ -7,6 +7,7 @@ use calamine::{open_workbook_auto, Data, Error, Reader};
 use glob::{glob, GlobError, GlobResult};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum FileStatus {
     VbaError(Error),
     RangeError(Error),
@@ -77,15 +78,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
         let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
-            .flat_map(|r| {
-                r.iter().filter(|c| {
-                    if let Data::Error(_) = **c {
-                        true
-                    } else {
-                        false
-                    }
-                })
-            })
+            .flat_map(|r| r.iter().filter(|c| matches!(**c, Data::Error(_))))
             .count();
     }
 

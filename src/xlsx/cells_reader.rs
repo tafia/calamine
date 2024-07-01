@@ -14,6 +14,8 @@ use crate::{
     Cell, XlsxError,
 };
 
+type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
+
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a> {
     xml: XlReader<'a>,
@@ -25,7 +27,7 @@ pub struct XlsxCellReader<'a> {
     col_index: u32,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
-    formulas: Vec<Option<(String, HashMap<(u32, u32), (i64, i64)>)>>,
+    formulas: Vec<Option<(String, FormulaMap)>>,
 }
 
 impl<'a> XlsxCellReader<'a> {
@@ -173,98 +175,84 @@ impl<'a> XlsxCellReader<'a> {
                                 if let Some(f) = formula.borrow() {
                                     value = Some(f.clone());
                                 }
-                                match get_attribute(e.attributes(), QName(b"t")) {
-                                    Ok(Some(b"shared")) => {
-                                        // shared formula
-                                        let mut offset_map: HashMap<(u32, u32), (i64, i64)> =
-                                            HashMap::new();
-                                        // shared index
-                                        let shared_index =
-                                            match get_attribute(e.attributes(), QName(b"si"))? {
-                                                Some(res) => match std::str::from_utf8(res) {
-                                                    Ok(res) => match usize::from_str_radix(res, 10)
-                                                    {
-                                                        Ok(res) => res,
-                                                        Err(e) => {
-                                                            return Err(XlsxError::ParseInt(e));
-                                                        }
-                                                    },
-                                                    Err(_) => {
-                                                        return Err(XlsxError::Unexpected(
-                                                            "si attribute must be a number",
-                                                        ));
+                                if let Ok(Some(b"shared")) =
+                                    get_attribute(e.attributes(), QName(b"t"))
+                                {
+                                    // shared formula
+                                    let mut offset_map: HashMap<(u32, u32), (i64, i64)> =
+                                        HashMap::new();
+                                    // shared index
+                                    let shared_index =
+                                        match get_attribute(e.attributes(), QName(b"si"))? {
+                                            Some(res) => match std::str::from_utf8(res) {
+                                                Ok(res) => match res.parse::<usize>() {
+                                                    Ok(res) => res,
+                                                    Err(e) => {
+                                                        return Err(XlsxError::ParseInt(e));
                                                     }
                                                 },
-                                                None => {
+                                                Err(_) => {
                                                     return Err(XlsxError::Unexpected(
-                                                        "si attribute is mandatory if it is shared",
+                                                        "si attribute must be a number",
                                                     ));
                                                 }
-                                            };
-                                        // shared reference
-                                        match get_attribute(e.attributes(), QName(b"ref"))? {
-                                            Some(res) => {
-                                                // orignal reference formula
-                                                let reference = get_dimension(res)?;
-                                                if reference.start.0 != reference.end.0 {
-                                                    for i in
-                                                        0..=(reference.end.0 - reference.start.0)
-                                                    {
-                                                        offset_map.insert(
-                                                            (
-                                                                reference.start.0 + i,
-                                                                reference.start.1,
-                                                            ),
-                                                            (
-                                                                (reference.start.0 as i64
-                                                                    - pos.0 as i64
-                                                                    + i as i64),
-                                                                0,
-                                                            ),
-                                                        );
-                                                    }
-                                                } else if reference.start.1 != reference.end.1 {
-                                                    for i in
-                                                        0..=(reference.end.1 - reference.start.1)
-                                                    {
-                                                        offset_map.insert(
-                                                            (
-                                                                reference.start.0,
-                                                                reference.start.1 + i,
-                                                            ),
-                                                            (
-                                                                0,
-                                                                (reference.start.1 as i64
-                                                                    - pos.1 as i64
-                                                                    + i as i64),
-                                                            ),
-                                                        );
-                                                    }
-                                                }
-
-                                                if let Some(f) = formula.borrow() {
-                                                    while self.formulas.len() < shared_index {
-                                                        self.formulas.push(None);
-                                                    }
-                                                    self.formulas
-                                                        .push(Some((f.clone(), offset_map)));
-                                                }
-                                                value = formula;
-                                            }
+                                            },
                                             None => {
-                                                // calculated formula
-                                                if let Some(Some((f, offset_map))) =
-                                                    self.formulas.get(shared_index)
-                                                {
-                                                    if let Some(offset) = offset_map.get(&*&pos) {
-                                                        value =
-                                                            Some(replace_cell_names(f, *offset)?);
-                                                    }
-                                                }
+                                                return Err(XlsxError::Unexpected(
+                                                    "si attribute is mandatory if it is shared",
+                                                ));
                                             }
                                         };
-                                    }
-                                    _ => {}
+                                    // shared reference
+                                    match get_attribute(e.attributes(), QName(b"ref"))? {
+                                        Some(res) => {
+                                            // orignal reference formula
+                                            let reference = get_dimension(res)?;
+                                            if reference.start.0 != reference.end.0 {
+                                                for i in 0..=(reference.end.0 - reference.start.0) {
+                                                    offset_map.insert(
+                                                        (reference.start.0 + i, reference.start.1),
+                                                        (
+                                                            (reference.start.0 as i64
+                                                                - pos.0 as i64
+                                                                + i as i64),
+                                                            0,
+                                                        ),
+                                                    );
+                                                }
+                                            } else if reference.start.1 != reference.end.1 {
+                                                for i in 0..=(reference.end.1 - reference.start.1) {
+                                                    offset_map.insert(
+                                                        (reference.start.0, reference.start.1 + i),
+                                                        (
+                                                            0,
+                                                            (reference.start.1 as i64
+                                                                - pos.1 as i64
+                                                                + i as i64),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+
+                                            if let Some(f) = formula.borrow() {
+                                                while self.formulas.len() < shared_index {
+                                                    self.formulas.push(None);
+                                                }
+                                                self.formulas.push(Some((f.clone(), offset_map)));
+                                            }
+                                            value = formula;
+                                        }
+                                        None => {
+                                            // calculated formula
+                                            if let Some(Some((f, offset_map))) =
+                                                self.formulas.get(shared_index)
+                                            {
+                                                if let Some(offset) = offset_map.get(&pos) {
+                                                    value = Some(replace_cell_names(f, *offset)?);
+                                                }
+                                            }
+                                        }
+                                    };
                                 };
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
@@ -333,10 +321,10 @@ fn read_v<'s>(
 ) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
         Ok(Some(style)) => {
-            let id: usize = match std::str::from_utf8(style).unwrap_or("0").parse() {
-                Ok(parsed_id) => parsed_id,
-                Err(_) => 0,
-            };
+            let id: usize = std::str::from_utf8(style)
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(0);
             formats.get(id)
         }
         _ => Some(&CellFormat::Other),
@@ -403,10 +391,7 @@ fn read_v<'s>(
     }
 }
 
-fn read_formula<'s>(
-    xml: &mut XlReader<'_>,
-    e: &BytesStart<'_>,
-) -> Result<Option<String>, XlsxError> {
+fn read_formula(xml: &mut XlReader, e: &BytesStart) -> Result<Option<String>, XlsxError> {
     match e.local_name().as_ref() {
         b"is" | b"v" => {
             xml.read_to_end_into(e.name(), &mut Vec::new())?;

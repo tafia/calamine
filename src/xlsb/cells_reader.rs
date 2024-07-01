@@ -92,7 +92,7 @@ impl<'a> XlsbCellsReader<'a> {
                             let v = (v as f64) / 100.0;
                             format_excel_f64_ref(
                                 v,
-                                cell_format(&self.formats, &self.buf),
+                                cell_format(self.formats, &self.buf),
                                 self.is_1904,
                             )
                         } else {
@@ -103,7 +103,7 @@ impl<'a> XlsbCellsReader<'a> {
                         v[4..].copy_from_slice(&self.buf[8..12]);
                         let v = read_f64(&v);
                         let v = if d100 { v / 100.0 } else { v };
-                        format_excel_f64_ref(v, cell_format(&self.formats, &self.buf), self.is_1904)
+                        format_excel_f64_ref(v, cell_format(self.formats, &self.buf), self.is_1904)
                     }
                 }
                 0x0003 => {
@@ -124,7 +124,7 @@ impl<'a> XlsbCellsReader<'a> {
                 0x0004 | 0x000A => DataRef::Bool(self.buf[8] != 0), // BrtCellBool or BrtFmlaBool
                 0x0005 | 0x0009 => {
                     let v = read_f64(&self.buf[8..16]);
-                    format_excel_f64_ref(v, cell_format(&self.formats, &self.buf), self.is_1904)
+                    format_excel_f64_ref(v, cell_format(self.formats, &self.buf), self.is_1904)
                 } // BrtCellReal or BrtFmlaNum
                 0x0006 | 0x0008 => DataRef::String(wide_str(&self.buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
                 0x0007 => {
@@ -162,21 +162,21 @@ impl<'a> XlsbCellsReader<'a> {
                     let formula = &self.buf[14 + cch * 2..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.metadata_names)?
+                    parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x0009 => {
                     // BrtFmlaNum
                     let formula = &self.buf[18..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.metadata_names)?
+                    parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x000A | 0x000B => {
                     // BrtFmlaBool | BrtFmlaError
                     let formula = &self.buf[11..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
-                    parse_formula(rgce, &self.extern_sheets, &self.metadata_names)?
+                    parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x0000 => {
                     // BrtRowHdr

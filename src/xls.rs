@@ -663,7 +663,7 @@ fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), 
     for i in 0..count {
         let offset: usize = (2 + i * 8).into();
 
-        let rf = read_u16(&r[offset + 0..]);
+        let rf = read_u16(&r[offset..]);
         let rl = read_u16(&r[offset + 2..]);
         let cf = read_u16(&r[offset + 4..]);
         let cl = read_u16(&r[offset + 6..]);
