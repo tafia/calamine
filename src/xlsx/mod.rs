@@ -648,7 +648,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         for (sheet_name, sheet_path) in &self.sheets {
             // we need another mutable borrow of self.zip later so we enclose this borrow within braces
             {
-                let mut xml = match xml_reader(&mut self.zip, &sheet_path) {
+                let mut xml = match xml_reader(&mut self.zip, sheet_path) {
                     None => continue,
                     Some(x) => x?,
                 };
@@ -657,8 +657,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(ref e)) if e.local_name() == QName(b"mergeCell").into() => {
-                            if let Some(attr) = get_attribute(e.attributes(), QName(b"ref").into())?
-                            {
+                            if let Some(attr) = get_attribute(e.attributes(), QName(b"ref"))? {
                                 let dismension = get_dimension(attr)?;
                                 regions.push((
                                     sheet_name.to_string(),
@@ -698,7 +697,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn merged_regions_by_sheet(&self, name: &str) -> Vec<(&String, &String, &Dimensions)> {
         self.merged_regions()
             .iter()
-            .filter(|s| (**s).0 == name)
+            .filter(|s| s.0 == name)
             .map(|(name, sheet, region)| (name, sheet, region))
             .collect()
     }
@@ -837,7 +836,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let (_, path) = self
             .sheets
             .iter()
-            .find(|&&(ref n, _)| n == name)
+            .find(|&(n, _)| n == name)
             .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
         let xml = xml_reader(&mut self.zip, path)
             .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
@@ -1233,12 +1232,7 @@ fn valid_cell_name(name: &[char]) -> bool {
 
 /// advance the cell name by the offset
 fn replace_cell(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(
-        name.into_iter()
-            .map(|c| *c as u8)
-            .collect::<Vec<_>>()
-            .as_slice(),
-    )?;
+    let cell = get_row_column(name.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
         (cell.1 as i64 + offset.1) as u32,

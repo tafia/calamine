@@ -172,10 +172,7 @@ impl DataType for Data {
 
 impl PartialEq<&str> for Data {
     fn eq(&self, other: &&str) -> bool {
-        match *self {
-            Data::String(ref s) if s == other => true,
-            _ => false,
-        }
+        matches!(*self, Data::String(ref s) if s == other)
     }
 }
 

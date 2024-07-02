@@ -140,6 +140,7 @@ pub struct Dimensions {
     pub end: (u32, u32),
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Dimensions {
     /// create dimensions info with start position and end position
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
@@ -463,7 +464,9 @@ impl<T: CellType> Range<T> {
                 let row = (c.pos.0 - row_start) as usize;
                 let col = (c.pos.1 - col_start) as usize;
                 let idx = row.saturating_mul(cols) + col;
-                v.get_mut(idx).map(|v| *v = c.val);
+                if let Some(v) = v.get_mut(idx) {
+                    *v = c.val;
+                }
             }
             Range {
                 start: (row_start, col_start),

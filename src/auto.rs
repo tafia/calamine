@@ -61,16 +61,16 @@ where
     RS: std::io::Read + std::io::Seek + Clone,
 {
     if let Ok(ret) = open_workbook_from_rs::<Xls<RS>, RS>(data.clone()) {
-        return Ok(Sheets::Xls(ret));
+        Ok(Sheets::Xls(ret))
     } else if let Ok(ret) = open_workbook_from_rs::<Xlsx<RS>, RS>(data.clone()) {
-        return Ok(Sheets::Xlsx(ret));
+        Ok(Sheets::Xlsx(ret))
     } else if let Ok(ret) = open_workbook_from_rs::<Xlsb<RS>, RS>(data.clone()) {
-        return Ok(Sheets::Xlsb(ret));
+        Ok(Sheets::Xlsb(ret))
     } else if let Ok(ret) = open_workbook_from_rs::<Ods<RS>, RS>(data) {
-        return Ok(Sheets::Ods(ret));
+        Ok(Sheets::Ods(ret))
     } else {
-        return Err(Error::Msg("Cannot detect file format"));
-    };
+        Err(Error::Msg("Cannot detect file format"))
+    }
 }
 
 impl<RS> Reader<RS> for Sheets<RS>

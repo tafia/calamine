@@ -104,7 +104,7 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
 
 // convert f64 to date, if format == Date
 #[inline]
-pub fn format_excel_f64_ref<'a>(
+pub fn format_excel_f64_ref(
     value: f64,
     format: Option<&CellFormat>,
     is_1904: bool,
