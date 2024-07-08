@@ -87,6 +87,8 @@ pub enum XlsxError {
     WorksheetNotFound(String),
     /// Table not found
     TableNotFound(String),
+    /// The specified sheet is not a worksheet
+    NotAWorksheet(String),
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -136,6 +138,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::WorksheetNotFound(n) => write!(f, "Worksheet '{n}' not found"),
             XlsxError::Password => write!(f, "Workbook is password protected"),
             XlsxError::TableNotFound(n) => write!(f, "Table '{n}' not found"),
+            XlsxError::NotAWorksheet(typ) => write!(f, "Expecting a worksheet, got {typ}"),
         }
     }
 }
@@ -854,7 +857,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
         &'a mut self,
         name: &str,
     ) -> Result<Range<DataRef<'a>>, XlsxError> {
-        let mut cell_reader = self.worksheet_cells_reader(name)?;
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                log::warn!("'{typ}' not a valid worksheet");
+                return Ok(Range::default());
+            }
+            Err(e) => return Err(e),
+        };
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
         if len < 100_000 {
@@ -928,7 +938,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsxError> {
-        let mut cell_reader = self.worksheet_cells_reader(name)?;
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                warn!("'{typ}' not a worksheet");
+                return Ok(Range::default());
+            }
+            Err(e) => return Err(e),
+        };
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
         if len < 100_000 {

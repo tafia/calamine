@@ -39,6 +39,7 @@ impl<'a> XlsxCellReader<'a> {
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
         let mut dimensions = Dimensions::default();
+        let mut sh_type = None;
         'xml: loop {
             buf.clear();
             match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
@@ -57,9 +58,19 @@ impl<'a> XlsxCellReader<'a> {
                         return Err(XlsxError::UnexpectedNode("dimension"));
                     }
                     b"sheetData" => break,
-                    _ => (),
+                    typ => {
+                        if sh_type.is_none() {
+                            sh_type = Some(xml.decoder().decode(typ)?.to_string());
+                        }
+                    }
                 },
-                Event::Eof => return Err(XlsxError::XmlEof("sheetData")),
+                Event::Eof => {
+                    if let Some(typ) = sh_type {
+                        return Err(XlsxError::NotAWorksheet(typ));
+                    } else {
+                        return Err(XlsxError::XmlEof("worksheet"));
+                    }
+                }
                 _ => (),
             }
         }
