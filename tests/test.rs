@@ -1692,6 +1692,14 @@ fn issue_420_empty_s_attribute() {
 }
 
 #[test]
+fn issue_438_charts() {
+    let mut excel: Xlsx<_> = wb("issue438.xlsx");
+    let _range = excel
+        .worksheet_range("Chart1")
+        .expect("could not open worksheet range");
+}
+
+#[test]
 fn isssue_446_formulas() {
     let mut excel: Xlsx<_> = wb("issue446.xlsx");
     let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
