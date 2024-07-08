@@ -1076,6 +1076,9 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
             }
             c @ b'A'..=b'Z' => {
                 if readrow {
+                    if row == 0 {
+                        return Err(XlsxError::RangeWithoutRowComponent);
+                    }
                     pow = 1;
                     readrow = false;
                 }
@@ -1084,6 +1087,9 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
             }
             c @ b'a'..=b'z' => {
                 if readrow {
+                    if row == 0 {
+                        return Err(XlsxError::RangeWithoutRowComponent);
+                    }
                     pow = 1;
                     readrow = false;
                 }
@@ -1196,42 +1202,8 @@ fn read_merge_cells(xml: &mut XlReader<'_>) -> Result<Vec<Dimensions>, XlsxError
     Ok(merge_cells)
 }
 
-/// check if a char vector is a valid cell name  
-/// column name must be between A and XFD,
-/// last char must be digit
-fn valid_cell_name(name: &[char]) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-    if name.len() < 2 {
-        return false;
-    }
-    if name.len() > 3 {
-        if name[3].is_ascii_alphabetic() {
-            return false;
-        }
-        if name[2].is_alphabetic() {
-            if "YZ".contains(name[0]) {
-                return false;
-            } else if name[0] == 'X' {
-                if name[1] == 'F' {
-                    if !"ABCD".contains(name[2]) {
-                        return false;
-                    };
-                } else if !"ABCDE".contains(name[1]) {
-                    return false;
-                }
-            }
-        }
-    }
-    match name.last() {
-        Some(c) => c.is_ascii_digit(),
-        _ => false,
-    }
-}
-
 /// advance the cell name by the offset
-fn replace_cell(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+fn offset_cell_name(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
     let cell = get_row_column(name.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
@@ -1265,8 +1237,8 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
             is_cell_row = true;
             cell.push(c);
         } else {
-            if valid_cell_name(cell.as_ref()) {
-                res.extend(replace_cell(cell.as_ref(), offset)?);
+            if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
+                res.extend(cell_name);
             } else {
                 res.extend(cell.iter().map(|c| *c as u8));
             }
@@ -1276,8 +1248,8 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         }
     }
     if !cell.is_empty() {
-        if valid_cell_name(cell.as_ref()) {
-            res.extend(replace_cell(cell.as_ref(), offset)?);
+        if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
+            res.extend(cell_name);
         } else {
             res.extend(cell.iter().map(|c| *c as u8));
         }
