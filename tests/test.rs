@@ -1690,3 +1690,9 @@ fn issue_420_empty_s_attribute() {
         ]
     );
 }
+
+#[test]
+fn isssue_446_formulas() {
+    let mut excel: Xlsx<_> = wb("issue446.xlsx");
+    let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
+}
