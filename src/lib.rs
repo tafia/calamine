@@ -283,6 +283,29 @@ where
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
 }
 
+/// A trait to share spreadsheets reader functions across different `FileType`s
+pub trait ReaderRef<RS>: Reader<RS>
+where
+    RS: Read + Seek,
+{
+    /// Get worksheet range where shared string values are only borrowed.
+    ///
+    /// This is implemented only for [`calamine::Xlsb`] and [`calamine::Xlsx`], as Xls and Ods formats
+    /// do not support lazy iteration.
+    fn worksheet_range_ref<'a>(&'a mut self, name: &str)
+        -> Result<Range<DataRef<'a>>, Self::Error>;
+
+    /// Get the nth worksheet range where shared string values are only borrowed. Shortcut for getting the nth
+    /// sheet_name, then the corresponding worksheet.
+    ///
+    /// This is implemented only for [`calamine::Xlsb`] and [`calamine::Xlsx`], as Xls and Ods formats
+    /// do not support lazy iteration.
+    fn worksheet_range_at_ref(&mut self, n: usize) -> Option<Result<Range<DataRef>, Self::Error>> {
+        let name = self.sheet_names().get(n)?.to_string();
+        Some(self.worksheet_range_ref(&name))
+    }
+}
+
 /// Convenient function to open a file with a BufReader<File>
 pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
 where

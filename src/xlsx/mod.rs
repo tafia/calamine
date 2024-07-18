@@ -18,8 +18,8 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
-    Table,
+    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -848,41 +848,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let formats = &self.formats;
         XlsxCellReader::new(xml, strings, formats, is_1904)
     }
-
-    /// Get worksheet range where shared string values are only borrowed.
-    ///
-    /// This is implemented only for [`calamine::Xlsx`], as Xls and Ods formats
-    /// do not support lazy iteration.
-    pub fn worksheet_range_ref<'a>(
-        &'a mut self,
-        name: &str,
-    ) -> Result<Range<DataRef<'a>>, XlsxError> {
-        let mut cell_reader = match self.worksheet_cells_reader(name) {
-            Ok(reader) => reader,
-            Err(XlsxError::NotAWorksheet(typ)) => {
-                log::warn!("'{typ}' not a valid worksheet");
-                return Ok(Range::default());
-            }
-            Err(e) => return Err(e),
-        };
-        let len = cell_reader.dimensions().len();
-        let mut cells = Vec::new();
-        if len < 100_000 {
-            cells.reserve(len as usize);
-        }
-        loop {
-            match cell_reader.next_cell() {
-                Ok(Some(Cell {
-                    val: DataRef::Empty,
-                    ..
-                })) => (),
-                Ok(Some(cell)) => cells.push(cell),
-                Ok(None) => break,
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(Range::from_sparse(cells))
-    }
 }
 
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
@@ -977,6 +942,36 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
+    }
+}
+
+impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
+    fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsxError> {
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                log::warn!("'{typ}' not a valid worksheet");
+                return Ok(Range::default());
+            }
+            Err(e) => return Err(e),
+        };
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+        loop {
+            match cell_reader.next_cell() {
+                Ok(Some(Cell {
+                    val: DataRef::Empty,
+                    ..
+                })) => (),
+                Ok(Some(cell)) => cells.push(cell),
+                Ok(None) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Range::from_sparse(cells))
     }
 }
 

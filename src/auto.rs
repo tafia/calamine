@@ -3,7 +3,8 @@
 use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
-    open_workbook, open_workbook_from_rs, Data, Metadata, Ods, Range, Reader, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_from_rs, Data, DataRef, Metadata, Ods, Range, Reader, ReaderRef,
+    Xls, Xlsb, Xlsx,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -140,6 +141,23 @@ where
             Sheets::Xlsx(ref e) => e.pictures(),
             Sheets::Xlsb(ref e) => e.pictures(),
             Sheets::Ods(ref e) => e.pictures(),
+        }
+    }
+}
+
+impl<RS> ReaderRef<RS> for Sheets<RS>
+where
+    RS: std::io::Read + std::io::Seek,
+{
+    fn worksheet_range_ref<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<Range<DataRef<'a>>, Self::Error> {
+        match *self {
+            Sheets::Xlsx(ref mut e) => e.worksheet_range_ref(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.worksheet_range_ref(name).map_err(Error::Xlsb),
+            Sheets::Xls(_) => unimplemented!(),
+            Sheets::Ods(_) => unimplemented!(),
         }
     }
 }

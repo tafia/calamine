@@ -21,7 +21,7 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, Data, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Cell, Data, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -517,6 +517,29 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
+    }
+}
+
+impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
+    fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsbError> {
+        let mut cell_reader = self.worksheet_cells_reader(name)?;
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+        loop {
+            match cell_reader.next_cell() {
+                Ok(Some(Cell {
+                    val: DataRef::Empty,
+                    ..
+                })) => (),
+                Ok(Some(cell)) => cells.push(cell),
+                Ok(None) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Range::from_sparse(cells))
     }
 }
 

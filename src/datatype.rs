@@ -490,6 +490,36 @@ impl DataType for DataRef<'_> {
     }
 }
 
+impl PartialEq<&str> for DataRef<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        matches!(*self, DataRef::String(ref s) if s == other)
+    }
+}
+
+impl PartialEq<str> for DataRef<'_> {
+    fn eq(&self, other: &str) -> bool {
+        matches!(*self, DataRef::String(ref s) if s == other)
+    }
+}
+
+impl PartialEq<f64> for DataRef<'_> {
+    fn eq(&self, other: &f64) -> bool {
+        matches!(*self, DataRef::Float(ref s) if *s == *other)
+    }
+}
+
+impl PartialEq<bool> for DataRef<'_> {
+    fn eq(&self, other: &bool) -> bool {
+        matches!(*self, DataRef::Bool(ref s) if *s == *other)
+    }
+}
+
+impl PartialEq<i64> for DataRef<'_> {
+    fn eq(&self, other: &i64) -> bool {
+        matches!(*self, DataRef::Int(ref s) if *s == *other)
+    }
+}
+
 /// A trait to represent all different data types that can appear as
 /// a value in a worksheet cell
 pub trait DataType {
