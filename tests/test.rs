@@ -2,9 +2,10 @@ use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Flo
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
     ExcelDateTimeType, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Xls, Xlsb,
-    Xlsx,
+    Xlsx, XlsxOptions,
 };
 use calamine::{CellErrorType::*, Data};
+use rstest::rstest;
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufReader, Cursor};
@@ -1785,4 +1786,40 @@ fn test_ref_xlsb() {
             ]
         ]
     );
+}
+
+#[rstest]
+#[case("keep-empty-rows.xlsx", false, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
+#[case("keep-empty-rows.xlsx", true, (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]
+#[case("temperature.xlsx", false, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature.xlsx", true, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature-in-middle.xlsx", false, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature-in-middle.xlsx", true, (0, 1), (5, 2), &[Empty, Empty], 12)]
+fn keep_first_empty_rows_xlsx(
+    #[case] fixture_path: &str,
+    #[case] keep_first_empty_rows: bool,
+    #[case] expected_start: (u32, u32),
+    #[case] expected_end: (u32, u32),
+    #[case] expected_first_row: &[Data],
+    #[case] expected_total_cells: usize,
+) {
+    let excel: Xlsx<_> = wb(fixture_path);
+    assert_eq!(
+        excel.sheets_metadata(),
+        &[Sheet {
+            name: "Sheet1".to_string(),
+            typ: SheetType::WorkSheet,
+            visible: SheetVisible::Visible
+        },]
+    );
+
+    // By default empty cells are skipped so the first row is skipped
+    let range = excel
+        .with_options(XlsxOptions::new().with_keep_first_empty_rows(keep_first_empty_rows))
+        .worksheet_range("Sheet1")
+        .unwrap();
+    assert_eq!(range.start(), Some(expected_start));
+    assert_eq!(range.end(), Some(expected_end));
+    assert_eq!(range.rows().next().unwrap(), expected_first_row,);
+    assert_eq!(range.cells().count(), expected_total_cells);
 }
