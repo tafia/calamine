@@ -1,7 +1,8 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataType, Dimensions, ExcelDateTime, ExcelDateTimeType, Ods,
-    Range, Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
+    ExcelDateTimeType, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Xls, Xlsb,
+    Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use std::collections::BTreeSet;
@@ -1703,4 +1704,76 @@ fn issue_438_charts() {
 fn isssue_446_formulas() {
     let mut excel: Xlsx<_> = wb("issue446.xlsx");
     let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
+}
+
+#[test]
+fn test_ref_xlsx() {
+    let mut excel: Xlsx<_> = wb("date.xlsx");
+    let range = excel.worksheet_range_at_ref(0).unwrap().unwrap();
+
+    range_eq!(
+        range,
+        [
+            [
+                DataRef::DateTime(ExcelDateTime::new(
+                    44197.0,
+                    ExcelDateTimeType::DateTime,
+                    false
+                )),
+                DataRef::Float(15.0)
+            ],
+            [
+                DataRef::DateTime(ExcelDateTime::new(
+                    44198.0,
+                    ExcelDateTimeType::DateTime,
+                    false
+                )),
+                DataRef::Float(16.0)
+            ],
+            [
+                DataRef::DateTime(ExcelDateTime::new(
+                    10.6320601851852,
+                    ExcelDateTimeType::TimeDelta,
+                    false
+                )),
+                DataRef::Float(17.0)
+            ]
+        ]
+    );
+}
+
+#[test]
+fn test_ref_xlsb() {
+    let mut excel: Xlsb<_> = wb("date.xlsb");
+    let range = excel.worksheet_range_at_ref(0).unwrap().unwrap();
+
+    range_eq!(
+        range,
+        [
+            [
+                DataRef::DateTime(ExcelDateTime::new(
+                    44197.0,
+                    ExcelDateTimeType::DateTime,
+                    false
+                )),
+                DataRef::Float(15.0)
+            ],
+            [
+                DataRef::DateTime(ExcelDateTime::new(
+                    44198.0,
+                    ExcelDateTimeType::DateTime,
+                    false
+                )),
+                DataRef::Float(16.0)
+            ],
+            [
+                DataRef::DateTime(ExcelDateTime::new(
+                    10.6320601851852,
+                    ExcelDateTimeType::TimeDelta,
+                    false
+                )),
+                DataRef::Float(17.0)
+            ]
+        ]
+    );
 }
