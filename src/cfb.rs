@@ -82,7 +82,7 @@ impl Cfb {
         let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
 
         // load fat and dif sectors
-        debug!("load difat");
+        debug!("load difat {h:?}");
         let mut sector_id = h.difat_start;
         while sector_id < RESERVED_SECTORS {
             difat.extend(to_u32(sectors.get(sector_id, reader)?));
@@ -107,24 +107,28 @@ impl Cfb {
         if dirs.is_empty() || (h.version != 3 && dirs[0].start == ENDOFCHAIN) {
             return Err(CfbError::EmptyRootDir);
         }
-        debug!("{:?}", dirs);
 
         // load the mini streams
-        debug!("load minis");
-        let ministream = sectors.get_chain(dirs[0].start, &fats, reader, dirs[0].len)?;
-        let minifat = sectors.get_chain(
-            h.mini_fat_start,
-            &fats,
-            reader,
-            h.mini_fat_len * h.sector_size,
-        )?;
-        let minifat = to_u32(&minifat).collect();
+        debug!("load minis {dirs:?}");
+        let (mini_fats, ministream) = if h.mini_fat_len > 0 {
+            let ministream = sectors.get_chain(dirs[0].start, &fats, reader, dirs[0].len)?;
+            let minifat = sectors.get_chain(
+                h.mini_fat_start,
+                &fats,
+                reader,
+                h.mini_fat_len * h.sector_size,
+            )?;
+            let minifat = to_u32(&minifat).collect();
+            (minifat, ministream)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         Ok(Cfb {
             directories: dirs,
             sectors,
             fats,
             mini_sectors: Sectors::new(64, ministream),
-            mini_fats: minifat,
+            mini_fats,
         })
     }
 
@@ -183,7 +187,7 @@ impl Header {
             0x000C => {
                 // sector size is 4096 bytes, but header is 512 bytes,
                 // so the remaining sector bytes have to be read
-                let mut buf_end = [0u8; 3584];
+                let mut buf_end = [0u8; 4096 - 512];
                 f.read_exact(&mut buf_end).map_err(CfbError::Io)?;
                 4096
             }
