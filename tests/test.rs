@@ -1701,6 +1701,15 @@ fn issue_438_charts() {
 }
 
 #[test]
+fn isssue_444_memory_allocation() {
+    let mut excel: Xls<_> = wb("issue444.xls"); // should not fail
+    let range = excel
+        .worksheet_range("Sheet1")
+        .expect("could not open worksheet range");
+    assert_eq!(range.get_size(), (10, 8));
+}
+
+#[test]
 fn isssue_446_formulas() {
     let mut excel: Xlsx<_> = wb("issue446.xlsx");
     let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
