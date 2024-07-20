@@ -197,6 +197,29 @@ pub struct Xlsx<RS> {
     pictures: Option<Vec<(String, Vec<u8>)>>,
     /// Merged Regions: Name, Sheet, Merged Dimensions
     merged_regions: Option<Vec<(String, String, Dimensions)>>,
+    /// Reader options
+    options: XlsxOptions,
+}
+
+/// Xlsx reader options
+#[derive(Debug, Default)]
+pub struct XlsxOptions {
+    /// By default, calamine skips empty rows until a nonempty row is found
+    pub keep_first_empty_rows: bool,
+}
+
+impl XlsxOptions {
+    /// Create a new XlsxOptions
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Avoid skipping first empty rows
+    pub fn with_keep_first_empty_rows(self, keep_first_empty_rows: bool) -> Self {
+        Self {
+            keep_first_empty_rows,
+        }
+    }
 }
 
 impl<RS: Read + Seek> Xlsx<RS> {
@@ -850,6 +873,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 }
 
+impl<RS> Xlsx<RS> {
+    /// Set reader options
+    pub fn with_options(mut self, options: XlsxOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     type Error = XlsxError;
 
@@ -867,6 +898,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             #[cfg(feature = "picture")]
             pictures: None,
             merged_regions: None,
+            options: XlsxOptions::default(),
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
@@ -947,6 +979,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 
 impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
     fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsxError> {
+        let keep_first_empty_rows = self.options.keep_first_empty_rows;
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
@@ -971,6 +1004,19 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
                 Err(e) => return Err(e),
             }
         }
+
+        // If the first cell doesn't start at row 0, we add an empty cell
+        // at row 0 but still at the same column as the first cell
+        if keep_first_empty_rows && cells.first().map_or(false, |c| c.pos.0 != 0) {
+            cells.insert(
+                0,
+                Cell {
+                    pos: (0, cells.first().expect("cells should not be empty").pos.1),
+                    val: DataRef::Empty,
+                },
+            );
+        }
+
         Ok(Range::from_sparse(cells))
     }
 }
