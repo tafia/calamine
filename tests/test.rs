@@ -5,6 +5,7 @@ use calamine::{
     Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
+use rstest::rstest;
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufReader, Cursor};
@@ -1783,6 +1784,32 @@ fn test_ref_xlsb() {
                 )),
                 DataRef::Float(17.0)
             ]
+        ]
+    );
+}
+
+#[rstest]
+#[case("single-empty.ods")]
+#[case("multi-empty.ods")]
+fn issue_repeated_empty(#[case] fixture_path: &str) {
+    let mut ods: Ods<_> = wb(fixture_path);
+    let range = ods.worksheet_range_at(0).unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("StringCol".to_string())],
+            [String("bbb".to_string())],
+            [String("ccc".to_string())],
+            [String("ddd".to_string())],
+            [String("eee".to_string())],
+            [Empty],
+            [Empty],
+            [Empty],
+            [Empty],
+            [Empty],
+            [Empty],
+            [Empty],
+            [String("zzz".to_string())],
         ]
     );
 }
