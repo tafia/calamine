@@ -624,7 +624,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let mut zfile = self.zip.by_index(i)?;
             let zname = zfile.name().to_owned();
             if zname.starts_with("xl/media") {
-                let name_ext: Vec<&str> = zname.split(".").collect();
+                let name_ext: Vec<&str> = zname.split('.').collect();
                 if let Some(ext) = name_ext.last() {
                     if [
                         "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",

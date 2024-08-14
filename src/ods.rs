@@ -309,7 +309,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                             .map_err(OdsError::Xml)?
                             .map(|x| x.to_string()),
                     )
-                    .map(|v| v.to_owned())
+                    .cloned()
                     .unwrap_or(SheetVisible::Visible);
                 if let Some(ref a) = e
                     .attributes()

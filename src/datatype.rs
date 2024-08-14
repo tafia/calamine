@@ -596,8 +596,7 @@ pub trait DataType {
         if self.is_datetime_iso() {
             self.as_datetime().map(|dt| dt.date()).or_else(|| {
                 self.get_datetime_iso()
-                    .map(|s| chrono::NaiveDate::from_str(&s).ok())
-                    .flatten()
+                    .and_then(|s| chrono::NaiveDate::from_str(s).ok())
             })
         } else {
             self.as_datetime().map(|dt| dt.date())
@@ -611,13 +610,11 @@ pub trait DataType {
         if self.is_datetime_iso() {
             self.as_datetime().map(|dt| dt.time()).or_else(|| {
                 self.get_datetime_iso()
-                    .map(|s| chrono::NaiveTime::from_str(&s).ok())
-                    .flatten()
+                    .and_then(|s| chrono::NaiveTime::from_str(s).ok())
             })
         } else if self.is_duration_iso() {
             self.get_duration_iso()
-                .map(|s| chrono::NaiveTime::parse_from_str(&s, "PT%HH%MM%S%.fS").ok())
-                .flatten()
+                .and_then(|s| chrono::NaiveTime::parse_from_str(s, "PT%HH%MM%S%.fS").ok())
         } else {
             self.as_datetime().map(|dt| dt.time())
         }
@@ -629,7 +626,7 @@ pub trait DataType {
         use chrono::Timelike;
 
         if self.is_datetime() {
-            self.get_datetime().map(|dt| dt.as_duration()).flatten()
+            self.get_datetime().and_then(|dt| dt.as_duration())
         } else if self.is_duration_iso() {
             // need replace in the future to smth like chrono::Duration::from_str()
             // https://github.com/chronotope/chrono/issues/579
@@ -655,7 +652,7 @@ pub trait DataType {
             self.get_datetime().map(|d| d.as_datetime())
         } else if self.is_datetime_iso() {
             self.get_datetime_iso()
-                .map(|s| chrono::NaiveDateTime::from_str(&s).ok())
+                .map(|s| chrono::NaiveDateTime::from_str(s).ok())
         } else {
             None
         }
