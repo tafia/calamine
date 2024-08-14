@@ -1227,6 +1227,14 @@ fn issue_305_merge_cells_xls() {
     );
 }
 
+#[cfg(feature = "picture")]
+fn digest(data: &[u8]) -> [u8; 32] {
+    use sha2::digest::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
 // cargo test --features picture
 #[test]
 #[cfg(feature = "picture")]
@@ -1240,8 +1248,8 @@ fn pictures() -> Result<(), calamine::Error> {
     let xls_path = format!("picture.xls");
     let ods_path = format!("picture.ods");
 
-    let jpg_hash = sha256::digest(&*std::fs::read(&jpg_path)?);
-    let png_hash = sha256::digest(&*std::fs::read(&png_path)?);
+    let jpg_hash = digest(&*std::fs::read(&jpg_path)?);
+    let png_hash = digest(&*std::fs::read(&png_path)?);
 
     let xlsx: Xlsx<_> = wb(&xlsx_path);
     let xlsb: Xlsb<_> = wb(&xlsb_path);
@@ -1264,7 +1272,7 @@ fn pictures() -> Result<(), calamine::Error> {
         pictures.extend(pics);
     }
     for (ext, data) in pictures {
-        let pic_hash = sha256::digest(&*data);
+        let pic_hash = digest(&*data);
         if ext == "jpg" || ext == "jpeg" {
             assert_eq!(jpg_hash, pic_hash);
         } else if ext == "png" {
