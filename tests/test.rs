@@ -1231,8 +1231,9 @@ fn issue_305_merge_cells_xls() {
 #[test]
 #[cfg(feature = "picture")]
 fn pictures() -> Result<(), calamine::Error> {
-    let jpg_path = format!("picture.jpg");
-    let png_path = format!("picture.png");
+    let path = |name: &str| format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
+    let jpg_path = path("picture.jpg");
+    let png_path = path("picture.png");
 
     let xlsx_path = format!("picture.xlsx");
     let xlsb_path = format!("picture.xlsb");
@@ -1242,10 +1243,10 @@ fn pictures() -> Result<(), calamine::Error> {
     let jpg_hash = sha256::digest(&*std::fs::read(&jpg_path)?);
     let png_hash = sha256::digest(&*std::fs::read(&png_path)?);
 
-    let xlsx: Xlsx<_> = wb(xlsx_path)?;
-    let xlsb: Xlsb<_> = wb(xlsb_path)?;
-    let xls: Xls<_> = wb(xls_path)?;
-    let ods: Ods<_> = wb(ods_path)?;
+    let xlsx: Xlsx<_> = wb(&xlsx_path);
+    let xlsb: Xlsb<_> = wb(&xlsb_path);
+    let xls: Xls<_> = wb(&xls_path);
+    let ods: Ods<_> = wb(&ods_path);
 
     let mut pictures = Vec::with_capacity(8);
     let mut pass = 0;
