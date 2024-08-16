@@ -1790,7 +1790,18 @@ fn test_ref_xlsb() {
 #[test]
 fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
     // file contains XLUnicodeString with cch = 0 and do not have a reserved byte tag
-    let _: Xls<_> = wb("high_byte_string.xls");
+    // as well as record types that do not seem to be present in the spec
+    let mut xls: Xls<_> = wb("high_byte_string.xls");
+    for (_, ws) in xls.worksheets() {
+        for (row, _, cell) in ws.used_cells() {
+            if row == 3 {
+                assert_eq!(
+                    cell.as_string().unwrap(),
+                    "Inside FERC's Gas Market Report monthly bidweek price file.  "
+                );
+            }
+        }
+    }
 }
 
 #[test]
