@@ -991,8 +991,8 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) {
-    encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
+fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) -> usize {
+    encoding.decode_to(&buf[1..], *len, s, Some(buf[0] & 0x1 != 0)).1
 }
 
 struct Record<'a> {
@@ -1252,9 +1252,9 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
+                let l = read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
                 formula.push('\"');
-                rgce = &rgce[2 + cch..];
+                rgce = &rgce[2 + l..];
             }
             0x18 => {
                 rgce = &rgce[5..];
