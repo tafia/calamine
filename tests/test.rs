@@ -2264,3 +2264,8 @@ fn test_xlsb_case_insensitive_part_name() {
 fn test_xlsx_backward_slash_part_name() {
     let _: Xlsx<_> = wb("issue_530.xlsx");
 }
+
+#[test]
+fn test_high_byte_strings() {
+    let _: Xls<_> = wb("high_byte_string.xls");
+}
