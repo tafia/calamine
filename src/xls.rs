@@ -463,7 +463,15 @@ impl<RS: Read + Seek> Xls<RS> {
                                 });
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
-                    _ => (),
+                    // tests/high_byte_string.xls contains a record type that
+                    // cannot be found in the "By Number" 2.3.2 table
+                    0x00D6 => {
+                        let Ok(s) = parse_label(r.data, &encoding, biff) else {
+                            continue;
+                        };
+                        cells.extend(s);
+                    }
+                    _ => {}
                 }
             }
             let range = Range::from_sparse(cells);
