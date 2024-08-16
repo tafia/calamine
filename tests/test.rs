@@ -2142,6 +2142,11 @@ fn test_malformed_format() {
 }
 
 #[test]
+fn test_high_byte_strings() {
+    let _: Xls<_> = wb("high_byte_string.xls");
+}
+
+#[test]
 fn test_oom_allocation() {
     let _xls: Xls<_> = wb("OOM_alloc.xls");
 }
