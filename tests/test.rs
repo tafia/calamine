@@ -1786,3 +1786,8 @@ fn test_ref_xlsb() {
         ]
     );
 }
+
+#[test]
+fn test_high_byte_strings() {
+    let _: Xls<_> = wb("high_byte_string.xls");
+}
