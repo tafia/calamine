@@ -284,7 +284,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .map(|x| x.to_string())
             }
             Ok(Event::Start(ref e))
-                if style_name.clone().is_some() && e.name() == QName(b"style:table-properties") =>
+                if style_name.is_some() && e.name() == QName(b"style:table-properties") =>
             {
                 let visible = match e.try_get_attribute(b"table:display")? {
                     Some(a) => match a
@@ -699,20 +699,20 @@ fn read_pictures<RS: Read + Seek>(
     let mut pics = Vec::new();
     for i in 0..zip.len() {
         let mut zfile = zip.by_index(i)?;
-        let zname = zfile.name().to_owned();
+        let zname = zfile.name();
         // no Thumbnails
         if zname.starts_with("Pictures") {
-            let name_ext: Vec<&str> = zname.split(".").collect();
-            if let Some(ext) = name_ext.last() {
+            if let Some(ext) = zname.split('.').last() {
                 if [
                     "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps", "bmp",
                     "wpg",
                 ]
-                .contains(ext)
+                .contains(&ext)
                 {
+                    let ext = ext.to_string();
                     let mut buf: Vec<u8> = Vec::new();
                     zfile.read_to_end(&mut buf)?;
-                    pics.push((ext.to_string(), buf));
+                    pics.push((ext, buf));
                 }
             }
         }

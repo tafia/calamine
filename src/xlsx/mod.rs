@@ -507,11 +507,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     // this is an incomplete implementation, but should be good enough for excel
                                     let new_index =
                                         base_folder.rfind('/').expect("Must be a parent folder");
-                                    let full_path = format!(
-                                        "{}{}",
-                                        base_folder[..new_index].to_owned(),
-                                        target[2..].to_owned()
-                                    );
+                                    let full_path =
+                                        format!("{}{}", &base_folder[..new_index], &target[2..]);
                                     table_locations.push(full_path);
                                 } else if target.is_empty() { // do nothing
                                 } else {
@@ -622,19 +619,19 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let mut pics = Vec::new();
         for i in 0..self.zip.len() {
             let mut zfile = self.zip.by_index(i)?;
-            let zname = zfile.name().to_owned();
+            let zname = zfile.name();
             if zname.starts_with("xl/media") {
-                let name_ext: Vec<&str> = zname.split('.').collect();
-                if let Some(ext) = name_ext.last() {
+                if let Some(ext) = zname.split('.').last() {
                     if [
                         "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
                         "bmp", "wpg",
                     ]
-                    .contains(ext)
+                    .contains(&ext)
                     {
+                        let ext = ext.to_string();
                         let mut buf: Vec<u8> = Vec::new();
                         zfile.read_to_end(&mut buf)?;
-                        pics.push((ext.to_string(), buf));
+                        pics.push((ext, buf));
                     }
                 }
             }

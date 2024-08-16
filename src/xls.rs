@@ -575,14 +575,8 @@ fn parse_sheet_metadata(
         }
     };
     r.data = &r.data[6..];
-    let name = parse_short_string(r, encoding, biff)?;
-    let sheet_name = name
-        .as_bytes()
-        .iter()
-        .cloned()
-        .filter(|b| *b != 0)
-        .collect::<Vec<_>>();
-    let name = String::from_utf8(sheet_name).unwrap();
+    let mut name = parse_short_string(r, encoding, biff)?;
+    name.retain(|c| c != '\0');
     Ok((pos, Sheet { name, visible, typ }))
 }
 
