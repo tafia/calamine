@@ -758,14 +758,18 @@ fn parse_short_string(
 
 /// XLUnicodeString [MS-XLS 2.5.294]
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
-    if r.len() < 4 {
+    if r.len() < 2 {
         return Err(XlsError::Len {
             typ: "string",
-            expected: 4,
+            expected: 2,
             found: r.len(),
         });
     }
     let cch = read_u16(r) as usize;
+    if cch == 0 {
+        // tests/high_byte_string.xls
+        return Ok(String::new());
+    }
 
     let (high_byte, start) = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),

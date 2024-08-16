@@ -1788,6 +1788,7 @@ fn test_ref_xlsb() {
 }
 
 #[test]
-fn test_high_byte_strings() {
+fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
+    // file contains XLUnicodeString with cch = 0 and do not have a reserved byte tag
     let _: Xls<_> = wb("high_byte_string.xls");
 }
