@@ -2267,5 +2267,16 @@ fn test_xlsx_backward_slash_part_name() {
 
 #[test]
 fn test_high_byte_strings() {
-    let _: Xls<_> = wb("high_byte_string.xls");
+    // file contains as well as record types that do not seem to be present in the spec
+    let mut xls: Xls<_> = wb("high_byte_string.xls");
+    for (_name, ws) in xls.worksheets() {
+        for (row, _col, cell) in ws.used_cells() {
+            if row == 3 {
+                assert_eq!(
+                    cell.as_string().unwrap(),
+                    "Inside FERC's Gas Market Report monthly bidweek price file.  "
+                );
+            }
+        }
+    }
 }
