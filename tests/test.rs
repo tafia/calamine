@@ -2142,3 +2142,8 @@ fn test_string_ref() {
 fn test_malformed_format() {
     let _xls: Xls<_> = wb("malformed_format.xls");
 }
+
+#[test]
+fn test_high_byte_strings() {
+    let _: Xls<_> = wb("high_byte_string.xls");
+}
