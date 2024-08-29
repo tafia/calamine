@@ -1792,3 +1792,8 @@ fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
     // file contains XLUnicodeString with cch = 0 and do not have a reserved byte tag
     let _: Xls<_> = wb("high_byte_string.xls");
 }
+
+#[test]
+fn test_oom_allocation() {
+    let _xls: Xls<_> = wb("OOM_alloc.xls");
+}
