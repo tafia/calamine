@@ -2140,3 +2140,8 @@ fn test_string_ref() {
 fn test_malformed_format() {
     let _xls: Xls<_> = wb("malformed_format.xls");
 }
+
+#[test]
+fn test_oom_allocation() {
+    let _xls: Xls<_> = wb("OOM_alloc.xls");
+}
