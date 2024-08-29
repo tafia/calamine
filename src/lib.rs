@@ -461,7 +461,8 @@ impl<T: CellType> Range<T> {
     ///
     /// panics when a `Cell` row is lower than the first `Cell` row or
     /// bigger than the last `Cell` row.
-    pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
+    pub fn from_sparse(mut cells: Vec<Cell<T>>) -> Range<T> {
+        cells.sort_by_key(|cell| (cell.pos.0, cell.pos.1));
         if cells.is_empty() {
             Range::empty()
         } else {
