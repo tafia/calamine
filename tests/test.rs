@@ -2164,4 +2164,6 @@ fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
 fn test_oom_allocation() {
     let _xls: Xls<_> = wb("OOM_alloc.xls");
     let _xls: Xls<_> = wb("OOM_alloc2.xls");
+    // FIXME: kills all tests with abort unless unstable set_alloc_error_hook is used
+    // let _xls: Xls<_> = wb("OOM_alloc3.xls");
 }
