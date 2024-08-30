@@ -1796,4 +1796,5 @@ fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
 #[test]
 fn test_oom_allocation() {
     let _xls: Xls<_> = wb("OOM_alloc.xls");
+    let _xls: Xls<_> = wb("OOM_alloc2.xls");
 }
