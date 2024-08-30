@@ -843,7 +843,7 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
-    let (rf, rl, cf, cl) = match r.len() {
+    let (rf, rl, mut cf, cl) = match r.len() {
         10 => (
             read_u16(&r[0..2]) as u32,
             read_u16(&r[2..4]) as u32,
@@ -864,6 +864,12 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
             });
         }
     };
+    // 2.5.53 ColU must be <= 0xFF, if larger, reasonable to assume
+    // starts at 0
+    // tests/OOM_alloc2.xls
+    if 0xFF < cf || cl < cf {
+        cf = 0;
+    }
     if 1 <= rl && 1 <= cl {
         Ok(Dimensions {
             start: (rf, cf),
