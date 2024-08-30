@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use serde::de::Visitor;
-use serde::{self, Deserialize};
+use serde::Deserialize;
 
 use super::CellErrorType;
 

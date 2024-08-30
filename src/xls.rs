@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
-use std::convert::TryInto;
 use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;

@@ -5,7 +5,6 @@ pub use cells_reader::XlsbCellsReader;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
-use std::string::String;
 
 use log::debug;
 
