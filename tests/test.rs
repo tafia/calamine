@@ -2148,4 +2148,7 @@ fn test_oom_allocation() {
     let ws = xls.worksheets();
     assert_eq!(ws.len(), 1);
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
+
+    // FIXME: kills all tests with abort unless unstable set_alloc_error_hook is used
+    // let _xls: Xls<_> = wb("OOM_alloc3.xls");
 }
