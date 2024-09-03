@@ -932,13 +932,13 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
 impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 
 /// Struct with the key elements of a table
-pub struct Table<T> {
+pub struct Table<T: CellType> {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
     pub(crate) columns: Vec<String>,
     pub(crate) data: Range<T>,
 }
-impl<T> Table<T> {
+impl<T: CellType> Table<T> {
     /// Get the name of the table
     pub fn name(&self) -> &str {
         &self.name
@@ -955,10 +955,11 @@ impl<T> Table<T> {
     pub fn data(&self) -> &Range<T> {
         &self.data
     }
+}
 
-    /// Get an owned range representing the data from the table (excludes column headers)
-    pub fn data_owned(self) -> Range<T> {
-        self.data
+impl<T: CellType> From<Table<T>> for Range<T> {
+    fn from(table: Table<T>) -> Range<T> {
+        table.data
     }
 }
 

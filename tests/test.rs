@@ -586,7 +586,7 @@ fn table() {
     xls.worksheet_range_at(0).unwrap().unwrap();
 
     // Check if owned data works
-    let owned_data = table.data_owned();
+    let owned_data: Range<Data> = table.into();
 
     assert_eq!(
         owned_data.get((0, 0)),
@@ -660,6 +660,34 @@ fn table_by_ref() {
         &DataRef::Float(64.0)
     );
     xls.worksheet_range_at(0).unwrap().unwrap();
+
+    // Check if owned data works
+    let owned_data: Range<DataRef> = table.into();
+
+    assert_eq!(
+        owned_data
+            .get((0, 0))
+            .expect("Could not get data from table ref."),
+        &DataRef::SharedString("something")
+    );
+    assert_eq!(
+        owned_data
+            .get((1, 0))
+            .expect("Could not get data from table ref."),
+        &DataRef::SharedString("else")
+    );
+    assert_eq!(
+        owned_data
+            .get((0, 1))
+            .expect("Could not get data from table ref."),
+        &DataRef::Float(12.5)
+    );
+    assert_eq!(
+        owned_data
+            .get((1, 1))
+            .expect("Could not get data from table ref."),
+        &DataRef::Float(64.0)
+    );
 }
 
 #[test]
