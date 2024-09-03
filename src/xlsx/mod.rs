@@ -680,6 +680,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    #[inline]
     fn get_table_meta(&self, table_name: &str) -> Result<TableMetadata, XlsxError> {
         let match_table_meta = self
             .tables
@@ -692,7 +693,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let name = match_table_meta.0.to_owned();
         let sheet_name = match_table_meta.1.clone();
         let columns = match_table_meta.2.clone();
-        let dimensions = (match_table_meta.3.start, match_table_meta.3.end);
+        let dimensions = Dimensions {
+            start: match_table_meta.3.start,
+            end: match_table_meta.3.end,
+        };
 
         Ok(TableMetadata {
             name,
@@ -766,9 +770,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
             columns,
             dimensions,
         } = self.get_table_meta(table_name)?;
-        let (start_dim, end_dim) = dimensions;
+        let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range(&sheet_name)?;
-        let tbl_rng = range.range(start_dim, end_dim);
+        let tbl_rng = range.range(start, end);
 
         Ok(Table {
             name,
@@ -786,9 +790,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
             columns,
             dimensions,
         } = self.get_table_meta(table_name)?;
-        let (start_dim, end_dim) = dimensions;
+        let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range_ref(&sheet_name)?;
-        let tbl_rng = range.range(start_dim, end_dim);
+        let tbl_rng = range.range(start, end);
 
         Ok(Table {
             name,
@@ -848,13 +852,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 }
 
-type Dimension = (u32, u32);
-
 struct TableMetadata {
     name: String,
     sheet_name: String,
     columns: Vec<String>,
-    dimensions: (Dimension, Dimension),
+    dimensions: Dimensions,
 }
 
 struct InnerTableMetadata {

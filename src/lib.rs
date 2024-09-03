@@ -955,6 +955,11 @@ impl<T> Table<T> {
     pub fn data(&self) -> &Range<T> {
         &self.data
     }
+
+    /// Get an owned range representing the data from the table (excludes column headers)
+    pub fn data_owned(self) -> Range<T> {
+        self.data
+    }
 }
 
 /// A helper function to deserialize cell values as `i64`,

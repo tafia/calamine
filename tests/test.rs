@@ -584,6 +584,66 @@ fn table() {
     assert_eq!(data.get((0, 1)), Some(&Float(12.5)));
     assert_eq!(data.get((1, 1)), Some(&Float(64.0)));
     xls.worksheet_range_at(0).unwrap().unwrap();
+
+    // Check if owned data works
+    let owned_data = table.data_owned();
+
+    assert_eq!(
+        owned_data.get((0, 0)),
+        Some(&String("something".to_owned()))
+    );
+    assert_eq!(owned_data.get((1, 0)), Some(&String("else".to_owned())));
+    assert_eq!(owned_data.get((0, 1)), Some(&Float(12.5)));
+    assert_eq!(owned_data.get((1, 1)), Some(&Float(64.0)));
+}
+
+#[test]
+fn table_by_ref() {
+    let mut xls: Xlsx<_> = wb("temperature-table.xlsx");
+    xls.load_tables().unwrap();
+    let table_names = xls.table_names();
+    assert_eq!(table_names[0], "Temperature");
+    assert_eq!(table_names[1], "OtherTable");
+    let table = xls
+        .table_by_name_ref("Temperature")
+        .expect("Parsing table's sheet should not error");
+    assert_eq!(table.name(), "Temperature");
+    assert_eq!(table.columns()[0], "label");
+    assert_eq!(table.columns()[1], "value");
+    let data = table.data();
+    assert_eq!(
+        data.get((0, 0))
+            .expect("Could not get data from table ref."),
+        &DataRef::SharedString("celsius")
+    );
+    assert_eq!(
+        data.get((1, 0))
+            .expect("Could not get data from table ref."),
+        &DataRef::SharedString("fahrenheit")
+    );
+    assert_eq!(
+        data.get((0, 1))
+            .expect("Could not get data from table ref."),
+        &DataRef::Float(22.2222)
+    );
+    assert_eq!(
+        data.get((1, 1))
+            .expect("Could not get data from table ref."),
+        &DataRef::Float(72.0)
+    );
+    // Check the second table
+    let table = xls
+        .table_by_name("OtherTable")
+        .expect("Parsing table's sheet should not error");
+    assert_eq!(table.name(), "OtherTable");
+    assert_eq!(table.columns()[0], "label2");
+    assert_eq!(table.columns()[1], "value2");
+    let data = table.data();
+    assert_eq!(data.get((0, 0)), Some(&String("something".to_owned())));
+    assert_eq!(data.get((1, 0)), Some(&String("else".to_owned())));
+    assert_eq!(data.get((0, 1)), Some(&Float(12.5)));
+    assert_eq!(data.get((1, 1)), Some(&Float(64.0)));
+    xls.worksheet_range_at(0).unwrap().unwrap();
 }
 
 #[test]
