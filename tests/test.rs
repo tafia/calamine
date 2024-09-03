@@ -639,10 +639,26 @@ fn table_by_ref() {
     assert_eq!(table.columns()[0], "label2");
     assert_eq!(table.columns()[1], "value2");
     let data = table.data();
-    assert_eq!(data.get((0, 0)).expect("Could not get data from table ref."), &DataRef::SharedString("something"));
-    assert_eq!(data.get((1, 0)).expect("Could not get data from table ref."), &DataRef::SharedString("else"));
-    assert_eq!(data.get((0, 1)).expect("Could not get data from table ref."), &DataRef::Float(12.5));
-    assert_eq!(data.get((1, 1)).expect("Could not get data from table ref."), &DataRef::Float(64.0));
+    assert_eq!(
+        data.get((0, 0))
+            .expect("Could not get data from table ref."),
+        &DataRef::SharedString("something")
+    );
+    assert_eq!(
+        data.get((1, 0))
+            .expect("Could not get data from table ref."),
+        &DataRef::SharedString("else")
+    );
+    assert_eq!(
+        data.get((0, 1))
+            .expect("Could not get data from table ref."),
+        &DataRef::Float(12.5)
+    );
+    assert_eq!(
+        data.get((1, 1))
+            .expect("Could not get data from table ref."),
+        &DataRef::Float(64.0)
+    );
     xls.worksheet_range_at(0).unwrap().unwrap();
 }
 
