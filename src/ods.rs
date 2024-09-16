@@ -434,6 +434,7 @@ fn get_range<T: Default + Clone + PartialEq>(
         let mut new_cells = Vec::with_capacity(cells_len);
         let empty_cells = vec![T::default(); col_max + 1];
         let mut empty_row_repeats = 0;
+        let mut consecutive_empty_rows = 0;
         for (w, row_repeats) in cols
             .windows(2)
             .skip(row_min)
@@ -444,16 +445,18 @@ fn get_range<T: Default + Clone + PartialEq>(
             let row_repeats = *row_repeats;
 
             if is_empty_row(row) {
-                empty_row_repeats = row_repeats;
+                empty_row_repeats += row_repeats;
+                consecutive_empty_rows += 1;
                 continue;
             }
 
             if empty_row_repeats > 0 {
-                row_max = row_max + empty_row_repeats - 1;
+                row_max = row_max + empty_row_repeats - consecutive_empty_rows;
                 for _ in 0..empty_row_repeats {
                     new_cells.extend_from_slice(&empty_cells);
                 }
                 empty_row_repeats = 0;
+                consecutive_empty_rows = 0;
             };
 
             if row_repeats > 1 {
