@@ -1097,7 +1097,7 @@ fn merged_regions_xlsx() {
 
 #[test]
 fn issue_252() {
-    let path = format!("issue252.xlsx");
+    let path = "issue252.xlsx";
 
     // should err, not panic
     assert!(open_workbook::<Xls<_>, _>(&path).is_err());
@@ -1227,25 +1227,34 @@ fn issue_305_merge_cells_xls() {
     );
 }
 
+#[cfg(feature = "picture")]
+fn digest(data: &[u8]) -> [u8; 32] {
+    use sha2::digest::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
 // cargo test --features picture
 #[test]
 #[cfg(feature = "picture")]
 fn pictures() -> Result<(), calamine::Error> {
-    let jpg_path = format!("picture.jpg");
-    let png_path = format!("picture.png");
+    let path = |name: &str| format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
+    let jpg_path = path("picture.jpg");
+    let png_path = path("picture.png");
 
-    let xlsx_path = format!("picture.xlsx");
-    let xlsb_path = format!("picture.xlsb");
-    let xls_path = format!("picture.xls");
-    let ods_path = format!("picture.ods");
+    let xlsx_path = "picture.xlsx";
+    let xlsb_path = "picture.xlsb";
+    let xls_path = "picture.xls";
+    let ods_path = "picture.ods";
 
-    let jpg_hash = sha256::digest(&*std::fs::read(&jpg_path)?);
-    let png_hash = sha256::digest(&*std::fs::read(&png_path)?);
+    let jpg_hash = digest(&std::fs::read(jpg_path)?);
+    let png_hash = digest(&std::fs::read(png_path)?);
 
-    let xlsx: Xlsx<_> = wb(xlsx_path)?;
-    let xlsb: Xlsb<_> = wb(xlsb_path)?;
-    let xls: Xls<_> = wb(xls_path)?;
-    let ods: Ods<_> = wb(ods_path)?;
+    let xlsx: Xlsx<_> = wb(xlsx_path);
+    let xlsb: Xlsb<_> = wb(xlsb_path);
+    let xls: Xls<_> = wb(xls_path);
+    let ods: Ods<_> = wb(ods_path);
 
     let mut pictures = Vec::with_capacity(8);
     let mut pass = 0;
@@ -1263,7 +1272,7 @@ fn pictures() -> Result<(), calamine::Error> {
         pictures.extend(pics);
     }
     for (ext, data) in pictures {
-        let pic_hash = sha256::digest(&*data);
+        let pic_hash = digest(&data);
         if ext == "jpg" || ext == "jpeg" {
             assert_eq!(jpg_hash, pic_hash);
         } else if ext == "png" {
