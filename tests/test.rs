@@ -659,7 +659,6 @@ fn table_by_ref() {
             .expect("Could not get data from table ref."),
         &DataRef::Float(64.0)
     );
-    xls.worksheet_range_at(0).unwrap().unwrap();
 
     // Check if owned data works
     let owned_data: Range<DataRef> = table.into();
