@@ -35,3 +35,6 @@ sha2 = "0.10.8"
 default = []
 dates = ["chrono"]
 picture = []
+
+[package.metadata.docs.rs]
+features = ["dates", "picture"]
