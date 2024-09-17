@@ -1798,15 +1798,15 @@ fn test_ref_xlsb() {
 }
 
 #[rstest]
-#[case("keep-empty-rows.xlsx", false, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
-#[case("keep-empty-rows.xlsx", true, (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]
-#[case("temperature.xlsx", false, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
-#[case("temperature.xlsx", true, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
-#[case("temperature-in-middle.xlsx", false, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
-#[case("temperature-in-middle.xlsx", true, (0, 1), (5, 2), &[Empty, Empty], 12)]
-fn keep_first_empty_rows_xlsx(
+#[case("header-row.xlsx", None, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
+#[case("header-row.xlsx", Some(0), (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]
+#[case("temperature.xlsx", None, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature.xlsx", Some(0), (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature-in-middle.xlsx", None, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature-in-middle.xlsx", Some(0), (0, 1), (5, 2), &[Empty, Empty], 12)]
+fn header_row_xlsx(
     #[case] fixture_path: &str,
-    #[case] keep_first_empty_rows: bool,
+    #[case] header_row: Option<u32>,
     #[case] expected_start: (u32, u32),
     #[case] expected_end: (u32, u32),
     #[case] expected_first_row: &[Data],
@@ -1824,7 +1824,7 @@ fn keep_first_empty_rows_xlsx(
 
     // By default empty cells are skipped so the first row is skipped
     let range = excel
-        .with_options(XlsxOptions::new().with_keep_first_empty_rows(keep_first_empty_rows))
+        .with_options(XlsxOptions::new().with_header_row(header_row))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some(expected_start));

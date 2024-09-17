@@ -204,8 +204,9 @@ pub struct Xlsx<RS> {
 /// Xlsx reader options
 #[derive(Debug, Default)]
 pub struct XlsxOptions {
-    /// By default, calamine skips empty rows until a nonempty row is found
-    pub keep_first_empty_rows: bool,
+    /// Index of the header row
+    /// If not set, the first non-empty row is considered the header row
+    pub header_row: Option<u32>,
 }
 
 impl XlsxOptions {
@@ -214,11 +215,9 @@ impl XlsxOptions {
         Self::default()
     }
 
-    /// Avoid skipping first empty rows
-    pub fn with_keep_first_empty_rows(self, keep_first_empty_rows: bool) -> Self {
-        Self {
-            keep_first_empty_rows,
-        }
+    /// Set the header row index
+    pub fn with_header_row(self, header_row: Option<u32>) -> Self {
+        Self { header_row }
     }
 }
 
@@ -976,7 +975,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 
 impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
     fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsxError> {
-        let keep_first_empty_rows = self.options.keep_first_empty_rows;
+        let header_row = self.options.header_row;
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
@@ -1004,7 +1003,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
 
         // If the first cell doesn't start at row 0, we add an empty cell
         // at row 0 but still at the same column as the first cell
-        if keep_first_empty_rows && cells.first().map_or(false, |c| c.pos.0 != 0) {
+        if header_row == Some(0) && cells.first().map_or(false, |c| c.pos.0 != 0) {
             cells.insert(
                 0,
                 Cell {
@@ -1315,7 +1314,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
     }
 }
 
-/// Convert the integer to Excelsheet column title.  
+/// Convert the integer to Excelsheet column title.
 /// If the column number not in 1~16384, an Error is returned.
 pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
     if num >= MAX_COLUMNS {
@@ -1332,7 +1331,7 @@ pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
     Ok(col)
 }
 
-/// Convert a cell coordinate to Excelsheet cell name.  
+/// Convert a cell coordinate to Excelsheet cell name.
 /// If the column number not in 1~16384, an Error is returned.
 pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError> {
     let cell = &[
