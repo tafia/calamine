@@ -468,7 +468,7 @@ impl<T: CellType> Range<T> {
             // search bounds
             let row_start = cells.first().unwrap().pos.0;
             let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = std::u32::MAX;
+            let mut col_start = u32::MAX;
             let mut col_end = 0;
             for c in cells.iter().map(|c| c.pos.1) {
                 if c < col_start {

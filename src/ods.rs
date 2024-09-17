@@ -284,7 +284,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .map(|x| x.to_string())
             }
             Ok(Event::Start(ref e))
-                if style_name.clone().is_some() && e.name() == QName(b"style:table-properties") =>
+                if style_name.is_some() && e.name() == QName(b"style:table-properties") =>
             {
                 let visible = match e.try_get_attribute(b"table:display")? {
                     Some(a) => match a
@@ -309,7 +309,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                             .map_err(OdsError::Xml)?
                             .map(|x| x.to_string()),
                     )
-                    .map(|v| v.to_owned())
+                    .cloned()
                     .unwrap_or(SheetVisible::Visible);
                 if let Some(ref a) = e
                     .attributes()
@@ -434,6 +434,7 @@ fn get_range<T: Default + Clone + PartialEq>(
         let mut new_cells = Vec::with_capacity(cells_len);
         let empty_cells = vec![T::default(); col_max + 1];
         let mut empty_row_repeats = 0;
+        let mut consecutive_empty_rows = 0;
         for (w, row_repeats) in cols
             .windows(2)
             .skip(row_min)
@@ -444,16 +445,18 @@ fn get_range<T: Default + Clone + PartialEq>(
             let row_repeats = *row_repeats;
 
             if is_empty_row(row) {
-                empty_row_repeats = row_repeats;
+                empty_row_repeats += row_repeats;
+                consecutive_empty_rows += 1;
                 continue;
             }
 
             if empty_row_repeats > 0 {
-                row_max = row_max + empty_row_repeats - 1;
+                row_max = row_max + empty_row_repeats - consecutive_empty_rows;
                 for _ in 0..empty_row_repeats {
                     new_cells.extend_from_slice(&empty_cells);
                 }
                 empty_row_repeats = 0;
+                consecutive_empty_rows = 0;
             };
 
             if row_repeats > 1 {
@@ -699,20 +702,20 @@ fn read_pictures<RS: Read + Seek>(
     let mut pics = Vec::new();
     for i in 0..zip.len() {
         let mut zfile = zip.by_index(i)?;
-        let zname = zfile.name().to_owned();
+        let zname = zfile.name();
         // no Thumbnails
         if zname.starts_with("Pictures") {
-            let name_ext: Vec<&str> = zname.split(".").collect();
-            if let Some(ext) = name_ext.last() {
+            if let Some(ext) = zname.split('.').last() {
                 if [
                     "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps", "bmp",
                     "wpg",
                 ]
-                .contains(ext)
+                .contains(&ext)
                 {
+                    let ext = ext.to_string();
                     let mut buf: Vec<u8> = Vec::new();
                     zfile.read_to_end(&mut buf)?;
-                    pics.push((ext.to_string(), buf));
+                    pics.push((ext, buf));
                 }
             }
         }
