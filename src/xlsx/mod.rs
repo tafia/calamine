@@ -989,28 +989,54 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
         if len < 100_000 {
             cells.reserve(len as usize);
         }
-        loop {
-            match cell_reader.next_cell() {
-                Ok(Some(Cell {
-                    val: DataRef::Empty,
-                    ..
-                })) => (),
-                Ok(Some(cell)) => cells.push(cell),
-                Ok(None) => break,
-                Err(e) => return Err(e),
-            }
-        }
 
-        // If the first cell doesn't start at row 0, we add an empty cell
-        // at row 0 but still at the same column as the first cell
-        if header_row == Some(0) && cells.first().map_or(false, |c| c.pos.0 != 0) {
-            cells.insert(
-                0,
-                Cell {
-                    pos: (0, cells.first().expect("cells should not be empty").pos.1),
-                    val: DataRef::Empty,
-                },
-            );
+        // If `header_row` is set, we only add non-empty cells after the `header_row`.
+        if let Some(header_row) = header_row {
+            loop {
+                match cell_reader.next_cell() {
+                    Ok(Some(Cell {
+                        val: DataRef::Empty,
+                        ..
+                    })) => (),
+                    Ok(Some(cell)) => {
+                        if cell.pos.0 >= header_row {
+                            cells.push(cell);
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => return Err(e),
+                }
+            }
+
+            // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
+            // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
+            if cells.first().map_or(false, |c| c.pos.0 != header_row) {
+                cells.insert(
+                    header_row as usize,
+                    Cell {
+                        pos: (
+                            header_row,
+                            cells.first().expect("cells should not be empty").pos.1,
+                        ),
+                        val: DataRef::Empty,
+                    },
+                );
+            }
+        // If `header_row` is not specified (default), the header row is the row of the first non-empty cell.
+        } else {
+            loop {
+                match cell_reader.next_cell() {
+                    Ok(Some(Cell {
+                        val: DataRef::Empty,
+                        ..
+                    })) => (),
+                    Ok(Some(cell)) => {
+                        cells.push(cell);
+                    }
+                    Ok(None) => break,
+                    Err(e) => return Err(e),
+                }
+            }
         }
 
         Ok(Range::from_sparse(cells))

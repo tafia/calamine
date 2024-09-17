@@ -1800,6 +1800,7 @@ fn test_ref_xlsb() {
 #[rstest]
 #[case("header-row.xlsx", None, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
 #[case("header-row.xlsx", Some(0), (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]
+#[case("header-row.xlsx", Some(8), (8, 0), (9, 3), &[String("Columns".to_string()), String("Column A".to_string()), String("Column B".to_string()), String("Column C".to_string())], 8)]
 #[case("temperature.xlsx", None, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
 #[case("temperature.xlsx", Some(0), (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
 #[case("temperature-in-middle.xlsx", None, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
@@ -1829,7 +1830,7 @@ fn header_row_xlsx(
         .unwrap();
     assert_eq!(range.start(), Some(expected_start));
     assert_eq!(range.end(), Some(expected_end));
-    assert_eq!(range.rows().next().unwrap(), expected_first_row,);
+    assert_eq!(range.rows().next().unwrap(), expected_first_row);
     assert_eq!(range.cells().count(), expected_total_cells);
 }
 
