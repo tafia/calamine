@@ -616,6 +616,15 @@ fn get_datatype(
                 {
                     return Ok((Data::String(s), formula, true));
                 }
+                Ok(Event::Start(ref e)) if e.name() == QName(b"office:annotation") => loop {
+                    match reader.read_event_into(buf) {
+                        Ok(Event::End(ref e)) if e.name() == QName(b"office:annotation") => {
+                            break;
+                        }
+                        Err(e) => return Err(OdsError::Xml(e)),
+                        _ => (),
+                    }
+                },
                 Ok(Event::Start(ref e)) if e.name() == QName(b"text:p") => {
                     if first_paragraph {
                         first_paragraph = false;
