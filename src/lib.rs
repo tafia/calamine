@@ -86,7 +86,7 @@ pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
 pub use crate::datatype::{Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeType};
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
-pub use crate::ods::{Ods, OdsError};
+pub use crate::ods::{Ods, OdsError, OdsOptions};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
 pub use crate::xlsx::{Xlsx, XlsxError, XlsxOptions};

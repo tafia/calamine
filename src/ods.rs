@@ -62,6 +62,34 @@ pub enum OdsError {
     WorksheetNotFound(String),
 }
 
+/// Ods reader options
+#[derive(Debug, Default)]
+pub struct OdsOptions {
+    /// Index of the header row
+    /// If not set, the first non-empty row is considered the header row
+    pub header_row: Option<u32>,
+}
+
+impl OdsOptions {
+    /// Create a new XlsxOptions
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the header row index
+    pub fn with_header_row(self, header_row: Option<u32>) -> Self {
+        Self { header_row }
+    }
+}
+
+impl<RS> Ods<RS> {
+    /// Set reader options
+    pub fn with_options(mut self, options: OdsOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
 from_err!(std::io::Error, OdsError, Io);
 from_err!(zip::result::ZipError, OdsError, Zip);
 from_err!(quick_xml::Error, OdsError, Xml);
@@ -116,6 +144,8 @@ pub struct Ods<RS> {
     marker: PhantomData<RS>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+    /// Reader options
+    options: OdsOptions,
 }
 
 impl<RS> Reader<RS> for Ods<RS>
@@ -161,6 +191,7 @@ where
             sheets,
             #[cfg(feature = "picture")]
             pictures,
+            options: OdsOptions::default(),
         })
     }
 
@@ -176,10 +207,22 @@ where
 
     /// Read worksheet data in corresponding worksheet path
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, OdsError> {
-        self.sheets
+        let sheet = self
+            .sheets
             .get(name)
-            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
-            .map(|r| r.0.to_owned())
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))?
+            .0
+            .to_owned();
+
+        // If a header_row is defined, adjust the range
+        if let Some(header_row) = self.options.header_row {
+            if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
+                return Ok(sheet.range((header_row, start.1), end));
+            }
+        }
+
+        // Return the original range if no header row is set
+        Ok(sheet)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {

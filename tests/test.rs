@@ -1,8 +1,8 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Xls, Xlsb,
-    Xlsx, XlsxOptions,
+    ExcelDateTimeType, Ods, OdsOptions, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Xls, Xlsb, Xlsx, XlsxOptions,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -1805,7 +1805,7 @@ fn test_ref_xlsb() {
 #[case("temperature.xlsx", Some(0), (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
 #[case("temperature-in-middle.xlsx", None, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
 #[case("temperature-in-middle.xlsx", Some(0), (0, 1), (5, 2), &[Empty, Empty], 12)]
-fn header_row_xlsx(
+fn test_header_row_xlsx(
     #[case] fixture_path: &str,
     #[case] header_row: Option<u32>,
     #[case] expected_start: (u32, u32),
@@ -1823,7 +1823,6 @@ fn header_row_xlsx(
         },]
     );
 
-    // By default empty cells are skipped so the first row is skipped
     let range = excel
         .with_options(XlsxOptions::new().with_header_row(header_row))
         .worksheet_range("Sheet1")
@@ -1832,6 +1831,38 @@ fn header_row_xlsx(
     assert_eq!(range.end(), Some(expected_end));
     assert_eq!(range.rows().next().unwrap(), expected_first_row);
     assert_eq!(range.cells().count(), expected_total_cells);
+}
+
+#[rstest]
+fn test_header_row_ods() {
+    let mut ods: Ods<_> = wb("date.ods");
+    assert_eq!(
+        ods.sheets_metadata(),
+        &[Sheet {
+            name: "Sheet1".to_string(),
+            typ: SheetType::WorkSheet,
+            visible: SheetVisible::Visible
+        },]
+    );
+
+    let range = ods.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.start(), Some((0, 0)));
+    assert_eq!(range.end(), Some((3, 1)));
+    assert_eq!(
+        range.rows().next().unwrap(),
+        &[DateTimeIso("2021-01-01".to_string()), Float(15.0)]
+    );
+
+    let range = ods
+        .with_options(OdsOptions::new().with_header_row(Some(2)))
+        .worksheet_range("Sheet1")
+        .unwrap();
+    assert_eq!(range.start(), Some((2, 0)));
+    assert_eq!(range.end(), Some((3, 1)));
+    assert_eq!(
+        range.rows().next().unwrap(),
+        &[DurationIso("PT10H10M10S".to_string()), Float(17.0)]
+    );
 }
 
 #[rstest]
