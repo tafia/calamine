@@ -210,14 +210,11 @@ pub struct XlsxOptions {
 }
 
 impl XlsxOptions {
-    /// Create a new XlsxOptions
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Set the header row index
-    pub fn with_header_row(self, header_row: Option<u32>) -> Self {
-        Self { header_row }
+    pub fn with_header_row(self, header_row: u32) -> Self {
+        Self {
+            header_row: Some(header_row),
+        }
     }
 }
 

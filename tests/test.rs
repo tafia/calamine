@@ -1824,7 +1824,7 @@ fn test_header_row_xlsx(
     );
 
     let range = excel
-        .with_options(XlsxOptions::new().with_header_row(header_row))
+        .with_options(XlsxOptions { header_row })
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some(expected_start));
@@ -1854,7 +1854,7 @@ fn test_header_row_ods() {
     );
 
     let range = ods
-        .with_options(OdsOptions::new().with_header_row(Some(2)))
+        .with_options(OdsOptions::default().with_header_row(2))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((2, 0)));
