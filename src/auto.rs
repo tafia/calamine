@@ -2,9 +2,10 @@
 
 use crate::errors::Error;
 use crate::vba::VbaProject;
+use crate::xlsb::XlsbOptions;
 use crate::{
-    open_workbook, open_workbook_from_rs, Data, DataRef, Metadata, Ods, Range, Reader, ReaderRef,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_from_rs, Data, DataRef, Metadata, Ods, OdsOptions, Range, Reader,
+    ReaderOptions, ReaderRef, Xls, XlsOptions, Xlsb, Xlsx, XlsxOptions,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -74,15 +75,55 @@ where
     }
 }
 
+pub enum AutoReaderOptions {
+    Xls(XlsOptions),
+    Xlsx(XlsxOptions),
+    Xlsb(XlsbOptions),
+    Ods(OdsOptions),
+}
+
+impl ReaderOptions for AutoReaderOptions {
+    fn with_header_row(self, header_row: u32) -> Self {
+        match self {
+            AutoReaderOptions::Xls(e) => AutoReaderOptions::Xls(e.with_header_row(header_row)),
+            AutoReaderOptions::Xlsx(e) => AutoReaderOptions::Xlsx(e.with_header_row(header_row)),
+            AutoReaderOptions::Xlsb(e) => AutoReaderOptions::Xlsb(e.with_header_row(header_row)),
+            AutoReaderOptions::Ods(e) => AutoReaderOptions::Ods(e.with_header_row(header_row)),
+        }
+    }
+}
+
 impl<RS> Reader<RS> for Sheets<RS>
 where
     RS: std::io::Read + std::io::Seek,
 {
     type Error = Error;
+    type Options = AutoReaderOptions;
 
     /// Creates a new instance.
     fn new(_reader: RS) -> Result<Self, Self::Error> {
         Err(Error::Msg("Sheets must be created from a Path"))
+    }
+
+    fn set_options(&mut self, options: Self::Options) {
+        match *self {
+            Sheets::Xls(ref mut e) => match options {
+                AutoReaderOptions::Xls(opts) => e.set_options(opts),
+                _ => unreachable!(),
+            },
+            Sheets::Xlsx(ref mut e) => match options {
+                AutoReaderOptions::Xlsx(opts) => e.set_options(opts),
+                _ => unreachable!(),
+            },
+            Sheets::Xlsb(ref mut e) => match options {
+                AutoReaderOptions::Xlsb(opts) => e.set_options(opts),
+                _ => unreachable!(),
+            },
+            Sheets::Ods(ref mut e) => match options {
+                AutoReaderOptions::Ods(opts) => e.set_options(opts),
+                _ => unreachable!(),
+            },
+        }
     }
 
     /// Gets `VbaProject`

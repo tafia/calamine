@@ -88,7 +88,7 @@ pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCell
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError, OdsOptions};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
-pub use crate::xlsb::{Xlsb, XlsbError};
+pub use crate::xlsb::{Xlsb, XlsbError, XlsbOptions};
 pub use crate::xlsx::{Xlsx, XlsxError, XlsxOptions};
 
 use crate::vba::VbaProject;
@@ -215,6 +215,12 @@ pub struct Sheet {
     pub visible: SheetVisible,
 }
 
+/// A trait to share reader options across different `FileType`s
+pub trait ReaderOptions: Sized {
+    /// Set the header row
+    fn with_header_row(self, _header_row: u32) -> Self;
+}
+
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
 /// A trait to share spreadsheets reader functions across different `FileType`s
@@ -225,8 +231,20 @@ where
     /// Error specific to file type
     type Error: std::fmt::Debug + From<std::io::Error>;
 
+    /// Options specific to file type
+    type Options: ReaderOptions;
+
     /// Creates a new instance.
     fn new(reader: RS) -> Result<Self, Self::Error>;
+
+    /// Set options
+    fn set_options(&mut self, options: Self::Options);
+
+    /// Set options and return the reader
+    fn with_options(mut self, options: Self::Options) -> Self {
+        self.set_options(options);
+        self
+    }
 
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;

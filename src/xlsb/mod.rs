@@ -20,7 +20,9 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, Data, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible};
+use crate::{
+    Cell, Data, Metadata, Range, Reader, ReaderOptions, ReaderRef, Sheet, SheetType, SheetVisible,
+};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -128,6 +130,23 @@ impl std::error::Error for XlsbError {
     }
 }
 
+/// Xlsb reader options
+#[derive(Debug, Default)]
+pub struct XlsbOptions {
+    /// Index of the header row
+    /// If not set, the first non-empty row is considered the header row
+    pub header_row: Option<u32>,
+}
+
+impl ReaderOptions for XlsbOptions {
+    /// Set the header row index
+    fn with_header_row(self, header_row: u32) -> Self {
+        Self {
+            header_row: Some(header_row),
+        }
+    }
+}
+
 /// A Xlsb reader
 pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
@@ -140,6 +159,7 @@ pub struct Xlsb<RS> {
     metadata: Metadata,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+    options: XlsbOptions,
 }
 
 impl<RS: Read + Seek> Xlsb<RS> {
@@ -435,6 +455,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
 impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
+    type Options = XlsbOptions;
 
     fn new(mut reader: RS) -> Result<Self, XlsbError> {
         check_for_password_protected(&mut reader)?;
@@ -449,6 +470,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
             pictures: None,
+            options: XlsbOptions::default(),
         };
         xlsb.read_shared_strings()?;
         xlsb.read_styles()?;
@@ -458,6 +480,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         xlsb.read_pictures()?;
 
         Ok(xlsb)
+    }
+
+    fn set_options(&mut self, options: Self::Options) {
+        self.options = options;
     }
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsbError>> {
@@ -475,14 +501,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {
-        let mut cells_reader = self.worksheet_cells_reader(name)?;
-        let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
-        while let Some(cell) = cells_reader.next_cell()? {
-            if cell.val != DataRef::Empty {
-                cells.push(Cell::new(cell.pos, Data::from(cell.val)));
-            }
-        }
-        Ok(Range::from_sparse(cells))
+        let rge = self.worksheet_range_ref(name)?;
+        let inner = rge.inner.into_iter().map(|v| v.into()).collect();
+        Ok(Range {
+            start: rge.start,
+            end: rge.end,
+            inner,
+        })
     }
 
     /// MS-XLSB 2.1.7.62
@@ -521,21 +546,58 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
 impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
     fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsbError> {
+        let header_row = self.options.header_row;
         let mut cell_reader = self.worksheet_cells_reader(name)?;
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
         if len < 100_000 {
             cells.reserve(len as usize);
         }
-        loop {
-            match cell_reader.next_cell() {
-                Ok(Some(Cell {
-                    val: DataRef::Empty,
-                    ..
-                })) => (),
-                Ok(Some(cell)) => cells.push(cell),
-                Ok(None) => break,
-                Err(e) => return Err(e),
+
+        // If `header_row` is set, we only add non-empty cells after the `header_row`.
+        if let Some(header_row) = header_row {
+            loop {
+                match cell_reader.next_cell() {
+                    Ok(Some(Cell {
+                        val: DataRef::Empty,
+                        ..
+                    })) => (),
+                    Ok(Some(cell)) => {
+                        if cell.pos.0 >= header_row {
+                            cells.push(cell);
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => return Err(e),
+                }
+            }
+
+            // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
+            // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
+            if cells.first().map_or(false, |c| c.pos.0 != header_row) {
+                cells.insert(
+                    header_row as usize,
+                    Cell {
+                        pos: (
+                            header_row,
+                            cells.first().expect("cells should not be empty").pos.1,
+                        ),
+                        val: DataRef::Empty,
+                    },
+                );
+            }
+        // If `header_row` is not specified (default), the header row is the row of the first non-empty cell.
+        } else {
+            loop {
+                match cell_reader.next_cell() {
+                    Ok(Some(Cell {
+                        val: DataRef::Empty,
+                        ..
+                    })) => (),
+                    Ok(Some(cell)) => cells.push(cell),
+                    Ok(None) => break,
+                    Err(e) => return Err(e),
+                }
             }
         }
         Ok(Range::from_sparse(cells))

@@ -1,8 +1,8 @@
-use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, String};
+use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, Ods, OdsOptions, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx, XlsxOptions,
+    ExcelDateTimeType, Ods, OdsOptions, Range, Reader, ReaderOptions, ReaderRef, Sheet, SheetType,
+    SheetVisible, Xls, XlsOptions, Xlsb, XlsbOptions, Xlsx, XlsxOptions,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -1834,6 +1834,94 @@ fn test_header_row_xlsx(
 }
 
 #[rstest]
+fn test_header_row_xlsb() {
+    let mut xlsb: Xlsb<_> = wb("date.xlsb");
+    assert_eq!(
+        xlsb.sheets_metadata(),
+        &[Sheet {
+            name: "Sheet1".to_string(),
+            typ: SheetType::WorkSheet,
+            visible: SheetVisible::Visible
+        }]
+    );
+
+    let first_line = [
+        DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false,
+        )),
+        Float(15.0),
+    ];
+    let second_line = [
+        DateTime(ExcelDateTime::new(
+            44198.0,
+            ExcelDateTimeType::DateTime,
+            false,
+        )),
+        Float(16.0),
+    ];
+
+    let range = xlsb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.start(), Some((0, 0)));
+    assert_eq!(range.end(), Some((2, 1)));
+    assert_eq!(range.rows().next().unwrap(), &first_line);
+    assert_eq!(range.rows().nth(1).unwrap(), &second_line);
+
+    let range = xlsb
+        .with_options(XlsbOptions::default().with_header_row(1))
+        .worksheet_range("Sheet1")
+        .unwrap();
+    assert_eq!(range.start(), Some((1, 0)));
+    assert_eq!(range.end(), Some((2, 1)));
+    assert_eq!(range.rows().next().unwrap(), &second_line);
+}
+
+#[rstest]
+fn test_header_row_xls() {
+    let mut xls: Xls<_> = wb("date.xls");
+    assert_eq!(
+        xls.sheets_metadata(),
+        &[Sheet {
+            name: "Sheet1".to_string(),
+            typ: SheetType::WorkSheet,
+            visible: SheetVisible::Visible
+        }]
+    );
+
+    let first_line = [
+        DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false,
+        )),
+        Int(15),
+    ];
+    let second_line = [
+        DateTime(ExcelDateTime::new(
+            44198.0,
+            ExcelDateTimeType::DateTime,
+            false,
+        )),
+        Int(16),
+    ];
+
+    let range = xls.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.start(), Some((0, 0)));
+    assert_eq!(range.end(), Some((2, 1)));
+    assert_eq!(range.rows().next().unwrap(), &first_line);
+    assert_eq!(range.rows().nth(1).unwrap(), &second_line);
+
+    let range = xls
+        .with_options(XlsOptions::default().with_header_row(1))
+        .worksheet_range("Sheet1")
+        .unwrap();
+    assert_eq!(range.start(), Some((1, 0)));
+    assert_eq!(range.end(), Some((2, 1)));
+    assert_eq!(range.rows().next().unwrap(), &second_line);
+}
+
+#[rstest]
 fn test_header_row_ods() {
     let mut ods: Ods<_> = wb("date.ods");
     assert_eq!(
@@ -1842,16 +1930,17 @@ fn test_header_row_ods() {
             name: "Sheet1".to_string(),
             typ: SheetType::WorkSheet,
             visible: SheetVisible::Visible
-        },]
+        }]
     );
+
+    let first_line = [DateTimeIso("2021-01-01".to_string()), Float(15.0)];
+    let third_line = [DurationIso("PT10H10M10S".to_string()), Float(17.0)];
 
     let range = ods.worksheet_range("Sheet1").unwrap();
     assert_eq!(range.start(), Some((0, 0)));
     assert_eq!(range.end(), Some((3, 1)));
-    assert_eq!(
-        range.rows().next().unwrap(),
-        &[DateTimeIso("2021-01-01".to_string()), Float(15.0)]
-    );
+    assert_eq!(range.rows().next().unwrap(), &first_line);
+    assert_eq!(range.rows().nth(2).unwrap(), &third_line);
 
     let range = ods
         .with_options(OdsOptions::default().with_header_row(2))
@@ -1859,10 +1948,7 @@ fn test_header_row_ods() {
         .unwrap();
     assert_eq!(range.start(), Some((2, 0)));
     assert_eq!(range.end(), Some((3, 1)));
-    assert_eq!(
-        range.rows().next().unwrap(),
-        &[DurationIso("PT10H10M10S".to_string()), Float(17.0)]
-    );
+    assert_eq!(range.rows().next().unwrap(), &third_line);
 }
 
 #[rstest]
