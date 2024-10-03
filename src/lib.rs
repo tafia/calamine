@@ -957,6 +957,12 @@ impl<T> Table<T> {
     }
 }
 
+impl<T: CellType> From<Table<T>> for Range<T> {
+    fn from(table: Table<T>) -> Range<T> {
+        table.data
+    }
+}
+
 /// A helper function to deserialize cell values as `i64`,
 /// useful when cells may also contain invalid values (i.e. strings).
 /// It applies the [`as_i64`] method to the cell value, and returns

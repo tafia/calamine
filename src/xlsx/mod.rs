@@ -677,6 +677,32 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    #[inline]
+    fn get_table_meta(&self, table_name: &str) -> Result<TableMetadata, XlsxError> {
+        let match_table_meta = self
+            .tables
+            .as_ref()
+            .expect("Tables must be loaded before they are referenced")
+            .iter()
+            .find(|(table, ..)| table == table_name)
+            .ok_or_else(|| XlsxError::TableNotFound(table_name.into()))?;
+
+        let name = match_table_meta.0.to_owned();
+        let sheet_name = match_table_meta.1.clone();
+        let columns = match_table_meta.2.clone();
+        let dimensions = Dimensions {
+            start: match_table_meta.3.start,
+            end: match_table_meta.3.end,
+        };
+
+        Ok(TableMetadata {
+            name,
+            sheet_name,
+            columns,
+            dimensions,
+        })
+    }
+
     /// Load the merged regions
     pub fn load_merged_regions(&mut self) -> Result<(), XlsxError> {
         if self.merged_regions.is_none() {
@@ -732,23 +758,39 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .collect()
     }
 
-    /// Get the table by name
+    /// Get the table by name (owned)
     // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more efficient
     pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<Data>, XlsxError> {
-        let match_table_meta = self
-            .tables
-            .as_ref()
-            .expect("Tables must be loaded before they are referenced")
-            .iter()
-            .find(|(table, ..)| table == table_name)
-            .ok_or_else(|| XlsxError::TableNotFound(table_name.into()))?;
-        let name = match_table_meta.0.to_owned();
-        let sheet_name = match_table_meta.1.clone();
-        let columns = match_table_meta.2.clone();
-        let start_dim = match_table_meta.3.start;
-        let end_dim = match_table_meta.3.end;
+        let TableMetadata {
+            name,
+            sheet_name,
+            columns,
+            dimensions,
+        } = self.get_table_meta(table_name)?;
+        let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range(&sheet_name)?;
-        let tbl_rng = range.range(start_dim, end_dim);
+        let tbl_rng = range.range(start, end);
+
+        Ok(Table {
+            name,
+            sheet_name,
+            columns,
+            data: tbl_rng,
+        })
+    }
+
+    /// Get the table by name (ref)
+    pub fn table_by_name_ref(&mut self, table_name: &str) -> Result<Table<DataRef>, XlsxError> {
+        let TableMetadata {
+            name,
+            sheet_name,
+            columns,
+            dimensions,
+        } = self.get_table_meta(table_name)?;
+        let Dimensions { start, end } = dimensions;
+        let range = self.worksheet_range_ref(&sheet_name)?;
+        let tbl_rng = range.range(start, end);
+
         Ok(Table {
             name,
             sheet_name,
@@ -805,6 +847,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         self.worksheet_merge_cells(&name)
     }
+}
+
+struct TableMetadata {
+    name: String,
+    sheet_name: String,
+    columns: Vec<String>,
+    dimensions: Dimensions,
 }
 
 struct InnerTableMetadata {
