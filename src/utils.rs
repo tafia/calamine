@@ -1,7 +1,5 @@
 //! Internal module providing handy function
 
-use std::convert::TryInto;
-
 macro_rules! from_err {
     ($from:ty, $to:tt, $var:tt) => {
         impl From<$from> for $to {

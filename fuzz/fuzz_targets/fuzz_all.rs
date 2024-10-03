@@ -16,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => return,
     };
     for worksheet in workbook.worksheets() {
-        if let Some(Ok(range)) = workbook.worksheet_range(&worksheet.0) {
+        if let Ok(range) = workbook.worksheet_range(&worksheet.0) {
            let _ = range.get_size().0 * range.get_size().1;
            range.used_cells().count();
         }
@@ -33,7 +33,7 @@ fuzz_target!(|data: &[u8]| {
     }
     let sheets = workbook.sheet_names().to_owned();
     for s in sheets {
-        if let Some(Ok(formula)) = workbook.worksheet_formula(&s) {
+        if let Ok(formula) = workbook.worksheet_formula(&s) {
             formula.rows().flat_map(|r| r.iter().filter(|f| !f.is_empty())).count();
         }
     }

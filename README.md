@@ -45,9 +45,11 @@ fn example() -> Result<(), Error> {
 }
 ```
 
-Calamine provides helper functions to deal with invalid type values. For instance if you
-want to deserialize a column which should contain floats but may also contain invalid values
-(i.e. strings), you can use the [`deserialize_as_f64_or_none`] helper function with Serde's
+Calamine provides helper functions to deal with invalid type values. For
+instance, to deserialize a column which should contain floats but may also
+contain invalid values (i.e. strings), you can use the
+[`deserialize_as_f64_or_none`](https://docs.rs/calamine/latest/calamine/fn.deserialize_as_f64_or_none.html)
+helper function with Serde's
 [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute:
 
 ```rust
@@ -81,8 +83,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The [`deserialize_as_f64_or_none`] function will discard all invalid values, if you want to
-return them as `String` you can use the [`deserialize_as_f64_or_string`] function instead.
+The
+[`deserialize_as_f64_or_none`](https://docs.rs/calamine/latest/calamine/fn.deserialize_as_f64_or_none.html)
+function discards all invalid values. If instead you would like to return them
+as `String`s, you can use the similar
+[`deserialize_as_f64_or_string`](https://docs.rs/calamine/latest/calamine/fn.deserialize_as_f64_or_string.html)
+function.
 
 ### Reader: Simple
 

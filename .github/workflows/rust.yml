@@ -27,7 +27,7 @@ jobs:
         cargo build
     - name: Run tests
       run: |
-        cargo test --features dates
+        cargo test --all-features
     - name: Install rustfmt
       uses: dtolnay/rust-toolchain@master
       if: ${{ matrix.toolchain == 'stable' }}

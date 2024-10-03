@@ -1,6 +1,6 @@
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{self, DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
-use serde::{self, forward_to_deserialize_any, Deserialize, Deserializer};
+use serde::{forward_to_deserialize_any, Deserialize, Deserializer};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 

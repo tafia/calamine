@@ -5,7 +5,6 @@ pub use cells_reader::XlsbCellsReader;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
-use std::string::String;
 
 use log::debug;
 
@@ -410,19 +409,19 @@ impl<RS: Read + Seek> Xlsb<RS> {
         let mut pics = Vec::new();
         for i in 0..self.zip.len() {
             let mut zfile = self.zip.by_index(i)?;
-            let zname = zfile.name().to_owned();
+            let zname = zfile.name();
             if zname.starts_with("xl/media") {
-                let name_ext: Vec<&str> = zname.split(".").collect();
-                if let Some(ext) = name_ext.last() {
+                if let Some(ext) = zname.split('.').last() {
                     if [
                         "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
                         "bmp", "wpg",
                     ]
-                    .contains(ext)
+                    .contains(&ext)
                     {
+                        let ext = ext.to_string();
                         let mut buf: Vec<u8> = Vec::new();
                         zfile.read_to_end(&mut buf)?;
-                        pics.push((ext.to_string(), buf));
+                        pics.push((ext, buf));
                     }
                 }
             }
