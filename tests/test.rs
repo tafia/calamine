@@ -1822,3 +1822,10 @@ fn issue_repeated_empty(#[case] fixture_path: &str) {
         ]
     );
 }
+
+#[test]
+fn ods_with_annotations() {
+    let mut ods: Ods<_> = wb("with-annotation.ods");
+    let range = ods.worksheet_range("table1").unwrap();
+    range_eq!(range, [[String("cell a.1".to_string())],]);
+}
