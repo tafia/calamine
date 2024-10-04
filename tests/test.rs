@@ -1900,6 +1900,28 @@ fn test_ref_xlsb() {
     );
 }
 
+fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
+    // file contains XLUnicodeString with cch = 0 and do not have a reserved byte tag
+    // as well as record types that do not seem to be present in the spec
+    let mut xls: Xls<_> = wb("high_byte_string.xls");
+    for (_, ws) in xls.worksheets() {
+        for (row, _, cell) in ws.used_cells() {
+            if row == 3 {
+                assert_eq!(
+                    cell.as_string().unwrap(),
+                    "Inside FERC's Gas Market Report monthly bidweek price file.  "
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_oom_allocation() {
+    let _xls: Xls<_> = wb("OOM_alloc.xls");
+    let _xls: Xls<_> = wb("OOM_alloc2.xls");
+}
+
 #[rstest]
 #[case("single-empty.ods")]
 #[case("multi-empty.ods")]
