@@ -2,7 +2,6 @@
 
 use std::borrow::Cow;
 use std::cmp::min;
-use std::convert::TryInto;
 use std::io::Read;
 
 use log::debug;
