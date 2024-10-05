@@ -1813,7 +1813,7 @@ fn test_header_row_xlsx(
     #[case] expected_first_row: &[Data],
     #[case] expected_total_cells: usize,
 ) {
-    let excel: Xlsx<_> = wb(fixture_path);
+    let mut excel: Xlsx<_> = wb(fixture_path);
     assert_eq!(
         excel.sheets_metadata(),
         &[Sheet {
@@ -1833,7 +1833,20 @@ fn test_header_row_xlsx(
     assert_eq!(range.cells().count(), expected_total_cells);
 }
 
-#[rstest]
+#[test]
+fn test_read_twice_with_different_header_rows() {
+    let mut xlsx: Xlsx<_> = wb("any_sheets.xlsx");
+    let _ = xlsx
+        .with_options(XlsxOptions::default().with_header_row(2))
+        .worksheet_range("Visible")
+        .unwrap();
+    let _ = xlsx
+        .with_options(XlsxOptions::default().with_header_row(1))
+        .worksheet_range("Visible")
+        .unwrap();
+}
+
+#[test]
 fn test_header_row_xlsb() {
     let mut xlsb: Xlsb<_> = wb("date.xlsb");
     assert_eq!(
@@ -1877,7 +1890,7 @@ fn test_header_row_xlsb() {
     assert_eq!(range.rows().next().unwrap(), &second_line);
 }
 
-#[rstest]
+#[test]
 fn test_header_row_xls() {
     let mut xls: Xls<_> = wb("date.xls");
     assert_eq!(
@@ -1921,7 +1934,7 @@ fn test_header_row_xls() {
     assert_eq!(range.rows().next().unwrap(), &second_line);
 }
 
-#[rstest]
+#[test]
 fn test_header_row_ods() {
     let mut ods: Ods<_> = wb("date.ods");
     assert_eq!(

@@ -241,7 +241,7 @@ where
     fn set_options(&mut self, options: Self::Options);
 
     /// Set options and return the reader
-    fn with_options(mut self, options: Self::Options) -> Self {
+    fn with_options(&mut self, options: Self::Options) -> &mut Self {
         self.set_options(options);
         self
     }

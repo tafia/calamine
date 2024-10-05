@@ -866,14 +866,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 }
 
-impl<RS> Xlsx<RS> {
-    /// Set reader options
-    pub fn with_options(mut self, options: XlsxOptions) -> Self {
-        self.options = options;
-        self
-    }
-}
-
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     type Error = XlsxError;
     type Options = XlsxOptions;
