@@ -246,6 +246,9 @@ where
         self
     }
 
+    /// Set current header row
+    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self;
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
 

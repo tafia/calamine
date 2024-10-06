@@ -192,6 +192,11 @@ where
         self.options = options;
     }
 
+    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
+        self.options.header_row = header_row;
+        self
+    }
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, OdsError>> {
         None

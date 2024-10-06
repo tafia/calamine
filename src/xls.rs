@@ -261,6 +261,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         self.options = options;
     }
 
+    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
+        self.options.header_row = header_row;
+        self
+    }
+
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
         self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
     }

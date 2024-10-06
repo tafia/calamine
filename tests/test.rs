@@ -1,8 +1,8 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, Ods, OdsOptions, Range, Reader, ReaderOptions, ReaderRef, Sheet, SheetType,
-    SheetVisible, Xls, XlsOptions, Xlsb, XlsbOptions, Xlsx, XlsxOptions,
+    ExcelDateTimeType, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Xls, Xlsb,
+    Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -1824,7 +1824,7 @@ fn test_header_row_xlsx(
     );
 
     let range = excel
-        .with_options(XlsxOptions { header_row })
+        .with_header_row(header_row)
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some(expected_start));
@@ -1837,11 +1837,11 @@ fn test_header_row_xlsx(
 fn test_read_twice_with_different_header_rows() {
     let mut xlsx: Xlsx<_> = wb("any_sheets.xlsx");
     let _ = xlsx
-        .with_options(XlsxOptions::default().with_header_row(2))
+        .with_header_row(Some(2))
         .worksheet_range("Visible")
         .unwrap();
     let _ = xlsx
-        .with_options(XlsxOptions::default().with_header_row(1))
+        .with_header_row(Some(1))
         .worksheet_range("Visible")
         .unwrap();
 }
@@ -1882,7 +1882,7 @@ fn test_header_row_xlsb() {
     assert_eq!(range.rows().nth(1).unwrap(), &second_line);
 
     let range = xlsb
-        .with_options(XlsbOptions::default().with_header_row(1))
+        .with_header_row(Some(1))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((1, 0)));
@@ -1926,7 +1926,7 @@ fn test_header_row_xls() {
     assert_eq!(range.rows().nth(1).unwrap(), &second_line);
 
     let range = xls
-        .with_options(XlsOptions::default().with_header_row(1))
+        .with_header_row(Some(1))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((1, 0)));
@@ -1956,7 +1956,7 @@ fn test_header_row_ods() {
     assert_eq!(range.rows().nth(2).unwrap(), &third_line);
 
     let range = ods
-        .with_options(OdsOptions::default().with_header_row(2))
+        .with_header_row(Some(2))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((2, 0)));

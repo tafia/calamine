@@ -115,6 +115,24 @@ where
         }
     }
 
+    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
+        match self {
+            Sheets::Xls(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+            Sheets::Xlsx(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+            Sheets::Xlsb(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+            Sheets::Ods(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+        }
+        self
+    }
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>> {
         match self {
