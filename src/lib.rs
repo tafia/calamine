@@ -228,7 +228,8 @@ where
     /// Creates a new instance.
     fn new(reader: RS) -> Result<Self, Self::Error>;
 
-    /// Set current header row
+    /// Set header row (i.e. first row to be read)
+    /// If `header_row` is `None`, the first non-empty row will be used as header row
     fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self;
 
     /// Gets `VbaProject`
