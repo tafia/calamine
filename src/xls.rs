@@ -17,8 +17,7 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, ReaderOptions, Sheet,
-    SheetType, SheetVisible,
+    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
 };
 
 #[derive(Debug)]
@@ -142,27 +141,6 @@ pub struct XlsOptions {
     pub header_row: Option<u32>,
 }
 
-impl XlsOptions {
-    #[allow(dead_code)]
-    /// Set the code page
-    fn with_codepage(self, codepage: u16) -> Self {
-        Self {
-            force_codepage: Some(codepage),
-            ..self
-        }
-    }
-}
-
-impl ReaderOptions for XlsOptions {
-    /// Set the header row index
-    fn with_header_row(self, header_row: u32) -> Self {
-        Self {
-            header_row: Some(header_row),
-            ..self
-        }
-    }
-}
-
 struct SheetData {
     range: Range<Data>,
     formula: Range<String>,
@@ -251,14 +229,9 @@ impl<RS: Read + Seek> Xls<RS> {
 
 impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     type Error = XlsError;
-    type Options = XlsOptions;
 
     fn new(reader: RS) -> Result<Self, XlsError> {
         Self::new_with_options(reader, XlsOptions::default())
-    }
-
-    fn set_options(&mut self, options: Self::Options) {
-        self.options = options;
     }
 
     fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {

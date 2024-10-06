@@ -20,9 +20,7 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{
-    Cell, Data, Metadata, Range, Reader, ReaderOptions, ReaderRef, Sheet, SheetType, SheetVisible,
-};
+use crate::{Cell, Data, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -136,15 +134,6 @@ pub struct XlsbOptions {
     /// Index of the header row
     /// If not set, the first non-empty row is considered the header row
     pub header_row: Option<u32>,
-}
-
-impl ReaderOptions for XlsbOptions {
-    /// Set the header row index
-    fn with_header_row(self, header_row: u32) -> Self {
-        Self {
-            header_row: Some(header_row),
-        }
-    }
 }
 
 /// A Xlsb reader
@@ -455,7 +444,6 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
 impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     type Error = XlsbError;
-    type Options = XlsbOptions;
 
     fn new(mut reader: RS) -> Result<Self, XlsbError> {
         check_for_password_protected(&mut reader)?;
@@ -480,10 +468,6 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         xlsb.read_pictures()?;
 
         Ok(xlsb)
-    }
-
-    fn set_options(&mut self, options: Self::Options) {
-        self.options = options;
     }
 
     fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
