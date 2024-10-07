@@ -130,9 +130,7 @@ impl std::error::Error for XlsbError {
 
 /// Xlsb reader options
 #[derive(Debug, Default)]
-pub struct XlsbOptions {
-    /// Index of the header row
-    /// If not set, the first non-empty row is considered the header row
+struct XlsbOptions {
     pub header_row: Option<u32>,
 }
 

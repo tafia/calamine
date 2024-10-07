@@ -203,9 +203,7 @@ pub struct Xlsx<RS> {
 
 /// Xlsx reader options
 #[derive(Debug, Default)]
-pub struct XlsxOptions {
-    /// Index of the header row
-    /// If not set, the first non-empty row is considered the header row
+struct XlsxOptions {
     pub header_row: Option<u32>,
 }
 

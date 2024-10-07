@@ -64,9 +64,7 @@ pub enum OdsError {
 
 /// Ods reader options
 #[derive(Debug, Default)]
-pub struct OdsOptions {
-    /// Index of the header row
-    /// If not set, the first non-empty row is considered the header row
+struct OdsOptions {
     pub header_row: Option<u32>,
 }
 
