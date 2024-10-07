@@ -3,8 +3,8 @@
 use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
-    open_workbook, open_workbook_from_rs, Data, DataRef, Metadata, Ods, Range, Reader, ReaderRef,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
+    ReaderRef, Xls, Xlsb, Xlsx,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -85,7 +85,7 @@ where
         Err(Error::Msg("Sheets must be created from a Path"))
     }
 
-    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
         match self {
             Sheets::Xls(ref mut e) => {
                 e.with_header_row(header_row);

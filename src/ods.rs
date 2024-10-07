@@ -16,7 +16,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Data, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -64,8 +64,9 @@ pub enum OdsError {
 
 /// Ods reader options
 #[derive(Debug, Default)]
+#[non_exhaustive]
 struct OdsOptions {
-    pub header_row: Option<u32>,
+    pub header_row: HeaderRow,
 }
 
 from_err!(std::io::Error, OdsError, Io);
@@ -173,7 +174,7 @@ where
         })
     }
 
-    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
         self.options.header_row = header_row;
         self
     }
@@ -197,15 +198,17 @@ where
             .0
             .to_owned();
 
-        // If a header_row is defined, adjust the range
-        if let Some(header_row) = self.options.header_row {
-            if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
-                return Ok(sheet.range((header_row, start.1), end));
+        match self.options.header_row {
+            HeaderRow::FirstNonEmptyRow => Ok(sheet),
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, adjust the range
+                if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
+                    Ok(sheet.range((header_row_idx, start.1), end))
+                } else {
+                    Ok(sheet)
+                }
             }
         }
-
-        // Return the original range if no header row is set
-        Ok(sheet)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {

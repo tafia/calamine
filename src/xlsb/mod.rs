@@ -20,7 +20,9 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, Data, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible};
+use crate::{
+    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -130,8 +132,9 @@ impl std::error::Error for XlsbError {
 
 /// Xlsb reader options
 #[derive(Debug, Default)]
+#[non_exhaustive]
 struct XlsbOptions {
-    pub header_row: Option<u32>,
+    pub header_row: HeaderRow,
 }
 
 /// A Xlsb reader
@@ -468,7 +471,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         Ok(xlsb)
     }
 
-    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self {
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
         self.options.header_row = header_row;
         self
     }
@@ -541,52 +544,56 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
             cells.reserve(len as usize);
         }
 
-        // If `header_row` is set, we only add non-empty cells after the `header_row`.
-        if let Some(header_row) = header_row {
-            loop {
-                match cell_reader.next_cell() {
-                    Ok(Some(Cell {
-                        val: DataRef::Empty,
-                        ..
-                    })) => (),
-                    Ok(Some(cell)) => {
-                        if cell.pos.0 >= header_row {
-                            cells.push(cell);
-                        }
+        match header_row {
+            HeaderRow::FirstNonEmptyRow => {
+                // the header row is the row of the first non-empty cell
+                loop {
+                    match cell_reader.next_cell() {
+                        Ok(Some(Cell {
+                            val: DataRef::Empty,
+                            ..
+                        })) => (),
+                        Ok(Some(cell)) => cells.push(cell),
+                        Ok(None) => break,
+                        Err(e) => return Err(e),
                     }
-                    Ok(None) => break,
-                    Err(e) => return Err(e),
                 }
             }
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, we only add non-empty cells after this index.
+                loop {
+                    match cell_reader.next_cell() {
+                        Ok(Some(Cell {
+                            val: DataRef::Empty,
+                            ..
+                        })) => (),
+                        Ok(Some(cell)) => {
+                            if cell.pos.0 >= header_row_idx {
+                                cells.push(cell);
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
 
-            // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
-            // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
-            if cells.first().map_or(false, |c| c.pos.0 != header_row) {
-                cells.insert(
-                    header_row as usize,
-                    Cell {
-                        pos: (
-                            header_row,
-                            cells.first().expect("cells should not be empty").pos.1,
-                        ),
-                        val: DataRef::Empty,
-                    },
-                );
-            }
-        // If `header_row` is not specified (default), the header row is the row of the first non-empty cell.
-        } else {
-            loop {
-                match cell_reader.next_cell() {
-                    Ok(Some(Cell {
-                        val: DataRef::Empty,
-                        ..
-                    })) => (),
-                    Ok(Some(cell)) => cells.push(cell),
-                    Ok(None) => break,
-                    Err(e) => return Err(e),
+                // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
+                // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
+                if cells.first().map_or(false, |c| c.pos.0 != header_row_idx) {
+                    cells.insert(
+                        header_row_idx as usize,
+                        Cell {
+                            pos: (
+                                header_row_idx,
+                                cells.first().expect("cells should not be empty").pos.1,
+                            ),
+                            val: DataRef::Empty,
+                        },
+                    );
                 }
             }
         }
+
         Ok(Range::from_sparse(cells))
     }
 }

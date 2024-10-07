@@ -215,6 +215,23 @@ pub struct Sheet {
     pub visible: SheetVisible,
 }
 
+/// Row to use as header
+/// By default, the first non-empty row is used as header
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub enum HeaderRow {
+    /// First non-empty row
+    FirstNonEmptyRow,
+    /// Index of the header row
+    Row(u32),
+}
+
+impl Default for HeaderRow {
+    fn default() -> Self {
+        HeaderRow::FirstNonEmptyRow
+    }
+}
+
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
 // the kinds of readers (other) data in formats can be read from.
 /// A trait to share spreadsheets reader functions across different `FileType`s
@@ -230,7 +247,7 @@ where
 
     /// Set header row (i.e. first row to be read)
     /// If `header_row` is `None`, the first non-empty row will be used as header row
-    fn with_header_row(&mut self, header_row: Option<u32>) -> &mut Self;
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self;
 
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;

@@ -1,8 +1,8 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Xls, Xlsb,
-    Xlsx,
+    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -1798,16 +1798,16 @@ fn test_ref_xlsb() {
 }
 
 #[rstest]
-#[case("header-row.xlsx", None, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
-#[case("header-row.xlsx", Some(0), (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]
-#[case("header-row.xlsx", Some(8), (8, 0), (9, 3), &[String("Columns".to_string()), String("Column A".to_string()), String("Column B".to_string()), String("Column C".to_string())], 8)]
-#[case("temperature.xlsx", None, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
-#[case("temperature.xlsx", Some(0), (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
-#[case("temperature-in-middle.xlsx", None, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
-#[case("temperature-in-middle.xlsx", Some(0), (0, 1), (5, 2), &[Empty, Empty], 12)]
+#[case("header-row.xlsx", HeaderRow::FirstNonEmptyRow, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
+#[case("header-row.xlsx", HeaderRow::Row(0), (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]
+#[case("header-row.xlsx", HeaderRow::Row(8), (8, 0), (9, 3), &[String("Columns".to_string()), String("Column A".to_string()), String("Column B".to_string()), String("Column C".to_string())], 8)]
+#[case("temperature.xlsx", HeaderRow::FirstNonEmptyRow, (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature.xlsx", HeaderRow::Row(0), (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature-in-middle.xlsx", HeaderRow::FirstNonEmptyRow, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
+#[case("temperature-in-middle.xlsx", HeaderRow::Row(0), (0, 1), (5, 2), &[Empty, Empty], 12)]
 fn test_header_row_xlsx(
     #[case] fixture_path: &str,
-    #[case] header_row: Option<u32>,
+    #[case] header_row: HeaderRow,
     #[case] expected_start: (u32, u32),
     #[case] expected_end: (u32, u32),
     #[case] expected_first_row: &[Data],
@@ -1837,11 +1837,11 @@ fn test_header_row_xlsx(
 fn test_read_twice_with_different_header_rows() {
     let mut xlsx: Xlsx<_> = wb("any_sheets.xlsx");
     let _ = xlsx
-        .with_header_row(Some(2))
+        .with_header_row(HeaderRow::Row(2))
         .worksheet_range("Visible")
         .unwrap();
     let _ = xlsx
-        .with_header_row(Some(1))
+        .with_header_row(HeaderRow::Row(1))
         .worksheet_range("Visible")
         .unwrap();
 }
@@ -1882,7 +1882,7 @@ fn test_header_row_xlsb() {
     assert_eq!(range.rows().nth(1).unwrap(), &second_line);
 
     let range = xlsb
-        .with_header_row(Some(1))
+        .with_header_row(HeaderRow::Row(1))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((1, 0)));
@@ -1926,7 +1926,7 @@ fn test_header_row_xls() {
     assert_eq!(range.rows().nth(1).unwrap(), &second_line);
 
     let range = xls
-        .with_header_row(Some(1))
+        .with_header_row(HeaderRow::Row(1))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((1, 0)));
@@ -1956,7 +1956,7 @@ fn test_header_row_ods() {
     assert_eq!(range.rows().nth(2).unwrap(), &third_line);
 
     let range = ods
-        .with_header_row(Some(2))
+        .with_header_row(HeaderRow::Row(2))
         .worksheet_range("Sheet1")
         .unwrap();
     assert_eq!(range.start(), Some((2, 0)));
