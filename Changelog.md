@@ -10,6 +10,18 @@
 
 ## Unreleased
 
+## 0.26.0 (2024-10-08)
+
+- feat: add ability to merge cells from xls and xlsx
+- feat: add options to keep first empty rows for xlsx
+- feat: support consecutive repeated empty cells for ods
+- feat: add new `header_row` config
+- test: fix broken fuzzer
+- docs: fix broken links in README
+- docs: enable dates and pictures features in docs.rs build
+- chore: bump MRSV to 1.73
+
+
 ## 0.25.0 (2024-05-25)
 
 - feat: added `is_error` and `get_error` methods to the `DataType` trait
