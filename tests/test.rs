@@ -2099,3 +2099,29 @@ fn ods_with_annotations() {
     let range = ods.worksheet_range("table1").unwrap();
     range_eq!(range, [[String("cell a.1".to_string())],]);
 }
+
+#[rstest]
+#[case(HeaderRow::Row(0), &[
+    [Empty, Empty],
+    [Empty, Empty],
+    [String("a".to_string()), Float(0.0)],
+    [String("b".to_string()), Float(1.0)]
+])]
+#[case(HeaderRow::Row(1), &[
+    [Empty, Empty],
+    [String("a".to_string()), Float(0.0)],
+    [String("b".to_string()), Float(1.0)]
+])]
+#[case(HeaderRow::Row(2), &[
+    [String("a".to_string()), Float(0.0)],
+    [String("b".to_string()), Float(1.0)]
+])]
+fn test_no_header(#[case] header_row: HeaderRow, #[case] expected: &[[Data; 2]]) {
+    let mut excel: Xlsx<_> = wb("no-header.xlsx");
+    let range = excel
+        .with_header_row(header_row)
+        .worksheet_range_at(0)
+        .unwrap()
+        .unwrap();
+    range_eq!(range, expected);
+}
