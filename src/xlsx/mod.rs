@@ -1060,7 +1060,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
                 // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
                 if cells.first().map_or(false, |c| c.pos.0 != header_row_idx) {
                     cells.insert(
-                        header_row_idx as usize,
+                        0,
                         Cell {
                             pos: (
                                 header_row_idx,
