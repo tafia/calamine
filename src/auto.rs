@@ -3,8 +3,8 @@
 use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
-    open_workbook, open_workbook_from_rs, Data, DataRef, Metadata, Ods, Range, Reader, ReaderRef,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
+    ReaderRef, Xls, Xlsb, Xlsx,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -85,9 +85,27 @@ where
         Err(Error::Msg("Sheets must be created from a Path"))
     }
 
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
+        match self {
+            Sheets::Xls(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+            Sheets::Xlsx(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+            Sheets::Xlsb(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+            Sheets::Ods(ref mut e) => {
+                e.with_header_row(header_row);
+            }
+        }
+        self
+    }
+
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>> {
-        match *self {
+        match self {
             Sheets::Xls(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xls)),
             Sheets::Xlsx(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsx)),
             Sheets::Xlsb(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsb)),
@@ -97,7 +115,7 @@ where
 
     /// Initialize
     fn metadata(&self) -> &Metadata {
-        match *self {
+        match self {
             Sheets::Xls(ref e) => e.metadata(),
             Sheets::Xlsx(ref e) => e.metadata(),
             Sheets::Xlsb(ref e) => e.metadata(),
@@ -107,7 +125,7 @@ where
 
     /// Read worksheet data in corresponding worksheet path
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error> {
-        match *self {
+        match self {
             Sheets::Xls(ref mut e) => e.worksheet_range(name).map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsx),
             Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsb),
@@ -117,7 +135,7 @@ where
 
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Self::Error> {
-        match *self {
+        match self {
             Sheets::Xls(ref mut e) => e.worksheet_formula(name).map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsx),
             Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsb),
@@ -126,7 +144,7 @@ where
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
-        match *self {
+        match self {
             Sheets::Xls(ref mut e) => e.worksheets(),
             Sheets::Xlsx(ref mut e) => e.worksheets(),
             Sheets::Xlsb(ref mut e) => e.worksheets(),
@@ -136,7 +154,7 @@ where
 
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
-        match *self {
+        match self {
             Sheets::Xls(ref e) => e.pictures(),
             Sheets::Xlsx(ref e) => e.pictures(),
             Sheets::Xlsb(ref e) => e.pictures(),
@@ -153,7 +171,7 @@ where
         &'a mut self,
         name: &str,
     ) -> Result<Range<DataRef<'a>>, Self::Error> {
-        match *self {
+        match self {
             Sheets::Xlsx(ref mut e) => e.worksheet_range_ref(name).map_err(Error::Xlsx),
             Sheets::Xlsb(ref mut e) => e.worksheet_range_ref(name).map_err(Error::Xlsb),
             Sheets::Xls(_) => unimplemented!(),

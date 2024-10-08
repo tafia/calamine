@@ -16,7 +16,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Data, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -60,6 +60,13 @@ pub enum OdsError {
     Password,
     /// Worksheet not found
     WorksheetNotFound(String),
+}
+
+/// Ods reader options
+#[derive(Debug, Default)]
+#[non_exhaustive]
+struct OdsOptions {
+    pub header_row: HeaderRow,
 }
 
 from_err!(std::io::Error, OdsError, Io);
@@ -116,6 +123,8 @@ pub struct Ods<RS> {
     marker: PhantomData<RS>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+    /// Reader options
+    options: OdsOptions,
 }
 
 impl<RS> Reader<RS> for Ods<RS>
@@ -161,7 +170,13 @@ where
             sheets,
             #[cfg(feature = "picture")]
             pictures,
+            options: OdsOptions::default(),
         })
+    }
+
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
+        self.options.header_row = header_row;
+        self
     }
 
     /// Gets `VbaProject`
@@ -176,10 +191,24 @@ where
 
     /// Read worksheet data in corresponding worksheet path
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, OdsError> {
-        self.sheets
+        let sheet = self
+            .sheets
             .get(name)
-            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
-            .map(|r| r.0.to_owned())
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))?
+            .0
+            .to_owned();
+
+        match self.options.header_row {
+            HeaderRow::FirstNonEmptyRow => Ok(sheet),
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, adjust the range
+                if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
+                    Ok(sheet.range((header_row_idx, start.1), end))
+                } else {
+                    Ok(sheet)
+                }
+            }
+        }
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {

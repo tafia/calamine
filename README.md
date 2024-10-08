@@ -103,6 +103,26 @@ if let Some(Ok(r)) = excel.worksheet_range("Sheet1") {
 }
 ```
 
+### Reader: With header row
+
+```rs
+use calamine::{Reader, Xlsx, open_workbook};
+
+let mut excel: Xlsx<_> = open_workbook("file.xlsx").unwrap();
+
+let sheet1 = excel
+    .with_header_row(Some(3))
+    .worksheet_range("Sheet1")
+    .unwrap();
+```
+
+Note that `xlsx` and `xlsb` files support lazy loading, so specifying a
+header row takes effect immediately when reading a sheet range.
+In contrast, for `xls` and `ods` files, all sheets are loaded at once when
+opening the workbook with default settings.
+As a result, setting the header row only applies afterward and does not
+provide any performance benefits.
+
 ### Reader: More complex
 
 Let's assume
@@ -190,7 +210,7 @@ The programs are all structured to follow the same constructs:
 use calamine::{open_workbook, Reader, Xlsx};
 
 fn main() {
-    // Open workbook 
+    // Open workbook
     let mut excel: Xlsx<_> =
         open_workbook("NYC_311_SR_2010-2020-sample-1M.xlsx").expect("failed to find file");
 

@@ -18,8 +18,8 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
-    SheetVisible, Table,
+    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
+    SheetType, SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -197,6 +197,15 @@ pub struct Xlsx<RS> {
     pictures: Option<Vec<(String, Vec<u8>)>>,
     /// Merged Regions: Name, Sheet, Merged Dimensions
     merged_regions: Option<Vec<(String, String, Dimensions)>>,
+    /// Reader options
+    options: XlsxOptions,
+}
+
+/// Xlsx reader options
+#[derive(Debug, Default)]
+#[non_exhaustive]
+struct XlsxOptions {
+    pub header_row: HeaderRow,
 }
 
 impl<RS: Read + Seek> Xlsx<RS> {
@@ -913,6 +922,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             #[cfg(feature = "picture")]
             pictures: None,
             merged_regions: None,
+            options: XlsxOptions::default(),
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
@@ -922,6 +932,11 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         xlsx.read_pictures()?;
 
         Ok(xlsx)
+    }
+
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
+        self.options.header_row = header_row;
+        self
     }
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
@@ -993,6 +1008,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 
 impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
     fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsxError> {
+        let header_row = self.options.header_row;
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
@@ -1006,17 +1022,57 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
         if len < 100_000 {
             cells.reserve(len as usize);
         }
-        loop {
-            match cell_reader.next_cell() {
-                Ok(Some(Cell {
-                    val: DataRef::Empty,
-                    ..
-                })) => (),
-                Ok(Some(cell)) => cells.push(cell),
-                Ok(None) => break,
-                Err(e) => return Err(e),
+
+        match header_row {
+            HeaderRow::FirstNonEmptyRow => {
+                // the header row is the row of the first non-empty cell
+                loop {
+                    match cell_reader.next_cell() {
+                        Ok(Some(Cell {
+                            val: DataRef::Empty,
+                            ..
+                        })) => (),
+                        Ok(Some(cell)) => cells.push(cell),
+                        Ok(None) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, we only add non-empty cells after this index.
+                loop {
+                    match cell_reader.next_cell() {
+                        Ok(Some(Cell {
+                            val: DataRef::Empty,
+                            ..
+                        })) => (),
+                        Ok(Some(cell)) => {
+                            if cell.pos.0 >= header_row_idx {
+                                cells.push(cell);
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+
+                // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
+                // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
+                if cells.first().map_or(false, |c| c.pos.0 != header_row_idx) {
+                    cells.insert(
+                        header_row_idx as usize,
+                        Cell {
+                            pos: (
+                                header_row_idx,
+                                cells.first().expect("cells should not be empty").pos.1,
+                            ),
+                            val: DataRef::Empty,
+                        },
+                    );
+                }
             }
         }
+
         Ok(Range::from_sparse(cells))
     }
 }
@@ -1318,7 +1374,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
     }
 }
 
-/// Convert the integer to Excelsheet column title.  
+/// Convert the integer to Excelsheet column title.
 /// If the column number not in 1~16384, an Error is returned.
 pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
     if num >= MAX_COLUMNS {
@@ -1335,7 +1391,7 @@ pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
     Ok(col)
 }
 
-/// Convert a cell coordinate to Excelsheet cell name.  
+/// Convert a cell coordinate to Excelsheet cell name.
 /// If the column number not in 1~16384, an Error is returned.
 pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError> {
     let cell = &[

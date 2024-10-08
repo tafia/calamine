@@ -17,7 +17,8 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
+    SheetVisible,
 };
 
 #[derive(Debug)]
@@ -136,6 +137,8 @@ pub struct XlsOptions {
     ///
     /// [code page]: https://docs.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
     pub force_codepage: Option<u16>,
+    /// Row to use as header
+    pub header_row: HeaderRow,
 }
 
 struct SheetData {
@@ -231,6 +234,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         Self::new_with_options(reader, XlsOptions::default())
     }
 
+    fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
+        self.options.header_row = header_row;
+        self
+    }
+
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
         self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
     }
@@ -241,10 +249,23 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsError> {
-        self.sheets
+        let sheet = self
+            .sheets
             .get(name)
             .map(|r| r.range.clone())
-            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))?;
+
+        match self.options.header_row {
+            HeaderRow::FirstNonEmptyRow => Ok(sheet),
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, adjust the range
+                if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
+                    Ok(sheet.range((header_row_idx, start.1), end))
+                } else {
+                    Ok(sheet)
+                }
+            }
+        }
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
