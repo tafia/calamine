@@ -1900,6 +1900,20 @@ fn test_ref_xlsb() {
     );
 }
 
+#[test]
+fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
+    // file contains XLUnicodeString with cch = 0 and do not have a reserved byte tag
+    let _: Xls<_> = wb("high_byte_string.xls");
+}
+
+#[test]
+fn test_oom_allocation() {
+    let _xls: Xls<_> = wb("OOM_alloc.xls");
+    let _xls: Xls<_> = wb("OOM_alloc2.xls");
+    // FIXME: kills all tests with abort unless unstable set_alloc_error_hook is used
+    // let _xls: Xls<_> = wb("OOM_alloc3.xls");
+}
+
 #[rstest]
 #[case("header-row.xlsx", HeaderRow::FirstNonEmptyRow, (2, 0), (9, 3), &[Empty, Empty, String("Note 1".to_string()), Empty], 32)]
 #[case("header-row.xlsx", HeaderRow::Row(0), (0, 0), (9, 3), &[Empty, Empty, Empty, Empty], 40)]

@@ -363,7 +363,7 @@ impl<RS: Read + Seek> Xls<RS> {
                         let cch = r.data[3] as usize;
                         let cce = read_u16(&r.data[4..]) as usize;
                         let mut name = String::new();
-                        read_unicode_string_no_cch(&encoding, &r.data[14..], &cch, &mut name);
+                        read_unicode_string_no_cch(&r.data[14..], &cch, &mut name);
                         let rgce = &r.data[r.data.len() - cce..];
                         let formula = parse_defined_names(rgce)?;
                         defined_names.push((name, formula));
@@ -471,21 +471,16 @@ impl<RS: Read + Seek> Xls<RS> {
                             // it will appear in 0x0207 record coming next
                             cells.push(Cell::new(fmla_pos, val));
                         }
-                        let fmla = parse_formula(
-                            &r.data[20..],
-                            &fmla_sheet_names,
-                            &defined_names,
-                            &xtis,
-                            &encoding,
-                        )
-                        .unwrap_or_else(|e| {
-                            debug!("{}", e);
-                            format!(
-                                "Unrecognised formula \
+                        let fmla =
+                            parse_formula(&r.data[20..], &fmla_sheet_names, &defined_names, &xtis)
+                                .unwrap_or_else(|e| {
+                                    debug!("{}", e);
+                                    format!(
+                                        "Unrecognised formula \
                                  for cell ({}, {}): {:?}",
-                                row, col, e
-                            )
-                        });
+                                        row, col, e
+                                    )
+                                });
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
                     _ => (),
@@ -777,14 +772,18 @@ fn parse_short_string(
 
 /// XLUnicodeString [MS-XLS 2.5.294]
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
-    if r.len() < 4 {
+    if r.len() < 2 {
         return Err(XlsError::Len {
             typ: "string",
-            expected: 4,
+            expected: 2,
             found: r.len(),
         });
     }
     let cch = read_u16(r) as usize;
+    if cch == 0 {
+        // tests/high_byte_string.xls
+        return Ok(String::new());
+    }
 
     let (high_byte, start) = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
@@ -840,7 +839,7 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
-    let (rf, rl, cf, cl) = match r.len() {
+    let (rf, rl, mut cf, cl) = match r.len() {
         10 => (
             read_u16(&r[0..2]) as u32,
             read_u16(&r[2..4]) as u32,
@@ -861,6 +860,12 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
             });
         }
     };
+    // 2.5.53 ColU must be <= 0xFF, if larger, reasonable to assume
+    // starts at 0
+    // tests/OOM_alloc2.xls
+    if 0xFF < cf || cl < cf {
+        cf = 0;
+    }
     if 1 <= rl && 1 <= cl {
         Ok(Dimensions {
             start: (rf, cf),
@@ -1005,8 +1010,10 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) {
-    encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
+fn read_unicode_string_no_cch(buf: &[u8], len: &usize, s: &mut String) -> usize {
+    XlsEncoding::unicode()
+        .decode_to(&buf[1..], *len, s, Some(buf[0] & 0x1 != 0))
+        .1
 }
 
 struct Record<'a> {
@@ -1147,7 +1154,6 @@ fn parse_formula(
     sheets: &[String],
     names: &[(String, String)],
     xtis: &[Xti],
-    encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
@@ -1266,9 +1272,9 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
+                let l = read_unicode_string_no_cch(&rgce[1..], &cch, &mut formula);
                 formula.push('\"');
-                rgce = &rgce[2 + cch..];
+                rgce = &rgce[2 + l..];
             }
             0x18 => {
                 rgce = &rgce[5..];
