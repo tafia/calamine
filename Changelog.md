@@ -10,6 +10,10 @@
 
 ## Unreleased
 
+## 0.26.1 (2024-10-10)
+
+- fix: sparse celle expect 0 index rows, even when using `header_row`
+
 ## 0.26.0 (2024-10-08)
 
 - feat: add ability to merge cells from xls and xlsx
