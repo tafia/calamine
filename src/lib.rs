@@ -217,19 +217,14 @@ pub struct Sheet {
 
 /// Row to use as header
 /// By default, the first non-empty row is used as header
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 #[non_exhaustive]
 pub enum HeaderRow {
     /// First non-empty row
+    #[default]
     FirstNonEmptyRow,
     /// Index of the header row
     Row(u32),
-}
-
-impl Default for HeaderRow {
-    fn default() -> Self {
-        HeaderRow::FirstNonEmptyRow
-    }
 }
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
