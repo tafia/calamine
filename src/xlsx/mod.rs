@@ -1088,10 +1088,11 @@ fn xml_reader<'a, RS: Read + Seek>(
     match zip.by_name(&actual_path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
-            r.check_end_names(false)
-                .trim_text(false)
-                .check_comments(false)
-                .expand_empty_elements(true);
+            let config = r.config_mut();
+            config.check_end_names = false;
+            config.trim_text(false);
+            config.check_comments = false;
+            config.expand_empty_elements = true;
             Some(Ok(r))
         }
         Err(ZipError::FileNotFound) => None,

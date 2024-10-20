@@ -159,10 +159,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
                 let mut xml = XmlReader::from_reader(BufReader::new(f));
-                xml.check_end_names(false)
-                    .trim_text(false)
-                    .check_comments(false)
-                    .expand_empty_elements(true);
+                let config = xml.config_mut();
+                config.check_end_names = false;
+                config.trim_text(false);
+                config.check_comments = false;
+                config.expand_empty_elements = true;
                 let mut buf: Vec<u8> = Vec::with_capacity(64);
 
                 loop {
