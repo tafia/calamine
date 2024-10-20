@@ -19,7 +19,7 @@ codepage = "0.1.1"
 encoding_rs = "0.8"
 log = "0.4"
 serde = "1.0"
-quick-xml = { version = "0.33", features = ["encoding"] }
+quick-xml = { version = "0.34", features = ["encoding"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = [
     "serde",

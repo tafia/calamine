@@ -309,7 +309,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
             Ok(Event::Start(ref e)) if e.name() == QName(b"style:style") => {
                 style_name = e
                     .try_get_attribute(b"style:name")?
-                    .map(|a| a.decode_and_unescape_value(&reader))
+                    .map(|a| a.decode_and_unescape_value(reader.decoder()))
                     .transpose()
                     .map_err(OdsError::Xml)?
                     .map(|x| x.to_string())
@@ -319,7 +319,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
             {
                 let visible = match e.try_get_attribute(b"table:display")? {
                     Some(a) => match a
-                        .decode_and_unescape_value(&reader)
+                        .decode_and_unescape_value(reader.decoder())
                         .map_err(OdsError::Xml)?
                         .parse()
                         .map_err(OdsError::ParseBool)?
@@ -335,7 +335,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                 let visible = styles
                     .get(
                         &e.try_get_attribute(b"table:style-name")?
-                            .map(|a| a.decode_and_unescape_value(&reader))
+                            .map(|a| a.decode_and_unescape_value(reader.decoder()))
                             .transpose()
                             .map_err(OdsError::Xml)?
                             .map(|x| x.to_string()),
@@ -348,7 +348,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .find(|a| a.key == QName(b"table:name"))
                 {
                     let name = a
-                        .decode_and_unescape_value(&reader)
+                        .decode_and_unescape_value(reader.decoder())
                         .map_err(OdsError::Xml)?
                         .to_string();
                     let (range, formulas) = read_table(&mut reader)?;
@@ -390,7 +390,7 @@ fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<Data>, Range<String>)
             Ok(Event::Start(ref e)) if e.name() == QName(b"table:table-row") => {
                 let row_repeats = match e.try_get_attribute(b"table:number-rows-repeated")? {
                     Some(c) => c
-                        .decode_and_unescape_value(reader)
+                        .decode_and_unescape_value(reader.decoder())
                         .map_err(OdsError::Xml)?
                         .parse()
                         .map_err(OdsError::ParseInt)?,
@@ -605,7 +605,7 @@ fn get_datatype(
                 if !is_value_set =>
             {
                 let attr = a
-                    .decode_and_unescape_value(reader)
+                    .decode_and_unescape_value(reader.decoder())
                     .map_err(OdsError::Xml)?
                     .to_string();
                 val = match a.key {
@@ -623,7 +623,7 @@ fn get_datatype(
             QName(b"office:value-type") if !is_value_set => is_string = &*a.value == b"string",
             QName(b"table:formula") => {
                 formula = a
-                    .decode_and_unescape_value(reader)
+                    .decode_and_unescape_value(reader.decoder())
                     .map_err(OdsError::Xml)?
                     .to_string();
             }
@@ -666,7 +666,7 @@ fn get_datatype(
                 Ok(Event::Start(ref e)) if e.name() == QName(b"text:s") => {
                     let count = match e.try_get_attribute("text:c")? {
                         Some(c) => c
-                            .decode_and_unescape_value(reader)
+                            .decode_and_unescape_value(reader.decoder())
                             .map_err(OdsError::Xml)?
                             .parse()
                             .map_err(OdsError::ParseInt)?,
@@ -703,13 +703,13 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
                     match a.key {
                         QName(b"table:name") => {
                             name = a
-                                .decode_and_unescape_value(reader)
+                                .decode_and_unescape_value(reader.decoder())
                                 .map_err(OdsError::Xml)?
                                 .to_string();
                         }
                         QName(b"table:cell-range-address" | b"table:expression") => {
                             formula = a
-                                .decode_and_unescape_value(reader)
+                                .decode_and_unescape_value(reader.decoder())
                                 .map_err(OdsError::Xml)?
                                 .to_string();
                         }
