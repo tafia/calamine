@@ -106,12 +106,12 @@ if let Ok(r) = excel.worksheet_range("Sheet1") {
 ### Reader: With header row
 
 ```rs
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{HeaderRow, Reader, Xlsx, open_workbook};
 
 let mut excel: Xlsx<_> = open_workbook("file.xlsx").unwrap();
 
 let sheet1 = excel
-    .with_header_row(Some(3))
+    .with_header_row(HeaderRow::Row(3))
     .worksheet_range("Sheet1")
     .unwrap();
 ```
