@@ -2125,3 +2125,16 @@ fn test_no_header(#[case] header_row: HeaderRow, #[case] expected: &[[Data; 2]])
         .unwrap();
     range_eq!(range, expected);
 }
+
+#[test]
+fn test_string_ref() {
+    let mut xlsx: Xlsx<_> = wb("string-ref.xlsx");
+    let expected_range = [
+        [String("col1".to_string())],
+        [String("-8086931554011838357".to_string())],
+    ];
+    // first sheet
+    range_eq!(xlsx.worksheet_range_at(0).unwrap().unwrap(), expected_range);
+    // second sheet is the same with a cell reference to the first sheet
+    range_eq!(xlsx.worksheet_range_at(1).unwrap().unwrap(), expected_range);
+}
