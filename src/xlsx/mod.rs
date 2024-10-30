@@ -149,7 +149,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::Password => write!(f, "Workbook is password protected"),
             XlsxError::TableNotFound(n) => write!(f, "Table '{n}' not found"),
             XlsxError::NotAWorksheet(typ) => write!(f, "Expecting a worksheet, got {typ}"),
-            XlsxError::Encoding(e) => write!(f, "Encoding error: {e}"),
+            XlsxError::Encoding(e) => write!(f, "XML encoding error: {e}"),
             XlsxError::XmlAttribute(e) => write!(f, "XML attribute error: {e}"),
         }
     }

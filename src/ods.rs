@@ -101,8 +101,8 @@ impl std::fmt::Display for OdsError {
             }
             OdsError::Password => write!(f, "Workbook is password protected"),
             OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
-            OdsError::AttrError(e) => write!(f, "XML Attribute Error: {e}"),
-            OdsError::EncodingError(e) => write!(f, "XML Encoding Error: {e}"),
+            OdsError::AttrError(e) => write!(f, "XML attribute Error: {e}"),
+            OdsError::EncodingError(e) => write!(f, "XML encoding Error: {e}"),
         }
     }
 }

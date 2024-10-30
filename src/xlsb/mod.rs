@@ -117,7 +117,7 @@ impl std::fmt::Display for XlsbError {
             }
             XlsbError::Password => write!(f, "Workbook is password protected"),
             XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
-            XlsbError::Encoding(e) => write!(f, "Encoding error: {e}"),
+            XlsbError::Encoding(e) => write!(f, "XML encoding error: {e}"),
         }
     }
 }
