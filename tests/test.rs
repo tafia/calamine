@@ -2279,4 +2279,10 @@ fn test_high_byte_strings() {
             }
         }
     }
+    // FIXME: Libreoffice recognizes a REPT("O", I44) formula
+    let formulas = xls.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(
+        "Unrecognised formula for cell (43, 9): Unrecognized { typ: \"ptg\", val: 192 }",
+        formulas.get_value((43, 9)).unwrap()
+    );
 }
