@@ -89,6 +89,10 @@ pub enum XlsxError {
     TableNotFound(String),
     /// The specified sheet is not a worksheet
     NotAWorksheet(String),
+    /// XML Encoding error
+    Encoding(quick_xml::encoding::EncodingError),
+    /// XML attribute error
+    XmlAttribute(quick_xml::events::attributes::AttrError),
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -98,6 +102,12 @@ from_err!(quick_xml::Error, XlsxError, Xml);
 from_err!(std::string::ParseError, XlsxError, Parse);
 from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
 from_err!(std::num::ParseIntError, XlsxError, ParseInt);
+from_err!(quick_xml::encoding::EncodingError, XlsxError, Encoding);
+from_err!(
+    quick_xml::events::attributes::AttrError,
+    XlsxError,
+    XmlAttribute
+);
 
 impl std::fmt::Display for XlsxError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,6 +149,8 @@ impl std::fmt::Display for XlsxError {
             XlsxError::Password => write!(f, "Workbook is password protected"),
             XlsxError::TableNotFound(n) => write!(f, "Table '{n}' not found"),
             XlsxError::NotAWorksheet(typ) => write!(f, "Expecting a worksheet, got {typ}"),
+            XlsxError::Encoding(e) => write!(f, "Encoding error: {e}"),
+            XlsxError::XmlAttribute(e) => write!(f, "XML attribute error: {e}"),
         }
     }
 }
@@ -153,6 +165,8 @@ impl std::error::Error for XlsxError {
             XlsxError::Parse(e) => Some(e),
             XlsxError::ParseInt(e) => Some(e),
             XlsxError::ParseFloat(e) => Some(e),
+            XlsxError::Encoding(e) => Some(e),
+            XlsxError::XmlAttribute(e) => Some(e),
             _ => None,
         }
     }
