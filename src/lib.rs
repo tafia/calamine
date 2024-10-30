@@ -720,21 +720,17 @@ impl<T: CellType> Range<T> {
     /// ```
     ///
     pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
-        if cells.is_empty() {
-            Range::empty()
-        } else {
+        let (row_start, row_end) = match &cells[..] {
+            [] => return Range::empty(),
+            [first] => (first.pos.0, first.pos.0),
+            [first, .., last] => (first.pos.0, last.pos.0),
+        };
             // search bounds
-            let row_start = cells.first().unwrap().pos.0;
-            let row_end = cells.last().unwrap().pos.0;
             let mut col_start = u32::MAX;
             let mut col_end = 0;
             for c in cells.iter().map(|c| c.pos.1) {
-                if c < col_start {
-                    col_start = c;
-                }
-                if c > col_end {
-                    col_end = c;
-                }
+                col_start = min(c, col_start);
+                col_end = max(c, col_end);
             }
             let cols = (col_end - col_start + 1) as usize;
             let rows = (row_end - row_start + 1) as usize;
@@ -754,7 +750,6 @@ impl<T: CellType> Range<T> {
                 end: (row_end, col_end),
                 inner: v,
             }
-        }
     }
 
     /// Set a value at an absolute position in a `Range`.
