@@ -778,7 +778,7 @@ fn parse_short_string(
     }
 
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(r.data, cch, &mut s, high_byte);
+    encoding.decode_to(r.data, cch, &mut s, high_byte);
     Ok(s)
 }
 
@@ -799,7 +799,7 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, 
     };
 
     let mut s = String::with_capacity(cch);
-    let _ = encoding.decode_to(&r[start..], cch, &mut s, high_byte);
+    encoding.decode_to(&r[start..], cch, &mut s, high_byte);
     Ok(s)
 }
 
