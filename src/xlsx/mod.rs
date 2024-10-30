@@ -330,13 +330,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 key: QName(b"name"),
                                 ..
                             } => {
-                                name = a.decode_and_unescape_value(&xml)?.to_string();
+                                name = a.decode_and_unescape_value(xml.decoder())?.to_string();
                             }
                             Attribute {
                                 key: QName(b"state"),
                                 ..
                             } => {
-                                visible = match a.decode_and_unescape_value(&xml)?.as_ref() {
+                                visible = match a.decode_and_unescape_value(xml.decoder())?.as_ref()
+                                {
                                     "visible" => SheetVisible::Visible,
                                     "hidden" => SheetVisible::Hidden,
                                     "veryHidden" => SheetVisible::VeryHidden,
@@ -393,7 +394,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(ref e)) if e.name().as_ref() == b"workbookPr" => {
                     self.is_1904 = match e.try_get_attribute("date1904")? {
                         Some(c) => ["1", "true"].contains(
-                            &c.decode_and_unescape_value(&xml)
+                            &c.decode_and_unescape_value(xml.decoder())
                                 .map_err(XlsxError::Xml)?
                                 .as_ref(),
                         ),
@@ -406,7 +407,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         .filter_map(std::result::Result::ok)
                         .find(|a| a.key == QName(b"name"))
                     {
-                        let name = a.decode_and_unescape_value(&xml)?.to_string();
+                        let name = a.decode_and_unescape_value(xml.decoder())?.to_string();
                         val_buf.clear();
                         let mut value = String::new();
                         loop {
@@ -1088,10 +1089,11 @@ fn xml_reader<'a, RS: Read + Seek>(
     match zip.by_name(&actual_path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
-            r.check_end_names(false)
-                .trim_text(false)
-                .check_comments(false)
-                .expand_empty_elements(true);
+            let config = r.config_mut();
+            config.check_end_names = false;
+            config.trim_text(false);
+            config.check_comments = false;
+            config.expand_empty_elements = true;
             Some(Ok(r))
         }
         Err(ZipError::FileNotFound) => None,
