@@ -450,8 +450,8 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
-                    0x0204 => cells.extend(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
-                    0x0205 => cells.push(parse_bool_err(r.data)?),                 // 517: BoolErr
+                    0x0204 => cells.push(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
+                    0x0205 => cells.push(parse_bool_err(r.data)?),               // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
                         let val = Data::String(parse_string(r.data, &encoding, biff)?);
@@ -803,11 +803,7 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, 
     Ok(s)
 }
 
-fn parse_label(
-    r: &[u8],
-    encoding: &XlsEncoding,
-    biff: Biff,
-) -> Result<Option<Cell<Data>>, XlsError> {
+fn parse_label(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<Cell<Data>, XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
             typ: "label",
@@ -818,10 +814,10 @@ fn parse_label(
     let row = read_u16(r);
     let col = read_u16(&r[2..]);
     let _ixfe = read_u16(&r[4..]);
-    Ok(Some(Cell::new(
+    Ok(Cell::new(
         (row as u32, col as u32),
         Data::String(parse_string(&r[6..], encoding, biff)?),
-    )))
+    ))
 }
 
 fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, XlsError> {
