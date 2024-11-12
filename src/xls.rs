@@ -338,9 +338,11 @@ impl<RS: Read + Seek> Xls<RS> {
                             self.is_1904 = true
                         }
                     }
-                    // FORMATTING
+                    // 2.4.126 FORMATTING
                     0x041E => {
-                        let (idx, format) = parse_format(&mut r, &encoding)?;
+                        let Ok((idx, format)) = parse_format(&mut r, &encoding) else {
+                            continue;
+                        };
                         formats.insert(idx, format);
                     }
                     // XFS
