@@ -330,7 +330,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x0017 => {
                         // ExternSheet
                         let cxti = read_u16(r.data) as usize;
-                        xtis.extend(r.data[2..].chunks(6).take(cxti).map(|xti| Xti {
+                        xtis.extend(r.data[2..].chunks_exact(6).take(cxti).map(|xti| Xti {
                             _isup_book: read_u16(&xti[..2]),
                             itab_first: read_i16(&xti[2..4]),
                             _itab_last: read_i16(&xti[4..]),
