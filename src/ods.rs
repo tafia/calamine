@@ -736,6 +736,7 @@ fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, Str
 
 /// Read pictures
 #[cfg(feature = "picture")]
+#[allow(clippy::type_complexity, reason = "TODO")]
 fn read_pictures<RS: Read + Seek>(
     zip: &mut ZipArchive<RS>,
 ) -> Result<Option<Vec<(String, Vec<u8>)>>, OdsError> {

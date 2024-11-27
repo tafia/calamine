@@ -1,3 +1,5 @@
+#![allow(clippy::zero_prefixed_literal)]
+
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, Color, DataType, Dimensions, ExcelDateTime,
