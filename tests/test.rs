@@ -24,6 +24,15 @@ fn wb<R: Reader<BufReader<File>>>(name: &str) -> R {
     open_workbook(&path).expect(&path)
 }
 
+/// Setup function that is only run once, even if called multiple times.
+fn wb_auto(name: &str) -> Sheets<BufReader<File>> {
+    INIT.call_once(|| {
+        env_logger::init();
+    });
+    let path = format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
+    open_workbook_auto(&path).expect(&path)
+}
+
 macro_rules! range_eq {
     ($range:expr, $right:expr) => {
         assert_eq!(
@@ -394,7 +403,7 @@ fn rich_text_support() {
     // TODO: Add XLSB, XLS, ODS once supported.
     #[allow(clippy::single_element_loop)]
     for file in ["rich_text_support.xlsx"] {
-        let mut excel = wb::<Sheets<_>>(file);
+        let mut excel = wb_auto(file);
         let range = excel.worksheet_range_at(0).unwrap().unwrap();
 
         let cell = range.get((0, 0)).unwrap();

@@ -365,19 +365,7 @@ fn read_v<'s>(
             // date
             Ok(DataRef::DateTimeIso(v))
         }
-        Some(b"str") => {
-            // see http://officeopenxml.com/SScontentOverview.php
-            // str - refers to formula cells
-            // * <c .. t='v' .. > indicates calculated value (this case)
-            // * <c .. t='f' .. > to the formula string (ignored case
-            // TODO: Fully support a Data::Formula representing both Formula string &
-            // last calculated value?
-            //
-            // NB: the result of a formula may not be a numeric value (=A3&" "&A4).
-            // We do try an initial parse as Float for utility, but fall back to a string
-            // representation if that fails
-            v.parse().map(DataRef::Float).or(Ok(DataRef::String(v)))
-        }
+        Some(b"str") => Ok(DataRef::String(v)),
         Some(b"n") => {
             // n - number
             if v.is_empty() {
