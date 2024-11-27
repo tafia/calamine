@@ -1015,7 +1015,7 @@ struct Record<'a> {
     cont: Option<Vec<&'a [u8]>>,
 }
 
-impl<'a> Record<'a> {
+impl Record<'_> {
     fn continue_record(&mut self) -> bool {
         match self.cont {
             None => false,

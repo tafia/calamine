@@ -11,7 +11,7 @@ use super::{
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
-    Cell, XlsxError,
+    Cell, RichText, XlsxError,
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
@@ -19,7 +19,7 @@ type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a> {
     xml: XlReader<'a>,
-    strings: &'a [String],
+    strings: &'a [RichText],
     formats: &'a [CellFormat],
     is_1904: bool,
     dimensions: Dimensions,
@@ -33,7 +33,7 @@ pub struct XlsxCellReader<'a> {
 impl<'a> XlsxCellReader<'a> {
     pub fn new(
         mut xml: XlReader<'a>,
-        strings: &'a [String],
+        strings: &'a [RichText],
         formats: &'a [CellFormat],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
@@ -287,7 +287,7 @@ impl<'a> XlsxCellReader<'a> {
 }
 
 fn read_value<'s>(
-    strings: &'s [String],
+    strings: &'s [RichText],
     formats: &[CellFormat],
     is_1904: bool,
     xml: &mut XlReader<'_>,
@@ -297,7 +297,16 @@ fn read_value<'s>(
     Ok(match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
-            read_string(xml, e.name())?.map_or(DataRef::Empty, DataRef::String)
+            let s = read_string(xml, e.name())?;
+            if let Some(s) = s {
+                if s.is_plain() {
+                    DataRef::String(s.into_text())
+                } else {
+                    DataRef::RichText(s)
+                }
+            } else {
+                DataRef::Empty
+            }
         }
         b"v" => {
             // value
@@ -325,7 +334,7 @@ fn read_value<'s>(
 /// read the contents of a <v> cell
 fn read_v<'s>(
     v: String,
-    strings: &'s [String],
+    strings: &'s [RichText],
     formats: &[CellFormat],
     c_element: &BytesStart<'_>,
     is_1904: bool,
@@ -358,10 +367,7 @@ fn read_v<'s>(
             // date
             Ok(DataRef::DateTimeIso(v))
         }
-        Some(b"str") => {
-            // string
-            Ok(DataRef::String(v))
-        }
+        Some(b"str") => Ok(DataRef::String(v)),
         Some(b"n") => {
             // n - number
             if v.is_empty() {

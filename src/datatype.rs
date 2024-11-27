@@ -6,6 +6,7 @@ use serde::de::Visitor;
 use serde::Deserialize;
 
 use super::CellErrorType;
+use crate::style::RichText;
 
 #[cfg(feature = "dates")]
 static EXCEL_EPOCH: OnceLock<chrono::NaiveDateTime> = OnceLock::new();
@@ -27,6 +28,8 @@ pub enum Data {
     Float(f64),
     /// String
     String(String),
+    /// Rich (formatted) text
+    RichText(RichText),
     /// Boolean
     Bool(bool),
     /// Date or Time
@@ -58,7 +61,7 @@ impl DataType for Data {
         matches!(*self, Data::Bool(_))
     }
     fn is_string(&self) -> bool {
-        matches!(*self, Data::String(_))
+        matches!(*self, Data::String(_) | Data::RichText(_))
     }
 
     #[cfg(feature = "dates")]
@@ -102,10 +105,10 @@ impl DataType for Data {
         }
     }
     fn get_string(&self) -> Option<&str> {
-        if let Data::String(v) = self {
-            Some(&**v)
-        } else {
-            None
+        match self {
+            Data::String(v) => Some(v),
+            Data::RichText(v) => Some(v.text()),
+            _ => None,
         }
     }
 
@@ -145,6 +148,7 @@ impl DataType for Data {
             Data::Float(v) => Some(v.to_string()),
             Data::Int(v) => Some(v.to_string()),
             Data::String(v) => Some(v.clone()),
+            Data::RichText(v) => Some(v.text().clone()),
             _ => None,
         }
     }
@@ -155,6 +159,7 @@ impl DataType for Data {
             Data::Float(v) => Some(*v as i64),
             Data::Bool(v) => Some(*v as i64),
             Data::String(v) => v.parse::<i64>().ok(),
+            Data::RichText(v) => v.text().parse::<i64>().ok(),
             _ => None,
         }
     }
@@ -165,6 +170,7 @@ impl DataType for Data {
             Data::Float(v) => Some(*v),
             Data::Bool(v) => Some((*v as i32).into()),
             Data::String(v) => v.parse::<f64>().ok(),
+            Data::RichText(v) => v.text().parse::<f64>().ok(),
             _ => None,
         }
     }
@@ -172,13 +178,21 @@ impl DataType for Data {
 
 impl PartialEq<&str> for Data {
     fn eq(&self, other: &&str) -> bool {
-        matches!(*self, Data::String(ref s) if s == other)
+        match *self {
+            Data::String(ref s) if s == other => true,
+            Data::RichText(ref s) if s.text() == other => true,
+            _ => false,
+        }
     }
 }
 
 impl PartialEq<str> for Data {
     fn eq(&self, other: &str) -> bool {
-        matches!(*self, Data::String(ref s) if s == other)
+        match self {
+            Data::String(s) if s == other => true,
+            Data::RichText(s) if s.text() == other => true,
+            _ => false,
+        }
     }
 }
 
@@ -206,6 +220,7 @@ impl fmt::Display for Data {
             Data::Int(ref e) => write!(f, "{}", e),
             Data::Float(ref e) => write!(f, "{}", e),
             Data::String(ref e) => write!(f, "{}", e),
+            Data::RichText(ref e) => write!(f, "{}", e.text()),
             Data::Bool(ref e) => write!(f, "{}", e),
             Data::DateTime(ref e) => write!(f, "{}", e),
             Data::DateTimeIso(ref e) => write!(f, "{}", e),
@@ -300,6 +315,7 @@ macro_rules! define_from {
 define_from!(Data::Int, i64);
 define_from!(Data::Float, f64);
 define_from!(Data::String, String);
+define_from!(Data::RichText, RichText);
 define_from!(Data::Bool, bool);
 define_from!(Data::Error, CellErrorType);
 
@@ -337,8 +353,10 @@ pub enum DataRef<'a> {
     Float(f64),
     /// String
     String(String),
+    /// Rich text
+    RichText(RichText),
     /// Shared String
-    SharedString(&'a str),
+    SharedString(&'a RichText),
     /// Boolean
     Bool(bool),
     /// Date or Time
@@ -372,7 +390,10 @@ impl DataType for DataRef<'_> {
     }
 
     fn is_string(&self) -> bool {
-        matches!(*self, DataRef::String(_) | DataRef::SharedString(_))
+        matches!(
+            *self,
+            DataRef::String(_) | DataRef::RichText(_) | DataRef::SharedString(_)
+        )
     }
 
     #[cfg(feature = "dates")]
@@ -420,8 +441,9 @@ impl DataType for DataRef<'_> {
 
     fn get_string(&self) -> Option<&str> {
         match self {
-            DataRef::String(v) => Some(&**v),
-            DataRef::SharedString(v) => Some(v),
+            DataRef::String(v) => Some(v),
+            DataRef::RichText(v) => Some(v.text()),
+            DataRef::SharedString(v) => Some(v.text()),
             _ => None,
         }
     }
@@ -462,7 +484,8 @@ impl DataType for DataRef<'_> {
             DataRef::Float(v) => Some(v.to_string()),
             DataRef::Int(v) => Some(v.to_string()),
             DataRef::String(v) => Some(v.clone()),
-            DataRef::SharedString(v) => Some(v.to_string()),
+            DataRef::RichText(v) => Some(v.text().clone()),
+            DataRef::SharedString(v) => Some(v.text().clone()),
             _ => None,
         }
     }
@@ -473,7 +496,8 @@ impl DataType for DataRef<'_> {
             DataRef::Float(v) => Some(*v as i64),
             DataRef::Bool(v) => Some(*v as i64),
             DataRef::String(v) => v.parse::<i64>().ok(),
-            DataRef::SharedString(v) => v.parse::<i64>().ok(),
+            DataRef::RichText(v) => v.text().parse::<i64>().ok(),
+            DataRef::SharedString(v) => v.text().parse::<i64>().ok(),
             _ => None,
         }
     }
@@ -484,7 +508,8 @@ impl DataType for DataRef<'_> {
             DataRef::Float(v) => Some(*v),
             DataRef::Bool(v) => Some((*v as i32).into()),
             DataRef::String(v) => v.parse::<f64>().ok(),
-            DataRef::SharedString(v) => v.parse::<f64>().ok(),
+            DataRef::RichText(v) => v.text().parse::<f64>().ok(),
+            DataRef::SharedString(v) => v.text().parse::<f64>().ok(),
             _ => None,
         }
     }
@@ -493,12 +518,14 @@ impl DataType for DataRef<'_> {
 impl PartialEq<&str> for DataRef<'_> {
     fn eq(&self, other: &&str) -> bool {
         matches!(*self, DataRef::String(ref s) if s == other)
+            || matches!(*self, DataRef::RichText(ref s) if s.text() == other)
     }
 }
 
 impl PartialEq<str> for DataRef<'_> {
     fn eq(&self, other: &str) -> bool {
         matches!(*self, DataRef::String(ref s) if s == other)
+            || matches!(*self, DataRef::RichText(ref s) if s.text() == other)
     }
 }
 
@@ -666,7 +693,14 @@ impl<'a> From<DataRef<'a>> for Data {
             DataRef::Int(v) => Data::Int(v),
             DataRef::Float(v) => Data::Float(v),
             DataRef::String(v) => Data::String(v),
-            DataRef::SharedString(v) => Data::String(v.into()),
+            DataRef::RichText(v) => Data::RichText(v),
+            DataRef::SharedString(v) => {
+                if v.is_plain() {
+                    Data::String(v.text().clone())
+                } else {
+                    Data::RichText(v.clone())
+                }
+            }
             DataRef::Bool(v) => Data::Bool(v),
             DataRef::DateTime(v) => Data::DateTime(v),
             DataRef::DateTimeIso(v) => Data::DateTimeIso(v),
@@ -803,18 +837,18 @@ mod date_tests {
 
         // test rounding
         assert_eq!(
-            Data::Float(0.18737500000000001).as_time(),
+            Data::Float(0.187_375).as_time(),
             Some(NaiveTime::from_hms_milli_opt(4, 29, 49, 200).unwrap())
         );
         assert_eq!(
-            Data::Float(0.25951736111111101).as_time(),
+            Data::Float(0.259_517_361_111_111).as_time(),
             Some(NaiveTime::from_hms_milli_opt(6, 13, 42, 300).unwrap())
         );
 
         // test overflow
         assert_eq!(Data::Float(1e20).as_time(), None);
 
-        let unix_epoch_15h30m = Data::Float(25569.645833333333333);
+        let unix_epoch_15h30m = Data::Float(25_569.645_833_333_332);
         let chrono_dt = NaiveDateTime::new(
             NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
             NaiveTime::from_hms_opt(15, 30, 0).unwrap(),

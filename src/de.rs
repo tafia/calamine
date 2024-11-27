@@ -208,7 +208,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     }
 }
 
-impl<'h> RangeDeserializerBuilder<'h, &str> {
+impl RangeDeserializerBuilder<'_, &str> {
     /// Build a `RangeDeserializer` from this configuration and keep only selected headers
     /// from the specified deserialization struct.
     ///
@@ -249,7 +249,7 @@ impl<'h> RangeDeserializerBuilder<'h, &str> {
             fields: &'h mut Option<&'static [&'static str]>,
         }
 
-        impl<'de, 'h> Deserializer<'de> for StructFieldsDeserializer<'h> {
+        impl<'de> Deserializer<'de> for StructFieldsDeserializer<'_> {
             type Error = de::value::Error;
 
             fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
@@ -628,7 +628,7 @@ pub struct DataDeserializer<'a> {
     pos: (u32, u32),
 }
 
-impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
+impl<'de> serde::Deserializer<'de> for DataDeserializer<'_> {
     type Error = DeError;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -637,6 +637,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     {
         match self.data_type {
             Data::String(v) => visitor.visit_str(v),
+            Data::RichText(v) => visitor.visit_str(v.text()),
             Data::Float(v) => visitor.visit_f64(*v),
             Data::Bool(v) => visitor.visit_bool(*v),
             Data::Int(v) => visitor.visit_i64(*v),
@@ -657,11 +658,12 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     {
         match self.data_type {
             Data::String(v) => visitor.visit_str(v),
+            Data::RichText(v) => visitor.visit_str(v.text()),
             Data::Empty => visitor.visit_str(""),
-            Data::Float(v) => visitor.visit_str(&v.to_string()),
-            Data::Int(v) => visitor.visit_str(&v.to_string()),
-            Data::Bool(v) => visitor.visit_str(&v.to_string()),
-            Data::DateTime(v) => visitor.visit_str(&v.to_string()),
+            Data::Float(v) => visitor.visit_string(v.to_string()),
+            Data::Int(v) => visitor.visit_string(v.to_string()),
+            Data::Bool(v) => visitor.visit_string(v.to_string()),
+            Data::DateTime(v) => visitor.visit_string(v.to_string()),
             Data::DateTimeIso(v) => visitor.visit_str(v),
             Data::DurationIso(v) => visitor.visit_str(v),
             Data::Error(ref err) => Err(DeError::CellError {
@@ -707,6 +709,11 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
         match self.data_type {
             Data::Bool(v) => visitor.visit_bool(*v),
             Data::String(ref v) => match &**v {
+                "TRUE" | "true" | "True" => visitor.visit_bool(true),
+                "FALSE" | "false" | "False" => visitor.visit_bool(false),
+                d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),
+            },
+            Data::RichText(ref v) => match v.text().as_str() {
                 "TRUE" | "true" | "True" => visitor.visit_bool(true),
                 "FALSE" | "false" | "False" => visitor.visit_bool(false),
                 d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),

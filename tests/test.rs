@@ -1,11 +1,15 @@
+#![allow(clippy::zero_prefixed_literal)]
+
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, Color, DataType, Dimensions, ExcelDateTime,
+    ExcelDateTimeType, FontFormat, Ods, Range, Reader, RichText, RichTextPart, Sheet, SheetType,
+    SheetVisible, Sheets, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
+use calamine::{DataRef, HeaderRow, ReaderRef};
 use rstest::rstest;
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufReader, Cursor};
@@ -20,6 +24,15 @@ fn wb<R: Reader<BufReader<File>>>(name: &str) -> R {
     });
     let path = format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
     open_workbook(&path).expect(&path)
+}
+
+/// Setup function that is only run once, even if called multiple times.
+fn wb_auto(name: &str) -> Sheets<BufReader<File>> {
+    INIT.call_once(|| {
+        env_logger::init();
+    });
+    let path = format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
+    open_workbook_auto(&path).expect(&path)
 }
 
 macro_rules! range_eq {
@@ -103,12 +116,70 @@ fn error_file() {
 fn issue_9() {
     let mut excel: Xlsx<_> = wb("issue9.xlsx");
     let range = excel.worksheet_range("Feuil1").unwrap();
+
+    let format1 = FontFormat {
+        bold: true,
+        color: Color::Theme(1, 0.0),
+        name: Some("Calibri".to_owned()),
+        ..Default::default()
+    };
+    let format2 = FontFormat {
+        color: Color::Theme(1, 0.0),
+        name: Some("Calibri".to_owned()),
+        ..Default::default()
+    };
+    let format3 = FontFormat {
+        underlined: true,
+        color: Color::Theme(1, 0.0),
+        name: Some("Calibri".to_owned()),
+        ..Default::default()
+    };
+
+    let mut cell2 = calamine::RichText::new();
+    cell2.push(RichTextPart {
+        text: "test2",
+        format: Cow::Borrowed(&format1),
+    });
+    cell2.push(RichTextPart {
+        text: " o",
+        format: Cow::Borrowed(&format2),
+    });
+    cell2.push(RichTextPart {
+        text: "ther",
+        format: Cow::Borrowed(&format3),
+    });
+
+    let format4 = FontFormat {
+        color: Color::ARGB(255, 0, 176, 80),
+        name: Some("Calibri".to_owned()),
+        ..Default::default()
+    };
+    let format5 = FontFormat {
+        color: Color::ARGB(255, 0, 112, 192),
+        name: Some("Calibri".to_owned()),
+        ..Default::default()
+    };
+
+    let mut cell3 = calamine::RichText::new();
+    cell3.push(RichTextPart {
+        text: "test3",
+        format: Cow::Borrowed(&format4),
+    });
+    cell3.push(RichTextPart {
+        text: " ",
+        format: Cow::Borrowed(&format2),
+    });
+    cell3.push(RichTextPart {
+        text: "aaa",
+        format: Cow::Borrowed(&format5),
+    });
+
     range_eq!(
         range,
         [
             [String("test1".to_string())],
-            [String("test2 other".to_string())],
-            [String("test3 aaa".to_string())],
+            [Data::RichText(cell2.clone())],
+            [Data::RichText(cell3.clone())],
             [String("test4".to_string())]
         ]
     );
@@ -321,6 +392,82 @@ fn xlsx_richtext_namespaced() {
             String("shared string\r\nLine 2\r\nLine 3".to_string())
         ]]
     );
+}
+
+#[test]
+fn rich_text_support() {
+    let format = FontFormat {
+        color: Color::Theme(1, 0.0),
+        name: Some("Aptos Narrow".to_owned()),
+        ..Default::default()
+    };
+
+    // TODO: Add XLSB, XLS, ODS once supported.
+    #[allow(clippy::single_element_loop)]
+    for file in ["rich_text_support.xlsx"] {
+        let mut excel = wb_auto(file);
+        let range = excel.worksheet_range_at(0).unwrap().unwrap();
+
+        let cell = range.get((0, 0)).unwrap();
+        if let Data::RichText(rich_text) = cell {
+            let elements = rich_text.elements().collect::<Vec<_>>();
+            assert_eq!(elements.len(), 7);
+            assert_eq!(elements[0].text, "N ");
+            assert!(elements[0].format.is_default());
+            assert_eq!(elements[1].text, "F");
+            assert!(elements[1].format.bold);
+            assert_eq!(elements[2].text, " ");
+            assert_eq!(elements[2].format, Cow::Borrowed(&format));
+            assert_eq!(elements[3].text, "U");
+            assert!(elements[3].format.underlined);
+            assert_eq!(elements[4].text, " ");
+            assert_eq!(elements[4].format, Cow::Borrowed(&format));
+            assert_eq!(elements[5].text, "I");
+            assert!(elements[5].format.italic);
+            assert_eq!(elements[6].text, " N");
+            assert_eq!(elements[6].format, Cow::Borrowed(&format));
+        } else {
+            panic!("Cell was not parsed as RichText");
+        }
+
+        let cell = range.get((0, 1)).unwrap();
+        if let Data::RichText(rich_text) = cell {
+            let elements = rich_text.elements().collect::<Vec<_>>();
+            assert_eq!(elements.len(), 3);
+            assert_eq!(elements[0].text, "small ");
+            assert_eq!(elements[0].format.size, 8);
+            assert_eq!(elements[1].text, "normal ");
+            assert_eq!(elements[1].format.size, 11);
+            assert_eq!(elements[2].text, "big");
+            assert_eq!(elements[2].format.size, 14);
+        } else {
+            panic!("Cell was not parsed as RichText");
+        }
+
+        let cell = range.get((1, 0)).unwrap();
+        if let Data::RichText(rich_text) = cell {
+            let elements = rich_text.elements().collect::<Vec<_>>();
+            assert_eq!(elements.len(), 2);
+            assert_eq!(elements[0].text, "black ");
+            assert_eq!(elements[0].format, Cow::Owned(FontFormat::default()));
+            assert_eq!(elements[1].text, "green");
+            assert_eq!(elements[1].format.color, Color::Theme(6, 0.0));
+        } else {
+            panic!("Cell was not parsed as RichText");
+        }
+
+        let cell = range.get((1, 1)).unwrap();
+        if let Data::RichText(rich_text) = cell {
+            let elements = rich_text.elements().collect::<Vec<_>>();
+            assert_eq!(elements.len(), 2);
+            assert_eq!(elements[0].text, "aptos ");
+            assert_eq!(elements[0].format.name, None);
+            assert_eq!(elements[1].text, "calibri");
+            assert_eq!(elements[1].format.name.as_deref(), Some("Calibri"));
+        } else {
+            panic!("Cell was not parsed as RichText");
+        }
+    }
 }
 
 #[test]
@@ -615,12 +762,12 @@ fn table_by_ref() {
     assert_eq!(
         data.get((0, 0))
             .expect("Could not get data from table ref."),
-        &DataRef::SharedString("celsius")
+        &DataRef::SharedString(&RichText::plain("celsius".to_owned()))
     );
     assert_eq!(
         data.get((1, 0))
             .expect("Could not get data from table ref."),
-        &DataRef::SharedString("fahrenheit")
+        &DataRef::SharedString(&RichText::plain("fahrenheit".to_owned()))
     );
     assert_eq!(
         data.get((0, 1))
@@ -643,12 +790,12 @@ fn table_by_ref() {
     assert_eq!(
         data.get((0, 0))
             .expect("Could not get data from table ref."),
-        &DataRef::SharedString("something")
+        &DataRef::SharedString(&RichText::plain("something".to_owned()))
     );
     assert_eq!(
         data.get((1, 0))
             .expect("Could not get data from table ref."),
-        &DataRef::SharedString("else")
+        &DataRef::SharedString(&RichText::plain("else".to_owned()))
     );
     assert_eq!(
         data.get((0, 1))
@@ -668,13 +815,13 @@ fn table_by_ref() {
         owned_data
             .get((0, 0))
             .expect("Could not get data from table ref."),
-        &DataRef::SharedString("something")
+        &DataRef::SharedString(&RichText::plain("something".to_owned()))
     );
     assert_eq!(
         owned_data
             .get((1, 0))
             .expect("Could not get data from table ref."),
-        &DataRef::SharedString("else")
+        &DataRef::SharedString(&RichText::plain("else".to_owned()))
     );
     assert_eq!(
         owned_data
