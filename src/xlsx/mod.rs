@@ -219,8 +219,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"si" => {
-                    let s = read_string(&mut xml, e.name())?;
-                    if !s.is_empty() {
+                    if let Some(s) = read_string(&mut xml, e.name())? {
                         self.strings.push(s);
                     }
                 }
@@ -1226,13 +1225,14 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 pub(crate) fn read_string(
     xml: &mut XlReader<'_>,
     QName(closing): QName,
-) -> Result<RichText, XlsxError> {
+) -> Result<Option<RichText>, XlsxError> {
     let mut buf = Vec::with_capacity(1024);
     let mut val_buf = Vec::with_capacity(1024);
     let mut rich_text = RichText::new();
     let mut buffer_text: Option<String> = None;
     let mut buffer_format: Option<FontFormat> = None;
     let mut is_phonetic_text = false;
+    let mut actual_valid = false;
     loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
@@ -1240,6 +1240,7 @@ pub(crate) fn read_string(
                 // use a buffer since richtext has multiples <r> and <t> for the same cell
                 buffer_text = None;
                 buffer_format = None;
+                actual_valid = true;
             }
             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"r" => {
                 let part = RichTextPart {
@@ -1322,15 +1323,24 @@ pub(crate) fn read_string(
                         _ => (),
                     }
                 }
-                buffer_text = Some(value);
+                if let Some(buf_t) = &mut buffer_text {
+                    buf_t.push_str(&value);
+                } else {
+                    buffer_text = Some(value);
+                }
+                actual_valid = true;
             }
             Ok(Event::End(ref e)) if e.name().as_ref() == closing => {
+                if !actual_valid {
+                    return Ok(None);
+                }
+
                 let part = RichTextPart {
                     text: &buffer_text.unwrap_or_default(),
                     format: Cow::Owned(buffer_format.unwrap_or_default()),
                 };
                 rich_text.push(part);
-                return Ok(rich_text);
+                return Ok(Some(rich_text));
             }
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
             Err(e) => return Err(XlsxError::Xml(e)),

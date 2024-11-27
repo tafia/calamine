@@ -298,12 +298,14 @@ fn read_value<'s>(
         b"is" => {
             // inlineStr
             let s = read_string(xml, e.name())?;
-            if s.is_empty() {
-                DataRef::Empty
-            } else if s.is_plain() {
-                DataRef::String(s.into_text())
+            if let Some(s) = s {
+                if s.is_plain() {
+                    DataRef::String(s.into_text())
+                } else {
+                    DataRef::RichText(s)
+                }
             } else {
-                DataRef::RichText(s)
+                DataRef::Empty
             }
         }
         b"v" => {
