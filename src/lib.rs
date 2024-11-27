@@ -347,7 +347,7 @@ where
 pub trait CellType: Default + Clone + PartialEq {}
 
 impl CellType for Data {}
-impl<'a> CellType for DataRef<'a> {}
+impl CellType for DataRef<'_> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 

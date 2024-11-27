@@ -83,7 +83,7 @@ pub struct RichTextPart<'a> {
     pub format: Cow<'a, FontFormat>,
 }
 
-impl<'a> RichTextPart<'a> {
+impl RichTextPart<'_> {
     /// Is this part plain text?
     #[inline]
     pub fn is_plain(&self) -> bool {

@@ -208,7 +208,7 @@ impl<'h, H: AsRef<str> + Clone + 'h> RangeDeserializerBuilder<'h, H> {
     }
 }
 
-impl<'h> RangeDeserializerBuilder<'h, &str> {
+impl RangeDeserializerBuilder<'_, &str> {
     /// Build a `RangeDeserializer` from this configuration and keep only selected headers
     /// from the specified deserialization struct.
     ///
@@ -249,7 +249,7 @@ impl<'h> RangeDeserializerBuilder<'h, &str> {
             fields: &'h mut Option<&'static [&'static str]>,
         }
 
-        impl<'de, 'h> Deserializer<'de> for StructFieldsDeserializer<'h> {
+        impl<'de> Deserializer<'de> for StructFieldsDeserializer<'_> {
             type Error = de::value::Error;
 
             fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
@@ -628,7 +628,7 @@ pub struct DataDeserializer<'a> {
     pos: (u32, u32),
 }
 
-impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
+impl<'de> serde::Deserializer<'de> for DataDeserializer<'_> {
     type Error = DeError;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
