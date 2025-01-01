@@ -327,10 +327,7 @@ fn read_v<'s>(
 ) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
         Ok(Some(style)) => {
-            let id: usize = std::str::from_utf8(style)
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0);
+            let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
             formats.get(id)
         }
         _ => Some(&CellFormat::Other),
@@ -338,7 +335,7 @@ fn read_v<'s>(
     match get_attribute(c_element.attributes(), QName(b"t"))? {
         Some(b"s") => {
             // shared string
-            let idx: usize = v.parse()?;
+            let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
             Ok(DataRef::SharedString(&strings[idx]))
         }
         Some(b"b") => {
