@@ -195,13 +195,8 @@ impl<'a> XlsxCellReader<'a> {
                                     // shared index
                                     let shared_index =
                                         match get_attribute(e.attributes(), QName(b"si"))? {
-                                            Some(res) => match std::str::from_utf8(res) {
-                                                Ok(res) => match res.parse::<usize>() {
-                                                    Ok(res) => res,
-                                                    Err(e) => {
-                                                        return Err(XlsxError::ParseInt(e));
-                                                    }
-                                                },
+                                            Some(res) => match atoi_simd::parse::<usize>(res) {
+                                                Ok(res) => res,
                                                 Err(_) => {
                                                     return Err(XlsxError::Unexpected(
                                                         "si attribute must be a number",
