@@ -154,7 +154,7 @@ impl DataType for Data {
             Data::Int(v) => Some(*v),
             Data::Float(v) => Some(*v as i64),
             Data::Bool(v) => Some(*v as i64),
-            Data::String(v) => v.parse::<i64>().ok(),
+            Data::String(v) => atoi_simd::parse::<i64>(v.as_bytes()).ok(),
             _ => None,
         }
     }
@@ -164,7 +164,7 @@ impl DataType for Data {
             Data::Int(v) => Some(*v as f64),
             Data::Float(v) => Some(*v),
             Data::Bool(v) => Some((*v as i32).into()),
-            Data::String(v) => v.parse::<f64>().ok(),
+            Data::String(v) => fast_float2::parse(v).ok(),
             _ => None,
         }
     }
@@ -472,8 +472,8 @@ impl DataType for DataRef<'_> {
             DataRef::Int(v) => Some(*v),
             DataRef::Float(v) => Some(*v as i64),
             DataRef::Bool(v) => Some(*v as i64),
-            DataRef::String(v) => v.parse::<i64>().ok(),
-            DataRef::SharedString(v) => v.parse::<i64>().ok(),
+            DataRef::String(v) => atoi_simd::parse::<i64>(v.as_bytes()).ok(),
+            DataRef::SharedString(v) => atoi_simd::parse::<i64>(v.as_bytes()).ok(),
             _ => None,
         }
     }
@@ -483,8 +483,8 @@ impl DataType for DataRef<'_> {
             DataRef::Int(v) => Some(*v as f64),
             DataRef::Float(v) => Some(*v),
             DataRef::Bool(v) => Some((*v as i32).into()),
-            DataRef::String(v) => v.parse::<f64>().ok(),
-            DataRef::SharedString(v) => v.parse::<f64>().ok(),
+            DataRef::String(v) => fast_float2::parse(v).ok(),
+            DataRef::SharedString(v) => fast_float2::parse(v).ok(),
             _ => None,
         }
     }
