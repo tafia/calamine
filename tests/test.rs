@@ -2138,3 +2138,8 @@ fn test_string_ref() {
     // second sheet is the same with a cell reference to the first sheet
     range_eq!(xlsx.worksheet_range_at(1).unwrap().unwrap(), expected_range);
 }
+
+#[test]
+fn test_malformed_format() {
+    let _xls: Xls<_> = wb("malformed_format.xls");
+}
