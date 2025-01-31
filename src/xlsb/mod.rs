@@ -80,11 +80,14 @@ pub enum XlsbError {
     Password,
     /// Worksheet not found
     WorksheetNotFound(String),
+    /// XML Encoding error
+    Encoding(quick_xml::encoding::EncodingError),
 }
 
 from_err!(std::io::Error, XlsbError, Io);
 from_err!(zip::result::ZipError, XlsbError, Zip);
 from_err!(quick_xml::Error, XlsbError, Xml);
+from_err!(quick_xml::encoding::EncodingError, XlsbError, Encoding);
 
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -114,6 +117,7 @@ impl std::fmt::Display for XlsbError {
             }
             XlsbError::Password => write!(f, "Workbook is password protected"),
             XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
+            XlsbError::Encoding(e) => write!(f, "XML encoding error: {e}"),
         }
     }
 }
@@ -183,7 +187,12 @@ impl<RS: Read + Seek> Xlsb<RS> {
                                         key: QName(b"Target"),
                                         value: v,
                                     } => {
-                                        target = Some(xml.decoder().decode(&v)?.into_owned());
+                                        target = Some(
+                                            xml.decoder()
+                                                .decode(&v)
+                                                .map_err(XlsbError::Encoding)?
+                                                .into_owned(),
+                                        );
                                     }
                                     _ => (),
                                 }

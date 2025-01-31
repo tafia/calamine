@@ -60,6 +60,11 @@ pub enum OdsError {
     Password,
     /// Worksheet not found
     WorksheetNotFound(String),
+
+    /// XML attribute error
+    AttrError(quick_xml::events::attributes::AttrError),
+    /// XML encoding error
+    EncodingError(quick_xml::encoding::EncodingError),
 }
 
 /// Ods reader options
@@ -74,6 +79,8 @@ from_err!(zip::result::ZipError, OdsError, Zip);
 from_err!(quick_xml::Error, OdsError, Xml);
 from_err!(std::string::ParseError, OdsError, Parse);
 from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
+from_err!(quick_xml::events::attributes::AttrError, OdsError, Xml);
+from_err!(quick_xml::encoding::EncodingError, OdsError, Xml);
 
 impl std::fmt::Display for OdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -94,6 +101,8 @@ impl std::fmt::Display for OdsError {
             }
             OdsError::Password => write!(f, "Workbook is password protected"),
             OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
+            OdsError::AttrError(e) => write!(f, "XML attribute Error: {e}"),
+            OdsError::EncodingError(e) => write!(f, "XML encoding Error: {e}"),
         }
     }
 }
@@ -107,6 +116,8 @@ impl std::error::Error for OdsError {
             OdsError::Parse(e) => Some(e),
             OdsError::ParseInt(e) => Some(e),
             OdsError::ParseFloat(e) => Some(e),
+            OdsError::AttrError(e) => Some(e),
+            OdsError::EncodingError(e) => Some(e),
             _ => None,
         }
     }

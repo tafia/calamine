@@ -21,7 +21,7 @@ encoding_rs = "0.8"
 fast-float2 = "0.2"
 log = "0.4"
 serde = "1.0"
-quick-xml = { version = "0.36", features = ["encoding"] }
+quick-xml = { version = "0.37", features = ["encoding"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = [
     "serde",
