@@ -714,7 +714,7 @@ fn date_xls() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
@@ -749,7 +749,7 @@ fn date_xls_1904() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
@@ -784,7 +784,7 @@ fn date_xlsx() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
@@ -819,7 +819,7 @@ fn date_xlsx_1904() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
@@ -850,7 +850,7 @@ fn date_xlsx_iso() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
         assert_eq!(range.get_value((0, 0)).unwrap().as_time(), None);
         assert_eq!(range.get_value((0, 0)).unwrap().as_datetime(), None);
@@ -894,7 +894,7 @@ fn date_ods() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let time = chrono::NaiveTime::from_hms_opt(10, 10, 10).unwrap();
@@ -942,7 +942,7 @@ fn date_xlsb() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
@@ -977,7 +977,7 @@ fn date_xlsb_1904() {
 
     #[cfg(feature = "dates")]
     {
-        let date = chrono::NaiveDate::from_ymd_opt(2021, 01, 01).unwrap();
+        let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
 
         let duration = chrono::Duration::seconds(255 * 60 * 60 + 10 * 60 + 10);
@@ -2137,4 +2137,35 @@ fn test_string_ref() {
     range_eq!(xlsx.worksheet_range_at(0).unwrap().unwrap(), expected_range);
     // second sheet is the same with a cell reference to the first sheet
     range_eq!(xlsx.worksheet_range_at(1).unwrap().unwrap(), expected_range);
+}
+
+#[test]
+fn test_high_byte_strings_and_unicode_strings_without_reserved_tags() {
+    // file contains XLUnicodeString with cch = 0 and do not have a reserved byte tag
+    // as well as record types that do not seem to be present in the spec
+    let mut xls: Xls<_> = wb("high_byte_string.xls");
+    for (_name, ws) in xls.worksheets() {
+        for (row, _col, cell) in ws.used_cells() {
+            if row == 3 {
+                assert_eq!(
+                    cell.as_string().unwrap(),
+                    "Inside FERC's Gas Market Report monthly bidweek price file.  "
+                );
+            }
+        }
+    }
+    // FIXME: Libreoffice recognizes a REPT("O", I44) formula
+    let formulas = xls.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(
+        "Unrecognised formula for cell (43, 9): Unrecognized { typ: \"ptg\", val: 192 }",
+        formulas.get_value((43, 9)).unwrap()
+    );
+}
+
+#[test]
+fn test_oom_allocation() {
+    let _xls: Xls<_> = wb("OOM_alloc.xls");
+    let _xls: Xls<_> = wb("OOM_alloc2.xls");
+    // FIXME: kills all tests with abort unless unstable set_alloc_error_hook is used
+    // let _xls: Xls<_> = wb("OOM_alloc3.xls");
 }
