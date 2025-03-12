@@ -1238,7 +1238,7 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 /// attempts to read either a simple or richtext string
 pub(crate) fn read_string(
     xml: &mut XlReader<'_>,
-    QName(closing): QName,
+    closing: QName,
 ) -> Result<Option<String>, XlsxError> {
     let mut buf = Vec::with_capacity(1024);
     let mut val_buf = Vec::with_capacity(1024);
@@ -1256,7 +1256,7 @@ pub(crate) fn read_string(
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = true;
             }
-            Ok(Event::End(ref e)) if e.local_name().as_ref() == closing => {
+            Ok(Event::End(ref e)) if e.name() == closing => {
                 return Ok(rich_buffer);
             }
             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"rPh" => {
@@ -1277,7 +1277,7 @@ pub(crate) fn read_string(
                     s.push_str(&value);
                 } else {
                     // consume any remaining events up to expected closing tag
-                    xml.read_to_end_into(QName(closing), &mut val_buf)?;
+                    xml.read_to_end_into(closing, &mut val_buf)?;
                     return Ok(Some(value));
                 }
             }
@@ -1419,6 +1419,9 @@ pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError>
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
     use super::*;
 
     #[test]
@@ -1512,5 +1515,57 @@ mod tests {
             .unwrap(),
             "A2 is a cell, B2 is another, also C108, but XFE123 is not and \"A3\" in quote wont change.".to_owned()
         );
+    }
+
+    #[test]
+    fn test_read_shared_strings_with_namespaced_si_name() {
+        let shared_strings_data = br#"<?xml version="1.0" encoding="utf-8"?>
+<x:sst count="1187" uniqueCount="1187" xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+    <x:si>
+        <x:t>String 1</x:t>
+    </x:si>
+    <x:si>
+        <x:r>
+            <x:rPr>
+                <x:sz val="11"/>
+            </x:rPr>
+            <x:t>String 2</x:t>
+        </x:r>
+    </x:si>
+    <x:si>
+        <x:r>
+            <x:t>String 3</x:t>
+        </x:r>
+    </x:si>
+</x:sst>"#;
+
+        let mut buf = [0; 1000];
+        let mut zip_writer = ZipWriter::new(std::io::Cursor::new(&mut buf[..]));
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        zip_writer.start_file("xl/sharedStrings.xml", options).unwrap();
+        zip_writer.write(shared_strings_data).unwrap();
+        let zip_size = zip_writer.finish().unwrap().position() as usize;
+
+        let zip = ZipArchive::new(std::io::Cursor::new(&buf[..zip_size])).unwrap();
+
+        let mut xlsx = Xlsx{
+            zip,
+            strings: vec![],
+            sheets: vec![],
+            tables: None,
+            formats: vec![],
+            is_1904: false,
+            metadata: Metadata::default(),
+            #[cfg(feature = "picture")]
+            pictures: None,
+            merged_regions: None,
+            options: XlsxOptions::default(),
+        };
+
+        assert!(xlsx.read_shared_strings().is_ok());
+        assert_eq!(3, xlsx.strings.len());
+        assert_eq!("String 1", &xlsx.strings[0]);
+        assert_eq!("String 2", &xlsx.strings[1]);
+        assert_eq!("String 3", &xlsx.strings[2]);
     }
 }
