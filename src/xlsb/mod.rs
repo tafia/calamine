@@ -20,9 +20,7 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-};
+use crate::{Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -216,7 +214,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.50 Styles
     fn read_styles(&mut self) -> Result<(), XlsbError> {
-        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/styles.bin") {
+        let mut iter = match RecordIter::<RS>::from_zip(&mut self.zip, "xl/styles.bin") {
             Ok(iter) => iter,
             Err(_) => return Ok(()), // it is fine if path does not exists
         };
@@ -271,7 +269,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.45
     fn read_shared_strings(&mut self) -> Result<(), XlsbError> {
-        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/sharedStrings.bin") {
+        let mut iter = match RecordIter::<RS>::from_zip(&mut self.zip, "xl/sharedStrings.bin") {
             Ok(iter) => iter,
             Err(_) => return Ok(()), // it is fine if path does not exists
         };
@@ -299,7 +297,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
         &mut self,
         relationships: &BTreeMap<Vec<u8>, String>,
     ) -> Result<(), XlsbError> {
-        let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
+        let mut iter = RecordIter::<RS>::from_zip(&mut self.zip, "xl/workbook.bin")?;
         let mut buf = Vec::with_capacity(1024);
 
         loop {
@@ -408,12 +406,12 @@ impl<RS: Read + Seek> Xlsb<RS> {
     pub fn worksheet_cells_reader<'a>(
         &'a mut self,
         name: &str,
-    ) -> Result<XlsbCellsReader<'a>, XlsbError> {
+    ) -> Result<XlsbCellsReader<'a, RS>, XlsbError> {
         let path = match self.sheets.iter().find(|&(n, _)| n == name) {
             Some((_, path)) => path.clone(),
             None => return Err(XlsbError::WorksheetNotFound(name.into())),
         };
-        let iter = RecordIter::from_zip(&mut self.zip, &path)?;
+        let iter = RecordIter::<RS>::from_zip(&mut self.zip, &path)?;
         XlsbCellsReader::new(
             iter,
             &self.formats,
@@ -608,16 +606,16 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
     }
 }
 
-pub(crate) struct RecordIter<'a> {
+pub(crate) struct RecordIter<'a, R: Read> {
     b: [u8; 1],
-    r: BufReader<ZipFile<'a>>,
+    r: BufReader<ZipFile<'a, R>>,
 }
 
-impl<'a> RecordIter<'a> {
+impl<'a, R: Read> RecordIter<'a, R> {
     fn from_zip<RS: Read + Seek>(
         zip: &'a mut ZipArchive<RS>,
         path: &str,
-    ) -> Result<RecordIter<'a>, XlsbError> {
+    ) -> Result<RecordIter<'a, RS>, XlsbError> {
         match zip.by_name(path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),

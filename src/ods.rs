@@ -21,7 +21,7 @@ use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
-type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
+type OdsReader<'a, R> = XmlReader<BufReader<ZipFile<'a, R>>>;
 
 /// An enum for ods specific errors
 #[derive(Debug)]
@@ -296,7 +296,7 @@ fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Re
 
 /// Parses content.xml and store the result in `self.content`
 fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, OdsError> {
-    let mut reader = match zip.by_name("content.xml") {
+    let mut reader: quick_xml::Reader<BufReader<ZipFile<RS>>> = match zip.by_name("content.xml") {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
             let config = r.config_mut();
@@ -387,7 +387,9 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     })
 }
 
-fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<Data>, Range<String>), OdsError> {
+fn read_table<R: Read>(
+    reader: &mut OdsReader<'_, R>,
+) -> Result<(Range<Data>, Range<String>), OdsError> {
     let mut cells = Vec::new();
     let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
@@ -531,8 +533,8 @@ fn get_range<T: Default + Clone + PartialEq>(
     }
 }
 
-fn read_row(
-    reader: &mut OdsReader<'_>,
+fn read_row<R: Read>(
+    reader: &mut OdsReader<'_, R>,
     row_buf: &mut Vec<u8>,
     cell_buf: &mut Vec<u8>,
     cells: &mut Vec<Data>,
@@ -595,8 +597,8 @@ fn read_row(
 /// Converts table-cell element into a `Data`
 ///
 /// ODF 1.2-19.385
-fn get_datatype(
-    reader: &mut OdsReader<'_>,
+fn get_datatype<R: Read>(
+    reader: &mut OdsReader<'_, R>,
     atts: Attributes<'_>,
     buf: &mut Vec<u8>,
 ) -> Result<(Data, String, bool), OdsError> {
@@ -697,7 +699,9 @@ fn get_datatype(
     }
 }
 
-fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, String)>, OdsError> {
+fn read_named_expressions<R: Read>(
+    reader: &mut OdsReader<'_, R>,
+) -> Result<Vec<(String, String)>, OdsError> {
     let mut defined_names = Vec::new();
     let mut buf = Vec::with_capacity(512);
     loop {

@@ -1,3 +1,4 @@
+use std::io::Read;
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
@@ -8,8 +9,8 @@ use crate::{
 use super::{cell_format, parse_formula, wide_str, RecordIter};
 
 /// A cells reader for xlsb files
-pub struct XlsbCellsReader<'a> {
-    iter: RecordIter<'a>,
+pub struct XlsbCellsReader<'a, R: Read> {
+    iter: RecordIter<'a, R>,
     formats: &'a [CellFormat],
     strings: &'a [String],
     extern_sheets: &'a [String],
@@ -21,9 +22,9 @@ pub struct XlsbCellsReader<'a> {
     buf: Vec<u8>,
 }
 
-impl<'a> XlsbCellsReader<'a> {
+impl<'a, R: Read> XlsbCellsReader<'a, R> {
     pub(crate) fn new(
-        mut iter: RecordIter<'a>,
+        mut iter: RecordIter<'a, R>,
         formats: &'a [CellFormat],
         strings: &'a [String],
         extern_sheets: &'a [String],
