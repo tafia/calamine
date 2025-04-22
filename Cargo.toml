@@ -14,13 +14,15 @@ edition = "2021"
 rust-version = "1.73"
 
 [dependencies]
+atoi_simd = "0.16"
 byteorder = "1.5"
 codepage = "0.1.1"
 encoding_rs = "0.8"
+fast-float2 = "0.2"
 log = "0.4"
 serde = "1.0"
-quick-xml = { version = "0.36", features = ["encoding"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = { version = "0.37", features = ["encoding"] }
+zip = { version = "~2.5.0", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = [
     "serde",
 ], optional = true, default-features = false }

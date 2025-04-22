@@ -2169,3 +2169,8 @@ fn test_oom_allocation() {
     // FIXME: kills all tests with abort unless unstable set_alloc_error_hook is used
     // let _xls: Xls<_> = wb("OOM_alloc3.xls");
 }
+
+#[test]
+fn test_malformed_format() {
+    let _xls: Xls<_> = wb("malformed_format.xls");
+}
