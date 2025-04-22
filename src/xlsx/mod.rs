@@ -1419,10 +1419,10 @@ pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError>
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
-    use super::*;
 
     #[test]
     fn test_dimensions() {
@@ -1541,14 +1541,17 @@ mod tests {
 
         let mut buf = [0; 1000];
         let mut zip_writer = ZipWriter::new(std::io::Cursor::new(&mut buf[..]));
-        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        zip_writer.start_file("xl/sharedStrings.xml", options).unwrap();
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        zip_writer
+            .start_file("xl/sharedStrings.xml", options)
+            .unwrap();
         zip_writer.write(shared_strings_data).unwrap();
         let zip_size = zip_writer.finish().unwrap().position() as usize;
 
         let zip = ZipArchive::new(std::io::Cursor::new(&buf[..zip_size])).unwrap();
 
-        let mut xlsx = Xlsx{
+        let mut xlsx = Xlsx {
             zip,
             strings: vec![],
             sheets: vec![],
