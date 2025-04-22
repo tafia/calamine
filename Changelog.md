@@ -10,6 +10,15 @@
 
 ## Unreleased
 
+## 0.27.0 (2025-04-22)
+
+- fix (xls): Invalid formats parsing
+- feat (xls): add one more Error variant related to formatting
+- fix: Always parse string cell as string
+- refactor: bump dependencies
+- fix: pin zip crate to 2.5.*
+- fix (xlsx): check 'closing' tag name with more prefixes
+
 ## 0.26.1 (2024-10-10)
 
 - fix: sparse celle expect 0 index rows, even when using `header_row`

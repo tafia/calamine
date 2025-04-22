@@ -72,6 +72,11 @@ pub enum XlsError {
     Art(&'static str),
     /// Worksheet not found
     WorksheetNotFound(String),
+    /// Invalid iFmt value
+    InvalidFormat {
+        /// iFmt value, See 2.4.126 Format
+        ifmt: u16,
+    },
 }
 
 from_err!(std::io::Error, XlsError, Io);
@@ -109,6 +114,7 @@ impl std::fmt::Display for XlsError {
             #[cfg(feature = "picture")]
             XlsError::Art(s) => write!(f, "Invalid art record '{s}'"),
             XlsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
+            XlsError::InvalidFormat { ifmt } => write!(f, "Invalid ifmt value: '{ifmt}'"),
         }
     }
 }
@@ -339,12 +345,12 @@ impl<RS: Read + Seek> Xls<RS> {
                         }
                     }
                     // 2.4.126 FORMATTING
-                    0x041E => {
-                        let Ok((idx, format)) = parse_format(&mut r, &encoding) else {
-                            continue;
-                        };
-                        formats.insert(idx, format);
-                    }
+                    0x041E => match parse_format(&mut r, &encoding, biff) {
+                        Ok((idx, format)) => {
+                            formats.insert(idx, format);
+                        }
+                        Err(e) => log::warn!("{e}"),
+                    },
                     // XFS
                     0x00E0 => {
                         xfs.push(parse_xf(&r)?);
@@ -913,25 +919,26 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
 ///
 /// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b
 /// 2.4.126
-fn parse_format(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<(u16, CellFormat), XlsError> {
-    if r.data.len() < 5 {
+fn parse_format(
+    r: &mut Record<'_>,
+    encoding: &XlsEncoding,
+    biff: Biff,
+) -> Result<(u16, CellFormat), XlsError> {
+    if r.data.len() < 2 {
         return Err(XlsError::Len {
             typ: "format",
-            expected: 5,
+            expected: 2,
             found: r.data.len(),
         });
     }
+    let ifmt = read_u16(r.data);
+    match ifmt {
+        5..=8 | 23..=26 | 41..=44 | 63..=66 | 164..=382 => (),
+        _ => return Err(XlsError::InvalidFormat { ifmt }),
+    }
 
-    let idx = read_u16(r.data);
-
-    // TODO: check if this can be replaced with parse_string()
-    let cch = read_u16(&r.data[2..]) as usize;
-    let high_byte = r.data[4] & 0x1 != 0;
-    r.data = &r.data[5..];
-    let mut s = String::with_capacity(cch);
-    encoding.decode_to(r.data, cch, &mut s, Some(high_byte));
-
-    Ok((idx, detect_custom_number_format(&s)))
+    let s = parse_string(&r.data[2..], encoding, biff)?;
+    Ok((ifmt, detect_custom_number_format(&s)))
 }
 
 /// Decode XLUnicodeRichExtendedString.
