@@ -338,9 +338,11 @@ impl<RS: Read + Seek> Xls<RS> {
                             self.is_1904 = true
                         }
                     }
-                    // FORMATTING
+                    // 2.4.126 FORMATTING
                     0x041E => {
-                        let (idx, format) = parse_format(&mut r, &encoding)?;
+                        let Ok((idx, format)) = parse_format(&mut r, &encoding) else {
+                            continue;
+                        };
                         formats.insert(idx, format);
                     }
                     // XFS
@@ -910,17 +912,19 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
 /// Decode Format
 ///
 /// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b
+/// 2.4.126
 fn parse_format(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<(u16, CellFormat), XlsError> {
-    if r.data.len() < 4 {
+    if r.data.len() < 5 {
         return Err(XlsError::Len {
             typ: "format",
-            expected: 4,
+            expected: 5,
             found: r.data.len(),
         });
     }
 
     let idx = read_u16(r.data);
 
+    // TODO: check if this can be replaced with parse_string()
     let cch = read_u16(&r.data[2..]) as usize;
     let high_byte = r.data[4] & 0x1 != 0;
     r.data = &r.data[5..];
