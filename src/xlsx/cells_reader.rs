@@ -2,7 +2,11 @@ use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,
 };
-use std::{borrow::Borrow, collections::HashMap};
+use std::{
+    borrow::Borrow,
+    collections::HashMap,
+    io::{Read, Seek},
+};
 
 use super::{
     get_attribute, get_dimension, get_row, get_row_column, read_string, replace_cell_names,
@@ -17,8 +21,11 @@ use crate::{
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
 
 /// An xlsx Cell Iterator
-pub struct XlsxCellReader<'a> {
-    xml: XlReader<'a>,
+pub struct XlsxCellReader<'a, RS>
+where
+    RS: Read + Seek,
+{
+    xml: XlReader<'a, RS>,
     strings: &'a [String],
     formats: &'a [CellFormat],
     is_1904: bool,
@@ -30,9 +37,12 @@ pub struct XlsxCellReader<'a> {
     formulas: Vec<Option<(String, FormulaMap)>>,
 }
 
-impl<'a> XlsxCellReader<'a> {
+impl<'a, RS> XlsxCellReader<'a, RS>
+where
+    RS: Read + Seek,
+{
     pub fn new(
-        mut xml: XlReader<'a>,
+        mut xml: XlReader<'a, RS>,
         strings: &'a [String],
         formats: &'a [CellFormat],
         is_1904: bool,
@@ -281,14 +291,17 @@ impl<'a> XlsxCellReader<'a> {
     }
 }
 
-fn read_value<'s>(
+fn read_value<'s, RS>(
     strings: &'s [String],
     formats: &[CellFormat],
     is_1904: bool,
-    xml: &mut XlReader<'_>,
+    xml: &mut XlReader<'_, RS>,
     e: &BytesStart<'_>,
     c_element: &BytesStart<'_>,
-) -> Result<DataRef<'s>, XlsxError> {
+) -> Result<DataRef<'s>, XlsxError>
+where
+    RS: Read + Seek,
+{
     Ok(match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
@@ -385,7 +398,10 @@ fn read_v<'s>(
     }
 }
 
-fn read_formula(xml: &mut XlReader, e: &BytesStart) -> Result<Option<String>, XlsxError> {
+fn read_formula<RS>(xml: &mut XlReader<RS>, e: &BytesStart) -> Result<Option<String>, XlsxError>
+where
+    RS: Read + Seek,
+{
     match e.local_name().as_ref() {
         b"is" | b"v" => {
             xml.read_to_end_into(e.name(), &mut Vec::new())?;

@@ -23,7 +23,7 @@ use crate::{
 };
 pub use cells_reader::XlsxCellReader;
 
-pub(crate) type XlReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
+pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
 /// Maximum number of rows allowed in an xlsx file
 pub const MAX_ROWS: u32 = 1_048_576;
@@ -905,7 +905,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn worksheet_cells_reader<'a>(
         &'a mut self,
         name: &str,
-    ) -> Result<XlsxCellReader<'a>, XlsxError> {
+    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
         let (_, path) = self
             .sheets
             .iter()
@@ -1095,7 +1095,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
 fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
-) -> Option<Result<XlReader<'a>, XlsxError>> {
+) -> Option<Result<XlReader<'a, RS>, XlsxError>> {
     let actual_path = zip
         .file_names()
         .find(|n| n.eq_ignore_ascii_case(path))?
@@ -1236,10 +1236,13 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 }
 
 /// attempts to read either a simple or richtext string
-pub(crate) fn read_string(
-    xml: &mut XlReader<'_>,
+pub(crate) fn read_string<RS>(
+    xml: &mut XlReader<'_, RS>,
     closing: QName,
-) -> Result<Option<String>, XlsxError> {
+) -> Result<Option<String>, XlsxError>
+where
+    RS: Read + Seek,
+{
     let mut buf = Vec::with_capacity(1024);
     let mut val_buf = Vec::with_capacity(1024);
     let mut rich_buffer: Option<String> = None;
@@ -1301,7 +1304,10 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     Ok(())
 }
 
-fn read_merge_cells(xml: &mut XlReader<'_>) -> Result<Vec<Dimensions>, XlsxError> {
+fn read_merge_cells<RS>(xml: &mut XlReader<'_, RS>) -> Result<Vec<Dimensions>, XlsxError>
+where
+    RS: Read + Seek,
+{
     let mut merge_cells = Vec::new();
 
     loop {
