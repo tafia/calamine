@@ -21,7 +21,7 @@ use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
 
-type OdsReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
+type OdsReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
 /// An enum for ods specific errors
 #[derive(Debug)]
@@ -387,7 +387,10 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     })
 }
 
-fn read_table(reader: &mut OdsReader<'_>) -> Result<(Range<Data>, Range<String>), OdsError> {
+fn read_table<RS>(reader: &mut OdsReader<'_, RS>) -> Result<(Range<Data>, Range<String>), OdsError>
+where
+    RS: Read + Seek,
+{
     let mut cells = Vec::new();
     let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
@@ -531,13 +534,16 @@ fn get_range<T: Default + Clone + PartialEq>(
     }
 }
 
-fn read_row(
-    reader: &mut OdsReader<'_>,
+fn read_row<RS>(
+    reader: &mut OdsReader<'_, RS>,
     row_buf: &mut Vec<u8>,
     cell_buf: &mut Vec<u8>,
     cells: &mut Vec<Data>,
     formulas: &mut Vec<String>,
-) -> Result<(), OdsError> {
+) -> Result<(), OdsError>
+where
+    RS: Read + Seek,
+{
     let mut empty_col_repeats = 0;
     loop {
         row_buf.clear();
@@ -595,11 +601,14 @@ fn read_row(
 /// Converts table-cell element into a `Data`
 ///
 /// ODF 1.2-19.385
-fn get_datatype(
-    reader: &mut OdsReader<'_>,
+fn get_datatype<RS>(
+    reader: &mut OdsReader<'_, RS>,
     atts: Attributes<'_>,
     buf: &mut Vec<u8>,
-) -> Result<(Data, String, bool), OdsError> {
+) -> Result<(Data, String, bool), OdsError>
+where
+    RS: Read + Seek,
+{
     let mut is_string = false;
     let mut is_value_set = false;
     let mut val = Data::Empty;
@@ -697,7 +706,12 @@ fn get_datatype(
     }
 }
 
-fn read_named_expressions(reader: &mut OdsReader<'_>) -> Result<Vec<(String, String)>, OdsError> {
+fn read_named_expressions<RS>(
+    reader: &mut OdsReader<'_, RS>,
+) -> Result<Vec<(String, String)>, OdsError>
+where
+    RS: Read + Seek,
+{
     let mut defined_names = Vec::new();
     let mut buf = Vec::with_capacity(512);
     loop {

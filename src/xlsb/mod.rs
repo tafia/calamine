@@ -408,7 +408,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
     pub fn worksheet_cells_reader<'a>(
         &'a mut self,
         name: &str,
-    ) -> Result<XlsbCellsReader<'a>, XlsbError> {
+    ) -> Result<XlsbCellsReader<'a, RS>, XlsbError> {
         let path = match self.sheets.iter().find(|&(n, _)| n == name) {
             Some((_, path)) => path.clone(),
             None => return Err(XlsbError::WorksheetNotFound(name.into())),
@@ -608,16 +608,19 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
     }
 }
 
-pub(crate) struct RecordIter<'a> {
+pub(crate) struct RecordIter<'a, RS>
+where
+    RS: Read + Seek,
+{
     b: [u8; 1],
-    r: BufReader<ZipFile<'a>>,
+    r: BufReader<ZipFile<'a, RS>>,
 }
 
-impl<'a> RecordIter<'a> {
-    fn from_zip<RS: Read + Seek>(
-        zip: &'a mut ZipArchive<RS>,
-        path: &str,
-    ) -> Result<RecordIter<'a>, XlsbError> {
+impl<'a, RS> RecordIter<'a, RS>
+where
+    RS: Read + Seek,
+{
+    fn from_zip(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a, RS>, XlsbError> {
         match zip.by_name(path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),
