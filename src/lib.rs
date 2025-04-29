@@ -471,47 +471,39 @@ impl<T: CellType> Range<T> {
     /// Coordinate list (COO) is the natural way cells are stored
     /// Inner size is defined only by non empty.
     ///
-    /// cells: `Vec` of non empty `Cell`s, sorted by row
-    ///
-    /// # Panics
-    ///
-    /// panics when a `Cell` row is lower than the first `Cell` row or
-    /// bigger than the last `Cell` row.
-    pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
-        if cells.is_empty() {
-            Range::empty()
-        } else {
-            // search bounds
-            let row_start = cells.first().unwrap().pos.0;
-            let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = u32::MAX;
-            let mut col_end = 0;
-            for c in cells.iter().map(|c| c.pos.1) {
-                if c < col_start {
-                    col_start = c;
-                }
-                if c > col_end {
-                    col_end = c
-                }
+    /// cells: `Vec` of non empty `Cell`s
+    pub fn from_sparse(mut cells: Vec<Cell<T>>) -> Range<T> {
+        // cells do not always appear in (row, col) order
+        cells.sort_by_key(|cell| (cell.pos.0, cell.pos.1));
+        let (row_start, row_end) = match &cells[..] {
+            [] => return Range::empty(),
+            [first] => (first.pos.0, first.pos.0),
+            [first, .., last] => (first.pos.0, last.pos.0),
+        };
+        // search bounds
+        let mut col_start = u32::MAX;
+        let mut col_end = 0;
+        for c in cells.iter().map(|c| c.pos.1) {
+            col_start = min(col_start, c);
+            col_end = max(col_end, c);
+        }
+        let cols = (col_end - col_start + 1) as usize;
+        let rows = (row_end - row_start + 1) as usize;
+        let len = cols.saturating_mul(rows);
+        let mut v = vec![T::default(); len];
+        v.shrink_to_fit();
+        for c in cells {
+            let row = (c.pos.0 - row_start) as usize;
+            let col = (c.pos.1 - col_start) as usize;
+            let idx = row.saturating_mul(cols) + col;
+            if let Some(v) = v.get_mut(idx) {
+                *v = c.val;
             }
-            let cols = (col_end - col_start + 1) as usize;
-            let rows = (row_end - row_start + 1) as usize;
-            let len = cols.saturating_mul(rows);
-            let mut v = vec![T::default(); len];
-            v.shrink_to_fit();
-            for c in cells {
-                let row = (c.pos.0 - row_start) as usize;
-                let col = (c.pos.1 - col_start) as usize;
-                let idx = row.saturating_mul(cols) + col;
-                if let Some(v) = v.get_mut(idx) {
-                    *v = c.val;
-                }
-            }
-            Range {
-                start: (row_start, col_start),
-                end: (row_end, col_end),
-                inner: v,
-            }
+        }
+        Range {
+            start: (row_start, col_start),
+            end: (row_end, col_end),
+            inner: v,
         }
     }
 
