@@ -527,7 +527,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Panics
     ///
-    /// If absolute_position > Cell start
+    /// If absolute_position.0 < self.start.0 || absolute_position.1 < self.start.1
     ///
     /// # Examples
     /// ```
