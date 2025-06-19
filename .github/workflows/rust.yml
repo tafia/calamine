@@ -7,8 +7,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        toolchain: 
-          - "1.73"  # MSRV
+        toolchain:
+          - "1.75"  # MSRV
           - stable
           - beta
           - nightly
