@@ -10,6 +10,10 @@
 
 ## Unreleased
 
+## 0.28.0 (2025-06-19)
+
+- feat: bump zip to 4.0
+
 ## 0.27.0 (2025-04-22)
 
 - fix (xls): Invalid formats parsing
