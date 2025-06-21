@@ -1,7 +1,8 @@
 //! Parse vbaProject.bin file
 //!
-//! Retranscription from:
-//! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
+//! Retranscription from [`OfficeParser`].
+//!
+//! [`OfficeParser`]: https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::collections::BTreeMap;
 use std::io::Read;

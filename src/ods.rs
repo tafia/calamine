@@ -1,9 +1,11 @@
 //! A module to parse Open Document Spreadsheets
 //!
-//! # Reference
-//! OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
-//! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-
+/// # Reference
+///
+/// OASIS Open Document Format for Office Application 1.2 ([ODF 1.2]).
+///
+/// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
+///
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
@@ -126,8 +128,11 @@ impl std::error::Error for OdsError {
 /// An OpenDocument Spreadsheet document parser
 ///
 /// # Reference
-/// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
-/// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
+///
+/// OASIS Open Document Format for Office Application 1.2 ([ODF 1.2]).
+///
+/// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
+///
 pub struct Ods<RS> {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     metadata: Metadata,

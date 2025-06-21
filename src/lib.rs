@@ -167,12 +167,21 @@ pub struct Metadata {
     names: Vec<(String, String)>,
 }
 
-/// Type of sheet
+/// Type of sheet.
 ///
-/// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/1edadf56-b5cd-4109-abe7-76651bbe2722
-/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 12.3.2, 12.3.7 and 12.3.24
+/// Only Excel formats support this. Default value for ODS is
+/// `SheetType::WorkSheet`.
+///
+/// The property is defined in the following specifications:
+///
+/// - [ECMA-376 Part 1] 12.3.2, 12.3.7 and 12.3.24.
+/// - [MS-XLS `BoundSheet`].
+/// - [MS-XLSB `ST_SheetType`].
+///
+/// [ECMA-376 Part 1]: https://www.ecma-international.org/publications-and-standards/standards/ecma-376/
+/// [MS-XLS `BoundSheet`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// [MS-XLS `BrtBundleSh`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/1edadf56-b5cd-4109-abe7-76651bbe2722
+///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SheetType {
     /// WorkSheet
@@ -187,12 +196,20 @@ pub enum SheetType {
     Vba,
 }
 
-/// Type of visible sheet
+/// Type of visible sheet.
 ///
-/// http://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html#__RefHeading__1417896_253892949
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/74cb1d22-b931-4bf8-997d-17517e2416e9
-/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 18.18.68
+/// The property is defined in the following specifications:
+///
+/// - [ECMA-376 Part 1] 18.18.68 `ST_SheetState` (Sheet Visibility Types).
+/// - [MS-XLS `BoundSheet`].
+/// - [MS-XLSB `ST_SheetState`].
+/// - [OpenDocument v1.2] 19.471 `style:display`.
+///
+/// [ECMA-376 Part 1]: https://www.ecma-international.org/publications-and-standards/standards/ecma-376/
+/// [OpenDocument v1.2]: https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html#property-table_display
+/// [MS-XLS `BoundSheet`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// [MS-XLSB `ST_SheetState`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/74cb1d22-b931-4bf8-997d-17517e2416e9
+///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SheetVisible {
     /// Visible
@@ -306,7 +323,7 @@ where
 {
     /// Get worksheet range where shared string values are only borrowed.
     ///
-    /// This is implemented only for [`calamine::Xlsb`] and [`calamine::Xlsx`], as Xls and Ods formats
+    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
     fn worksheet_range_ref<'a>(&'a mut self, name: &str)
         -> Result<Range<DataRef<'a>>, Self::Error>;
@@ -314,7 +331,7 @@ where
     /// Get the nth worksheet range where shared string values are only borrowed. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
     ///
-    /// This is implemented only for [`calamine::Xlsb`] and [`calamine::Xlsx`], as Xls and Ods formats
+    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
     fn worksheet_range_at_ref(&mut self, n: usize) -> Option<Result<Range<DataRef>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
@@ -322,7 +339,7 @@ where
     }
 }
 
-/// Convenient function to open a file with a BufReader<File>
+/// Convenient function to open a file with a `BufReader<File>`.
 pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
 where
     R: Reader<BufReader<File>>,
@@ -332,7 +349,7 @@ where
     R::new(file)
 }
 
-/// Convenient function to open a file with a BufReader<File>
+/// Convenient function to open a file with a `BufReader<File>`.
 pub fn open_workbook_from_rs<R, RS>(rs: RS) -> Result<R, R::Error>
 where
     RS: Read + Seek,
@@ -981,7 +998,7 @@ impl<T: CellType> From<Table<T>> for Range<T> {
 
 /// A helper function to deserialize cell values as `i64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_i64`] method to the cell value, and returns
+/// It applies the [`as_i64`](crate::datatype::DataType::as_i64) method to the cell value, and returns
 /// `Ok(Some(value_as_i64))` if successful or `Ok(None)` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
@@ -995,7 +1012,7 @@ where
 
 /// A helper function to deserialize cell values as `i64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_i64`] method to the cell value, and returns
+/// It applies the [`as_i64`](crate::datatype::DataType::as_i64) method to the cell value, and returns
 /// `Ok(Ok(value_as_i64))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
@@ -1011,7 +1028,7 @@ where
 
 /// A helper function to deserialize cell values as `f64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_f64`] method to the cell value, and returns
+/// It applies the [`as_f64`](crate::datatype::DataType::as_f64) method to the cell value, and returns
 /// `Ok(Some(value_as_f64))` if successful or `Ok(None)` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
@@ -1025,7 +1042,7 @@ where
 
 /// A helper function to deserialize cell values as `f64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_f64`] method to the cell value, and returns
+/// It applies the [`as_f64`](crate::datatype::DataType::as_f64) method to the cell value, and returns
 /// `Ok(Ok(value_as_f64))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
