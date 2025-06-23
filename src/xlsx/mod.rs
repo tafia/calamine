@@ -567,21 +567,21 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         value: v,
                                     } => {
                                         table_meta.display_name =
-                                            xml.decoder().decode(&v)?.into_owned()
+                                            xml.decoder().decode(&v)?.into_owned();
                                     }
                                     Attribute {
                                         key: QName(b"ref"),
                                         value: v,
                                     } => {
                                         table_meta.ref_cells =
-                                            xml.decoder().decode(&v)?.into_owned()
+                                            xml.decoder().decode(&v)?.into_owned();
                                     }
                                     Attribute {
                                         key: QName(b"headerRowCount"),
                                         value: v,
                                     } => {
                                         table_meta.header_row_count =
-                                            xml.decoder().decode(&v)?.parse()?
+                                            xml.decoder().decode(&v)?.parse()?;
                                     }
                                     Attribute {
                                         key: QName(b"insertRow"),
@@ -592,7 +592,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         value: v,
                                     } => {
                                         table_meta.totals_row_count =
-                                            xml.decoder().decode(&v)?.parse()?
+                                            xml.decoder().decode(&v)?.parse()?;
                                     }
                                     _ => (),
                                 }
@@ -605,7 +605,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     value: v,
                                 } = a
                                 {
-                                    column_names.push(xml.decoder().decode(&v)?.into_owned())
+                                    column_names.push(xml.decoder().decode(&v)?.into_owned());
                                 }
                             }
                         }

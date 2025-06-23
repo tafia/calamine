@@ -140,7 +140,7 @@ where
                                     &mut self.xml,
                                     e,
                                     c_element,
-                                )?
+                                )?;
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),

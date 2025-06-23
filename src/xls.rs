@@ -330,7 +330,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     // CodePage
                     0x0042 => {
                         if self.options.force_codepage.is_none() {
-                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?
+                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
                         }
                     }
                     0x013D => {
@@ -341,7 +341,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     // Date1904
                     0x0022 => {
                         if read_u16(r.data) == 1 {
-                            self.is_1904 = true
+                            self.is_1904 = true;
                         }
                     }
                     // 2.4.126 FORMATTING
@@ -455,7 +455,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x0207 => {
                         // 519 String (formula value)
                         let val = Data::String(parse_string(r.data, &encoding, biff)?);
-                        cells.push(Cell::new(fmla_pos, val))
+                        cells.push(Cell::new(fmla_pos, val));
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
@@ -693,7 +693,7 @@ fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), 
         merge_cells.push(Dimensions {
             start: (rf.into(), cf.into()),
             end: (rl.into(), cl.into()),
-        })
+        });
     }
 
     Ok(())

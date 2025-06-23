@@ -287,13 +287,13 @@ fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Re
                         _ => (),
                     }
                 }
-                inner.clear()
+                inner.clear();
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(OdsError::Xml(e)),
             _ => (),
         }
-        buf.clear()
+        buf.clear();
     }
 
     Ok(())
@@ -328,7 +328,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .map(|a| a.decode_and_unescape_value(reader.decoder()))
                     .transpose()
                     .map_err(OdsError::Xml)?
-                    .map(|x| x.to_string())
+                    .map(|x| x.to_string());
             }
             Ok(Event::Start(ref e))
                 if style_name.is_some() && e.name() == QName(b"style:table-properties") =>

@@ -508,7 +508,7 @@ impl<T: CellType> Range<T> {
                     col_start = c;
                 }
                 if c > col_end {
-                    col_end = c
+                    col_end = c;
                 }
             }
             let cols = (col_end - col_start + 1) as usize;
@@ -589,9 +589,9 @@ impl<T: CellType> Range<T> {
                 }
                 data.extend_from_slice(&vec![T::default(); width * (height - self.height())]);
                 if e {
-                    self.end = absolute_position
+                    self.end = absolute_position;
                 } else {
-                    self.end.1 = absolute_position.1
+                    self.end.1 = absolute_position.1;
                 }
                 self.inner = data;
             } // missing some columns
