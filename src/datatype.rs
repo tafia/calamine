@@ -203,14 +203,14 @@ impl PartialEq<i64> for Data {
 impl fmt::Display for Data {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         match *self {
-            Data::Int(ref e) => write!(f, "{}", e),
-            Data::Float(ref e) => write!(f, "{}", e),
-            Data::String(ref e) => write!(f, "{}", e),
-            Data::Bool(ref e) => write!(f, "{}", e),
-            Data::DateTime(ref e) => write!(f, "{}", e),
-            Data::DateTimeIso(ref e) => write!(f, "{}", e),
-            Data::DurationIso(ref e) => write!(f, "{}", e),
-            Data::Error(ref e) => write!(f, "{}", e),
+            Data::Int(ref e) => write!(f, "{e}"),
+            Data::Float(ref e) => write!(f, "{e}"),
+            Data::String(ref e) => write!(f, "{e}"),
+            Data::Bool(ref e) => write!(f, "{e}"),
+            Data::DateTime(ref e) => write!(f, "{e}"),
+            Data::DateTimeIso(ref e) => write!(f, "{e}"),
+            Data::DurationIso(ref e) => write!(f, "{e}"),
+            Data::Error(ref e) => write!(f, "{e}"),
             Data::Empty => Ok(()),
         }
     }

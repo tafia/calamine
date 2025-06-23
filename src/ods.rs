@@ -595,7 +595,7 @@ where
             Ok(e) => {
                 return Err(OdsError::Mismatch {
                     expected: "table-cell",
-                    found: format!("{:?}", e),
+                    found: format!("{e:?}"),
                 });
             }
         }
@@ -756,7 +756,7 @@ where
             Ok(e) => {
                 return Err(OdsError::Mismatch {
                     expected: "table:named-expressions",
-                    found: format!("{:?}", e),
+                    found: format!("{e:?}"),
                 });
             }
         }

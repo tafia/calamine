@@ -424,7 +424,7 @@ impl<RS: Read + Seek> Xls<RS> {
             })
             .collect::<Vec<_>>();
 
-        debug!("defined_names: {:?}", defined_names);
+        debug!("defined_names: {defined_names:?}");
 
         let mut sheets = BTreeMap::new();
         let fmla_sheet_names = sheet_names
@@ -487,11 +487,10 @@ impl<RS: Read + Seek> Xls<RS> {
                             &encoding,
                         )
                         .unwrap_or_else(|e| {
-                            debug!("{}", e);
+                            debug!("{e}");
                             format!(
                                 "Unrecognised formula \
-                                 for cell ({}, {}): {:?}",
-                                row, col, e
+                                 for cell ({row}, {col}): {e:?}"
                             )
                         });
                         formulas.push(Cell::new(fmla_pos, fmla));
@@ -1145,7 +1144,7 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
             let ixti = read_u16(&rgce[1..3]) as usize;
             (Some(ixti), "#REF!".to_string())
         }
-        _ => (None, format!("Unsupported ptg: {:x}", ptg)),
+        _ => (None, format!("Unsupported ptg: {ptg:x}")),
     };
     Ok(res)
 }
@@ -1252,7 +1251,7 @@ fn parse_formula(
                     _ => unreachable!(),
                 };
                 let e2 = formula.split_off(e2);
-                write!(&mut formula, "{}{}", op, e2).unwrap();
+                write!(&mut formula, "{op}{e2}").unwrap();
             }
             0x12 => {
                 let e = stack.last().ok_or(XlsError::StackLen)?;
@@ -1298,7 +1297,7 @@ fn parse_formula(
                         rgce = &rgce[2..];
                         let e = *stack.last().ok_or(XlsError::StackLen)?;
                         let e = formula.split_off(e);
-                        write!(&mut formula, "SUM({})", e).unwrap();
+                        write!(&mut formula, "SUM({e})").unwrap();
                     }
                     0x40 | 0x41 => {
                         // PtfAttrSpace
@@ -1430,7 +1429,7 @@ fn parse_formula(
                 if rgce[3] & 0x40 != 0x40 {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", row));
+                formula.push_str(&format!("{row}"));
                 rgce = &rgce[4..];
             }
             0x25 | 0x45 | 0x65 => {

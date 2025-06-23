@@ -399,7 +399,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     self.metadata.names = defined_names;
                     return Ok(());
                 }
-                _ => debug!("Unsupported type {:X}", typ),
+                _ => debug!("Unsupported type {typ:X}"),
             }
         }
     }
@@ -958,7 +958,7 @@ fn parse_formula(
                 if rgce[5] & 0x40 != 0x40 {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", row));
+                formula.push_str(&format!("{row}"));
                 rgce = &rgce[6..];
             }
             0x25 | 0x45 | 0x65 => {

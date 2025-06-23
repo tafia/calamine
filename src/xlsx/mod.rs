@@ -381,7 +381,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 } else if r.starts_with("xl/") {
                                     r.to_string()
                                 } else {
-                                    format!("xl/{}", r)
+                                    format!("xl/{r}")
                                 };
                             }
                             _ => (),
@@ -492,7 +492,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         for (sheet_name, sheet_path) in &self.sheets {
             let last_folder_index = sheet_path.rfind('/').expect("should be in a folder");
             let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
-            let rel_path = format!("{}/_rels{}.rels", base_folder, file_name);
+            let rel_path = format!("{base_folder}/_rels{file_name}.rels");
 
             let mut table_locations = Vec::new();
             let mut buf = Vec::with_capacity(64);
@@ -1152,16 +1152,10 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
             let rows = parts[1].0 - parts[0].0;
             let columns = parts[1].1 - parts[0].1;
             if rows > MAX_ROWS {
-                warn!(
-                    "xlsx has more than maximum number of rows ({} > {})",
-                    rows, MAX_ROWS
-                );
+                warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
             }
             if columns > MAX_COLUMNS {
-                warn!(
-                    "xlsx has more than maximum number of columns ({} > {})",
-                    columns, MAX_COLUMNS
-                );
+                warn!("xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})");
             }
             Ok(Dimensions {
                 start: parts[0],
