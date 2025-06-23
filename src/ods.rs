@@ -507,11 +507,11 @@ fn get_range<T: Default + Clone + PartialEq>(
                 }
                 empty_row_repeats = 0;
                 consecutive_empty_rows = 0;
-            };
+            }
 
             if row_repeats > 1 {
                 row_max = row_max + row_repeats - 1;
-            };
+            }
 
             for _ in 0..row_repeats {
                 match row.len().cmp(&(col_max + 1)) {

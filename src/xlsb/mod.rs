@@ -348,7 +348,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                             visible,
                         });
                         self.sheets.push((name.into_owned(), path));
-                    };
+                    }
                 }
                 0x0090 => break, // BrtEndBundleShs
                 _ => (),
@@ -1026,7 +1026,7 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
         if cfb.has_directory("EncryptedPackage") {
             return Err(XlsbError::Password);
         }
-    };
+    }
 
     Ok(())
 }

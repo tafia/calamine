@@ -550,7 +550,7 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
 
     if r.data.len() >= 4 {
         dt = read_u16(&r.data[2..]);
-    };
+    }
 
     let biff = match biff_version {
         0x0200 | 0x0002 | 0x0007 => Biff::Biff2,
