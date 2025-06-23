@@ -48,7 +48,7 @@ pub enum XlsxError {
     Parse(std::string::ParseError),
     /// Float error
     ParseFloat(std::num::ParseFloatError),
-    /// ParseInt error
+    /// `ParseInt` error
     ParseInt(std::num::ParseIntError),
     /// Unexpected end of xml
     XmlEof(&'static str),
@@ -858,7 +858,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// sheet name, then the corresponding worksheet.
     pub fn worksheet_merge_cells_at(
         &mut self,
         n: usize,

@@ -56,7 +56,7 @@ pub enum XlsbError {
     Etpg(u8),
     /// Unsupported iftab
     IfTab(usize),
-    /// Unsupported BErr
+    /// Unsupported `BErr`
     BErr(u8),
     /// Unsupported Ptg
     Ptg(u8),

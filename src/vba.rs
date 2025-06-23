@@ -189,7 +189,7 @@ impl Reference {
         !self.path.exists()
     }
 
-    /// Gets the list of references from the dir_stream relevant part
+    /// Gets the list of references from the `dir_stream` relevant part
     fn from_stream(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Reference>, VbaError> {
         debug!("read all references metadata");
 
@@ -421,7 +421,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
 
 /// Reads a variable length record
 ///
-/// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
+/// `mult` is a multiplier of the length (e.g 2 when parsing `XLWideString`)
 fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8], VbaError> {
     let len = r.read_u32::<LittleEndian>()? as usize * mult;
     let (read, next) = r.split_at(len);

@@ -1,8 +1,8 @@
-//! Rust Excel/OpenDocument reader
+//! Rust Excel/`OpenDocument` reader
 //!
 //! # Status
 //!
-//! **calamine** is a pure Rust library to read Excel and OpenDocument Spreadsheet files.
+//! **calamine** is a pure Rust library to read Excel and `OpenDocument` Spreadsheet files.
 //!
 //! Read both cell values and vba project.
 //!
@@ -184,15 +184,15 @@ pub struct Metadata {
 ///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SheetType {
-    /// WorkSheet
+    /// A worksheet.
     WorkSheet,
-    /// DialogSheet
+    /// A dialog sheet.
     DialogSheet,
-    /// MacroSheet
+    /// A macro sheet.
     MacroSheet,
-    /// ChartSheet
+    /// A chartsheet.
     ChartSheet,
-    /// VBA module
+    /// A VBA module.
     Vba,
 }
 
@@ -226,7 +226,7 @@ pub struct Sheet {
     /// Name
     pub name: String,
     /// Type
-    /// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
+    /// Only Excel formats support this. Default value for ODS is `SheetType::WorkSheet`.
     pub typ: SheetType,
     /// Visible
     pub visible: SheetVisible,
@@ -305,7 +305,7 @@ where
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// worksheet name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<Data>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range(&name))
@@ -329,7 +329,7 @@ where
         -> Result<Range<DataRef<'a>>, Self::Error>;
 
     /// Get the nth worksheet range where shared string values are only borrowed. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// worksheet name, then the corresponding worksheet.
     ///
     /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
@@ -544,7 +544,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Panics
     ///
-    /// If absolute_position > Cell start
+    /// If `absolute_position` > Cell start
     ///
     /// # Examples
     /// ```

@@ -31,7 +31,7 @@ pub enum Data {
     Bool(bool),
     /// Date or Time
     DateTime(ExcelDateTime),
-    /// Date, Time or DateTime in ISO 8601
+    /// Date, Time or Date/Time in ISO 8601
     DateTimeIso(String),
     /// Duration in ISO 8601
     DurationIso(String),
@@ -343,7 +343,7 @@ pub enum DataRef<'a> {
     Bool(bool),
     /// Date or Time
     DateTime(ExcelDateTime),
-    /// Date, Time or DateTime in ISO 8601
+    /// Date, Time or Date/Time in ISO 8601
     DateTimeIso(String),
     /// Duration in ISO 8601
     DurationIso(String),
@@ -538,7 +538,7 @@ pub trait DataType {
     /// Assess if datatype is a string
     fn is_string(&self) -> bool;
 
-    /// Assess if datatype is a CellErrorType
+    /// Assess if datatype is a `CellErrorType`
     fn is_error(&self) -> bool;
 
     /// Assess if datatype is an ISO8601 duration
@@ -681,9 +681,9 @@ impl<'a> From<DataRef<'a>> for Data {
 /// At this time we can only determine datetime (date and time are datetime too) and duration.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExcelDateTimeType {
-    /// DateTime
+    /// `DateTime`
     DateTime,
-    /// TimeDelta (Duration)
+    /// `TimeDelta` (Duration)
     TimeDelta,
 }
 

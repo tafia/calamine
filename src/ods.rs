@@ -125,7 +125,7 @@ impl std::error::Error for OdsError {
     }
 }
 
-/// An OpenDocument Spreadsheet document parser
+/// An `OpenDocument` Spreadsheet document parser
 ///
 /// # Reference
 ///
