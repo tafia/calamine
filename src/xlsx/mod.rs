@@ -1546,7 +1546,7 @@ mod tests {
         zip_writer
             .start_file("xl/sharedStrings.xml", options)
             .unwrap();
-        zip_writer.write(shared_strings_data).unwrap();
+        zip_writer.write_all(shared_strings_data).unwrap();
         let zip_size = zip_writer.finish().unwrap().position() as usize;
 
         let zip = ZipArchive::new(std::io::Cursor::new(&buf[..zip_size])).unwrap();
