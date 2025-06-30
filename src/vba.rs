@@ -1,7 +1,8 @@
 //! Parse vbaProject.bin file
 //!
-//! Retranscription from:
-//! https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
+//! Retranscription from [`OfficeParser`].
+//!
+//! [`OfficeParser`]: https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -47,16 +48,15 @@ from_err!(std::io::Error, VbaError, Io);
 impl std::fmt::Display for VbaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VbaError::Io(e) => write!(f, "I/O error: {}", e),
-            VbaError::Cfb(e) => write!(f, "Cfb error: {}", e),
+            VbaError::Io(e) => write!(f, "I/O error: {e}"),
+            VbaError::Cfb(e) => write!(f, "Cfb error: {e}"),
 
-            VbaError::ModuleNotFound(e) => write!(f, "Cannot find module '{}'", e),
-            VbaError::Unknown { typ, val } => write!(f, "Unknown {} '{:X}'", typ, val),
+            VbaError::ModuleNotFound(e) => write!(f, "Cannot find module '{e}'"),
+            VbaError::Unknown { typ, val } => write!(f, "Unknown {typ} '{val:X}'"),
             VbaError::LibId => write!(f, "Unexpected libid format"),
             VbaError::InvalidRecordId { expected, found } => write!(
                 f,
-                "Invalid record id: expecting {:X} found {:X}",
-                expected, found
+                "Invalid record id: expecting {expected:X} found {found:X}"
             ),
         }
     }
@@ -157,7 +157,7 @@ impl VbaProject {
     /// }
     /// ```
     pub fn get_module(&self, name: &str) -> Result<String, VbaError> {
-        debug!("read module {}", name);
+        debug!("read module {name}");
         let data = self.get_module_raw(name)?;
         Ok(self.encoding.decode_all(data))
     }
@@ -188,7 +188,7 @@ impl Reference {
         !self.path.exists()
     }
 
-    /// Gets the list of references from the dir_stream relevant part
+    /// Gets the list of references from the `dir_stream` relevant part
     fn from_stream(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Reference>, VbaError> {
         debug!("read all references metadata");
 
@@ -282,7 +282,7 @@ impl Reference {
             }
         }
 
-        debug!("references: {:#?}", references);
+        debug!("references: {references:#?}");
         Ok(references)
     }
 
@@ -420,7 +420,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
 
 /// Reads a variable length record
 ///
-/// `mult` is a multiplier of the length (e.g 2 when parsing XLWideString)
+/// `mult` is a multiplier of the length (e.g 2 when parsing `XLWideString`)
 fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8], VbaError> {
     let len = r.read_u32::<LittleEndian>()? as usize * mult;
     let (read, next) = r.split_at(len);
@@ -445,7 +445,7 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaE
 
 /// Check that next record matches `id`
 fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
-    debug!("check record {:x}", id);
+    debug!("check record {id:x}");
     let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
         Err(VbaError::InvalidRecordId {

@@ -1,8 +1,8 @@
-//! Rust Excel/OpenDocument reader
+//! Rust Excel/`OpenDocument` reader
 //!
 //! # Status
 //!
-//! **calamine** is a pure Rust library to read Excel and OpenDocument Spreadsheet files.
+//! **calamine** is a pure Rust library to read Excel and `OpenDocument` Spreadsheet files.
 //!
 //! Read both cell values and vba project.
 //!
@@ -167,32 +167,49 @@ pub struct Metadata {
     names: Vec<(String, String)>,
 }
 
-/// Type of sheet
+/// Type of sheet.
 ///
-/// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/1edadf56-b5cd-4109-abe7-76651bbe2722
-/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 12.3.2, 12.3.7 and 12.3.24
+/// Only Excel formats support this. Default value for ODS is
+/// `SheetType::WorkSheet`.
+///
+/// The property is defined in the following specifications:
+///
+/// - [ECMA-376 Part 1] 12.3.2, 12.3.7 and 12.3.24.
+/// - [MS-XLS `BoundSheet`].
+/// - [MS-XLSB `ST_SheetType`].
+///
+/// [ECMA-376 Part 1]: https://www.ecma-international.org/publications-and-standards/standards/ecma-376/
+/// [MS-XLS `BoundSheet`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// [MS-XLS `BrtBundleSh`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/1edadf56-b5cd-4109-abe7-76651bbe2722
+///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SheetType {
-    /// WorkSheet
+    /// A worksheet.
     WorkSheet,
-    /// DialogSheet
+    /// A dialog sheet.
     DialogSheet,
-    /// MacroSheet
+    /// A macro sheet.
     MacroSheet,
-    /// ChartSheet
+    /// A chartsheet.
     ChartSheet,
-    /// VBA module
+    /// A VBA module.
     Vba,
 }
 
-/// Type of visible sheet
+/// Type of visible sheet.
 ///
-/// http://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html#__RefHeading__1417896_253892949
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/74cb1d22-b931-4bf8-997d-17517e2416e9
-/// [ECMA-376 Part 1](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/) 18.18.68
+/// The property is defined in the following specifications:
+///
+/// - [ECMA-376 Part 1] 18.18.68 `ST_SheetState` (Sheet Visibility Types).
+/// - [MS-XLS `BoundSheet`].
+/// - [MS-XLSB `ST_SheetState`].
+/// - [OpenDocument v1.2] 19.471 `style:display`.
+///
+/// [ECMA-376 Part 1]: https://www.ecma-international.org/publications-and-standards/standards/ecma-376/
+/// [OpenDocument v1.2]: https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html#property-table_display
+/// [MS-XLS `BoundSheet`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b9ec509a-235d-424e-871d-f8e721106501
+/// [MS-XLSB `ST_SheetState`]: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/74cb1d22-b931-4bf8-997d-17517e2416e9
+///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SheetVisible {
     /// Visible
@@ -209,7 +226,7 @@ pub struct Sheet {
     /// Name
     pub name: String,
     /// Type
-    /// Only Excel formats support this. Default value for ODS is SheetType::WorkSheet.
+    /// Only Excel formats support this. Default value for ODS is `SheetType::WorkSheet`.
     pub typ: SheetType,
     /// Visible
     pub visible: SheetVisible,
@@ -288,7 +305,7 @@ where
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// worksheet name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<Data>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range(&name))
@@ -306,15 +323,15 @@ where
 {
     /// Get worksheet range where shared string values are only borrowed.
     ///
-    /// This is implemented only for [`calamine::Xlsb`] and [`calamine::Xlsx`], as Xls and Ods formats
+    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
     fn worksheet_range_ref<'a>(&'a mut self, name: &str)
         -> Result<Range<DataRef<'a>>, Self::Error>;
 
     /// Get the nth worksheet range where shared string values are only borrowed. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// worksheet name, then the corresponding worksheet.
     ///
-    /// This is implemented only for [`calamine::Xlsb`] and [`calamine::Xlsx`], as Xls and Ods formats
+    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
     fn worksheet_range_at_ref(&mut self, n: usize) -> Option<Result<Range<DataRef>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
@@ -322,7 +339,7 @@ where
     }
 }
 
-/// Convenient function to open a file with a BufReader<File>
+/// Convenient function to open a file with a `BufReader<File>`.
 pub fn open_workbook<R, P>(path: P) -> Result<R, R::Error>
 where
     R: Reader<BufReader<File>>,
@@ -332,7 +349,7 @@ where
     R::new(file)
 }
 
-/// Convenient function to open a file with a BufReader<File>
+/// Convenient function to open a file with a `BufReader<File>`.
 pub fn open_workbook_from_rs<R, RS>(rs: RS) -> Result<R, R::Error>
 where
     RS: Read + Seek,
@@ -378,7 +395,47 @@ impl<T: CellType> Cell<T> {
     }
 }
 
-/// A struct which represents a squared selection of cells
+/// A struct which represents an area of cells and the data within it.
+///
+/// Ranges are used by `calamine` to represent an area of data in a worksheet. A
+/// `Range` is a rectangular area of cells defined by its start and end
+/// positions.
+///
+/// A `Range` is constructed with **absolute positions** in the form of `(row,
+/// column)`. The start position for the absolute positioning is the cell `(0,
+/// 0)` or `A1`. For the example range "B3:C6", shown below, the start position
+/// is `(2, 1)` and the end position is `(5, 2)`. Within the range, the cells
+/// are indexed with **relative positions** where `(0, 0)` is the start cell. In
+/// the example below the relative positions for the start and end cells are
+/// `(0, 0)` and `(3, 1)` respectively.
+///
+/// ```text
+///  ______________________________________________________________________________
+/// |         ||                |                |                |                |
+/// |         ||       A        |       B        |       C        |       D        |
+/// |_________||________________|________________|________________|________________|
+/// |    1    ||                |                |                |                |
+/// |_________||________________|________________|________________|________________|
+/// |    2    ||                |                |                |                |
+/// |_________||________________|________________|________________|________________|
+/// |    3    ||                | (2, 1), (0, 0) |                |                |
+/// |_________||________________|________________|________________|________________|
+/// |    4    ||                |                |                |                |
+/// |_________||________________|________________|________________|________________|
+/// |    5    ||                |                |                |                |
+/// |_________||________________|________________|________________|________________|
+/// |    6    ||                |                | (5,2), (3, 1)  |                |
+/// |_________||________________|________________|________________|________________|
+/// |    7    ||                |                |                |                |
+/// |_________||________________|________________|________________|________________|
+/// |_          ___________________________________________________________________|
+///   \ Sheet1 /
+///     ------
+/// ```
+///
+/// A `Range` contains a vector of cells of of generic type `T` which implement
+/// the [`CellType`] trait. The values are stored in a row-major order.
+///
 #[derive(Debug, Default, Clone)]
 pub struct Range<T> {
     start: (u32, u32),
@@ -387,13 +444,45 @@ pub struct Range<T> {
 }
 
 impl<T: CellType> Range<T> {
-    /// Creates a new non-empty `Range`
+    /// Creates a new `Range` with default values.
     ///
-    /// When possible, prefer the more efficient `Range::from_sparse`
+    /// Create a new [`Range`] with the given start and end positions. The
+    /// positions are in worksheet absolute coordinates, i.e. `(0, 0)` is cell `A1`.
+    ///
+    /// The range is populated with default values of type `T`.
+    ///
+    /// When possible, use the more efficient [`Range::from_sparse()`]
+    /// constructor.
+    ///
+    /// # Parameters
+    ///
+    /// - `start`: The zero indexed (row, column) tuple.
+    /// - `end`: The zero indexed (row, column) tuple.
     ///
     /// # Panics
     ///
-    /// Panics if start.0 > end.0 or start.1 > end.1
+    /// Panics if `start` > `end`.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a new calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_new.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// // Create a 8x1 Range.
+    /// let range: Range<Data> = Range::new((2, 2), (9, 2));
+    ///
+    /// assert_eq!(range.width(), 1);
+    /// assert_eq!(range.height(), 8);
+    /// assert_eq!(range.cells().count(), 8);
+    /// assert_eq!(range.used_cells().count(), 0);
+    /// ```
+    ///
+    ///
     #[inline]
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Range<T> {
         assert!(start <= end, "invalid range bounds");
@@ -404,7 +493,26 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Creates a new empty range
+    /// Creates a new empty `Range`.
+    ///
+    /// Creates a new [`Range`] with start and end positions both set to `(0,
+    /// 0)` and with an empty inner vector. An empty range can be expanded by
+    /// adding data.
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a new empty calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_empty.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::empty();
+    ///
+    /// assert!(range.is_empty());
+    /// ```
+    ///
     #[inline]
     pub fn empty() -> Range<T> {
         Range {
@@ -414,7 +522,27 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get top left cell position (row, column)
+    /// Get top left cell position of a `Range`.
+    ///
+    /// Get the top left cell position of a range in absolute `(row, column)`
+    /// coordinates.
+    ///
+    /// Returns `None` if the range is empty.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the start position of a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_start.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::new((2, 3), (9, 3));
+    ///
+    /// assert_eq!(range.start(), Some((2, 3)));
+    /// ```
+    ///
     #[inline]
     pub fn start(&self) -> Option<(u32, u32)> {
         if self.is_empty() {
@@ -424,7 +552,27 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get bottom right cell position (row, column)
+    /// Get bottom right cell position of a `Range`.
+    ///
+    /// Get the bottom right cell position of a range in absolute `(row,
+    /// column)` coordinates.
+    ///
+    /// Returns `None` if the range is empty.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the end position of a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_end.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::new((2, 3), (9, 3));
+    ///
+    /// assert_eq!(range.end(), Some((9, 3)));
+    /// ```
+    ///
     #[inline]
     pub fn end(&self) -> Option<(u32, u32)> {
         if self.is_empty() {
@@ -434,7 +582,25 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get column width
+    /// Get the column width of a `Range`.
+    ///
+    /// The width is defined as the number of columns between the start and end
+    /// positions.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the column width of a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_width.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::new((2, 3), (9, 3));
+    ///
+    /// assert_eq!(range.width(), 1);
+    /// ```
+    ///
     #[inline]
     pub fn width(&self) -> usize {
         if self.is_empty() {
@@ -444,7 +610,25 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get column height
+    /// Get the row height of a `Range`.
+    ///
+    /// The height is defined as the number of rows between the start and end
+    /// positions.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the row height of a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_height.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::new((2, 3), (9, 3));
+    ///
+    /// assert_eq!(range.height(), 8);
+    /// ```
+    ///
     #[inline]
     pub fn height(&self) -> usize {
         if self.is_empty() {
@@ -454,29 +638,87 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get size in (height, width) format
+    /// Get size of a `Range` in (height, width) format.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the (height, width) size of a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_size.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::new((2, 3), (9, 3));
+    ///
+    /// assert_eq!(range.get_size(), (8, 1));
+    /// ```
+    ///
     #[inline]
     pub fn get_size(&self) -> (usize, usize) {
         (self.height(), self.width())
     }
 
-    /// Is range empty
+    /// Check if a `Range` is empty.
+    ///
+    /// # Examples
+    ///
+    /// An example of checking if a calamine `Range` is empty.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_empty.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range: Range<Data> = Range::empty();
+    ///
+    /// assert!(range.is_empty());
+    /// ```
+    ///
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
-    /// Creates a `Range` from a coo sparse vector of `Cell`s.
+    /// Creates a `Range` from a sparse vector of cells.
     ///
-    /// Coordinate list (COO) is the natural way cells are stored
-    /// Inner size is defined only by non empty.
+    /// The `Range::from_sparse()` constructor can be used to create a Range
+    /// from a vector of [`Cell`] data. This is slightly more efficient than
+    /// creating a range with [`Range::new()`] and then setting the values.
     ///
-    /// cells: `Vec` of non empty `Cell`s, sorted by row
+    /// # Parameters
+    ///
+    /// - `cells`: A vector of non-empty [`Cell`] elements, sorted by row. The
+    ///   first and last cells define the start and end positions of the range.
     ///
     /// # Panics
     ///
-    /// panics when a `Cell` row is lower than the first `Cell` row or
-    /// bigger than the last `Cell` row.
+    /// Panics when a `Cell` row is less than the first `Cell` row.
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a new calamine `Range` for a sparse vector of
+    /// Cells.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_from_sparse.rs
+    /// #
+    /// use calamine::{Cell, Data, Range};
+    ///
+    /// let cells = vec![
+    ///     Cell::new((2, 2), Data::Int(1)),
+    ///     Cell::new((5, 2), Data::Int(1)),
+    ///     Cell::new((9, 2), Data::Int(1)),
+    /// ];
+    ///
+    /// let range = Range::from_sparse(cells);
+    ///
+    /// assert_eq!(range.width(), 1);
+    /// assert_eq!(range.height(), 8);
+    /// assert_eq!(range.cells().count(), 8);
+    /// assert_eq!(range.used_cells().count(), 3);
+    /// ```
+    ///
     pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
         if cells.is_empty() {
             Range::empty()
@@ -491,7 +733,7 @@ impl<T: CellType> Range<T> {
                     col_start = c;
                 }
                 if c > col_end {
-                    col_end = c
+                    col_end = c;
                 }
             }
             let cols = (col_end - col_start + 1) as usize;
@@ -515,29 +757,46 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Set inner value from absolute position
+    /// Set a value at an absolute position in a `Range`.
     ///
-    /// # Remarks
+    /// This method sets a value in the range at the given absolute position
+    /// (relative to `A1`).
     ///
-    /// Will try to resize inner structure if the value is out of bounds.
-    /// For relative positions, use Index trait
+    /// Try to avoid this method as much as possible and prefer initializing the
+    /// `Range` with the [`Range::from_sparse()`] constructor.
     ///
-    /// Try to avoid this method as much as possible and prefer initializing
-    /// the `Range` with `from_sparse` constructor.
+    /// # Parameters
+    ///
+    /// - `absolute_position`: The absolute position, relative to `A1`, in the
+    ///   form of `(row, column)`. It must be greater than or equal to the start
+    ///   position of the range. If the position is greater than the end of the range
+    ///   the structure will be resized to accommodate the new end position.
     ///
     /// # Panics
     ///
-    /// If absolute_position.0 < self.start.0 || absolute_position.1 < self.start.1
+    /// If `absolute_position.0 < self.start.0 || absolute_position.1 < self.start.1`
     ///
     /// # Examples
+    ///
+    /// An example of setting a value in a calamine `Range`.
+    ///
     /// ```
-    /// use calamine::{Range, Data};
+    /// # // This code is available in examples/doc_range_set_value.rs
+    /// #
+    /// use calamine::{Data, Range};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
+    ///
+    /// // The initial range is empty.
     /// assert_eq!(range.get_value((2, 1)), Some(&Data::Empty));
+    ///
+    /// // Set a value at a specific position.
     /// range.set_value((2, 1), Data::Float(1.0));
+    ///
+    /// // The value at the specified position should now be set.
     /// assert_eq!(range.get_value((2, 1)), Some(&Data::Float(1.0)));
     /// ```
+    ///
     pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
         assert!(
             self.start.0 <= absolute_position.0 && self.start.1 <= absolute_position.1,
@@ -572,9 +831,9 @@ impl<T: CellType> Range<T> {
                 }
                 data.extend_from_slice(&vec![T::default(); width * (height - self.height())]);
                 if e {
-                    self.end = absolute_position
+                    self.end = absolute_position;
                 } else {
-                    self.end.1 = absolute_position.1
+                    self.end.1 = absolute_position.1;
                 }
                 self.inner = data;
             } // missing some columns
@@ -588,31 +847,37 @@ impl<T: CellType> Range<T> {
         self.inner[idx] = value;
     }
 
-    /// Get cell value from **absolute position**.
+    /// Get a value at an absolute position in a `Range`.
     ///
-    /// If the `absolute_position` is out of range, returns `None`, else returns the cell value.
-    /// The coordinate format is (row, column).
+    /// If the `absolute_position` is out of range, returns `None`, otherwise
+    /// returns the cell value. The coordinate format is `(row, column)`
+    /// relative to `A1`.
     ///
-    /// # Warnings
+    /// For relative positions see the [`Range::get()`] method.
     ///
-    /// For relative positions, use Index trait
+    /// # Parameters
     ///
-    /// # Remarks
-    ///
-    /// Absolute position is in *sheet* referential while relative position is in *range* referential.
-    ///
-    /// For instance if we consider range *C2:H38*:
-    /// - `(0, 0)` absolute is "A1" and thus this function returns `None`
-    /// - `(0, 0)` relative is "C2" and is returned by the `Index` trait (i.e `my_range[(0, 0)]`)
+    /// - `absolute_position`: The absolute position, relative to `A1`, in the
+    ///   form of `(row, column)`.
     ///
     /// # Examples
-    /// ```
-    /// use calamine::{Range, Data};
     ///
-    /// let range: Range<usize> = Range::new((1, 0), (5, 2));
-    /// assert_eq!(range.get_value((0, 0)), None);
-    /// assert_eq!(range[(0, 0)], 0);
+    /// An example of getting a value in a calamine `Range`.
+    ///
     /// ```
+    /// # // This code is available in examples/doc_range_get_value.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let range = Range::new((1, 1), (5, 5));
+    ///
+    /// // Get the value for a cell in the range.
+    /// assert_eq!(range.get_value((2, 2)), Some(&Data::Empty));
+    ///
+    /// // Get the value for a cell outside the range.
+    /// assert_eq!(range.get_value((0, 0)), None);
+    /// ```
+    ///
     pub fn get_value(&self, absolute_position: (u32, u32)) -> Option<&T> {
         let p = absolute_position;
         if p.0 >= self.start.0 && p.0 <= self.end.0 && p.1 >= self.start.1 && p.1 <= self.end.1 {
@@ -624,10 +889,37 @@ impl<T: CellType> Range<T> {
         None
     }
 
-    /// Get cell value from **relative position**.
+    /// Get a value at a relative position in a `Range`.
     ///
-    /// Unlike using the Index trait, this will not panic but rather yield `None` if out of range.
-    /// Otherwise, returns the cell value. The coordinate format is (row, column).
+    /// If the `relative_position` is out of range, returns `None`, otherwise
+    /// returns the cell value. The coordinate format is `(row, column)`
+    /// relative to `(0, 0)` in the range.
+    ///
+    /// For absolute cell positioning see the [`Range::get_value()`] method.
+    ///
+    /// # Parameters
+    ///
+    /// - `relative_position`: The position relative to the index `(0, 0)` in
+    ///   the range.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting a value in a calamine `Range`, using relative
+    /// positioning.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_get.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// let mut range = Range::new((1, 1), (5, 5));
+    ///
+    /// // Set a cell value using the cell absolute position.
+    /// range.set_value((2, 3), Data::Int(123));
+    ///
+    /// // Get the value using the range relative position.
+    /// assert_eq!(range.get((1, 2)), Some(&Data::Int(123)));
+    /// ```
     ///
     pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
         let (row, col) = relative_position;
@@ -639,16 +931,44 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get an iterator over inner rows
+    /// Get an iterator over the rows of a `Range`.
     ///
     /// # Examples
-    /// ```
-    /// use calamine::{Range, Data};
     ///
-    /// let range: Range<Data> = Range::new((0, 0), (5, 2));
-    /// // with rows item row: &[Data]
-    /// assert_eq!(range.rows().map(|r| r.len()).sum::<usize>(), 18);
+    /// An example of using a `Row` iterator with a calamine `Range`.
+    ///
     /// ```
+    /// # // This code is available in examples/doc_range_rows.rs
+    /// #
+    /// use calamine::{Cell, Data, Range};
+    ///
+    /// let cells = vec![
+    ///     Cell::new((1, 1), Data::Int(1)),
+    ///     Cell::new((1, 2), Data::Int(2)),
+    ///     Cell::new((3, 1), Data::Int(3)),
+    /// ];
+    ///
+    /// // Create a Range from the cells.
+    /// let range = Range::from_sparse(cells);
+    ///
+    /// // Iterate over the rows of the range.
+    /// for (row_num, row) in range.rows().enumerate() {
+    ///     for (col_num, data) in row.iter().enumerate() {
+    ///         // Print the data in each cell of the row.
+    ///         println!("({row_num}, {col_num}): {data}");
+    ///     }
+    /// }
+    ///
+    /// // Output in relative coordinates:
+    /// //
+    /// // (0, 0): 1
+    /// // (0, 1): 2
+    /// // (1, 0):
+    /// // (1, 1):
+    /// // (2, 0): 3
+    /// // (2, 1):
+    /// ```
+    ///
     pub fn rows(&self) -> Rows<'_, T> {
         if self.inner.is_empty() {
             Rows { inner: None }
@@ -660,7 +980,44 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get an iterator over used cells only
+    /// Get an iterator over the used cells in a `Range`.
+    ///
+    /// This method returns an iterator over the used cells in a range. The
+    /// "used" cells are defined as the cells that have a value other than the
+    /// default value for `T`. The iterator returns tuples of `(row, column,
+    /// value)` for each used cell. The row and column are relative/index values
+    /// rather than absolute cell positions.
+    ///
+    /// # Examples
+    ///
+    /// An example of iterating over the used cells in a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_used_cells.rs
+    /// #
+    /// use calamine::{Cell, Data, Range};
+    ///
+    /// let cells = vec![
+    ///     Cell::new((1, 1), Data::Int(1)),
+    ///     Cell::new((1, 2), Data::Int(2)),
+    ///     Cell::new((3, 1), Data::Int(3)),
+    /// ];
+    ///
+    /// // Create a Range from the cells.
+    /// let range = Range::from_sparse(cells);
+    ///
+    /// // Iterate over the used cells in the range.
+    /// for (row, col, data) in range.used_cells() {
+    ///     println!("({row}, {col}): {data}");
+    /// }
+    ///
+    /// // Output:
+    /// //
+    /// // (0, 0): 1
+    /// // (0, 1): 2
+    /// // (2, 0): 3
+    /// ```
+    ///
     pub fn used_cells(&self) -> UsedCells<'_, T> {
         UsedCells {
             width: self.width(),
@@ -668,7 +1025,46 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Get an iterator over all cells in this range
+    /// Get an iterator over all the cells in a `Range`.
+    ///
+    /// This method returns an iterator over all the cells in a range, including
+    /// those that are empty. The iterator returns tuples of `(row, column,
+    /// value)` for each cell. The row and column are relative/index values
+    /// rather than absolute cell positions.
+    ///
+    /// # Examples
+    ///
+    /// An example of iterating over the used cells in a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_cells.rs
+    /// #
+    /// use calamine::{Cell, Data, Range};
+    ///
+    /// let cells = vec![
+    ///     Cell::new((1, 1), Data::Int(1)),
+    ///     Cell::new((1, 2), Data::Int(2)),
+    ///     Cell::new((3, 1), Data::Int(3)),
+    /// ];
+    ///
+    /// // Create a Range from the cells.
+    /// let range = Range::from_sparse(cells);
+    ///
+    /// // Iterate over the cells in the range.
+    /// for (row, col, data) in range.cells() {
+    ///     println!("({row}, {col}): {data}");
+    /// }
+    ///
+    /// // Output:
+    /// //
+    /// // (0, 0): 1
+    /// // (0, 1): 2
+    /// // (1, 0):
+    /// // (1, 1):
+    /// // (2, 0): 3
+    /// // (2, 1):
+    /// ```
+    ///
     pub fn cells(&self) -> Cells<'_, T> {
         Cells {
             width: self.width(),
@@ -676,29 +1072,70 @@ impl<T: CellType> Range<T> {
         }
     }
 
-    /// Build a `RangeDeserializer` from this configuration.
+    /// Build a `RangeDeserializer` for a `Range`.
     ///
-    /// # Example
+    /// This method returns a [`RangeDeserializer`] that can be used to
+    /// deserialize the data in the range.
+    ///
+    /// # Errors
+    ///
+    /// - [`DeError`] if the range cannot be deserialized.
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a deserializer fora calamine `Range`.
+    ///
+    /// The sample Excel file `temperature.xlsx` contains a single sheet named
+    /// "Sheet1" with the following data:
+    ///
+    /// ```text
+    ///  ____________________________________________
+    /// |         ||                |                |
+    /// |         ||       A        |       B        |
+    /// |_________||________________|________________|
+    /// |    1    || label          | value          |
+    /// |_________||________________|________________|
+    /// |    2    || celsius        | 22.2222        |
+    /// |_________||________________|________________|
+    /// |    3    || fahrenheit     | 72             |
+    /// |_________||________________|________________|
+    /// |_          _________________________________|
+    ///   \ Sheet1 /
+    ///     ------
+    /// ```
     ///
     /// ```
-    /// # use calamine::{Reader, Error, open_workbook, Xlsx, RangeDeserializerBuilder};
+    /// # // This code is available in examples/doc_range_deserialize.rs
+    /// #
+    /// use calamine::{open_workbook, Error, Reader, Xlsx};
+    ///
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
-    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
-    ///     let mut iter = sheet.deserialize()?;
     ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the data range from the first sheet.
+    ///     let sheet_range = workbook.worksheet_range("Sheet1")?;
+    ///
+    ///     // Get an iterator over data in the range.
+    ///     let mut iter = sheet_range.deserialize()?;
+    ///
+    ///     // Get the next record in the range. The first row is assumed to be the
+    ///     // header.
     ///     if let Some(result) = iter.next() {
     ///         let (label, value): (String, f64) = result?;
+    ///
     ///         assert_eq!(label, "celsius");
     ///         assert_eq!(value, 22.2222);
     ///
     ///         Ok(())
     ///     } else {
-    ///         return Err(From::from("expected at least one record but got none"));
+    ///         Err(From::from("Expected at least one record but got none"))
     ///     }
     /// }
     /// ```
+    ///
     pub fn deserialize<'a, D>(&'a self) -> Result<RangeDeserializer<'a, T, D>, DeError>
     where
         T: ToCellDeserializer<'a>,
@@ -707,29 +1144,40 @@ impl<T: CellType> Range<T> {
         RangeDeserializerBuilder::new().from_range(self)
     }
 
-    /// Build a new `Range` out of this range
+    /// Build a new `Range` out of the current range.
     ///
-    /// # Remarks
+    /// This method returns a new `Range` with cloned data. In general it is
+    /// used to get a subset of an existing range. However, if the new range is
+    /// larger than the existing range the new cells will be filled with default
+    /// values.
     ///
-    /// Cells within this range will be cloned, cells out of it will be set to Empty
+    /// # Examples
     ///
-    /// # Example
+    /// An example of getting a sub range of a calamine `Range`.
     ///
     /// ```
-    /// # use calamine::{Range, Data};
+    /// # // This code is available in examples/doc_range_range.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// // Create a range with some values.
     /// let mut a = Range::new((1, 1), (3, 3));
     /// a.set_value((1, 1), Data::Bool(true));
     /// a.set_value((2, 2), Data::Bool(true));
+    /// a.set_value((3, 3), Data::Bool(true));
     ///
-    /// let b = a.range((2, 2), (5, 5));
+    /// // Get a sub range of the main range.
+    /// let b = a.range((1, 1), (2, 2));
+    /// assert_eq!(b.get_value((1, 1)), Some(&Data::Bool(true)));
     /// assert_eq!(b.get_value((2, 2)), Some(&Data::Bool(true)));
-    /// assert_eq!(b.get_value((3, 3)), Some(&Data::Empty));
     ///
-    /// let c = a.range((0, 0), (2, 2));
+    /// // Get a larger range with default values.
+    /// let c = a.range((0, 0), (5, 5));
     /// assert_eq!(c.get_value((0, 0)), Some(&Data::Empty));
-    /// assert_eq!(c.get_value((1, 1)), Some(&Data::Bool(true)));
-    /// assert_eq!(c.get_value((2, 2)), Some(&Data::Bool(true)));
+    /// assert_eq!(c.get_value((3, 3)), Some(&Data::Bool(true)));
+    /// assert_eq!(c.get_value((5, 5)), Some(&Data::Empty));
     /// ```
+    ///
     pub fn range(&self, start: (u32, u32), end: (u32, u32)) -> Range<T> {
         let mut other = Range::new(start, end);
         let (self_start_row, self_start_col) = self.start;
@@ -789,17 +1237,30 @@ impl<T: CellType> Range<T> {
 }
 
 impl<T: CellType + fmt::Display> Range<T> {
-    /// Get range headers.
+    /// Get headers for a `Range`.
+    ///
+    /// This method returns the first row of the range as an optional vector of
+    /// strings. The data type `T` in the range must support the [`ToString`]
+    /// trait.
     ///
     /// # Examples
-    /// ```
-    /// use calamine::{Range, Data};
     ///
+    /// An example of getting the header row of a calamine `Range`.
+    ///
+    /// ```
+    /// # // This code is available in examples/doc_range_headers.rs
+    /// #
+    /// use calamine::{Data, Range};
+    ///
+    /// // Create a range with some values.
     /// let mut range = Range::new((0, 0), (5, 2));
     /// range.set_value((0, 0), Data::String(String::from("a")));
     /// range.set_value((0, 1), Data::Int(1));
     /// range.set_value((0, 2), Data::Bool(true));
+    ///
+    /// // Get the headers of the range.
     /// let headers = range.headers();
+    ///
     /// assert_eq!(
     ///     headers,
     ///     Some(vec![
@@ -809,6 +1270,7 @@ impl<T: CellType + fmt::Display> Range<T> {
     ///     ])
     /// );
     /// ```
+    ///
     pub fn headers(&self) -> Option<Vec<String>> {
         self.rows()
             .next()
@@ -816,6 +1278,25 @@ impl<T: CellType + fmt::Display> Range<T> {
     }
 }
 
+/// Implementation of the `Index` trait for `Range` rows.
+///
+/// # Examples
+///
+/// An example of row indexing for a calamine `Range`.
+///
+/// ```
+/// # // This code is available in examples/doc_range_index_row.rs
+/// #
+/// use calamine::{Data, Range};
+///
+/// // Create a range with a value.
+/// let mut range = Range::new((1, 1), (3, 3));
+/// range.set_value((2, 2), Data::Int(123));
+///
+/// // Get the second row via indexing.
+/// assert_eq!(range[1], [Data::Empty, Data::Int(123), Data::Empty]);
+/// ```
+///
 impl<T: CellType> Index<usize> for Range<T> {
     type Output = [T];
     fn index(&self, index: usize) -> &[T] {
@@ -824,6 +1305,25 @@ impl<T: CellType> Index<usize> for Range<T> {
     }
 }
 
+/// Implementation of the `Index` trait for `Range` cells.
+///
+/// # Examples
+///
+/// An example of cell indexing for a calamine `Range`.
+///
+/// ```
+/// # // This code is available in examples/doc_range_index_cell.rs
+/// #
+/// use calamine::{Data, Range};
+///
+/// // Create a range with a value.
+/// let mut range = Range::new((1, 1), (3, 3));
+/// range.set_value((2, 2), Data::Int(123));
+///
+/// // Get the value via cell indexing.
+/// assert_eq!(range[(1, 1)], Data::Int(123));
+/// ```
+///
 impl<T: CellType> Index<(usize, usize)> for Range<T> {
     type Output = T;
     fn index(&self, index: (usize, usize)) -> &T {
@@ -833,6 +1333,7 @@ impl<T: CellType> Index<(usize, usize)> for Range<T> {
     }
 }
 
+/// Implementation of the `IndexMut` trait for `Range` rows.
 impl<T: CellType> IndexMut<usize> for Range<T> {
     fn index_mut(&mut self, index: usize) -> &mut [T] {
         let width = self.width();
@@ -840,6 +1341,27 @@ impl<T: CellType> IndexMut<usize> for Range<T> {
     }
 }
 
+/// Implementation of the `IndexMut` trait for `Range` cells.
+///
+/// # Examples
+///
+/// An example of mutable cell indexing for a calamine `Range`.
+///
+/// ```
+/// # // This code is available in examples/doc_range_index_mut_cell.rs
+/// #
+/// use calamine::{Data, Range};
+///
+/// // Create a new empty range.
+/// let mut range = Range::new((1, 1), (3, 3));
+///
+/// // Set a value in the range using cell indexing.
+/// range[(1, 1)] = Data::Int(123);
+///
+/// // Test the value was set correctly.
+/// assert_eq!(range.get((1, 1)), Some(&Data::Int(123)));
+/// ```
+///
 impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut T {
         let (height, width) = self.get_size();
@@ -981,7 +1503,7 @@ impl<T: CellType> From<Table<T>> for Range<T> {
 
 /// A helper function to deserialize cell values as `i64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_i64`] method to the cell value, and returns
+/// It applies the [`as_i64`](crate::datatype::DataType::as_i64) method to the cell value, and returns
 /// `Ok(Some(value_as_i64))` if successful or `Ok(None)` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
@@ -995,7 +1517,7 @@ where
 
 /// A helper function to deserialize cell values as `i64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_i64`] method to the cell value, and returns
+/// It applies the [`as_i64`](crate::datatype::DataType::as_i64) method to the cell value, and returns
 /// `Ok(Ok(value_as_i64))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
@@ -1011,7 +1533,7 @@ where
 
 /// A helper function to deserialize cell values as `f64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_f64`] method to the cell value, and returns
+/// It applies the [`as_f64`](crate::datatype::DataType::as_f64) method to the cell value, and returns
 /// `Ok(Some(value_as_f64))` if successful or `Ok(None)` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.
@@ -1025,7 +1547,7 @@ where
 
 /// A helper function to deserialize cell values as `f64`,
 /// useful when cells may also contain invalid values (i.e. strings).
-/// It applies the [`as_f64`] method to the cell value, and returns
+/// It applies the [`as_f64`](crate::datatype::DataType::as_f64) method to the cell value, and returns
 /// `Ok(Ok(value_as_f64))` if successful or `Ok(Err(value_to_string))` if unsuccessful,
 /// therefore never failing. This function is intended to be used with Serde's
 /// [`deserialize_with`](https://serde.rs/field-attrs.html) field attribute.

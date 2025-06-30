@@ -35,14 +35,14 @@ from_err!(&'static str, Error, Msg);
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Io(e) => write!(f, "I/O error: {}", e),
-            Error::Ods(e) => write!(f, "Ods error: {}", e),
-            Error::Xls(e) => write!(f, "Xls error: {}", e),
-            Error::Xlsx(e) => write!(f, "Xlsx error: {}", e),
-            Error::Xlsb(e) => write!(f, "Xlsb error: {}", e),
-            Error::Vba(e) => write!(f, "Vba error: {}", e),
-            Error::De(e) => write!(f, "Deserializer error: {}", e),
-            Error::Msg(msg) => write!(f, "{}", msg),
+            Error::Io(e) => write!(f, "I/O error: {e}"),
+            Error::Ods(e) => write!(f, "Ods error: {e}"),
+            Error::Xls(e) => write!(f, "Xls error: {e}"),
+            Error::Xlsx(e) => write!(f, "Xlsx error: {e}"),
+            Error::Xlsb(e) => write!(f, "Xlsb error: {e}"),
+            Error::Vba(e) => write!(f, "Vba error: {e}"),
+            Error::De(e) => write!(f, "Deserializer error: {e}"),
+            Error::Msg(msg) => write!(f, "{msg}"),
         }
     }
 }

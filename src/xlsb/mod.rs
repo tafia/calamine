@@ -56,7 +56,7 @@ pub enum XlsbError {
     Etpg(u8),
     /// Unsupported iftab
     IfTab(usize),
-    /// Unsupported BErr
+    /// Unsupported `BErr`
     BErr(u8),
     /// Unsupported Ptg
     Ptg(u8),
@@ -348,7 +348,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                             visible,
                         });
                         self.sheets.push((name.into_owned(), path));
-                    };
+                    }
                 }
                 0x0090 => break, // BrtEndBundleShs
                 _ => (),
@@ -399,7 +399,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     self.metadata.names = defined_names;
                     return Ok(());
                 }
-                _ => debug!("Unsupported type {:X}", typ),
+                _ => debug!("Unsupported type {typ:X}"),
             }
         }
     }
@@ -589,7 +589,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
 
                 // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
                 // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
-                if cells.first().map_or(false, |c| c.pos.0 != header_row_idx) {
+                if cells.first().is_some_and(|c| c.pos.0 != header_row_idx) {
                     cells.insert(
                         0,
                         Cell {
@@ -958,7 +958,7 @@ fn parse_formula(
                 if rgce[5] & 0x40 != 0x40 {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", row));
+                formula.push_str(&format!("{row}"));
                 rgce = &rgce[6..];
             }
             0x25 | 0x45 | 0x65 => {
@@ -1026,7 +1026,7 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
         if cfb.has_directory("EncryptedPackage") {
             return Err(XlsbError::Password);
         }
-    };
+    }
 
     Ok(())
 }

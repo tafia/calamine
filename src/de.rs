@@ -42,19 +42,18 @@ impl fmt::Display for DeError {
                 ref min_pos,
             } => write!(
                 f,
-                "there is no cell at position '{:?}'.Minimum position is '{:?}'",
-                try_pos, min_pos
+                "there is no cell at position '{try_pos:?}'. Minimum position is '{min_pos:?}'"
             ),
             DeError::CellError { ref pos, ref err } => {
-                write!(f, "Cell error at position '{:?}': {}", pos, err)
+                write!(f, "Cell error at position '{pos:?}': {err}")
             }
             DeError::UnexpectedEndOfRow { ref pos } => {
-                write!(f, "Unexpected end of row at position '{:?}'", pos)
+                write!(f, "Unexpected end of row at position '{pos:?}'")
             }
             DeError::HeaderNotFound(ref header) => {
-                write!(f, "Cannot find header named '{}'", header)
+                write!(f, "Cannot find header named '{header}'")
             }
-            DeError::Custom(ref s) => write!(f, "{}", s),
+            DeError::Custom(ref s) => write!(f, "{s}"),
         }
     }
 }
@@ -682,7 +681,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
                 err: err.clone(),
                 pos: self.pos,
             }),
-            ref d => Err(DeError::Custom(format!("Expecting bytes, got {:?}", d))),
+            ref d => Err(DeError::Custom(format!("Expecting bytes, got {d:?}"))),
         }
     }
 
@@ -709,7 +708,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
             Data::String(ref v) => match &**v {
                 "TRUE" | "true" | "True" => visitor.visit_bool(true),
                 "FALSE" | "false" | "False" => visitor.visit_bool(false),
-                d => Err(DeError::Custom(format!("Expecting bool, got '{}'", d))),
+                d => Err(DeError::Custom(format!("Expecting bool, got '{d}'"))),
             },
             Data::Empty => visitor.visit_bool(false),
             Data::Float(v) => visitor.visit_bool(*v != 0.),
@@ -736,7 +735,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
                 err: err.clone(),
                 pos: self.pos,
             }),
-            ref d => Err(DeError::Custom(format!("Expecting unit, got {:?}", d))),
+            ref d => Err(DeError::Custom(format!("Expecting unit, got {d:?}"))),
         }
     }
 
@@ -750,7 +749,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
                 err: err.clone(),
                 pos: self.pos,
             }),
-            ref d => Err(DeError::Custom(format!("Expecting unit, got {:?}", d))),
+            ref d => Err(DeError::Custom(format!("Expecting unit, got {d:?}"))),
         }
     }
 
@@ -792,7 +791,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
                 err: err.clone(),
                 pos: self.pos,
             }),
-            ref d => Err(DeError::Custom(format!("Expecting enum, got {:?}", d))),
+            ref d => Err(DeError::Custom(format!("Expecting enum, got {d:?}"))),
         }
     }
 

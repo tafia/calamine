@@ -1,9 +1,11 @@
 //! A module to parse Open Document Spreadsheets
 //!
-//! # Reference
-//! OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
-//! http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
-
+/// # Reference
+///
+/// OASIS Open Document Format for Office Application 1.2 ([ODF 1.2]).
+///
+/// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
+///
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
@@ -123,11 +125,14 @@ impl std::error::Error for OdsError {
     }
 }
 
-/// An OpenDocument Spreadsheet document parser
+/// An `OpenDocument` Spreadsheet document parser
 ///
 /// # Reference
-/// OASIS Open Document Format for Office Application 1.2 (ODF 1.2)
-/// http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
+///
+/// OASIS Open Document Format for Office Application 1.2 ([ODF 1.2]).
+///
+/// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
+///
 pub struct Ods<RS> {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     metadata: Metadata,
@@ -282,13 +287,13 @@ fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Re
                         _ => (),
                     }
                 }
-                inner.clear()
+                inner.clear();
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(OdsError::Xml(e)),
             _ => (),
         }
-        buf.clear()
+        buf.clear();
     }
 
     Ok(())
@@ -323,7 +328,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .map(|a| a.decode_and_unescape_value(reader.decoder()))
                     .transpose()
                     .map_err(OdsError::Xml)?
-                    .map(|x| x.to_string())
+                    .map(|x| x.to_string());
             }
             Ok(Event::Start(ref e))
                 if style_name.is_some() && e.name() == QName(b"style:table-properties") =>
@@ -502,11 +507,11 @@ fn get_range<T: Default + Clone + PartialEq>(
                 }
                 empty_row_repeats = 0;
                 consecutive_empty_rows = 0;
-            };
+            }
 
             if row_repeats > 1 {
                 row_max = row_max + row_repeats - 1;
-            };
+            }
 
             for _ in 0..row_repeats {
                 match row.len().cmp(&(col_max + 1)) {
@@ -590,7 +595,7 @@ where
             Ok(e) => {
                 return Err(OdsError::Mismatch {
                     expected: "table-cell",
-                    found: format!("{:?}", e),
+                    found: format!("{e:?}"),
                 });
             }
         }
@@ -751,7 +756,7 @@ where
             Ok(e) => {
                 return Err(OdsError::Mismatch {
                     expected: "table:named-expressions",
-                    found: format!("{:?}", e),
+                    found: format!("{e:?}"),
                 });
             }
         }

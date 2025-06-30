@@ -34,20 +34,16 @@ pub enum CfbError {
 impl std::fmt::Display for CfbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CfbError::Io(e) => write!(f, "I/O error: {}", e),
+            CfbError::Io(e) => write!(f, "I/O error: {e}"),
             CfbError::Ole => write!(f, "Invalid OLE signature (not an office document?)"),
             CfbError::EmptyRootDir => write!(f, "Empty Root directory"),
-            CfbError::StreamNotFound(e) => write!(f, "Cannot find {} stream", e),
+            CfbError::StreamNotFound(e) => write!(f, "Cannot find {e} stream"),
             CfbError::Invalid {
                 name,
                 expected,
                 found,
-            } => write!(
-                f,
-                "Invalid {}, expecting {} found {:X}",
-                name, expected, found
-            ),
-            CfbError::CodePageNotFound(e) => write!(f, "Codepage {:X} not found", e),
+            } => write!(f, "Invalid {name}, expecting {expected} found {found:X}"),
+            CfbError::CodePageNotFound(e) => write!(f, "Codepage {e:X} not found"),
         }
     }
 }

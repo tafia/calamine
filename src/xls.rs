@@ -225,7 +225,7 @@ impl<RS: Read + Seek> Xls<RS> {
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// sheet name, then the corresponding worksheet.
     pub fn worksheet_merge_cells_at(&self, n: usize) -> Option<Vec<Dimensions>> {
         let sheet = self.metadata().sheets.get(n)?;
 
@@ -330,7 +330,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     // CodePage
                     0x0042 => {
                         if self.options.force_codepage.is_none() {
-                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?
+                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
                         }
                     }
                     0x013D => {
@@ -341,7 +341,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     // Date1904
                     0x0022 => {
                         if read_u16(r.data) == 1 {
-                            self.is_1904 = true
+                            self.is_1904 = true;
                         }
                     }
                     // 2.4.126 FORMATTING
@@ -424,7 +424,7 @@ impl<RS: Read + Seek> Xls<RS> {
             })
             .collect::<Vec<_>>();
 
-        debug!("defined_names: {:?}", defined_names);
+        debug!("defined_names: {defined_names:?}");
 
         let mut sheets = BTreeMap::new();
         let fmla_sheet_names = sheet_names
@@ -455,7 +455,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x0207 => {
                         // 519 String (formula value)
                         let val = Data::String(parse_string(r.data, &encoding, biff)?);
-                        cells.push(Cell::new(fmla_pos, val))
+                        cells.push(Cell::new(fmla_pos, val));
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
@@ -487,11 +487,10 @@ impl<RS: Read + Seek> Xls<RS> {
                             &encoding,
                         )
                         .unwrap_or_else(|e| {
-                            debug!("{}", e);
+                            debug!("{e}");
                             format!(
                                 "Unrecognised formula \
-                                 for cell ({}, {}): {:?}",
-                                row, col, e
+                                 for cell ({row}, {col}): {e:?}"
                             )
                         });
                         formulas.push(Cell::new(fmla_pos, fmla));
@@ -526,13 +525,13 @@ impl<RS: Read + Seek> Xls<RS> {
     }
 }
 
-/// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/4d6a3d1e-d7c5-405f-bbae-d01e9cb79366
+/// <https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/4d6a3d1e-d7c5-405f-bbae-d01e9cb79366>
 struct Bof {
     /// Binary Interchange File Format
     biff: Biff,
 }
 
-/// https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes
+/// <https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes>
 #[derive(Clone, Copy)]
 enum Biff {
     Biff2,
@@ -551,7 +550,7 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
 
     if r.data.len() >= 4 {
         dt = read_u16(&r.data[2..]);
-    };
+    }
 
     let biff = match biff_version {
         0x0200 | 0x0002 | 0x0007 => Biff::Biff2,
@@ -572,7 +571,7 @@ fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
     Ok(Bof { biff })
 }
 
-/// BoundSheet8 [MS-XLS 2.4.28]
+/// `BoundSheet8` [MS-XLS 2.4.28]
 fn parse_sheet_metadata(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
@@ -693,7 +692,7 @@ fn parse_merge_cells(r: &[u8], merge_cells: &mut Vec<Dimensions>) -> Result<(), 
         merge_cells.push(Dimensions {
             start: (rf.into(), cf.into()),
             end: (rl.into(), cl.into()),
-        })
+        });
     }
 
     Ok(())
@@ -755,7 +754,7 @@ fn rk_num(rk: &[u8], formats: &[CellFormat], is_1904: bool) -> Data {
     }
 }
 
-/// ShortXLUnicodeString [MS-XLS 2.5.240]
+/// `ShortXLUnicodeString` [MS-XLS 2.5.240]
 fn parse_short_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
@@ -783,7 +782,7 @@ fn parse_short_string(
     Ok(s)
 }
 
-/// XLUnicodeString [MS-XLS 2.5.294]
+/// `XLUnicodeString` [MS-XLS 2.5.294]
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
     if r.len() < 4 {
         return Err(XlsError::Len {
@@ -902,7 +901,7 @@ fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, 
 
 /// Decode XF (extract only ifmt - Format identifier)
 ///
-/// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/993d15c4-ec04-43e9-ba36-594dfb336c6d
+/// See: <https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/993d15c4-ec04-43e9-ba36-594dfb336c6d>
 fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
     if r.data.len() < 4 {
         return Err(XlsError::Len {
@@ -917,7 +916,7 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
 
 /// Decode Format
 ///
-/// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b
+/// See: <https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b>
 /// 2.4.126
 fn parse_format(
     r: &mut Record<'_>,
@@ -941,7 +940,7 @@ fn parse_format(
     Ok((ifmt, detect_custom_number_format(&s)))
 }
 
-/// Decode XLUnicodeRichExtendedString.
+/// Decode `XLUnicodeRichExtendedString`.
 ///
 /// See: <https://docs.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/173d9f51-e5d3-43da-8de2-be7f22e119b9>
 fn read_rich_extended_string(
@@ -1145,14 +1144,14 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
             let ixti = read_u16(&rgce[1..3]) as usize;
             (Some(ixti), "#REF!".to_string())
         }
-        _ => (None, format!("Unsupported ptg: {:x}", ptg)),
+        _ => (None, format!("Unsupported ptg: {ptg:x}")),
     };
     Ok(res)
 }
 
 /// Formula parsing
 ///
-/// CellParsedFormula [MS-XLS 2.5.198.3]
+/// `CellParsedFormula` [MS-XLS 2.5.198.3]
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
@@ -1252,7 +1251,7 @@ fn parse_formula(
                     _ => unreachable!(),
                 };
                 let e2 = formula.split_off(e2);
-                write!(&mut formula, "{}{}", op, e2).unwrap();
+                write!(&mut formula, "{op}{e2}").unwrap();
             }
             0x12 => {
                 let e = stack.last().ok_or(XlsError::StackLen)?;
@@ -1298,7 +1297,7 @@ fn parse_formula(
                         rgce = &rgce[2..];
                         let e = *stack.last().ok_or(XlsError::StackLen)?;
                         let e = formula.split_off(e);
-                        write!(&mut formula, "SUM({})", e).unwrap();
+                        write!(&mut formula, "SUM({e})").unwrap();
                     }
                     0x40 | 0x41 => {
                         // PtfAttrSpace
@@ -1430,7 +1429,7 @@ fn parse_formula(
                 if rgce[3] & 0x40 != 0x40 {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", row));
+                formula.push_str(&format!("{row}"));
                 rgce = &rgce[4..];
             }
             0x25 | 0x45 | 0x65 => {
@@ -1475,7 +1474,7 @@ fn parse_formula(
     }
 }
 
-/// FormulaValue [MS-XLS 2.5.133]
+/// `FormulaValue` [MS-XLS 2.5.133]
 fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
     match *r {
         // String, value should be in next record

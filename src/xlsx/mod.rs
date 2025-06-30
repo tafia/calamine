@@ -48,7 +48,7 @@ pub enum XlsxError {
     Parse(std::string::ParseError),
     /// Float error
     ParseFloat(std::num::ParseFloatError),
-    /// ParseInt error
+    /// `ParseInt` error
     ParseInt(std::num::ParseIntError),
     /// Unexpected end of xml
     XmlEof(&'static str),
@@ -381,7 +381,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 } else if r.starts_with("xl/") {
                                     r.to_string()
                                 } else {
-                                    format!("xl/{}", r)
+                                    format!("xl/{r}")
                                 };
                             }
                             _ => (),
@@ -492,7 +492,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         for (sheet_name, sheet_path) in &self.sheets {
             let last_folder_index = sheet_path.rfind('/').expect("should be in a folder");
             let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
-            let rel_path = format!("{}/_rels{}.rels", base_folder, file_name);
+            let rel_path = format!("{base_folder}/_rels{file_name}.rels");
 
             let mut table_locations = Vec::new();
             let mut buf = Vec::with_capacity(64);
@@ -567,21 +567,21 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         value: v,
                                     } => {
                                         table_meta.display_name =
-                                            xml.decoder().decode(&v)?.into_owned()
+                                            xml.decoder().decode(&v)?.into_owned();
                                     }
                                     Attribute {
                                         key: QName(b"ref"),
                                         value: v,
                                     } => {
                                         table_meta.ref_cells =
-                                            xml.decoder().decode(&v)?.into_owned()
+                                            xml.decoder().decode(&v)?.into_owned();
                                     }
                                     Attribute {
                                         key: QName(b"headerRowCount"),
                                         value: v,
                                     } => {
                                         table_meta.header_row_count =
-                                            xml.decoder().decode(&v)?.parse()?
+                                            xml.decoder().decode(&v)?.parse()?;
                                     }
                                     Attribute {
                                         key: QName(b"insertRow"),
@@ -592,7 +592,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         value: v,
                                     } => {
                                         table_meta.totals_row_count =
-                                            xml.decoder().decode(&v)?.parse()?
+                                            xml.decoder().decode(&v)?.parse()?;
                                     }
                                     _ => (),
                                 }
@@ -605,7 +605,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     value: v,
                                 } = a
                                 {
-                                    column_names.push(xml.decoder().decode(&v)?.into_owned())
+                                    column_names.push(xml.decoder().decode(&v)?.into_owned());
                                 }
                             }
                         }
@@ -858,7 +858,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
-    /// sheet_name, then the corresponding worksheet.
+    /// sheet name, then the corresponding worksheet.
     pub fn worksheet_merge_cells_at(
         &mut self,
         n: usize,
@@ -1073,7 +1073,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
 
                 // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
                 // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
-                if cells.first().map_or(false, |c| c.pos.0 != header_row_idx) {
+                if cells.first().is_some_and(|c| c.pos.0 != header_row_idx) {
                     cells.insert(
                         0,
                         Cell {
@@ -1152,16 +1152,10 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
             let rows = parts[1].0 - parts[0].0;
             let columns = parts[1].1 - parts[0].1;
             if rows > MAX_ROWS {
-                warn!(
-                    "xlsx has more than maximum number of rows ({} > {})",
-                    rows, MAX_ROWS
-                );
+                warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
             }
             if columns > MAX_COLUMNS {
-                warn!(
-                    "xlsx has more than maximum number of columns ({} > {})",
-                    columns, MAX_COLUMNS
-                );
+                warn!("xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})");
             }
             Ok(Dimensions {
                 start: parts[0],
@@ -1299,7 +1293,7 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
         if cfb.has_directory("EncryptedPackage") {
             return Err(XlsxError::Password);
         }
-    };
+    }
 
     Ok(())
 }
@@ -1552,7 +1546,7 @@ mod tests {
         zip_writer
             .start_file("xl/sharedStrings.xml", options)
             .unwrap();
-        zip_writer.write(shared_strings_data).unwrap();
+        zip_writer.write_all(shared_strings_data).unwrap();
         let zip_size = zip_writer.finish().unwrap().position() as usize;
 
         let zip = ZipArchive::new(std::io::Cursor::new(&buf[..zip_size])).unwrap();
