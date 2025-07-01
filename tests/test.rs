@@ -520,13 +520,12 @@ fn issue_127() {
     .collect();
 
     for ext in &["ods", "xls", "xlsx", "xlsb"] {
-        let p = format!("{}/tests/issue127.{}", root, ext);
+        let p = format!("{root}/tests/issue127.{ext}");
         let workbook = open_workbook_auto(&p).expect(&p);
         assert_eq!(
             workbook.sheet_names(),
             &ordered_names[..],
-            "{} sheets should be ordered",
-            ext
+            "{ext} sheets should be ordered"
         );
     }
 }

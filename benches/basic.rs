@@ -11,7 +11,7 @@ fn count<R: Reader<BufReader<File>>>(path: &str) -> usize {
     let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
     let mut excel: R = open_workbook(&path).expect("cannot open excel file");
 
-    let sheets = excel.sheet_names().to_owned();
+    let sheets = excel.sheet_names();
     let mut count = 0;
     for s in sheets {
         count += excel
@@ -50,11 +50,11 @@ fn bench_xlsx_cells_reader(b: &mut Bencher) {
         let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
         let mut excel: Xlsx<_> = open_workbook(&path).expect("cannot open excel file");
 
-        let sheets = excel.sheet_names().to_owned();
+        let sheets = excel.sheet_names();
         let mut count = 0;
         for s in sheets {
             let mut cells_reader = excel.worksheet_cells_reader(&s).unwrap();
-            while let Some(_) = cells_reader.next_cell().unwrap() {
+            while cells_reader.next_cell().unwrap().is_some() {
                 count += 1;
             }
         }
@@ -69,11 +69,11 @@ fn bench_xlsb_cells_reader(b: &mut Bencher) {
         let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
         let mut excel: Xlsb<_> = open_workbook(&path).expect("cannot open excel file");
 
-        let sheets = excel.sheet_names().to_owned();
+        let sheets = excel.sheet_names();
         let mut count = 0;
         for s in sheets {
             let mut cells_reader = excel.worksheet_cells_reader(&s).unwrap();
-            while let Some(_) = cells_reader.next_cell().unwrap() {
+            while cells_reader.next_cell().unwrap().is_some() {
                 count += 1;
             }
         }

@@ -431,7 +431,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
             let mut zfile = self.zip.by_index(i)?;
             let zname = zfile.name();
             if zname.starts_with("xl/media") {
-                if let Some(ext) = zname.split('.').last() {
+                if let Some(ext) = zname.split('.').next_back() {
                     if [
                         "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
                         "bmp", "wpg",

@@ -645,7 +645,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let mut zfile = self.zip.by_index(i)?;
             let zname = zfile.name();
             if zname.starts_with("xl/media") {
-                if let Some(ext) = zname.split('.').last() {
+                if let Some(ext) = zname.split('.').next_back() {
                     if [
                         "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
                         "bmp", "wpg",
@@ -804,7 +804,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     /// Get the table by name (ref)
-    pub fn table_by_name_ref(&mut self, table_name: &str) -> Result<Table<DataRef>, XlsxError> {
+    pub fn table_by_name_ref(&mut self, table_name: &str) -> Result<Table<DataRef<'_>>, XlsxError> {
         let TableMetadata {
             name,
             sheet_name,

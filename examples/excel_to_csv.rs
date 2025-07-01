@@ -36,13 +36,13 @@ fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<(
             match *c {
                 Data::Empty => Ok(()),
                 Data::String(ref s) | Data::DateTimeIso(ref s) | Data::DurationIso(ref s) => {
-                    write!(dest, "{}", s)
+                    write!(dest, "{s}")
                 }
-                Data::Float(ref f) => write!(dest, "{}", f),
+                Data::Float(ref f) => write!(dest, "{f}"),
                 Data::DateTime(ref d) => write!(dest, "{}", d.as_f64()),
-                Data::Int(ref i) => write!(dest, "{}", i),
-                Data::Error(ref e) => write!(dest, "{:?}", e),
-                Data::Bool(ref b) => write!(dest, "{}", b),
+                Data::Int(ref i) => write!(dest, "{i}"),
+                Data::Error(ref e) => write!(dest, "{e:?}"),
+                Data::Bool(ref b) => write!(dest, "{b}"),
             }?;
             if i != n {
                 write!(dest, ";")?;
