@@ -532,7 +532,7 @@ struct Bof {
 }
 
 /// <https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes>
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Biff {
     Biff2,
     Biff3,

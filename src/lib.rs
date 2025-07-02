@@ -439,7 +439,7 @@ impl<T: CellType> Cell<T> {
 /// A `Range` contains a vector of cells of of generic type `T` which implement
 /// the [`CellType`] trait. The values are stored in a row-major order.
 ///
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Range<T> {
     start: (u32, u32),
     end: (u32, u32),
