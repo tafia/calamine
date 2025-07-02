@@ -1280,8 +1280,8 @@ fn issue_271() -> Result<(), calamine::Error> {
     loop {
         let mut workbook: Xls<_> = wb("issue_271.xls");
         let v = workbook.worksheets();
-        let (_sheetname, range) = v.first().expect("bad format");
-        dbg!(_sheetname);
+        let (sheetname, range) = v.first().expect("bad format");
+        assert_eq!(sheetname, "sheet1");
         let value = range.get((0, 1)).map(|s| s.to_string());
         values.push(value);
         count += 1;
@@ -1290,12 +1290,10 @@ fn issue_271() -> Result<(), calamine::Error> {
         }
     }
 
-    dbg!(&values);
-
     values.sort_unstable();
     values.dedup();
 
-    assert_eq!(values.len(), 1);
+    assert_eq!(&values, &[Some("yyy_name".to_string())]);
 
     Ok(())
 }
