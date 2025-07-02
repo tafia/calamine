@@ -775,7 +775,7 @@ fn read_pictures<RS: Read + Seek>(
         let zname = zfile.name();
         // no Thumbnails
         if zname.starts_with("Pictures") {
-            if let Some(ext) = zname.split('.').last() {
+            if let Some(ext) = zname.split('.').next_back() {
                 if [
                     "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps", "bmp",
                     "wpg",

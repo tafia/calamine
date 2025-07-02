@@ -18,7 +18,7 @@ fn main() {
     // Search recursively for all excel files matching argument pattern
     // Output statistics: nb broken references, nb broken cells etc...
     let folder = env::args().nth(1).unwrap_or_else(|| ".".to_string());
-    let pattern = format!("{}/**/*.xl*", folder);
+    let pattern = format!("{folder}/**/*.xl*");
     let mut filecount = 0;
 
     let mut output = pattern
@@ -40,14 +40,14 @@ fn main() {
         filecount += 1;
         match run(f) {
             Ok((f, missing, cell_errors)) => {
-                writeln!(output, "{:?}~{:?}~{}", f, missing, cell_errors)
+                writeln!(output, "{f:?}~{missing:?}~{cell_errors}")
             }
-            Err(e) => writeln!(output, "{:?}", e),
+            Err(e) => writeln!(output, "{e:?}"),
         }
-        .unwrap_or_else(|e| println!("{:?}", e))
+        .unwrap_or_else(|e| println!("{e:?}"))
     }
 
-    println!("Found {} excel files", filecount);
+    println!("Found {filecount} excel files");
 }
 
 fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {

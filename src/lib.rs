@@ -333,7 +333,10 @@ where
     ///
     /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
-    fn worksheet_range_at_ref(&mut self, n: usize) -> Option<Result<Range<DataRef>, Self::Error>> {
+    fn worksheet_range_at_ref(
+        &mut self,
+        n: usize,
+    ) -> Option<Result<Range<DataRef<'_>>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range_ref(&name))
     }
@@ -720,40 +723,35 @@ impl<T: CellType> Range<T> {
     /// ```
     ///
     pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
-        if cells.is_empty() {
-            Range::empty()
-        } else {
-            // search bounds
-            let row_start = cells.first().unwrap().pos.0;
-            let row_end = cells.last().unwrap().pos.0;
-            let mut col_start = u32::MAX;
-            let mut col_end = 0;
-            for c in cells.iter().map(|c| c.pos.1) {
-                if c < col_start {
-                    col_start = c;
-                }
-                if c > col_end {
-                    col_end = c;
-                }
+        let (row_start, row_end) = match &cells[..] {
+            [] => return Range::empty(),
+            [first] => (first.pos.0, first.pos.0),
+            [first, .., last] => (first.pos.0, last.pos.0),
+        };
+        // search bounds
+        let mut col_start = u32::MAX;
+        let mut col_end = 0;
+        for c in cells.iter().map(|c| c.pos.1) {
+            col_start = min(c, col_start);
+            col_end = max(c, col_end);
+        }
+        let cols = (col_end - col_start + 1) as usize;
+        let rows = (row_end - row_start + 1) as usize;
+        let len = cols.saturating_mul(rows);
+        let mut v = vec![T::default(); len];
+        v.shrink_to_fit();
+        for c in cells {
+            let row = (c.pos.0 - row_start) as usize;
+            let col = (c.pos.1 - col_start) as usize;
+            let idx = row.saturating_mul(cols) + col;
+            if let Some(v) = v.get_mut(idx) {
+                *v = c.val;
             }
-            let cols = (col_end - col_start + 1) as usize;
-            let rows = (row_end - row_start + 1) as usize;
-            let len = cols.saturating_mul(rows);
-            let mut v = vec![T::default(); len];
-            v.shrink_to_fit();
-            for c in cells {
-                let row = (c.pos.0 - row_start) as usize;
-                let col = (c.pos.1 - col_start) as usize;
-                let idx = row.saturating_mul(cols) + col;
-                if let Some(v) = v.get_mut(idx) {
-                    *v = c.val;
-                }
-            }
-            Range {
-                start: (row_start, col_start),
-                end: (row_end, col_end),
-                inner: v,
-            }
+        }
+        Range {
+            start: (row_start, col_start),
+            end: (row_end, col_end),
+            inner: v,
         }
     }
 
