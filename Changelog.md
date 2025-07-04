@@ -1,11 +1,10 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+This is the changelog/release notes for the `calamine` crate.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
 
 ## [0.28.0] - 2025-06-19
 
@@ -17,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- (xls): add one more Error variant related to formatting.
+- (xls): add one more `Error` variant related to formatting.
 
 ### Changed
 
@@ -27,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - (xls): Invalid formats parsing.
 - Always parse string cell as string.
-- Pin zip crate to 2.5.*.
+- Pin zip crate to 2.5.
 - (xlsx): check 'closing' tag name with more prefixes.
 
 ## [0.26.1] - 2024-10-10
@@ -47,24 +46,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Bump MRSV to 1.73.
+- Bump MSRV to 1.73.
 - Fix broken links in README.
-- Enable dates and pictures features in docs.rs build.
+- Enable dates and pictures features in `docs.rs` build.
 - Fix broken fuzzer.
 
 ## [0.25.0] - 2024-05-25
 
 ### Added
 
-- `is_error` and `get_error` methods to the `DataType` trait.
-- Deserializer helper functions.
-- Support get merged region.
+- Add `is_error` and `get_error` methods to the `DataType` trait.
+- Add deserializer helper functions.
+- Support getting merged region.
 - `Range::headers` method.
 - Expose some `Dimensions` methods.
 
 ### Changed
 
-- Use `OnceLock` instead of once_cell crate (MSRV: 1.71).
+- Use `OnceLock` instead of `once_cell` crate (MSRV: 1.71).
 
 ### Fixed
 
@@ -79,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Data` and `DataType` now return `Some(0{.0})` and `Some(1{.0})` rather than
   `None` when `.as_i64` or `.as_f64` is used on a Bool value.
 - Detect xlsb/ods password protected files.
-- Introduce is_x methods for date and time variants.
+- Introduce `is_x` methods for date and time variants.
 
 ### Changed
 
@@ -88,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Getting tables names on xlsx workbook without _rels files.
+- Getting tables names from xlsx workbooks without `_rels` files.
 
 ## [0.23.1] - 2023-12-19
 
@@ -153,7 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Bump MSRv to 1.60.0 due to log dependencies.
+- Bump MSRV to 1.60.0 due to log dependencies.
 
 ### Fixed
 
@@ -180,7 +179,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- __(all) parse format/style information to infer cell as datetime__.
+- (all) parse format/style information to infer cell as datetime.
 - (ods) support number-columns-repeated attribute.
 
 ### Changed
@@ -205,7 +204,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Always return sheet names in lexicographic order (BTreeMap).
+- Always return sheet names in lexicographic order (`BTreeMap`).
 
 ### Changed
 
@@ -226,7 +225,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Fix two typos in readme.
+- Fix two typos in README.
 
 ### Fixed
 
@@ -240,7 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use `chunks_exact` instead of chunks where possible.
 - Detect date/time formatted cells in XLSX.
 - Brute force file detection if extension is not known.
-- Support xlsx sheet sizes beyond u32::MAX.
+- Support xlsx sheet sizes beyond `u32::MAX`.
 
 ### Changed
 
@@ -258,7 +257,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Add `deserialize_with` example in readme.
+- Add `deserialize_with` example in README.
 - Correct MBSC to MBCS in vba.rs (misspelled before).
 - Use 2018 edition paths.
 
@@ -285,7 +284,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Deprecate failure and impl `std::error::Error` for all errors.
-- Add `dates` feature to enrich `DataType` with date conversions fns.
+- Add `dates` feature to enrich `DataType` with date conversions functions.
 
 ## [0.15.6] - 2019-08-24
 
@@ -311,9 +310,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add several new convenient fn to `DataType`.
-- Add a `Range::range` fn to get subranges.
+- Add a `Range::range` fn to get sub-ranges.
 - Add a new `Range::cells` iterator.
-- Impl DoubleEndedIterator when possible.
+- Implement `DoubleEndedIterator` when possible.
 - Add a `Range::get` fn (similar to slice's).
 
 ### Changed
@@ -337,7 +336,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Codepage/encoding_rs for codepage mapping.
+- Codepage/`encoding_rs` for codepage mapping.
 
 ## [0.14.10] - 2018-11-23
 
@@ -368,7 +367,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Support MulRk for xls files.
+- Support `MulRk` for xls files.
 
 ## [0.14.5] - 2018-08-28
 
@@ -406,7 +405,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Possibility of index out of bound in get_value and eventually in Index<(usize, usize)>.
+- Possibility of index out of bound in `get_value` and eventually in Index<(usize, usize)>.
 
 ## [0.14.0] - 2018-04-27
 
@@ -431,7 +430,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Migrate from error-chain to failure.
 - More documentation on error.
-- Bump dependencies (calamine, encoding_rs and zip).
+- Bump dependencies (calamine, `encoding_rs` and zip).
 - Process any Read not only Files.
 
 ### Changed
@@ -485,14 +484,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update to quick-xml 0.7.3 and encoding_rs 0.6.6.
+- Update to quick-xml 0.7.3 and `encoding_rs` 0.6.6.
 
 ## [0.11.3] - 2017-05-05
 
 ### Added
 
-- Implement Display for DataType and CellTypeError.
-- Add a CellType alias trait.
+- Implement `Display` for `DataType` and `CellTypeError`.
+- Add a `CellType` alias trait.
 
 ## [0.11.2] - 2017-05-04
 
@@ -504,7 +503,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update encoding_rs to 0.6.2.
+- Update `encoding_rs` to 0.6.2.
 - Add benches and avoid clearing a buffer supposed to be reused.
 
 ## [0.11.0] - 2017-04-27
@@ -520,19 +519,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Convert codepage 21010 as codepage 1200.
-- Support EUC_KR encoding.
+- Support `EUC_KR` encoding.
 
 ## [0.10.2] - 2017-04-18
 
 ### Fixed
 
-- Error while using a singlebyte encoding for xls files (read_dbcs).
+- Error while using a singlebyte encoding for xls files (`read_dbcs`).
 
 ## [0.10.1] - 2017-04-18
 
 ### Fixed
 
-- Error while using a singlebyte encoding for xls files (short_strings).
+- Error while using a singlebyte encoding for xls files (`short_strings`).
 
 ## [0.10.0] - 2017-04-14
 
@@ -542,7 +541,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Better internal logics.
+- Better internal logic.
 
 ## [0.9.0] - 2017-04-12
 
@@ -552,13 +551,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Rename `Excel` in `Sheets` to accommodate OpenDocuments.
+- Rename `Excel` in `Sheets` to accommodate `OpenDocument`.
 
 ## [0.8.0] - 2017-04-12
 
 ### Added
 
-- Add basic support for opendocument spreadsheets.
+- Add basic support for `OpenDocument` spreadsheets.
 - Force rustfmt on travis checks.
 
 ### Changed
@@ -569,13 +568,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update deps.
+- Update dependencies.
 - Rustfmt.
 
 ### Fixed
 
 - Extend appveyor paths to be able to use curl.
-- Extract richtext reading from `read_shared_strings` to `read_string`,.
+- Extract richtext reading from `read_shared_strings` to `read_string`.
 - Enable namespaced xmls when parsing xlsx files.
 
 ## [0.6.0] - 2017-03-06
@@ -583,7 +582,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bump dependencies.
-- Move from rust-encoding to encoding_rs (faster), loses some decoders ...
+- Move from rust-encoding to `encoding_rs` (faster), loses some decoders.
 
 ## [0.5.1] - 2017-03-06
 
@@ -600,7 +599,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Rustfmt the code.
-- Bump deps (error-chain 0.8.1, quick-xml 0.5.0).
+- Bump dependencies (error-chain 0.8.1, quick-xml 0.5.0).
 
 ### Fixed
 
@@ -634,15 +633,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- [xls] preload vba only instead of sheets only.
-- [vba] consume cfb in constructor and do not store cfb.
+- (xls) preload vba only instead of sheets only.
+- (vba) consume cfb in constructor and do not store cfb.
 
 ## [0.3.0] - 2016-11-16
 
 ### Added
 
-- [all] better `Range` initialization via `Range::from_sparse`.
-- [all] several new fn in `Range` (`used_cells`, `start`, `end` ...).
+- (all) better `Range` initialization via `Range::from_sparse`.
+- (all) several new fn in `Range` (`used_cells`, `start`, `end` ...).
 
 ### Changed
 
@@ -652,15 +651,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- [xls] early exit if workbook is password protected.
+- (xls) early exit if workbook is password protected.
 
 ### Fixed
 
-- [xls] allow directory start to empty sector if version = 3.
-- [vba] support all project codepage encodings.
-- [xls] better decoding based on codepage.
-- [xlsb] simplify setting values and early exit when stepping into an invalid BrtRowHdr.
-- [xlsb] fix record length calculation.
+- (xls) allow directory start to empty sector if version = 3.
+- (vba) support all project codepage encodings.
+- (xls) better decoding based on codepage.
+- (xlsb) simplify setting values and early exit when stepping into an invalid
+  `BrtRowHdr`.
+- (xlsb) fix record length calculation.
 
 ## [0.2.0] - 2016-11-14
 
@@ -675,22 +675,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- [all] allow range to resize when we try to set a value out of bounds.
+- (all) allow range to resize when we try to set a value out of bounds.
 
 ## [0.1.3] - 2016-11-11
 
 ### Fixed
 
-- [xls] better management of continue record for rich_extended_strings.
+- (xls) better management of continue record for `rich_extended_strings`.
 
 ## [0.1.2] - 2016-11-11
 
 ### Fixed
 
-- [all] return error when trying to set out of bound values in `Range`.
-- [xls] do a proper encoding when reading cells (force 2 bytes unicode instead of utf8).
-- [xls] support continue records.
-- [all] allow empty rows iterator.
+- (all) return error when trying to set out of bound values in `Range`.
+- (xls) do a proper encoding when reading cells (force 2 bytes unicode instead of utf8).
+- (xls) support continue records.
+- (all) allow empty rows iterator.
 
 ## [0.1.1] - 2016-11-09
 
