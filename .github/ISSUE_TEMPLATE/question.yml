@@ -1,0 +1,32 @@
+name: ❓ Question
+
+description: Ask a question about calamine
+
+title: "question: add a description here"
+
+labels: [question]
+
+body:
+
+- type: markdown
+  attributes:
+    value: >
+      General questions on how to do something with the calamine crate should
+      be asked on [StackOverflow](http://stackoverflow.com/questions/tagged/calamine)
+      with a tag of "calamine". This has a better chance of getting several
+      answers and also helps others who might have similar questions in the
+      future. If you don't get an answer on StackOverflow, you can come back
+      here and refer to your question there.
+
+
+      If your question is "Is this a bug" then please file a bug report instead.
+
+
+      Other questions can be asked below.
+
+- type: textarea
+  attributes:
+    label: Question
+    description: Ask a question that doesn't belong on StackOverflow
+  validations:
+    required: true
