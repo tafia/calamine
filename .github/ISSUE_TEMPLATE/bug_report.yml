@@ -1,0 +1,98 @@
+name: 🐞 Bug
+
+description: File a bug/issue in calamine
+
+title: "Bug: add a description here"
+
+labels: [bug]
+
+body:
+
+- type: markdown
+  attributes:
+    value: Please fill in the title above and the sections below to submit your bug report.
+
+- type: textarea
+  attributes:
+    label: Current behavior
+    description: A description of what you're experiencing.
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Expected behavior
+    description: A description of what you expected to happen.
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Sample code to reproduce
+    description: Please add a small, complete, sample program that demonstrates your issue.
+    value: |
+        ```
+        use calamine::{open_workbook, Error, Reader, Xlsx};
+
+        fn main() -> Result<(), Error> {
+            let test_file = "somefile.xlsx";
+
+            let mut workbook: Xlsx<_> = open_workbook(test_file)?;
+
+            let sheet_range = workbook.worksheet_range("Sheet1")?;
+            let mut iter = sheet_range.deserialize()?;
+
+            if let Some(result) = iter.next() {
+                let (label, value): (String, f64) = result?;
+
+                assert_eq!(label, "celsius");
+                assert_eq!(value, 22.2222);
+
+                Ok(())
+            } else {
+                Err(From::from("Expected at least one record but got none"))
+            }
+        }
+        ```
+    render: rust
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Test file
+    description: >
+      Please attach the test file that you used in the sample code above. If you
+      are unable to share the original file, please create a minimal test file
+      that reproduces the issue.
+
+
+      Tip: You can attach files by clicking this area to highlight it and then
+      dragging files in.
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Environment
+    description: |
+      Add any relevant version or system information:
+    value: |
+        - calamine version:
+        - Cargo.toml dependency line for calamine:
+        - rustc version:
+        - Excel/OpenOffice/LibreOffice version:
+        - OS:
+    render: text
+  validations:
+    required: false
+
+- type: checkboxes
+  attributes:
+    label: Checklist
+    description: >
+      Ensure that the following have been included.
+    options:
+    - label: I have added a complete sample program that compiles in Rust.
+    - label: I have added a test file.
+      required: false

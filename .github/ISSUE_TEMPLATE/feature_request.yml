@@ -1,0 +1,27 @@
+name: 🎯 Feature Request
+
+description: Request a new feature in calamine
+
+title: "feature request: add a description here"
+
+labels: [feature request]
+
+body:
+
+- type: markdown
+  attributes:
+    value: |
+      Use the dialog box below to request a new feature in calamine.
+
+- type: textarea
+  attributes:
+    label: Feature Request
+    description: |
+      Describe the new feature that you would like to see in calamine.
+
+      It is important to explain what your personal use case is.
+
+      Consider adding a screenshot or a sample file to help explain the request.
+
+  validations:
+    required: true
