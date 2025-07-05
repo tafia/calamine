@@ -532,7 +532,7 @@ struct Bof {
 }
 
 /// <https://www.loc.gov/preservation/digital/formats/fdd/fdd000510.shtml#notes>
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Biff {
     Biff2,
     Biff3,
@@ -784,14 +784,18 @@ fn parse_short_string(
 
 /// `XLUnicodeString` [MS-XLS 2.5.294]
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
-    if r.len() < 4 {
+    if r.len() < 2 {
         return Err(XlsError::Len {
             typ: "string",
-            expected: 4,
+            expected: 2,
             found: r.len(),
         });
     }
     let cch = read_u16(r) as usize;
+    if cch == 0 {
+        // tests/high_byte_string.xls
+        return Ok(String::new());
+    }
 
     let (high_byte, start) = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
@@ -1011,8 +1015,8 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) {
-    encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
+fn read_unicode_string_no_cch(enc: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) -> usize {
+    enc.decode_to(&buf[1..], *len, s, Some(buf[0] & 0x1 != 0)).1
 }
 
 struct Record<'a> {
@@ -1272,9 +1276,9 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
+                let l = read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
                 formula.push('\"');
-                rgce = &rgce[2 + cch..];
+                rgce = &rgce[2 + l..];
             }
             0x18 => {
                 rgce = &rgce[5..];
