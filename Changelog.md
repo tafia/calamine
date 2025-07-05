@@ -1,380 +1,705 @@
-> Legend:
-  - feat: A new feature
-  - fix: A bug fix
-  - docs: Documentation only changes
-  - style: White-space, formatting, missing semi-colons, etc
-  - refactor: A code change that neither fixes a bug nor adds a feature
-  - perf: A code change that improves performance
-  - test: Adding missing tests
-  - chore: Changes to the build process or auxiliary tools/libraries/documentation
+# Changelog
 
-## Unreleased
+This is the changelog/release notes for the `calamine` crate.
 
-## 0.28.0 (2025-06-19)
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-- feat: bump zip to 4.0
 
-## 0.27.0 (2025-04-22)
+## [0.28.0] - 2025-06-19
 
-- fix (xls): Invalid formats parsing
-- feat (xls): add one more Error variant related to formatting
-- fix: Always parse string cell as string
-- refactor: bump dependencies
-- fix: pin zip crate to 2.5.*
-- fix (xlsx): check 'closing' tag name with more prefixes
+### Changed
 
-## 0.26.1 (2024-10-10)
+- Bump zip to 4.0.
 
-- fix: sparse celle expect 0 index rows, even when using `header_row`
+## [0.27.0] - 2025-04-22
 
-## 0.26.0 (2024-10-08)
+### Added
 
-- feat: add ability to merge cells from xls and xlsx
-- feat: add options to keep first empty rows for xlsx
-- feat: support consecutive repeated empty cells for ods
-- feat: add new `header_row` config
-- test: fix broken fuzzer
-- docs: fix broken links in README
-- docs: enable dates and pictures features in docs.rs build
-- chore: bump MRSV to 1.73
+- (xls): add one more `Error` variant related to formatting.
 
+### Changed
 
-## 0.25.0 (2024-05-25)
+- Bump dependencies.
 
-- feat: added `is_error` and `get_error` methods to the `DataType` trait
-- feat: add deserializer helper functions
-- feat: support get merged region
-- feat: add `Range::headers` method
-- feat: expose some `Dimensions` methods
-- fix: use case insensitive comparison when searching for file in xlsx
-- fix: do not panic when reading cell format with invalid index
-- chore: use `OnceLock` instead of once_cell crate (MSRV: 1.71)
+### Fixed
 
-## 0.24.0
+- (xls): Invalid formats parsing.
+- Always parse string cell as string.
+- Pin zip crate to 2.5.
+- (xlsx): check 'closing' tag name with more prefixes.
 
-- refactor (breaking): rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`
-- feat: introduce a `DataType` trait implemented by both `Data` and `DataRef`.
-- feat: `Data` and `DataType` now return `Some(0{.0})` and `Some(1{.0})` rather than `None` when `.as_i64` or `.as_f64`
-  is used on a Bool value
-- fix: getting tables names on xlsx workbook without _rels files
-- refactor: DateTime(f64) to DateTime(ExcelDateTime)
-- feat: detect xlsb/ods password protected files
-- feat: introduce is_x methods for date and time variants
+## [0.26.1] - 2024-10-10
 
-## 0.23.1
+### Fixed
 
-- fix: `worksheet_formula` not returning all formula
+- Sparse cells expect 0 index rows, even when using `header_row`.
 
-## 0.23.0
+## [0.26.0] - 2024-10-08
 
-- feat: add new `DataTypeRef` available from `worksheet_range_ref` to reduce memory usage
-- docs: add benchmark plot
-- fix: truncated text in xls
-- feat: detect if workbook is password protected
+### Added
 
-## 0.22.1
+- Ability to merge cells from xls and xlsx.
+- Options to keep first empty rows for xlsx.
+- Support consecutive repeated empty cells for ods.
+- New `header_row` config.
 
-- fix: regression on `Range::get`
-- chore: update GitHub actions
-- fix: spelling of formula error type
-- feat: support label cells for xls
-- refactor: clippy
-- perf: preallocate several buffers
+### Changed
 
-## 0.22.0
+- Bump MSRV to 1.73.
+- Fix broken links in README.
+- Enable dates and pictures features in `docs.rs` build.
+- Fix broken fuzzer.
 
-- docs: improve `de_opt_f64` example.
-- docs: remove datetime notice from README
-- feat: add support of sheet type and visibility
-- style: clippy
-- chore: bump MSRV to 1.63 (breaking)
-- chore: set edition to 2021
-- feat: implement blank string handling
+## [0.25.0] - 2024-05-25
 
-## 0.21.2:
-
-- fix: formula with string not displaying properly
+### Added
 
-## 0.21.1
+- Add `is_error` and `get_error` methods to the `DataType` trait.
+- Add deserializer helper functions.
+- Support getting merged region.
+- `Range::headers` method.
+- Expose some `Dimensions` methods.
 
-- chore: bump MSRv to 1.60.0 due to log dependencies
-- fix: xls: formula values ignored
-- fix: xls: formula (string) not displayed properly
-
-## 0.21.0
+### Changed
 
-- fix: (xlsx) support `r` attribute
-- fix: support `PROJECTCOMPATVERSION` in vba
-- fix: incorrect date parsing due to excel bug
-- feat: support for duration
-- test: add MSRV
-
-## 0.20.0
+- Use `OnceLock` instead of `once_cell` crate (MSRV: 1.71).
 
-- refactor: bump dependencies
-- feat: __(all) parse format/style information to infer cell as datetime__
-- feat: (ods) support number-columns-repeated attribute
-- refactor: multiple clippy refactorings
+### Fixed
 
-## 0.19.2
+- Use case insensitive comparison when searching for file in xlsx.
+- Do not panic when reading cell format with invalid index.
 
-- feat: Extract picture data by turning `picture` feature on
+## [0.24.0] - 2024-02-08
 
-## 0.19.1
+### Added
 
-- fix: wrong range len calculation
-- fix: date precision
+- Introduce a `DataType` trait implemented by both `Data` and `DataRef`.
+- `Data` and `DataType` now return `Some(0{.0})` and `Some(1{.0})` rather than
+  `None` when `.as_i64` or `.as_f64` is used on a Bool value.
+- Detect xlsb/ods password protected files.
+- Introduce `is_x` methods for date and time variants.
 
-## 0.19.0
+### Changed
 
-- fix: Several decoding issues in xls and xlsb
-- fix: Wrong decimal parsing
-- refactor: bump dependencies (quick-xml in particular and chrono)
-- feat: always return sheet names in lexicographic order (BTreeMap)
-- chore: remove travis
+- **BREAKING**: rename `DataType` enum to `Data` and `DataTypeRef` to `DataRef`.
+- DateTime(f64) to DateTime(ExcelDateTime).
 
-## 0.18.0
+### Fixed
 
-- fix: Allow empty value cells in xlsx
-- fix: obscure xls parsing errors (#195)
-- feat: Improve conversions from raw data to primitives
-- docs: fix two typos in readme
-- feat: replace macro matches! by match expression to reduce MSRV
+- Getting tables names from xlsx workbooks without `_rels` files.
 
-## 0.17.0
+## [0.23.1] - 2023-12-19
 
-- feat: use `chunks_exact` instead of chunks where possible
-- fix: make `to_u32`, `read_slice` safe and sound
-- fix: security issue #199
-- test: add regression tests that fail with miri
-- feat: detect date/time formatted cells in XLSX
-- feat: brute force file detection if extension is not known
-- feat: support xlsx sheet sizes beyond u32::MAX
-- test: ensure doctest functions actually run
-- test: run cargo fmt to fix travis tests
-- fix: fix Float reading for XLSB
+### Fixed
 
-## 0.16.2
-- docs: add `deserialize_with` example in readme
-- fix: Skip phonetic run
-- fix: Fix XLS float parsing error
-- docs: Correct MBSC to MBCS in vba.rs (misspelled before)
-- style: use 2018 edition paths
-- fix: Add the ability to read formula values from XLSB
-- fix: support integral date types
+- `worksheet_formula` not returning all formula.
 
-## 0.16.1
-- feat: Make `Metadata.sheets` (and `Reader.sheet_names`) always return names in workbook order
-- style: fix warnings in tests
+## [0.23.0] - 2023-12-12
 
-## 0.16.0
-- feat: deprecate failure and impl `std::error::Error` for all errors.
-- feat: add `dates` feature to enrich `DataType` with date conversions fns.
+### Added
 
-## 0.15.6
-- feat: update dependencies
+- New `DataTypeRef` available from `worksheet_range_ref` to reduce memory usage.
+- Detect if workbook is password protected.
 
-## 0.15.5
-- fix: wrong bound comparisons
+### Changed
 
-## 0.15.4
-- feat: improve deserializer
-- feat: bump dependencies
+- Add benchmark plot.
 
-## 0.15.3
-- feat: add several new convenient fn to `DataType`
-- feat: add a `Range::range` fn to get subranges
-- feat: add a new `Range::cells` iterator
-- feat: impl DoubleEndedIterator when possible
-- perf: add some missing `size_hint` impl in iterators
-- feat: add a `Range::get` fn (similar to slice's)
-- perf: add some `ExactSizeIterator`
+### Fixed
 
-## 0.15.2
-- feat: consider empty cell as empty str if deserializing to str or String
+- Truncated text in xls.
 
-## 0.15.1
-- fix: xls - allow sectors ending after eof (truncate them!)
+## [0.22.1] - 2023-10-08
 
-## 0.15.0
-- feat: codepage/encoding_rs for codpage mapping
+### Added
 
-## 0.14.10
-- fix: serde map do not stop at first empty value
+- Support label cells for xls.
 
-## 0.14.9
-- fix: do not return map keys for empty cells. Fixes not working `#[serde(default)]`
+### Changed
 
-## 0.14.8
-- feat: bump dependencies
-- feat: add a `RangeDeserializerBuilder::with_headers` fn to improve serde deserializer
+- Update GitHub actions.
+- Clippy.
+- Preallocate several buffers.
 
-## 0.14.7
-- feat: ods, support *text:s* and *text:p*
+### Fixed
 
-## 0.14.6
-- fix: support MulRk for xls files
+- Regression on `Range::get`.
+- Spelling of formula error type.
 
-## 0.14.5
-- fix: properly parse richtext ods files
-- refactor: bump dependencies
+## [0.22.0] - 2023-09-04
 
-## 0.14.4
-- feat: ods: display sheet names in order.
+### Added
 
-## 0.14.3
-- feat: handle 'covered cells' which are behind merge-cells in ODS
+- Add support of sheet type and visibility.
+- Implement blank string handling.
 
-## 0.14.2
-- fix: boolean detection and missing repeated cells in ODS
-- refactor: bump dependencies
-
-## 0.14.1
-- fix: possibility of index out of bound in get_value and eventually in Index<(usize, usize)>
-
-## 0.14.0
-- feat: have Range `start`/`end` return None if the range is actually empty
-- feat: Have `Range::get_value` return an Option if the index is out of range
-
-## 0.13.1
-- refactor: bump dependencies
-- feat: make `Range::from_sparse` public
-
-## 0.13.0
-- feat: migrate from error-chain to failure
-- refactor: simplify Reader trait (enable direct Xlsx read etc ...)
-- refactor: always initialize at creation
-- feat: more documentation on error
-- feat: bump dependencies (calamine, encoding_rs and zip)
-- feat: process any Read not only Files
-- docs: fix various typos
-
-## 0.12.1
-- feat: update dependencies
-
-## 0.12.0
-- feat: add serde deserialization
-
-## 0.11.8
-- perf: update dependencies, in particular quick-xml 0.9.1
-
-## 0.11.7
-- fix: add a bound check when decoding cfb
-- refactor: bump dependencies
-
-## 0.11.6
-- refactor: bump dependencies
-- style: ignore .bk files
-
-## 0.11.5
-- refactor: bump dependencies
-
-## 0.11.4
-- refactor: update to quick-xml 0.7.3 and encoding_rs 0.6.6
-
-## 0.11.3
-- feat: implement Display for DataType and CellTypeError
-- feat: add a CellType alias trait
-
-## 0.11.2
-- perf: update to quick-xml 0.7.1
-
-## 0.11.1
-- refactor: update encoding_rs to 0.6.2
-- perf: add benches and avoid clearing a buffer supposed to be reused
-
-## 0.11.0
-- feat: add support for formula parsing/decoding
-- refactor: make `Range` generic over its content
-- fix: convert codepage 21010 as codepage 1200
-- fix: support EUC_KR encoding
-
-## 0.10.2
-- fix: error while using a singlebyte encoding for xls files (read_dbcs)
-
-## 0.10.1
-- fix: error while using a singlebyte encoding for xls files (short_strings)
-
-## 0.10.0
-- feat: support defined names for named ranges
-- refactor: better internal logics
-
-## 0.9.0
-- refactor: rename `Excel` in `Sheets` to accommodate OpenDocuments
-- feat: add Index/IndexMut for Range
-
-## 0.8.0
-- feat: add basic support for opendocument spreadsheets
-- style: apply rustfmt
-- feat: force rustfmt on travis checks
-
-## 0.7.0
-- fix: extend appveyor paths to be able to use curl
-- refactor: update deps
-- fix: extract richtext reading from `read_shared_strings` to `read_string`,
-and use for inlineStr instead of `read_inline_str`
-- style: rustfmt
-- fix: enable namespaced xmls when parsing xlsx files
-
-## 0.6.0
-- refactor: bump dependencies
-- refactor: move from rust-encoding to encoding_rs (faster), loses some decoders ...
-
-## 0.5.1
-- refactor: bump to quick-xml 0.6.0 (supposedly faster)
-
-## 0.5.0
-- style: rustfmt the code
-- feat: xlsx - support 'inlineStr' elements (`<is>` nodes)
-- fix: xlsx - support sheetnames prefixed with 'xl/' or '/xl/'
-- chore: bump deps (error-chain 0.8.1, quick-xml 0.5.0)
-
-## 0.4.0
-- refactor: replace `try!` with `?` operator
-- feat: adds a new `worksheet_range_by_index` function.
-- feat: adds new `ErrorKind`s
-- refactor: simplify `search_error` example by using a `run()` function
-
-## 0.3.3
-- refactor: update dependencies (error-chain and byteorder)
-
-## 0.3.2
-- refactor: update dependencies
-
-## 0.3.1
-- perf: [xls] preload vba only instead of sheets only
-- refactor: [vba] consume cfb in constructor and do not store cfb
-
-## 0.3.0
-- feat: [all] better `Range` initialization via `Range::from_sparse`
-- feat: [all] several new fn in `Range` (`used_cells`, `start`, `end` ...)
-- refactor: adds a `range_eq!` macro in tests
-
-## 0.2.1
-- fix: [xls] allow directory start to empty sector if version = 3
-- fix: [vba] support all project codepage encodings
-- feat: [xls] early exit if workbook is password protected
-- fix: [xls] better decoding based on codepage
-- fix: [xlsb] simplify setting values and early exit when stepping into an invalid BrtRowHdr
-- fix: [xlsb] fix record length calculation
-
-## 0.2.0
-- fix: [all] allow range to resize when we try to set a value out of bounds
-- docs: less `unwrap`s, no unused imports
-- refactor: range bounds is not (`start`, `end`) instead of (`position`, `size`)
-- feat: add new methods for `Range`: `width`, `height`, `is_empty`
-
-## 0.1.3
-- fix: [xls] better management of continue record for rich_extended_strings
-
-## 0.1.2
-- fix: [all] return error when trying to set out of bound values in `Range`
-- fix: [xls] do a proper encoding when reading cells (force 2 bytes unicode instead of utf8)
-- fix: [xls] support continue records
-- fix: [all] allow empty rows iterator
-
-## 0.1.1
-- fix: remove some development `println!`
-
-## 0.1.0
-- first release!
+### Changed
+
+- Improve `de_opt_f64` example.
+- Remove datetime notice from README.
+- Clippy.
+- Bump MSRV to 1.63 (breaking).
+- Set edition to 2021.
+
+## [0.21.2] - 2023-06-25
+
+### Fixed
+
+- Formula with string not displaying properly.
+
+## [0.21.1] - 2023-06-17
+
+### Changed
+
+- Bump MSRV to 1.60.0 due to log dependencies.
+
+### Fixed
+
+- Xls: formula values ignored.
+- Xls: formula (string) not displayed properly.
+
+## [0.21.0] - 2023-06-13
+
+### Added
+
+- Support for duration.
+
+### Changed
+
+- Add MSRV.
+
+### Fixed
+
+- (xlsx) support `r` attribute.
+- Support `PROJECTCOMPATVERSION` in vba.
+- Incorrect date parsing due to excel bug.
+
+## [0.20.0] - 2023-05-29
+
+### Added
+
+- (all) parse format/style information to infer cell as datetime.
+- (ods) support number-columns-repeated attribute.
+
+### Changed
+
+- Bump dependencies.
+- Multiple clippy refactorings.
+
+## [0.19.2] - 2023-02-09
+
+### Added
+
+- Extract picture data by turning `picture` feature on.
+
+## [0.19.1] - 2022-10-20
+
+### Fixed
+
+- Wrong range len calculation.
+- Date precision.
+
+## [0.19.0] - 2022-10-20
+
+### Added
+
+- Always return sheet names in lexicographic order (`BTreeMap`).
+
+### Changed
+
+- Bump dependencies (quick-xml in particular and chrono).
+- Remove travis.
+
+### Fixed
+
+- Several decoding issues in xls and xlsb.
+- Wrong decimal parsing.
+
+## [0.18.0] - 2021-02-23
+
+### Added
+
+- Improve conversions from raw data to primitives.
+- Replace macro matches! by match expression to reduce MSRV.
+
+### Changed
+
+- Fix two typos in README.
+
+### Fixed
+
+- Allow empty value cells in xlsx.
+- Obscure xls parsing errors (#195).
+
+## [0.17.0] - 2021-02-03
+
+### Added
+
+- Use `chunks_exact` instead of chunks where possible.
+- Detect date/time formatted cells in XLSX.
+- Brute force file detection if extension is not known.
+- Support xlsx sheet sizes beyond `u32::MAX`.
+
+### Changed
+
+- Add regression tests that fail with miri.
+- Ensure doctest functions actually run.
+- Run cargo fmt to fix travis tests.
+
+### Fixed
+
+- Make `to_u32`, `read_slice` safe and sound.
+- Security issue #199.
+- Fix Float reading for XLSB.
+
+## [0.16.2] - 2020-09-26
+
+### Changed
+
+- Add `deserialize_with` example in README.
+- Correct MBSC to MBCS in vba.rs (misspelled before).
+- Use 2018 edition paths.
+
+### Fixed
+
+- Skip phonetic run.
+- Fix XLS float parsing error.
+- Add the ability to read formula values from XLSB.
+- Support integral date types.
+
+## [0.16.1] - 2019-11-20
+
+### Added
+
+- Make `Metadata.sheets` (and `Reader.sheet_names`) always return names in
+  workbook order.
+
+### Changed
+
+- Fix warnings in tests.
+
+## [0.16.0] - 2019-10-11
+
+### Added
+
+- Deprecate failure and impl `std::error::Error` for all errors.
+- Add `dates` feature to enrich `DataType` with date conversions functions.
+
+## [0.15.6] - 2019-08-24
+
+### Added
+
+- Update dependencies.
+
+## [0.15.5] - 2019-07-15
+
+### Fixed
+
+- Wrong bound comparisons.
+
+## [0.15.4] - 2019-04-11
+
+### Added
+
+- Improve deserializer.
+- Bump dependencies.
+
+## [0.15.3] - 2018-12-14
+
+### Added
+
+- Add several new convenient fn to `DataType`.
+- Add a `Range::range` fn to get sub-ranges.
+- Add a new `Range::cells` iterator.
+- Implement `DoubleEndedIterator` when possible.
+- Add a `Range::get` fn (similar to slice's).
+
+### Changed
+
+- Add some missing `size_hint` impl in iterators.
+- Add some `ExactSizeIterator`.
+
+## [0.15.2] - 2018-12-14
+
+### Added
+
+- Consider empty cell as empty str if deserializing to str or String.
+
+## [0.15.1] - 2018-12-13
+
+### Fixed
+
+- Xls - allow sectors ending after eof (truncate them!).
+
+## [0.15.0] - 2018-12-13
+
+### Added
+
+- Codepage/`encoding_rs` for codepage mapping.
+
+## [0.14.10] - 2018-11-23
+
+### Fixed
+
+- Serde map do not stop at first empty value.
+
+## [0.14.9] - 2018-11-23
+
+### Fixed
+
+- Do not return map keys for empty cells. Fixes not working `#[serde(default)]`.
+
+## [0.14.8] - 2018-11-23
+
+### Added
+
+- Bump dependencies.
+- Add a `RangeDeserializerBuilder::with_headers` fn to improve serde deserializer.
+
+## [0.14.7] - 2018-10-23
+
+### Added
+
+- Ods, support *text:s* and *text:p*.
+
+## [0.14.6] - 2018-09-20
+
+### Fixed
+
+- Support `MulRk` for xls files.
+
+## [0.14.5] - 2018-08-28
+
+### Changed
+
+- Bump dependencies.
+
+### Fixed
+
+- Properly parse richtext ods files.
+
+## [0.14.4] - 2018-08-28
+
+### Added
+
+- Ods: display sheet names in order.
+
+## [0.14.3] - 2018-08-09
+
+### Added
+
+- Handle 'covered cells' which are behind merge-cells in ODS.
+
+## [0.14.2] - 2018-08-03
+
+### Changed
+
+- Bump dependencies.
+
+### Fixed
+
+- Boolean detection and missing repeated cells in ODS.
+
+## [0.14.1] - 2018-05-08
+
+### Fixed
+
+- Possibility of index out of bound in `get_value` and eventually in Index<(usize, usize)>.
+
+## [0.14.0] - 2018-04-27
+
+### Added
+
+- Have Range `start`/`end` return None if the range is actually empty.
+- Have `Range::get_value` return an Option if the index is out of range.
+
+## [0.13.1] - 2018-03-23
+
+### Added
+
+- Make `Range::from_sparse` public.
+
+### Changed
+
+- Bump dependencies.
+
+## [0.13.0] - 2018-01-27
+
+### Added
+
+- Migrate from error-chain to failure.
+- More documentation on error.
+- Bump dependencies (calamine, `encoding_rs` and zip).
+- Process any Read not only Files.
+
+### Changed
+
+- Simplify Reader trait (enable direct Xlsx read etc ...).
+- Always initialize at creation.
+- Fix various typos.
+
+## [0.12.1] - 2017-11-27
+
+### Added
+
+- Update dependencies.
+
+## [0.12.0] - 2017-10-27
+
+### Added
+
+- Add serde deserialization.
+
+## [0.11.8] - 2017-08-22
+
+### Changed
+
+- Update dependencies, in particular quick-xml 0.9.1.
+
+## [0.11.7] - 2017-07-08
+
+### Changed
+
+- Bump dependencies.
+
+### Fixed
+
+- Add a bound check when decoding cfb.
+
+## [0.11.6] - 2017-07-05
+
+### Changed
+
+- Bump dependencies.
+- Ignore .bk files.
+
+## [0.11.5] - 2017-05-12
+
+### Changed
+
+- Bump dependencies.
+
+## [0.11.4] - 2017-05-08
+
+### Changed
+
+- Update to quick-xml 0.7.3 and `encoding_rs` 0.6.6.
+
+## [0.11.3] - 2017-05-05
+
+### Added
+
+- Implement `Display` for `DataType` and `CellTypeError`.
+- Add a `CellType` alias trait.
+
+## [0.11.2] - 2017-05-04
+
+### Changed
+
+- Update to quick-xml 0.7.1.
+
+## [0.11.1] - 2017-05-03
+
+### Changed
+
+- Update `encoding_rs` to 0.6.2.
+- Add benches and avoid clearing a buffer supposed to be reused.
+
+## [0.11.0] - 2017-04-27
+
+### Added
+
+- Add support for formula parsing/decoding.
+
+### Changed
+
+- Make `Range` generic over its content.
+
+### Fixed
+
+- Convert codepage 21010 as codepage 1200.
+- Support `EUC_KR` encoding.
+
+## [0.10.2] - 2017-04-18
+
+### Fixed
+
+- Error while using a singlebyte encoding for xls files (`read_dbcs`).
+
+## [0.10.1] - 2017-04-18
+
+### Fixed
+
+- Error while using a singlebyte encoding for xls files (`short_strings`).
+
+## [0.10.0] - 2017-04-14
+
+### Added
+
+- Support defined names for named ranges.
+
+### Changed
+
+- Better internal logic.
+
+## [0.9.0] - 2017-04-12
+
+### Added
+
+- Add Index/IndexMut for Range.
+
+### Changed
+
+- Rename `Excel` in `Sheets` to accommodate `OpenDocument`.
+
+## [0.8.0] - 2017-04-12
+
+### Added
+
+- Add basic support for `OpenDocument` spreadsheets.
+- Force rustfmt on travis checks.
+
+### Changed
+
+- Apply rustfmt.
+
+## [0.7.0] - 2017-03-23
+
+### Changed
+
+- Update dependencies.
+- Rustfmt.
+
+### Fixed
+
+- Extend appveyor paths to be able to use curl.
+- Extract richtext reading from `read_shared_strings` to `read_string`.
+- Enable namespaced xmls when parsing xlsx files.
+
+## [0.6.0] - 2017-03-06
+
+### Changed
+
+- Bump dependencies.
+- Move from rust-encoding to `encoding_rs` (faster), loses some decoders.
+
+## [0.5.1] - 2017-03-06
+
+### Changed
+
+- Bump to quick-xml 0.6.0 (supposedly faster).
+
+## [0.5.0] - 2017-02-07
+
+### Added
+
+- Xlsx - support 'inlineStr' elements (`<is>` nodes).
+
+### Changed
+
+- Rustfmt the code.
+- Bump dependencies (error-chain 0.8.1, quick-xml 0.5.0).
+
+### Fixed
+
+- Xlsx - support sheetnames prefixed with 'xl/' or '/xl/'.
+
+## [0.4.0] - 2017-01-09
+
+### Added
+
+- Adds a new `worksheet_range_by_index` function.
+- Adds new `ErrorKind`s.
+
+### Changed
+
+- Replace `try!` with `?` operator.
+- Simplify `search_error` example by using a `run()` function.
+
+## [0.3.3] - 2017-01-09
+
+### Changed
+
+- Update dependencies (error-chain and byteorder).
+
+## [0.3.2] - 2016-11-27
+
+### Changed
+
+- Update dependencies.
+
+## [0.3.1] - 2016-11-17
+
+### Changed
+
+- (xls) preload vba only instead of sheets only.
+- (vba) consume cfb in constructor and do not store cfb.
+
+## [0.3.0] - 2016-11-16
+
+### Added
+
+- (all) better `Range` initialization via `Range::from_sparse`.
+- (all) several new fn in `Range` (`used_cells`, `start`, `end` ...).
+
+### Changed
+
+- Adds a `range_eq!` macro in tests.
+
+## [0.2.1] - 2016-11-15
+
+### Added
+
+- (xls) early exit if workbook is password protected.
+
+### Fixed
+
+- (xls) allow directory start to empty sector if version = 3.
+- (vba) support all project codepage encodings.
+- (xls) better decoding based on codepage.
+- (xlsb) simplify setting values and early exit when stepping into an invalid
+  `BrtRowHdr`.
+- (xlsb) fix record length calculation.
+
+## [0.2.0] - 2016-11-14
+
+### Added
+
+- Add new methods for `Range`: `width`, `height`, `is_empty`.
+
+### Changed
+
+- Less `unwrap`s, no unused imports.
+- Range bounds is not (`start`, `end`) instead of (`position`, `size`).
+
+### Fixed
+
+- (all) allow range to resize when we try to set a value out of bounds.
+
+## [0.1.3] - 2016-11-11
+
+### Fixed
+
+- (xls) better management of continue record for `rich_extended_strings`.
+
+## [0.1.2] - 2016-11-11
+
+### Fixed
+
+- (all) return error when trying to set out of bound values in `Range`.
+- (xls) do a proper encoding when reading cells (force 2 bytes unicode instead of utf8).
+- (xls) support continue records.
+- (all) allow empty rows iterator.
+
+## [0.1.1] - 2016-11-09
+
+### Fixed
+
+- Remove some development `println!`.
+
+## [0.1.0] - 2016-11-09
+
+### Changed
+
+- First release.
