@@ -691,7 +691,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Parameters
     ///
-    /// - `cells`: A vector of non-empty [`Cell`] elements, sorted by row. The
+    /// - `cells`: A vector of non-empty [`Cell`] elements. The
     ///   first and last cells define the start and end positions of the range.
     ///
     /// # Panics
@@ -722,7 +722,9 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range.used_cells().count(), 3);
     /// ```
     ///
-    pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
+    pub fn from_sparse(mut cells: Vec<Cell<T>>) -> Range<T> {
+        // cells do not always appear in (row, col) order
+        cells.sort_by_key(|cell| (cell.pos.0, cell.pos.1));
         let (row_start, row_end) = match &cells[..] {
             [] => return Range::empty(),
             [first] => (first.pos.0, first.pos.0),
