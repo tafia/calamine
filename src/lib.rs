@@ -371,17 +371,80 @@ impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 
-/// A struct to hold cell position and value
+// -----------------------------------------------------------------------
+// The `Cell` struct.
+// -----------------------------------------------------------------------
+
+/// A struct to hold a cell position and value.
+///
+/// A `Cell` is a fundamental worksheet type that is used to create a [`Range`].
+/// It contains a position and a value.
+///
+/// # Examples
+///
+/// An example of creating a range of `Cell`s and iterating over them.
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Iterate over the cells in the range.
+/// for (row, col, data) in range.cells() {
+///     println!("({row}, {col}): {data}");
+/// }
+///
+/// ```
+///
+/// Output:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (1, 0):
+/// (1, 1):
+/// (2, 0): 3
+/// (2, 1):
+/// ```
+///
 #[derive(Debug, Clone)]
 pub struct Cell<T: CellType> {
-    /// Position for the cell (row, column)
+    // The position for the cell (row, column).
     pos: (u32, u32),
-    /// Value for the cell
+
+    // The [`CellType`] value of the cell.
     val: T,
 }
 
 impl<T: CellType> Cell<T> {
-    /// Creates a new `Cell`
+    /// Creates a new `Cell` instance.
+    ///
+    /// # Parameters
+    ///
+    /// - `position`: A tuple representing the cell's position in the form of
+    ///   `(row, column)`.
+    /// - `value`: The value of the cell, which must implement the [`CellType`]
+    ///   trait.
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a new `Cell` instance.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    ///
+    /// assert_eq!(&Data::Int(42), cell.get_value());
+    /// ```
+    ///
     pub fn new(position: (u32, u32), value: T) -> Cell<T> {
         Cell {
             pos: position,
@@ -389,16 +452,46 @@ impl<T: CellType> Cell<T> {
         }
     }
 
-    /// Gets `Cell` position
+    /// Gets `Cell` position.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting a `Cell` position `(row, column)`.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    ///
+    /// assert_eq!((1, 2), cell.get_position());
+    /// ```
+    ///
     pub fn get_position(&self) -> (u32, u32) {
         self.pos
     }
 
-    /// Gets `Cell` value
+    /// Gets `Cell` value.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting a `Cell` value.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    ///
+    /// assert_eq!(&Data::Int(42), cell.get_value());
+    /// ```
+    ///
     pub fn get_value(&self) -> &T {
         &self.val
     }
 }
+
+// -----------------------------------------------------------------------
+// The `Range` struct.
+// -----------------------------------------------------------------------
 
 /// A struct which represents an area of cells and the data within it.
 ///
