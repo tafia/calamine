@@ -439,7 +439,7 @@ impl<T: CellType> Cell<T> {
 /// A `Range` contains a vector of cells of of generic type `T` which implement
 /// the [`CellType`] trait. The values are stored in a row-major order.
 ///
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Range<T> {
     start: (u32, u32),
     end: (u32, u32),
@@ -691,12 +691,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Parameters
     ///
-    /// - `cells`: A vector of non-empty [`Cell`] elements, sorted by row. The
-    ///   first and last cells define the start and end positions of the range.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a `Cell` row is less than the first `Cell` row.
+    /// - `cells`: A vector of [`Cell`] elements.
     ///
     /// # Examples
     ///
@@ -723,15 +718,18 @@ impl<T: CellType> Range<T> {
     /// ```
     ///
     pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
-        let (row_start, row_end) = match &cells[..] {
-            [] => return Range::empty(),
-            [first] => (first.pos.0, first.pos.0),
-            [first, .., last] => (first.pos.0, last.pos.0),
-        };
+        if cells.is_empty() {
+            return Range::empty();
+        }
+        // cells do not always appear in (row, col) order
         // search bounds
+        let mut row_start = u32::MAX;
+        let mut row_end = 0;
         let mut col_start = u32::MAX;
         let mut col_end = 0;
-        for c in cells.iter().map(|c| c.pos.1) {
+        for (r, c) in cells.iter().map(|c| c.pos) {
+            row_start = min(r, row_start);
+            row_end = max(r, row_end);
             col_start = min(c, col_start);
             col_end = max(c, col_end);
         }
