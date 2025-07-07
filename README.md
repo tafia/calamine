@@ -7,6 +7,13 @@ An Excel/OpenDocument Spreadsheets file reader/deserializer, in pure Rust.
 
 [Documentation](https://docs.rs/calamine/)
 
+## NOBIE INFO
+
+- Add upstream via `git remote add tafia https://github.com/tafia/calamine.git` and periodically rebase to a stable release
+- Turn `[PATCH]` commits into upstream PRs
+- Reference this repo's `master` using exact SHA
+- For local dev, use `calamine = { path = "YOUR_PATH_TO_CALAMINE" }` in `nobie`
+
 ## Description
 
 **calamine** is a pure Rust library to read and deserialize any spreadsheet file:
