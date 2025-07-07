@@ -691,7 +691,7 @@ impl<T: CellType> Range<T> {
     ///
     /// # Parameters
     ///
-    /// - `cells`: A vector of non-empty [`Cell`] elements.
+    /// - `cells`: A vector of [`Cell`] elements.
     ///
     /// # Examples
     ///
