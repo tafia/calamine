@@ -1426,7 +1426,47 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
     }
 }
 
-/// A struct to iterate over all cells
+// -----------------------------------------------------------------------
+// Range Iterators.
+// -----------------------------------------------------------------------
+
+/// A struct to iterate over all `Cell`s in a `Range`.
+///
+/// # Examples
+///
+/// An example iterating over the cells in a calamine range using the `Cells`
+/// iterator returned by [`Range::cells()`].
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Use the Cells iterator returned by Range::cells().
+/// for (row, col, data) in range.cells() {
+///     println!("({row}, {col}): {data}");
+/// }
+///
+/// ```
+///
+/// Output:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (1, 0):
+/// (1, 1):
+/// (2, 0): 3
+/// (2, 1):
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct Cells<'a, T: CellType> {
     width: usize,
@@ -1459,7 +1499,40 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Cells<'a, T> {
 
 impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 
-/// A struct to iterate over used cells
+/// A struct to iterate over all the used `Cell`s in a `Range`.
+///
+/// # Examples
+///
+/// An example iterating over the used cells in a calamine range using the
+/// `UsedCells` iterator returned by [`Range::used_cells()`].
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Use the UsedCells iterator returned by Range::used_cells().
+/// for (row, col, data) in range.used_cells() {
+///     println!("({row}, {col}): {data}");
+/// }
+///
+/// ```
+///
+/// Output:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (2, 0): 3
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct UsedCells<'a, T: CellType> {
     width: usize,
@@ -1497,7 +1570,45 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
     }
 }
 
-/// An iterator to read `Range` struct row by row
+/// A struct to iterate over all `Rows`s in a `Range`.
+///
+/// # Examples
+///
+/// An example iterating over the rows in a calamine range using the `Rows`
+/// iterator returned by [`Range::rows()`].
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Use the Rows iterator returned by Range::rows().
+/// for (row_num, row) in range.rows().enumerate() {
+///     for (col_num, data) in row.iter().enumerate() {
+///         // Print the data in each cell of the row.
+///         println!("({row_num}, {col_num}): {data}");
+///     }
+/// }
+/// ```
+///
+/// Output in relative coordinates:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (1, 0):
+/// (1, 1):
+/// (2, 0): 3
+/// (2, 1):
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct Rows<'a, T: CellType> {
     inner: Option<std::slice::Chunks<'a, T>>,
