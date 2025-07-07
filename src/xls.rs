@@ -1635,3 +1635,14 @@ fn parse_pictures(stream: &[u8]) -> Result<Vec<(String, Vec<u8>)>, XlsError> {
     }
     Ok(pics)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_string() {
+        let enc = XlsEncoding::from_codepage(1252).unwrap();
+        parse_string(&[0, 1], &enc, Biff::Biff8).unwrap_err();
+    }
+}
