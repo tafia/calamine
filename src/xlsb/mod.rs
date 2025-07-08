@@ -725,39 +725,58 @@ fn parse_formula(
             0x3a | 0x5a | 0x7a => {
                 // PtgRef3d
                 let ixti = read_u16(&rgce[0..2]);
+                let row = read_u32(&rgce[2..6]) + 1;
+                let (col, is_col_relative, is_row_relative) =
+                    extract_col_and_flags(read_u16(&rgce[6..8]));
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                formula.push_str(&quote_sheet_name(&sheets[ixti as usize]));
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[2..6]) + 1));
+                if !is_col_relative {
+                    formula.push('$');
+                }
+                push_column(col as u32, &mut formula);
+                if !is_row_relative {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", row));
                 rgce = &rgce[8..];
             }
             0x3b | 0x5b | 0x7b => {
                 // PtgArea3d
                 let ixti = read_u16(&rgce[0..2]);
+                let first_row = read_u32(&rgce[2..6]) + 1;
+                let last_row = read_u32(&rgce[6..10]) + 1;
+                let (first_col, is_first_col_relative, is_first_row_relative) =
+                    extract_col_and_flags(read_u16(&rgce[10..12]));
+                let (last_col, is_last_col_relative, is_last_row_relative) =
+                    extract_col_and_flags(read_u16(&rgce[12..14]));
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                formula.push_str(&quote_sheet_name(&sheets[ixti as usize]));
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[10..12]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[2..6]) + 1));
+                if !is_first_col_relative {
+                    formula.push('$');
+                }
+                push_column(first_col as u32, &mut formula);
+                if !is_first_row_relative {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", first_row));
                 formula.push(':');
-                formula.push('$');
-                push_column(read_u16(&rgce[12..14]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[6..10]) + 1));
+                if !is_last_col_relative {
+                    formula.push('$');
+                }
+                push_column(last_col as u32, &mut formula);
+                if !is_last_row_relative {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", last_row));
                 rgce = &rgce[14..];
             }
             0x3c | 0x5c | 0x7c => {
                 // PtfRefErr3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                formula.push_str(&quote_sheet_name(&sheets[ixti as usize]));
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[8..];
@@ -766,7 +785,7 @@ fn parse_formula(
                 // PtgAreaErr3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                formula.push_str(&quote_sheet_name(&sheets[ixti as usize]));
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[14..];
@@ -948,30 +967,44 @@ fn parse_formula(
             }
             0x24 | 0x44 | 0x64 => {
                 let row = read_u32(rgce) + 1;
-                let col = [rgce[4], rgce[5] & 0x3F];
-                let col = read_u16(&col);
+                let (col, is_col_relative, is_row_relative) =
+                    extract_col_and_flags(read_u16(&rgce[4..6]));
                 stack.push(formula.len());
-                if rgce[5] & 0x80 != 0x80 {
+                if !is_col_relative {
                     formula.push('$');
                 }
                 push_column(col as u32, &mut formula);
-                if rgce[5] & 0x40 != 0x40 {
+                if !is_row_relative {
                     formula.push('$');
                 }
                 formula.push_str(&format!("{row}"));
                 rgce = &rgce[6..];
             }
             0x25 | 0x45 | 0x65 => {
+                let first_row = read_u32(&rgce[0..4]) + 1;
+                let last_row = read_u32(&rgce[4..8]) + 1;
+                let (first_col, first_col_relative, first_row_relative) =
+                    extract_col_and_flags(read_u16(&rgce[8..10]));
+                let (last_col, last_col_relative, last_row_relative) =
+                    extract_col_and_flags(read_u16(&rgce[10..12]));
                 stack.push(formula.len());
-                formula.push('$');
-                push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[0..4]) + 1));
+                if !first_col_relative {
+                    formula.push('$');
+                }
+                push_column(first_col as u32, &mut formula);
+                if !first_row_relative {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", first_row));
                 formula.push(':');
-                formula.push('$');
-                push_column(read_u16(&rgce[10..12]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[4..8]) + 1));
+                if !last_col_relative {
+                    formula.push('$');
+                }
+                push_column(last_col as u32, &mut formula);
+                if !last_row_relative {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", last_row));
                 rgce = &rgce[12..];
             }
             0x2A | 0x4A | 0x6A => {
@@ -1029,4 +1062,16 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     }
 
     Ok(())
+}
+
+fn quote_sheet_name(sheet_name: &str) -> String {
+    let escaped = sheet_name.replace('\'', "''");
+    format!("'{}'", escaped)
+}
+
+fn extract_col_and_flags(col_data: u16) -> (u16, bool, bool) {
+    let col = col_data & 0x3FFF;
+    let is_col_relative = (col_data & 0x8000) != 0;
+    let is_row_relative = (col_data & 0x4000) != 0;
+    (col, is_col_relative, is_row_relative)
 }
