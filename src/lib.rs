@@ -1636,7 +1636,127 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
 
 impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 
-/// Struct with the key elements of a table
+// -----------------------------------------------------------------------
+// The `Table` struct.
+// -----------------------------------------------------------------------
+
+/// The `Table` struct represents an Excel worksheet table.
+///
+/// Tables in Excel are a way of grouping a range of cells into a single entity
+/// that has common formatting or that can be referenced in formulas. In
+/// `calamine`, tables can be read and converted to a data [`Range`] for further
+/// processing.
+///
+/// Calamine does not automatically load Table data from a workbook to avoid
+/// unnecessary overhead. Instead you must explicitly load the Table data using
+/// the [`Xlsx::load_tables()`](crate::Xlsx::load_tables) method. Once the
+/// tables have been loaded the following methods can be used to extract and
+/// work with individual tables:
+///
+/// - [`Xlsx::table_by_name()`](crate::Xlsx::table_by_name).
+/// - [`Xlsx::table_by_name_ref()`](crate::Xlsx::table_by_name_ref).
+/// - [`Xlsx::table_names()`](crate::Xlsx::table_names).
+/// - [`Xlsx::table_names_in_sheet()`](crate::Xlsx::table_names_in_sheet).
+///
+/// Note, these methods are only available for the [`Xlsx`] struct since Tables
+/// are a feature of the xlsx/xlsb format. They are not currently implemented
+/// for [`Xlsb`].
+///
+/// Once you have a `Table` instance, you can access its properties and data
+/// using the methods below.
+///
+/// # Examples
+///
+/// An example of reading the data from an Excel worksheet Table using the
+/// `calamine` crate.
+///
+/// The sample Excel file `inventory-table.xlsx` contains a single sheet named
+/// "Sheet1" with the following data laid out in a worksheet Table called
+/// "Table1":
+///
+/// ```text
+///  _____________________________________________________________
+/// |         ||                |                |                |
+/// |         ||       A        |       B        |       C        |
+/// |_________||________________|________________|________________|
+/// |    1    || Item           | Type           | Quantity       |
+/// |_________||________________|________________|________________|
+/// |    2    ||              1 | Apple          |             50 |
+/// |_________||________________|________________|________________|
+/// |    3    ||              2 | Banana         |            200 |
+/// |_________||________________|________________|________________|
+/// |    4    ||              3 | Orange         |             60 |
+/// |_________||________________|________________|________________|
+/// |    5    ||              4 | Pear           |            100 |
+/// |_________||________________|________________|________________|
+/// |_          __________________________________________________|
+///   \ Sheet1 /
+///     ------
+/// ```
+///
+/// ```
+/// use calamine::{open_workbook, Error, Xlsx};
+///
+/// fn main() -> Result<(), Error> {
+///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+///
+///     // Open the workbook.
+///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+///
+///     // Load the tables in the workbook.
+///     workbook.load_tables()?;
+///
+///     // Get the table by name.
+///     let table = workbook.table_by_name("Table1")?;
+///
+///     // Check the table's name.
+///     let table_name = table.name();
+///     assert_eq!(table_name, "Table1");
+///
+///     // Check that it came from Sheet1.
+///     let sheet_name = table.sheet_name();
+///     assert_eq!(sheet_name, "Sheet1");
+///
+///     // Get the table column headers.
+///     let columns_headers = table.columns();
+///     assert_eq!(columns_headers, vec!["Item", "Type", "Quantity"]);
+///
+///     // Get the table data range (without the headers).
+///     let data = table.data();
+///
+///     // Iterate over the rows of the data range.
+///     for (row_num, row) in data.rows().enumerate() {
+///         for (col_num, data) in row.iter().enumerate() {
+///             // Print the data in each cell of the row.
+///             println!("({row_num}, {col_num}): {data}");
+///         }
+///         println!();
+///     }
+///
+///     Ok(())
+/// }
+/// ```
+///
+/// Output in relative coordinates:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): Apple
+/// (0, 2): 50
+///
+/// (1, 0): 2
+/// (1, 1): Banana
+/// (1, 2): 200
+///
+/// (2, 0): 3
+/// (2, 1): Orange
+/// (2, 2): 60
+///
+/// (3, 0): 4
+/// (3, 1): Pear
+/// (3, 2): 100
+/// ```
+///
 pub struct Table<T> {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
@@ -1644,24 +1764,197 @@ pub struct Table<T> {
     pub(crate) data: Range<T>,
 }
 impl<T> Table<T> {
-    /// Get the name of the table
+    /// Get the name of the table.
+    ///
+    /// Tables in Excel have sequentially assigned names like "Table1",
+    /// "Table2", etc. but can also have used assigned names.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the name of an Excel worksheet Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Check the table's name.
+    ///     let table_name = table.name();
+    ///     assert_eq!(table_name, "Table1");
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn name(&self) -> &str {
         &self.name
     }
-    /// Get the name of the sheet that table exists within
+    /// Get the name of the parent worksheet for a table.
+    ///
+    /// This method returns the name of the parent worksheet that contains the
+    /// table.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the parent worksheet name for an Excel worksheet
+    /// Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Check that it came from Sheet1.
+    ///     let sheet_name = table.sheet_name();
+    ///     assert_eq!(sheet_name, "Sheet1");
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn sheet_name(&self) -> &str {
         &self.sheet_name
     }
-    /// Get the names of the columns in the order they occur
+
+    /// Get the header names of the table columns.
+    ///
+    /// This method returns a slice of strings representing the names of the
+    /// column headers in the table.
+    ///
+    /// In Excel table headers can be hidden but the table will still have
+    /// column header names.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the column headers for an Excel worksheet Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Get the table column headers.
+    ///     let columns_headers = table.columns();
+    ///     assert_eq!(columns_headers, vec!["Item", "Type", "Quantity"]);
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn columns(&self) -> &[String] {
         &self.columns
     }
-    /// Get a range representing the data from the table (excludes column headers)
+
+    /// Get a range representing the data from the table
+    ///
+    /// This method returns a reference to the data [`Range`] of the table,
+    ///
+    /// Note that the data range excludes the column headers.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the data range of an Excel worksheet Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Data, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Get the data range of the table.
+    ///     let data_range = table.data();
+    ///
+    ///     // Check one of the values in the data range. Note the relative
+    ///     // positioning within the range returned by the `get()` method.
+    ///     assert_eq!(
+    ///         data_range.get((0, 1)),
+    ///         Some(&Data::String("Apple".to_string()))
+    ///     );
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn data(&self) -> &Range<T> {
         &self.data
     }
 }
 
+/// Convert a `Table<T>` into a `Range<T>`.
+///
+/// # Examples
+///
+/// An example of getting the data range of an Excel worksheet Table via the
+/// `From/Into` trait.
+///
+/// ```
+/// use calamine::{open_workbook, Data, Error, Range, Xlsx};
+///
+/// fn main() -> Result<(), Error> {
+///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+///
+///     // Open the workbook.
+///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+///
+///     // Load the tables in the workbook.
+///     workbook.load_tables()?;
+///
+///     // Get the table by name.
+///     let table = workbook.table_by_name("Table1")?;
+///
+///     // Convert the table into a data range using the `From/Into` trait.
+///     let data_range: Range<Data> = table.into();
+///
+///     // Check one of the values in the data range. Note the relative
+///     // positioning within the range returned by the `get()` method.
+///     assert_eq!(
+///         data_range.get((0, 1)),
+///         Some(&Data::String("Apple".to_string()))
+///     );
+///
+///     Ok(())
+/// }
+/// ```
+///
 impl<T: CellType> From<Table<T>> for Range<T> {
     fn from(table: Table<T>) -> Range<T> {
         table.data

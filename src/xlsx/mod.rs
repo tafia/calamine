@@ -752,7 +752,34 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .collect()
     }
 
-    /// Load the tables from
+    /// Load the worksheet tables from the XLSX file.
+    ///
+    /// Tables in Excel are a way of grouping a range of cells into a single
+    /// entity that has common formatting or that can be referenced in formulas.
+    /// In `calamine`, tables can be read as a [`Table`] object and converted to
+    /// a data [`Range`] for further processing.
+    ///
+    /// Calamine does not automatically load table data from a workbook to avoid
+    /// unnecessary overhead. Instead you must explicitly load the table data
+    /// using the `Xlsx::load_tables()` method. Once the tables have been loaded
+    /// the following methods can be used to extract and work with individual
+    /// tables:
+    ///
+    /// - [`Xlsx::table_by_name()`].
+    /// - [`Xlsx::table_by_name_ref()`].
+    /// - [`Xlsx::table_names()`].
+    /// - [`Xlsx::table_names_in_sheet()`].
+    ///
+    /// These methods are explained below. See also the [`Table`] struct for
+    /// additional methods that can be used when working with tables.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::XmlAttr`].
+    /// - [`XlsxError::XmlEof`].
+    /// - [`XlsxError::Xml`].
+    ///
+    ///
     pub fn load_tables(&mut self) -> Result<(), XlsxError> {
         if self.tables.is_none() {
             self.read_table_metadata()
@@ -761,7 +788,45 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
     }
 
-    /// Get the names of all the tables
+    /// Get the names of all the tables in the workbook.
+    ///
+    /// Read all the table names in the workbook. This can be used in
+    /// conjunction with [`Xlsx::table_by_name()`] to iterate over the tables in
+    /// the workbook.
+    ///
+    /// # Panics
+    ///
+    /// Panics if tables have not been loaded via [`Xlsx::load_tables()`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the names of all the tables in an Excel workbook.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/table-multiple.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get all the table names in the workbook.
+    ///     let table_names = workbook.table_names();
+    ///
+    ///     // Check the table names.
+    ///     assert_eq!(
+    ///         table_names,
+    ///         vec!["Inventory", "Pricing", "Sales_Bob", "Sales_Alice"]
+    ///     );
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn table_names(&self) -> Vec<&String> {
         self.tables
             .as_ref()
@@ -771,7 +836,60 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .collect()
     }
 
-    /// Get the names of all the tables in a sheet
+    /// Get the names of all the tables in a worksheet.
+    ///
+    /// Read all the table names in a worksheet. This can be used in conjunction
+    /// with [`Xlsx::table_by_name()`] to iterate over the tables in the
+    /// worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `sheet_name`: The name of the worksheet to get the table names from.
+    ///
+    /// # Panics
+    ///
+    /// Panics if tables have not been loaded via [`Xlsx::load_tables()`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the names of all the tables in an Excel workbook,
+    /// sheet by sheet.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Reader, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/table-multiple.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the names of all the sheets in the workbook.
+    ///     let sheet_names = workbook.sheet_names();
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     for sheet_name in &sheet_names {
+    ///         // Get the table names in the current sheet.
+    ///         let table_names = workbook.table_names_in_sheet(sheet_name);
+    ///
+    ///         // Print the associated table names.
+    ///         println!("{sheet_name} contains tables: {table_names:?}");
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Sheet1 contains tables: ["Inventory"]
+    /// Sheet2 contains tables: ["Pricing"]
+    /// Sheet3 contains tables: ["Sales_Bob", "Sales_Alice"]
+    /// ```
+    ///
     pub fn table_names_in_sheet(&self, sheet_name: &str) -> Vec<&String> {
         self.tables
             .as_ref()
@@ -782,8 +900,60 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .collect()
     }
 
-    /// Get the table by name (owned)
-    // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more efficient
+    /// Get a worksheet table by name.
+    ///
+    /// This method retrieves a [`Table`] from the workbook by its name. The
+    /// table will contain an owned copy of the worksheet data in the table
+    /// range.
+    ///
+    /// # Parameters
+    ///
+    /// - `table_name`: The name of the table to retrieve.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::TableNotFound`].
+    /// - [`XlsxError::NotAWorksheet`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if tables have not been loaded via [`Xlsx::load_tables()`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting an Excel worksheet table by its name. The file in
+    /// this example contains 4 tables spread across 3 worksheets. This example
+    /// gets an owned copy of the worksheet data in the table area.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Data, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/table-multiple.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Inventory")?;
+    ///
+    ///     // Get the data range of the table. The data type is `&Range<Data>`.
+    ///     let data_range = table.data();
+    ///
+    ///     // Do something with the data using the `Range` APIs. In this case
+    ///     // we will just check for a cell value.
+    ///     assert_eq!(
+    ///         data_range.get((0, 1)),
+    ///         Some(&Data::String("Apple".to_string()))
+    ///     );
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<Data>, XlsxError> {
         let TableMetadata {
             name,
@@ -803,7 +973,61 @@ impl<RS: Read + Seek> Xlsx<RS> {
         })
     }
 
-    /// Get the table by name (ref)
+    /// Get a worksheet table by name, with referenced data.
+    ///
+    /// This method retrieves a [`Table`] from the workbook by its name. The
+    /// table will contain an borrowed/referenced copy of the worksheet data in
+    /// the table range. This is more efficient than [`Xlsx::table_by_name()`]
+    /// for large tables.
+    ///
+    /// # Parameters
+    ///
+    /// - `table_name`: The name of the table to retrieve.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::TableNotFound`].
+    /// - [`XlsxError::NotAWorksheet`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if tables have not been loaded via [`Xlsx::load_tables()`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting an Excel worksheet table by its name. The file in
+    /// this example contains 4 tables spread across 3 worksheets. This example
+    /// gets a borrowed/referenced copy of the worksheet data in the table area.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, DataRef, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/table-multiple.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name_ref("Inventory")?;
+    ///
+    ///     // Get the data range of the table. The data type is `&Range<DataRef<'_>>`.
+    ///     let data_range = table.data();
+    ///
+    ///     // Do something with the data using the `Range` APIs. In this case
+    ///     // we will just check for a cell value.
+    ///     assert_eq!(
+    ///         data_range.get((0, 1)),
+    ///         Some(&DataRef::SharedString("Apple"))
+    ///     );
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn table_by_name_ref(&mut self, table_name: &str) -> Result<Table<DataRef<'_>>, XlsxError> {
         let TableMetadata {
             name,
