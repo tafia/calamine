@@ -7,3 +7,4 @@ fuzz.xlsx
 .idea
 nyc.rs
 .DS_Store
+.tmp

@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 
-use log::debug;
+use log::{trace, warn};
 
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;
@@ -106,7 +106,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Etpg(t) => write!(f, "Unsupported etpg {t:X}"),
             XlsbError::IfTab(t) => write!(f, "Unsupported iftab {t:X}"),
             XlsbError::BErr(t) => write!(f, "Unsupported BErr {t:X}"),
-            XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {t:X}"),
+            XlsbError::Ptg(t) => write!(f, "Unsupported Ptg {t:X}"),
             XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {t:X}"),
             XlsbError::WideStr { ws_len, buf_len } => write!(
                 f,
@@ -399,7 +399,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     self.metadata.names = defined_names;
                     return Ok(());
                 }
-                _ => debug!("Unsupported type {typ:X}"),
+                _ => trace!("Unsupported type {typ:X}"),
             }
         }
     }
@@ -703,10 +703,7 @@ fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, Xlsb
 
 /// Formula parsing
 ///
-/// [MS-XLSB 2.2.2]
-/// [MS-XLSB 2.5.97]
-///
-/// See Ptg [2.5.97.16]
+/// See Ptg [MS-XLSB 2.5.98.16](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/5d7c0c3f-f75f-4306-804f-6f2ebc6bf811), and Formula [MS-XLSB 2.2.2](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xlsb/220abf5e-f561-4333-9fe0-7ac590ed4ad5)
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
@@ -718,12 +715,19 @@ fn parse_formula(
 
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
+    trace!("starting formula parsing with {} bytes", rgce.len());
+
     while !rgce.is_empty() {
         let ptg = rgce[0];
+        trace!(
+            "parsing Ptg: 0x{:02X}, remaining bytes: {}",
+            ptg,
+            rgce.len()
+        );
         rgce = &rgce[1..];
         match ptg {
             0x3a | 0x5a | 0x7a => {
-                // PtgRef3d
+                trace!("parsing PtgRef3d");
                 let ixti = read_u16(&rgce[0..2]);
                 let row = read_u32(&rgce[2..6]) + 1;
                 let (col, is_col_relative, is_row_relative) =
@@ -742,7 +746,7 @@ fn parse_formula(
                 rgce = &rgce[8..];
             }
             0x3b | 0x5b | 0x7b => {
-                // PtgArea3d
+                trace!("parsing PtgArea3d");
                 let ixti = read_u16(&rgce[0..2]);
                 let first_row = read_u32(&rgce[2..6]) + 1;
                 let last_row = read_u32(&rgce[6..10]) + 1;
@@ -773,7 +777,7 @@ fn parse_formula(
                 rgce = &rgce[14..];
             }
             0x3c | 0x5c | 0x7c => {
-                // PtfRefErr3d
+                trace!("parsing PtgRefErr3d");
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
                 formula.push_str(&quote_sheet_name(&sheets[ixti as usize]));
@@ -782,7 +786,7 @@ fn parse_formula(
                 rgce = &rgce[8..];
             }
             0x3d | 0x5d | 0x7d => {
-                // PtgAreaErr3d
+                trace!("parsing PtgAreaErr3d");
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
                 formula.push_str(&quote_sheet_name(&sheets[ixti as usize]));
@@ -791,13 +795,12 @@ fn parse_formula(
                 rgce = &rgce[14..];
             }
             0x01 => {
-                // PtgExp: array/shared formula, ignore
-                debug!("ignoring PtgExp array/shared formula");
+                trace!("parsing PtgExp - ignoring array/shared formula");
                 stack.push(formula.len());
                 rgce = &rgce[4..];
             }
             0x03..=0x11 => {
-                // binary operation
+                trace!("parsing PtgAdd, PtgSub, PtgMul, PtgDiv, PtgPower, PtgConcat, PtgLt, PtgLe, PtgEq, PtgGe, PtgGt, PtgNe, PtgIsect, PtgUnion, PtgRange: 0x{:02X}", ptg);
                 let e2 = stack.pop().ok_or(XlsbError::StackLen)?;
                 let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
@@ -823,39 +826,67 @@ fn parse_formula(
                 formula.push_str(&e2);
             }
             0x12 => {
+                trace!("parsing PtgUPlus");
                 let e = stack.last().ok_or(XlsbError::StackLen)?;
                 formula.insert(*e, '+');
             }
             0x13 => {
+                trace!("parsing PtgUMinus");
                 let e = stack.last().ok_or(XlsbError::StackLen)?;
                 formula.insert(*e, '-');
             }
             0x14 => {
+                trace!("parsing PtgPercent");
                 formula.push('%');
             }
             0x15 => {
+                trace!("parsing PtgParen");
                 let e = stack.last().ok_or(XlsbError::StackLen)?;
                 formula.insert(*e, '(');
                 formula.push(')');
             }
             0x16 => {
+                trace!("parsing PtgMissArg");
                 stack.push(formula.len());
             }
             0x17 => {
+                trace!("parsing PtgStr");
+                if rgce.len() < 2 {
+                    return Err(XlsbError::StackLen);
+                }
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = read_u16(&rgce[0..2]) as usize;
-                formula.push_str(&UTF_16LE.decode(&rgce[2..2 + 2 * cch]).0);
+                if cch > 255 {
+                    warn!("invalid PtgStr length: {}", cch);
+                }
+                let string_bytes_needed = 2 + 2 * cch;
+                if rgce.len() < string_bytes_needed {
+                    return Err(XlsbError::StackLen);
+                }
+                let decoded = UTF_16LE.decode(&rgce[2..string_bytes_needed]).0;
+                for c in decoded.chars() {
+                    if c == '\"' {
+                        formula.push('\"');
+                    }
+                    formula.push(c);
+                }
                 formula.push('\"');
-                rgce = &rgce[2 + 2 * cch..];
+                rgce = &rgce[string_bytes_needed..];
             }
             0x18 => {
                 stack.push(formula.len());
                 let eptg = rgce[0];
                 rgce = &rgce[1..];
                 match eptg {
-                    0x19 => rgce = &rgce[12..],
-                    0x1D => rgce = &rgce[4..],
+                    0x19 => {
+                        trace!("parsing PtgList");
+                        rgce = &rgce[12..];
+                    }
+                    0x1D => {
+                        trace!("parsing PtgSxName");
+                        rgce = &rgce[4..];
+                    }
                     e => return Err(XlsbError::Etpg(e)),
                 }
             }
@@ -863,9 +894,24 @@ fn parse_formula(
                 let eptg = rgce[0];
                 rgce = &rgce[1..];
                 match eptg {
-                    0x01 | 0x02 | 0x08 | 0x20 | 0x21 | 0x40 | 0x41 | 0x80 => rgce = &rgce[2..],
-                    0x04 => rgce = &rgce[10..],
+                    0x01 | 0x02 | 0x08 | 0x20 | 0x21 | 0x40 | 0x41 | 0x80 => {
+                        trace!("parsing PtgAttrSemi, PtgAttrIf, PtgAttrGoTo, PtgAttrBaxcel, PtgAttrSpace, PtgAttrSpaceSemi, PtgAttrIfError");
+                        rgce = &rgce[2..];
+                    }
+                    0x04 => {
+                        trace!("parsing PtgAttrChoose");
+                        if rgce.len() < 4 {
+                            return Err(XlsbError::StackLen);
+                        }
+                        let c_offset = read_u16(&rgce[0..2]) as usize;
+                        let skip_bytes = 2 + (c_offset + 1) * 2;
+                        if rgce.len() < skip_bytes {
+                            return Err(XlsbError::StackLen);
+                        }
+                        rgce = &rgce[skip_bytes..];
+                    }
                     0x10 => {
+                        trace!("parsing PtgAttrSum");
                         rgce = &rgce[2..];
                         let e = stack.last().ok_or(XlsbError::StackLen)?;
                         let e = formula.split_off(*e);
@@ -877,6 +923,7 @@ fn parse_formula(
                 }
             }
             0x1C => {
+                trace!("parsing PtgErr");
                 stack.push(formula.len());
                 let err = rgce[0];
                 rgce = &rgce[1..];
@@ -893,26 +940,30 @@ fn parse_formula(
                 }
             }
             0x1D => {
+                trace!("parsing PtgBool");
                 stack.push(formula.len());
                 formula.push_str(if rgce[0] == 0 { "FALSE" } else { "TRUE" });
                 rgce = &rgce[1..];
             }
             0x1E => {
+                trace!("parsing PtgInt");
                 stack.push(formula.len());
                 formula.push_str(&format!("{}", read_u16(rgce)));
                 rgce = &rgce[2..];
             }
             0x1F => {
+                trace!("parsing PtgNum");
                 stack.push(formula.len());
                 formula.push_str(&format!("{}", read_f64(rgce)));
                 rgce = &rgce[8..];
             }
             0x20 | 0x40 | 0x60 => {
-                // PtgArray: ignore
+                trace!("ignoring PtgArray");
                 stack.push(formula.len());
                 rgce = &rgce[14..];
             }
             0x21 | 0x22 | 0x41 | 0x42 | 0x61 | 0x62 => {
+                trace!("parsing PtgFunc/PtgFuncVar");
                 let (iftab, argc) = match ptg {
                     0x22 | 0x42 | 0x62 => {
                         let iftab = read_u16(&rgce[1..]) as usize;
@@ -958,6 +1009,7 @@ fn parse_formula(
                 }
             }
             0x23 | 0x43 | 0x63 => {
+                trace!("parsing PtgName");
                 let iname = read_u32(rgce) as usize - 1; // one-based
                 stack.push(formula.len());
                 if let Some(name) = names.get(iname) {
@@ -966,6 +1018,7 @@ fn parse_formula(
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {
+                trace!("parsing PtgRef");
                 let row = read_u32(rgce) + 1;
                 let (col, is_col_relative, is_row_relative) =
                     extract_col_and_flags(read_u16(&rgce[4..6]));
@@ -981,6 +1034,7 @@ fn parse_formula(
                 rgce = &rgce[6..];
             }
             0x25 | 0x45 | 0x65 => {
+                trace!("parsing PtgArea");
                 let first_row = read_u32(&rgce[0..4]) + 1;
                 let last_row = read_u32(&rgce[4..8]) + 1;
                 let (first_col, first_col_relative, first_row_relative) =
@@ -1008,16 +1062,19 @@ fn parse_formula(
                 rgce = &rgce[12..];
             }
             0x2A | 0x4A | 0x6A => {
+                trace!("parsing PtgRefErr");
                 stack.push(formula.len());
                 formula.push_str("#REF!");
                 rgce = &rgce[6..];
             }
             0x2B | 0x4B | 0x6B => {
+                trace!("parsing PtgAreaErr");
                 stack.push(formula.len());
                 formula.push_str("#REF!");
                 rgce = &rgce[12..];
             }
             0x29 | 0x49 | 0x69 => {
+                trace!("parsing PtgMemFunc");
                 let cce = read_u16(rgce) as usize;
                 rgce = &rgce[2..];
                 let f = parse_formula(&rgce[..cce], sheets, names)?;
@@ -1027,11 +1084,36 @@ fn parse_formula(
             }
             0x39 | 0x59 | 0x79 => {
                 // TODO: external workbook ... ignore this formula ...
+                trace!("ignoring PtgNameX");
                 stack.push(formula.len());
                 formula.push_str("EXTERNAL_WB_NAME");
                 rgce = &rgce[6..];
             }
-            _ => return Err(XlsbError::Ptg(ptg)),
+            _ => {
+                trace!(
+                    "parsing unknown Ptg: 0x{:02X} at position with {} bytes remaining",
+                    ptg,
+                    rgce.len()
+                );
+                trace!(
+                    "Next few bytes: {:02X?}",
+                    &rgce[..std::cmp::min(10, rgce.len())]
+                );
+                trace!("FORMULA PARSING ERROR:");
+                trace!("  Unknown Ptg: 0x{:02X}", ptg);
+                trace!("  Remaining bytes: {}", rgce.len());
+                trace!("  Current formula: '{}'", formula);
+                trace!("  Stack size: {}", stack.len());
+                trace!(
+                    "  Next 20 bytes: {:02X?}",
+                    &rgce[..std::cmp::min(20, rgce.len())]
+                );
+                trace!(
+                    "  Previous bytes: {:02X?}",
+                    rgce.get(rgce.len().saturating_sub(50)..rgce.len().saturating_sub(40))
+                );
+                return Err(XlsbError::Ptg(ptg));
+            }
         }
     }
 

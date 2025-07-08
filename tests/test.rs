@@ -2154,3 +2154,33 @@ fn test_sheet_ref_quote_xlsb() {
 
     range_eq!(formula_range, [["'1'!A1"], ["'G&A'!A1"], ["'a''b'!A1"]]);
 }
+
+#[test]
+fn test_sheet_ref_error_xlsb() {
+    let mut excel: Xlsb<_> = wb("sheet_ref_error.xlsb");
+
+    let formula_range = excel.worksheet_formula("Sheet1").unwrap();
+
+    range_eq!(formula_range, [["'#InvalidWorkSheet'!A1".to_string()]]);
+}
+
+#[test]
+fn test_choose_xlsb() {
+    let mut excel: Xlsb<_> = wb("choose.xlsb");
+
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+
+    range_eq!(
+        formulas,
+        [["CHOOSE(A1,IF(ISERROR(1/0),B1+C1,B2+C2),IF(RAND()>=0.5,B3+C3,B4+C4),B5+C5,B6+C6)"],]
+    );
+}
+
+#[test]
+fn test_escape_quote_xlsb() {
+    let mut excel: Xlsb<_> = wb("escape_quote.xlsb");
+
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+
+    range_eq!(formulas, [["\"ab\"\"cd\""],]);
+}

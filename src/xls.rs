@@ -183,7 +183,7 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # fn main() { assert!(run().is_err()); }
     /// ```
     pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
-        let mut cfb = {
+        let cfb = {
             let offset_end = reader.seek(SeekFrom::End(0))? as usize;
             reader.seek(SeekFrom::Start(0))?;
             Cfb::new(&mut reader, offset_end)?

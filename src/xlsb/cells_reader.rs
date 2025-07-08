@@ -1,5 +1,7 @@
 use std::io::{Read, Seek};
 
+use log::trace;
+
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
@@ -170,6 +172,13 @@ where
                     let formula = &self.buf[14 + cch * 2..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
+                    trace!(
+                        "parsing BrtFmlaString: cch={}, formula_len={}, cce={}, rgce_len={}",
+                        cch,
+                        formula.len(),
+                        cce,
+                        rgce.len()
+                    );
                     parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x0009 => {
@@ -177,6 +186,12 @@ where
                     let formula = &self.buf[18..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
+                    trace!(
+                        "parsing BrtFmlaNum: formula_len={}, cce={}, rgce_len={}",
+                        formula.len(),
+                        cce,
+                        rgce.len()
+                    );
                     parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x000A | 0x000B => {
@@ -184,6 +199,12 @@ where
                     let formula = &self.buf[11..];
                     let cce = read_u32(formula) as usize;
                     let rgce = &formula[4..4 + cce];
+                    trace!(
+                        "parsing BrtFmlaBool/Error: formula_len={}, cce={}, rgce_len={}",
+                        formula.len(),
+                        cce,
+                        rgce.len()
+                    );
                     parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x0000 => {
