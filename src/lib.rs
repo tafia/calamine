@@ -18,8 +18,7 @@
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
-//!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
-//!              total_cells, non_empty_cells);
+//!     println!("Found {total_cells} cells in 'Sheet1', including {non_empty_cells} non empty cells");
 //!     // alternatively, we can manually filter rows
 //!     assert_eq!(non_empty_cells, range.rows()
 //!         .flat_map(|r| r.iter().filter(|&c| c != &Data::Empty)).count());
@@ -30,7 +29,7 @@
 //!     let vba = vba.to_mut();
 //!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
-//!     println!("{}", module1);
+//!     println!("{module1}");
 //!     for r in vba.get_references() {
 //!         if r.is_missing() {
 //!             println!("Reference {} is broken or not accessible", r.name);
