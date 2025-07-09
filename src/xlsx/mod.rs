@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+
 mod cells_reader;
 
 use std::borrow::Cow;
@@ -25,73 +27,112 @@ pub use cells_reader::XlsxCellReader;
 
 pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
-/// Maximum number of rows allowed in an xlsx file
+/// Maximum number of rows allowed in an XLSX file.
 pub const MAX_ROWS: u32 = 1_048_576;
 
-/// Maximum number of columns allowed in an xlsx file
+/// Maximum number of columns allowed in an XLSX file.
 pub const MAX_COLUMNS: u32 = 16_384;
 
-/// An enum for Xlsx specific errors
+/// An enum for Xlsx specific errors.
 #[derive(Debug)]
 pub enum XlsxError {
-    /// Io error
+    /// A wrapper for a variety of [`std::io::Error`] errors such as file
+    /// permissions when reading an XLSX file. This can be caused by a
+    /// non-existent file or parent directory or, commonly on Windows, if the
+    /// file is already open in Excel.
     Io(std::io::Error),
-    /// Zip error
+
+    /// A wrapper for a variety of [`zip::result::ZipError`] errors from
+    /// [`zip::ZipWriter`]. These relate to errors arising from reading the XLSX
+    /// file zip container.
     Zip(zip::result::ZipError),
-    /// Vba error
+
+    /// A general error when reading a VBA project from an XLSX file.
     Vba(crate::vba::VbaError),
-    /// Xml error
+
+    /// A wrapper for a variety of [`quick_xml::Error`] XML parsing errors, but
+    /// most commonly for missing data in the target file.
     Xml(quick_xml::Error),
-    /// Xml attribute error
+
+    /// A wrapper for a variety of [`quick_xml::events::attributes::AttrError`]
+    /// errors related to missing attributes in XML elements.
     XmlAttr(quick_xml::events::attributes::AttrError),
-    /// Parse error
+
+    /// A wrapper for a variety of [`std::string::ParseError`] errors when
+    /// parsing strings.
     Parse(std::string::ParseError),
-    /// Float error
+
+    /// A wrapper for a variety of [`std::num::ParseFloatError`] errors when
+    /// parsing floats.
     ParseFloat(std::num::ParseFloatError),
-    /// `ParseInt` error
+
+    /// A wrapper for a variety of [`std::num::ParseIntError`] errors when
+    /// parsing integers.
     ParseInt(std::num::ParseIntError),
-    /// Unexpected end of xml
+
+    /// Unexpected end of XML file, usually when an end tag is missing.
     XmlEof(&'static str),
-    /// Unexpected node
+
+    /// Unexpected node in XML.
     UnexpectedNode(&'static str),
-    /// File not found
+
+    /// XML file not found in XLSX container.
     FileNotFound(String),
-    /// Relationship not found
+
+    /// Relationship file not found in XLSX container.
     RelationshipNotFound,
-    /// Expecting alphanumeric character
+
+    /// Non alphanumeric character found when parsing `A1` style range string.
     Alphanumeric(u8),
-    /// Numeric column
+
+    /// Error when parsing the column name in a `A1` style range string.
     NumericColumn(u8),
-    /// Wrong dimension count
-    DimensionCount(usize),
-    /// Cell 't' attribute error
-    CellTAttribute(String),
-    /// There is no column component in the range string
+
+    /// Missing column name when parsing an `A1` style range string.
     RangeWithoutColumnComponent,
-    /// There is no row component in the range string
+
+    /// Missing row number when parsing an `A1` style range string.
     RangeWithoutRowComponent,
-    /// Unexpected error
+
+    /// Error when parsing dimensions of a worksheet.
+    DimensionCount(usize),
+
+    /// Unknown cell type (`t`) attribute.
+    CellTAttribute(String),
+
+    /// Unexpected XML element or attribute error.
     Unexpected(&'static str),
-    /// Unrecognized data
+
+    /// Unrecognized worksheet type or state.
     Unrecognized {
-        /// data type
+        /// The data type.
         typ: &'static str,
-        /// value found
+
+        /// The value found.
         val: String,
     },
-    /// Cell error
+
+    /// Unrecognized cell error type.
     CellError(String),
-    /// Workbook is password protected
+
+    /// Workbook is password protected.
     Password,
-    /// Worksheet not found
+
+    /// Specified worksheet was not found.
     WorksheetNotFound(String),
-    /// Table not found
+
+    /// Specified worksheet Table was not found.
     TableNotFound(String),
-    /// The specified sheet is not a worksheet
+
+    /// The specified sheet is not a worksheet.
     NotAWorksheet(String),
-    /// XML Encoding error
+
+    /// A wrapper for a variety of [`quick_xml::encoding::EncodingError`]
+    /// encoding errors.
     Encoding(quick_xml::encoding::EncodingError),
-    /// XML attribute error
+
+    /// A wrapper for a variety of [`quick_xml::events::attributes::AttrError`]
+    /// errors related to XML attributes.
     XmlAttribute(quick_xml::events::attributes::AttrError),
 }
 
@@ -374,7 +415,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 let r = &relationships
                                     .get(&*v)
                                     .ok_or(XlsxError::RelationshipNotFound)?[..];
-                                // target may have pre-prended "/xl/" or "xl/" path;
+                                // target may have prepended "/xl/" or "xl/" path;
                                 // strip if present
                                 path = if r.starts_with("/xl/") {
                                     r[1..].to_string()
@@ -682,11 +723,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(ref e)) if e.local_name() == QName(b"mergeCell").into() => {
                             if let Some(attr) = get_attribute(e.attributes(), QName(b"ref"))? {
-                                let dismension = get_dimension(attr)?;
+                                let dimension = get_dimension(attr)?;
                                 regions.push((
                                     sheet_name.to_string(),
                                     sheet_path.to_string(),
-                                    dismension,
+                                    dimension,
                                 ));
                             }
                         }
