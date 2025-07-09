@@ -2144,4 +2144,8 @@ fn test_malformed_format() {
 #[test]
 fn test_oom_allocation() {
     let _xls: Xls<_> = wb("OOM_alloc.xls");
+    let mut xls: Xls<_> = wb("OOM_alloc2.xls");
+    let ws = xls.worksheets();
+    assert_eq!(ws.len(), 1);
+    assert_eq!(ws[0].0, "Colsale (Aug".to_string());
 }

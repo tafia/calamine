@@ -784,22 +784,27 @@ fn parse_short_string(
 
 /// `XLUnicodeString` [MS-XLS 2.5.294]
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
-    if r.len() < 4 {
+    let (mut high_byte, expected) = match biff {
+        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
+        _ => (Some(false), 3),
+    };
+    if r.len() < expected {
+        if 2 == r.len() && read_u16(r) == 0 {
+            // tests/OOM_alloc2.xls
+            return Ok(String::new());
+        }
         return Err(XlsError::Len {
             typ: "string",
-            expected: 4,
+            expected,
             found: r.len(),
         });
     }
+    // delay populating Some(_) variant until length checks guarantee r[2] can't crash
+    high_byte = high_byte.map(|_| r[2] & 0x1 != 0);
+
     let cch = read_u16(r) as usize;
-
-    let (high_byte, start) = match biff {
-        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
-        _ => (Some(r[2] & 0x1 != 0), 3),
-    };
-
     let mut s = String::with_capacity(cch);
-    encoding.decode_to(&r[start..], cch, &mut s, high_byte);
+    encoding.decode_to(&r[expected..], cch, &mut s, high_byte);
     Ok(s)
 }
 
@@ -843,7 +848,7 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
 }
 
 fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
-    let (rf, rl, cf, cl) = match r.len() {
+    let (rf, rl, mut cf, cl) = match r.len() {
         10 => (
             read_u16(&r[0..2]) as u32,
             read_u16(&r[2..4]) as u32,
@@ -864,6 +869,12 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
             });
         }
     };
+    // 2.5.53 ColU must be <= 0xFF, if larger, reasonable to assume
+    // starts at 0
+    // tests/OOM_alloc2.xls
+    if 0xFF < cf || cl < cf {
+        cf = 0;
+    }
     if 1 <= rl && 1 <= cl {
         Ok(Dimensions {
             start: (rf, cf),
@@ -1624,4 +1635,15 @@ fn parse_pictures(stream: &[u8]) -> Result<Vec<(String, Vec<u8>)>, XlsError> {
         }
     }
     Ok(pics)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_string() {
+        let enc = XlsEncoding::from_codepage(1252).unwrap();
+        parse_string(&[0, 1], &enc, Biff::Biff8).unwrap_err();
+    }
 }
