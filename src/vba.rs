@@ -150,9 +150,9 @@ impl VbaProject {
     ///     let modules = vba.get_module_names().into_iter()
     ///                      .map(|s| s.to_string()).collect::<Vec<_>>();
     ///     for m in modules {
-    ///         println!("Module {}:", m);
+    ///         println!("Module {m}:");
     ///         println!("{}", vba.get_module(&m)
-    ///                           .expect(&format!("cannot read {:?} module", m)));
+    ///                           .unwrap_or_else(|_| panic!("cannot read {m:?} module")));
     ///     }
     /// }
     /// ```

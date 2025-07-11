@@ -7,3 +7,5 @@ fuzz.xlsx
 .idea
 nyc.rs
 .DS_Store
+.vscode/
+examples/doc_*.rs
