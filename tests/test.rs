@@ -1,14 +1,13 @@
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, CellFormat, Color, DataRef, DataWithFormatting, Dimensions, ExcelDateTime, ExcelDateTimeType, HeaderRow, Ods, PatternType, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufReader, Cursor};
+use std::sync::Arc;
 use std::sync::Once;
 
 static INIT: Once = Once::new();
@@ -48,6 +47,436 @@ fn issue_2() {
             [Float(2.), String("b".to_string())],
             [Float(3.), String("c".to_string())]
         ]
+    );
+}
+
+#[test]
+fn test_worksheet_range_with_formatting() {
+    let mut excel: Xlsx<_> = wb("format.xlsx");
+    
+    // Get the worksheet range which now returns Range<DataWithFormatting>
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    
+    // Test that we got a valid range
+    assert!(range.start().is_some());
+    assert!(range.end().is_some());
+    
+    // Test cell A1 - should have white font on black background formatting
+    let cell_a1 = range.get_value((0, 0)).unwrap(); // A1
+    let data_a1 = cell_a1.get_data();
+    let formatting_a1 = cell_a1.get_formatting();
+    
+    // Verify the cell data
+    assert_eq!(data_a1.to_string(), "White header on black text");
+    
+    // Verify the formatting is present
+    assert!(formatting_a1.is_some(), "A1 should have formatting");
+    
+    let fmt_a1 = formatting_a1.as_ref().unwrap();
+    
+    // Test font formatting (white font)
+    let font_a1 = fmt_a1.font.as_ref().expect("A1 should have font formatting");
+    assert_eq!(
+        font_a1.color,
+        Some(Color::Argb {
+            a: 255,
+            r: 255,
+            g: 255,
+            b: 255
+        })
+    ); // White font
+    
+    // Test fill formatting (black background)
+    let fill_a1 = fmt_a1.fill.as_ref().expect("A1 should have fill formatting");
+    assert_eq!(fill_a1.pattern_type, PatternType::Solid);
+    assert_eq!(
+        fill_a1.foreground_color,
+        Some(Color::Argb {
+            a: 255,
+            r: 0,
+            g: 0,
+            b: 0
+        })
+    ); // Black background
+    
+    // Test cell A2 - should have right alignment formatting
+    let cell_a2 = range.get_value((1, 0)).unwrap(); // A2
+    let data_a2 = cell_a2.get_data();
+    let formatting_a2 = cell_a2.get_formatting();
+    
+    // Verify the cell data
+    assert_eq!(data_a2.to_string(), "Right aligned");
+    
+    // Verify the formatting is present
+    assert!(formatting_a2.is_some(), "A2 should have formatting");
+    
+    let fmt_a2 = formatting_a2.as_ref().unwrap();
+    
+    // Test alignment formatting (right aligned)
+    let alignment_a2 = fmt_a2.alignment.as_ref().expect("A2 should have alignment formatting");
+    assert_eq!(alignment_a2.horizontal, Some(Arc::from("right")));
+    
+    // Test iterating through the range and checking formatting
+    let mut cells_with_formatting = 0;
+    let mut cells_without_formatting = 0;
+    
+    for (row, col, cell) in range.used_cells() {
+        let data = cell.get_data();
+        let formatting = cell.get_formatting();
+        
+        println!("Cell ({}, {}): {} - has formatting: {}", row, col, data, formatting.is_some());
+        
+        if formatting.is_some() {
+            cells_with_formatting += 1;
+        } else {
+            cells_without_formatting += 1;
+        }
+    }
+    
+    // Verify we found cells with formatting
+    assert!(cells_with_formatting > 0, "Should have found cells with formatting");
+    
+    // Test that cells without explicit formatting still have default formatting
+    for row in range.rows() {
+        for cell in row.iter() {
+            let data = cell.get_data();
+            let formatting = cell.get_formatting();
+            
+            // Even if formatting is None, the data should still be accessible
+            assert!(!data.to_string().is_empty() || matches!(data, Data::Empty));
+            
+            // If formatting is present, verify it has the expected structure
+            if let Some(fmt) = formatting {
+                // All formats should have a number format (check for valid variants)
+                assert!(matches!(fmt.number_format, CellFormat::Other | CellFormat::DateTime));
+            }
+        }
+    }
+    
+    println!("Total cells with formatting: {}", cells_with_formatting);
+    println!("Total cells without formatting: {}", cells_without_formatting);
+}
+
+#[test]
+fn test_comprehensive_formatting_format_xlsx() {
+    let mut excel: Xlsx<_> = wb("format.xlsx");
+
+    // === Part 1: Test cell-level formatting access ===
+
+    let sheet_names = excel.sheet_names();
+    let sheet_name = &sheet_names[0];
+    assert_eq!(sheet_name, "Sheet1");
+
+    let mut cell_reader = excel.worksheet_cells_reader(sheet_name).unwrap();
+
+    // Read first cell - should be A1 with "White header on black text" and style 1
+    let (cell_a1, formatting_a1) = cell_reader
+        .next_cell_with_formatting()
+        .expect("Should read first cell")
+        .expect("First cell should exist");
+
+    // Verify cell position and content
+    assert_eq!(cell_a1.get_position(), (0, 0)); // A1
+    if let DataRef::SharedString(text) = cell_a1.get_value() {
+        assert_eq!(*text, "White header on black text");
+    } else {
+        panic!("A1 should contain a shared string");
+    }
+
+    // A1 should have formatting (style 1: white font on black background)
+    let fmt_a1 = formatting_a1.expect("A1 should have formatting");
+    let font_a1 = fmt_a1
+        .font
+        .as_ref()
+        .expect("A1 should have font formatting");
+    assert_eq!(
+        font_a1.color,
+        Some(Color::Argb {
+            a: 255,
+            r: 255,
+            g: 255,
+            b: 255
+        })
+    ); // White font
+
+    let fill_a1 = fmt_a1
+        .fill
+        .as_ref()
+        .expect("A1 should have fill formatting");
+    assert_eq!(fill_a1.pattern_type, PatternType::Solid);
+    assert_eq!(
+        fill_a1.foreground_color,
+        Some(Color::Argb {
+            a: 255,
+            r: 0,
+            g: 0,
+            b: 0
+        })
+    ); // Black background
+
+    // Skip the remaining cells in row 1 and read A2 - should be "Right aligned" with style 4
+    let mut found_a2 = false;
+    let mut cell_a2_data = None;
+
+    while let Ok(Some((cell, formatting))) = cell_reader.next_cell_with_formatting() {
+        if cell.get_position() == (1, 0) {
+            // A2
+            cell_a2_data = Some((cell, formatting));
+            found_a2 = true;
+            break;
+        }
+    }
+
+    assert!(found_a2, "Should find cell A2");
+    let (cell_a2, formatting_a2) = cell_a2_data.unwrap();
+    assert_eq!(cell_a2.get_position(), (1, 0)); // A2
+    if let DataRef::SharedString(text) = cell_a2.get_value() {
+        assert_eq!(*text, "Right aligned");
+    } else {
+        panic!("A2 should contain 'Right aligned'");
+    }
+
+    // A2 should have right alignment (style 4)
+    let fmt_a2 = formatting_a2.expect("A2 should have formatting");
+    let alignment_a2 = fmt_a2
+        .alignment
+        .as_ref()
+        .expect("A2 should have alignment formatting");
+    assert_eq!(alignment_a2.horizontal, Some(Arc::from("right")));
+
+    // Test accessing formatting by index
+    let format_0 = cell_reader
+        .get_formatting_by_index(0)
+        .expect("Should get format 0");
+    assert_eq!(format_0.font.as_ref().unwrap().size, Some(10.0));
+
+    let format_8 = cell_reader
+        .get_formatting_by_index(8)
+        .expect("Should get format 8");
+    // Format 8 uses Comic Sans MS font
+    assert_eq!(
+        format_8.font.as_ref().unwrap().name,
+        Some(Arc::from("Comic Sans MS"))
+    );
+
+    // === Part 2: Test all cell formats ===
+
+    // Create a fresh instance to avoid borrow checker issues
+    let excel_for_formats: Xlsx<_> = wb("format.xlsx");
+    let formats = excel_for_formats.get_all_cell_formats();
+
+    // Verify we have the expected number of cell formats (10 total: indices 0-9)
+    assert_eq!(formats.len(), 10, "Should have exactly 10 cell formats");
+
+    // Test Format 0: Default formatting with Arial 10pt, black color, bottom alignment
+    let format_0 = &formats[0];
+    assert_eq!(format_0.number_format, CellFormat::Other);
+
+    let font_0 = format_0
+        .font
+        .as_ref()
+        .expect("Format 0 should have font information");
+    assert_eq!(font_0.name, Some(Arc::from("Arial")));
+    assert_eq!(font_0.size, Some(10.0));
+    assert_eq!(font_0.bold, None);
+    assert_eq!(font_0.italic, None);
+    assert_eq!(
+        font_0.color,
+        Some(Color::Argb {
+            a: 255,
+            r: 0,
+            g: 0,
+            b: 0
+        })
+    ); // Black
+
+    let alignment_0 = format_0
+        .alignment
+        .as_ref()
+        .expect("Format 0 should have alignment");
+    assert_eq!(alignment_0.vertical, Some(Arc::from("bottom")));
+    assert_eq!(alignment_0.wrap_text, Some(false));
+
+    // Test Format 1: White font on black background
+    let format_1 = &formats[1];
+    let font_1 = format_1
+        .font
+        .as_ref()
+        .expect("Format 1 should have font information");
+    assert_eq!(font_1.name, Some(Arc::from("Arial")));
+    assert_eq!(
+        font_1.color,
+        Some(Color::Argb {
+            a: 255,
+            r: 255,
+            g: 255,
+            b: 255
+        })
+    ); // White
+
+    let fill_1 = format_1
+        .fill
+        .as_ref()
+        .expect("Format 1 should have fill information");
+    assert_eq!(fill_1.pattern_type, PatternType::Solid);
+    assert_eq!(
+        fill_1.foreground_color,
+        Some(Color::Argb {
+            a: 255,
+            r: 0,
+            g: 0,
+            b: 0
+        })
+    ); // Black background
+
+    // Test Format 3: White font on black background with wrap text
+    let format_3 = &formats[3];
+    let font_3 = format_3
+        .font
+        .as_ref()
+        .expect("Format 3 should have font information");
+    assert_eq!(font_3.name, Some(Arc::from("Arial")));
+    assert_eq!(
+        font_3.color,
+        Some(Color::Argb {
+            a: 255,
+            r: 255,
+            g: 255,
+            b: 255
+        })
+    ); // White
+
+    let alignment_3 = format_3
+        .alignment
+        .as_ref()
+        .expect("Format 3 should have alignment");
+    assert_eq!(alignment_3.wrap_text, Some(true));
+
+    // Test Format 4: Right aligned
+    let format_4 = &formats[4];
+    let alignment_4 = format_4
+        .alignment
+        .as_ref()
+        .expect("Format 4 should have alignment");
+    assert_eq!(alignment_4.horizontal, Some(Arc::from("right")));
+
+    // Test Format 5: Center aligned (both horizontal and vertical)
+    let format_5 = &formats[5];
+    let alignment_5 = format_5
+        .alignment
+        .as_ref()
+        .expect("Format 5 should have alignment");
+    assert_eq!(alignment_5.horizontal, Some(Arc::from("center")));
+    assert_eq!(alignment_5.vertical, Some(Arc::from("center")));
+
+    // Test Format 6: Custom currency format (numFmtId=164, detected as Other with custom format string)
+    let format_6 = &formats[6];
+    assert_eq!(format_6.number_format, CellFormat::Other);
+    assert_eq!(
+        format_6.format_string.as_ref().map(|s| s.as_ref()),
+        Some("&quot;$&quot;#,##0.00"),
+        "Format 6 should have format string"
+    );
+
+    // Test Format 7: Percentage format (built-in format 10)
+    let format_7 = &formats[7];
+    assert_eq!(format_7.number_format, CellFormat::Other);
+
+    // Test Format 8: Comic Sans MS font
+    let format_8 = &formats[8];
+    let font_8 = format_8
+        .font
+        .as_ref()
+        .expect("Format 8 should have font information");
+    assert_eq!(font_8.name, Some(Arc::from("Comic Sans MS")));
+    assert_eq!(
+        font_8.color,
+        Some(Color::Theme {
+            theme: 1,
+            tint: None
+        })
+    );
+
+    // === Part 3: Test specific color patterns ===
+
+    // Test specific color combinations that should exist in format.xlsx
+    let black_fill_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.fill.as_ref().is_some_and(|fill| {
+                fill.foreground_color
+                    == Some(Color::Argb {
+                        a: 255,
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                    })
+            })
+        })
+        .collect();
+    assert!(
+        !black_fill_formats.is_empty(),
+        "Should have black filled formats"
+    );
+
+    // Test font color variations - white fonts
+    let white_font_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font.as_ref().is_some_and(|font| {
+                font.color
+                    == Some(Color::Argb {
+                        a: 255,
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                    })
+            })
+        })
+        .collect();
+    assert!(
+        !white_font_formats.is_empty(),
+        "Should have white font formats"
+    );
+
+    // Test black fonts
+    let black_font_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font.as_ref().is_some_and(|font| {
+                font.color
+                    == Some(Color::Argb {
+                        a: 255,
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                    })
+            })
+        })
+        .collect();
+    assert!(
+        !black_font_formats.is_empty(),
+        "Should have black font formats"
+    );
+
+    // Test theme color usage
+    let theme_color_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font.as_ref().is_some_and(|font| {
+                matches!(
+                    font.color,
+                    Some(Color::Theme {
+                        theme: 1,
+                        tint: None
+                    })
+                )
+            })
+        })
+        .collect();
+    assert!(
+        !theme_color_formats.is_empty(),
+        "Should have theme color formats"
     );
 }
 
@@ -509,7 +938,7 @@ fn issue_120() {
     assert_eq!(None, a);
 
     let b = range.get_value((0, 0));
-    assert_eq!(Some(&Float(1.)), b);
+    assert_eq!(b.unwrap().get_data(), &Float(1.));
 }
 
 #[test]
@@ -537,7 +966,7 @@ fn issue_127() {
 fn mul_rk() {
     let mut xls: Xls<_> = wb("adhocallbabynames1996to2016.xls");
     let range = xls.worksheet_range("Boys").unwrap();
-    assert_eq!(range.get_value((6, 2)), Some(&Float(9.)));
+    assert_eq!(range.get_value((6, 2)).unwrap().get_data(), &Float(9.));
 }
 
 #[test]
@@ -545,8 +974,8 @@ fn skip_phonetic_text() {
     let mut xls: Xlsx<_> = wb("rph.xlsx");
     let range = xls.worksheet_range("Sheet1").unwrap();
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&String("課きく　毛こ".to_string()))
+        range.get_value((0, 0)).unwrap().get_data(),
+        &String("課きく　毛こ".to_string())
     );
 }
 
@@ -570,10 +999,10 @@ fn table() {
     assert_eq!(table.columns()[0], "label");
     assert_eq!(table.columns()[1], "value");
     let data = table.data();
-    assert_eq!(data.get((0, 0)), Some(&String("celsius".to_owned())));
-    assert_eq!(data.get((1, 0)), Some(&String("fahrenheit".to_owned())));
-    assert_eq!(data.get((0, 1)), Some(&Float(22.2222)));
-    assert_eq!(data.get((1, 1)), Some(&Float(72.0)));
+    assert_eq!(data.get((0, 0)).unwrap().get_data(), &String("celsius".to_owned()));
+    assert_eq!(data.get((1, 0)).unwrap().get_data(), &String("fahrenheit".to_owned()));
+    assert_eq!(data.get((0, 1)).unwrap().get_data(), &Float(22.2222));
+    assert_eq!(data.get((1, 1)).unwrap().get_data(), &Float(72.0));
     // Check the second table
     let table = xls
         .table_by_name("OtherTable")
@@ -582,10 +1011,10 @@ fn table() {
     assert_eq!(table.columns()[0], "label2");
     assert_eq!(table.columns()[1], "value2");
     let data = table.data();
-    assert_eq!(data.get((0, 0)), Some(&String("something".to_owned())));
-    assert_eq!(data.get((1, 0)), Some(&String("else".to_owned())));
-    assert_eq!(data.get((0, 1)), Some(&Float(12.5)));
-    assert_eq!(data.get((1, 1)), Some(&Float(64.0)));
+    assert_eq!(data.get((0, 0)).unwrap().get_data(), &String("something".to_owned()));
+    assert_eq!(data.get((1, 0)).unwrap().get_data(), &String("else".to_owned()));
+    assert_eq!(data.get((0, 1)).unwrap().get_data(), &Float(12.5));
+    assert_eq!(data.get((1, 1)).unwrap().get_data(), &Float(64.0));
     xls.worksheet_range_at(0).unwrap().unwrap();
 
     // Check if owned data works
@@ -698,20 +1127,20 @@ fn date_xls() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             44197.0,
             ExcelDateTimeType::DateTime,
             false
-        )))
+        ))
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             10.632060185185185,
             ExcelDateTimeType::TimeDelta,
             false
-        )))
+        ))
     );
 
     #[cfg(feature = "dates")]
@@ -733,20 +1162,20 @@ fn date_xls_1904() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             42735.0,
             ExcelDateTimeType::DateTime,
             true
-        )))
+        ))
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             10.632060185185185,
             ExcelDateTimeType::TimeDelta,
             true
-        )))
+        ))
     );
 
     #[cfg(feature = "dates")]
@@ -768,20 +1197,20 @@ fn date_xlsx() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             44197.0,
             ExcelDateTimeType::DateTime,
             false
-        )))
+        ))
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             10.6320601851852,
             ExcelDateTimeType::TimeDelta,
             false
-        )))
+        ))
     );
 
     #[cfg(feature = "dates")]
@@ -803,20 +1232,20 @@ fn date_xlsx_1904() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             42735.0,
             ExcelDateTimeType::DateTime,
             true
-        )))
+        ))
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             10.6320601851852,
             ExcelDateTimeType::TimeDelta,
             true
-        )))
+        ))
     );
 
     #[cfg(feature = "dates")]
@@ -838,16 +1267,16 @@ fn date_xlsx_iso() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTimeIso("2021-01-01".to_string()))
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTimeIso("2021-01-01".to_string())
     );
     assert_eq!(
-        range.get_value((1, 0)),
-        Some(&DateTimeIso("2021-01-01T10:10:10".to_string()))
+        range.get_value((1, 0)).unwrap().get_data(),
+        &DateTimeIso("2021-01-01T10:10:10".to_string())
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTimeIso("10:10:10".to_string()))
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTimeIso("10:10:10".to_string())
     );
 
     #[cfg(feature = "dates")]
@@ -878,20 +1307,20 @@ fn date_ods() {
     let range = ods.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTimeIso("2021-01-01".to_string()))
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTimeIso("2021-01-01".to_string())
     );
     assert_eq!(
-        range.get_value((1, 0)),
-        Some(&DateTimeIso("2021-01-01T10:10:10".to_string()))
+        range.get_value((1, 0)).unwrap().get_data(),
+        &DateTimeIso("2021-01-01T10:10:10".to_string())
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DurationIso("PT10H10M10S".to_string()))
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DurationIso("PT10H10M10S".to_string())
     );
     assert_eq!(
-        range.get_value((3, 0)),
-        Some(&DurationIso("PT10H10M10.123456S".to_string()))
+        range.get_value((3, 0)).unwrap().get_data(),
+        &DurationIso("PT10H10M10.123456S".to_string())
     );
 
     #[cfg(feature = "dates")]
@@ -926,20 +1355,20 @@ fn date_xlsb() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             44197.0,
             ExcelDateTimeType::DateTime,
             false
-        )))
+        ))
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             10.6320601851852,
             ExcelDateTimeType::TimeDelta,
             false
-        )))
+        ))
     );
 
     #[cfg(feature = "dates")]
@@ -961,20 +1390,20 @@ fn date_xlsb_1904() {
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
-        range.get_value((0, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((0, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             42735.0,
             ExcelDateTimeType::DateTime,
             true
-        )))
+        ))
     );
     assert_eq!(
-        range.get_value((2, 0)),
-        Some(&DateTime(ExcelDateTime::new(
+        range.get_value((2, 0)).unwrap().get_data(),
+        &DateTime(ExcelDateTime::new(
             10.6320601851852,
             ExcelDateTimeType::TimeDelta,
             true
-        )))
+        ))
     );
 
     #[cfg(feature = "dates")]
@@ -1492,9 +1921,9 @@ fn issue304_xls_formula() {
     let mut wb: Xls<_> = wb("xls_formula.xls");
     let formula = wb.worksheet_formula("Sheet1").unwrap();
     let mut rows = formula.rows();
-    assert_eq!(rows.next(), Some(&["A1*2".to_owned()][..]));
-    assert_eq!(rows.next(), Some(&["2*Sheet2!A1".to_owned()][..]));
-    assert_eq!(rows.next(), Some(&["A1+Sheet2!A1".to_owned()][..]));
+    assert_eq!(rows.next().unwrap()[0].get_data().to_string(), "A1*2");
+    assert_eq!(rows.next().unwrap()[0].get_data().to_string(), "2*Sheet2!A1");
+    assert_eq!(rows.next().unwrap()[0].get_data().to_string(), "A1+Sheet2!A1");
     assert_eq!(rows.next(), None);
 }
 
@@ -1503,10 +1932,10 @@ fn issue304_xls_values() {
     let mut wb: Xls<_> = wb("xls_formula.xls");
     let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
-    assert_eq!(rows.next(), Some(&[Data::Float(10.)][..]));
-    assert_eq!(rows.next(), Some(&[Data::Float(20.)][..]));
-    assert_eq!(rows.next(), Some(&[Data::Float(110.)][..]));
-    assert_eq!(rows.next(), Some(&[Data::Float(65.)][..]));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::Float(10.));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::Float(20.));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::Float(110.));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::Float(65.));
     assert_eq!(rows.next(), None);
 }
 
@@ -1515,10 +1944,10 @@ fn issue334_xls_values_string() {
     let mut wb: Xls<_> = wb("xls_ref_String.xls");
     let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
-    assert_eq!(rows.next(), Some(&[Data::String("aa".into())][..]));
-    assert_eq!(rows.next(), Some(&[Data::String("bb".into())][..]));
-    assert_eq!(rows.next(), Some(&[Data::String("aa".into())][..]));
-    assert_eq!(rows.next(), Some(&[Data::String("bb".into())][..]));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::String("aa".into()));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::String("bb".into()));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::String("aa".into()));
+    assert_eq!(rows.next().unwrap()[0].get_data(), &Data::String("bb".into()));
     assert_eq!(rows.next(), None);
 }
 
@@ -1736,10 +2165,10 @@ fn issue_384_multiple_formula() {
     // first check values
     let range = workbook.worksheet_range("Sheet1").unwrap();
     let expected = [
-        (0, 0, Data::Float(23.)),
-        (0, 2, Data::Float(23.)),
-        (12, 6, Data::Float(2.)),
-        (13, 9, Data::String("US".into())),
+        (0, 0, DataWithFormatting::new(Data::Float(23.), None)),
+        (0, 2, DataWithFormatting::new(Data::Float(23.), None)),
+        (12, 6, DataWithFormatting::new(Data::Float(2.), None)),
+        (13, 9, DataWithFormatting::new(Data::String("US".into()), None)),
     ];
     let expected = expected
         .iter()
@@ -1777,12 +2206,12 @@ fn issue_401_empty_tables() {
 #[test]
 fn issue_391_shared_formula() {
     let mut excel: Xlsx<_> = wb("issue_391.xlsx");
-    let mut expect = Range::<std::string::String>::new((1, 0), (6, 0));
+    let mut expect = Range::<DataWithFormatting>::new((1, 0), (6, 0));
     for (i, cell) in ["A1+1", "A2+1", "A3+1", "A4+1", "A5+1", "A6+1"]
         .iter()
         .enumerate()
     {
-        expect.set_value((1 + i as u32, 0), cell.to_string());
+        expect.set_value((1 + i as u32, 0), DataWithFormatting::new(Data::String(cell.to_string()), None));
     }
     let res = excel.worksheet_formula("Sheet1").unwrap();
     assert_eq!(expect.start(), res.start());
@@ -2183,4 +2612,132 @@ fn test_escape_quote_xlsb() {
     let formulas = excel.worksheet_formula("Sheet1").unwrap();
 
     range_eq!(formulas, [["\"ab\"\"cd\""],]);
+}
+
+#[test]
+fn test_advanced_formatting_features_format_xlsx() {
+    let excel: Xlsx<_> = wb("format.xlsx");
+    let formats = excel.get_all_cell_formats();
+
+    // Test number format variations
+    let percentage_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| f.number_format == CellFormat::Other)
+        .collect();
+    assert!(
+        !percentage_formats.is_empty(),
+        "Should have Percentage formats"
+    );
+
+    let other_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| matches!(f.number_format, CellFormat::Other))
+        .collect();
+    assert!(
+        !other_formats.is_empty(),
+        "Should have Other/general formats"
+    );
+
+    // Test specific font sizes that should exist (10pt)
+    let font_10pt_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font
+                .as_ref()
+                .map_or(false, |font| font.size == Some(10.0))
+        })
+        .collect();
+    assert!(!font_10pt_formats.is_empty(), "Should have 10pt fonts");
+
+    // Test Arial font (should be the primary font)
+    let arial_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font
+                .as_ref()
+                .map_or(false, |font| font.name == Some(Arc::from("Arial")))
+        })
+        .collect();
+    assert!(!arial_formats.is_empty(), "Should have Arial fonts");
+
+    // Test Comic Sans MS font (format 8)
+    let comic_sans_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font
+                .as_ref()
+                .map_or(false, |font| font.name == Some(Arc::from("Comic Sans MS")))
+        })
+        .collect();
+    assert!(
+        !comic_sans_formats.is_empty(),
+        "Should have Comic Sans MS fonts"
+    );
+
+    // Test border functionality (even if borders are mostly empty in this file)
+    let formats_with_borders: Vec<_> = formats.iter().filter(|f| f.border.is_some()).collect();
+    assert!(
+        !formats_with_borders.is_empty(),
+        "Should have border structures"
+    );
+
+    // Test specific color values that exist in format.xlsx
+    let white_font_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font.as_ref().map_or(false, |font| {
+                font.color
+                    == Some(Color::Argb {
+                        a: 255,
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                    })
+            })
+        })
+        .collect();
+    assert!(
+        !white_font_formats.is_empty(),
+        "Should have white font formats"
+    );
+
+    // Test black font colors
+    let black_font_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font.as_ref().map_or(false, |font| {
+                font.color
+                    == Some(Color::Argb {
+                        a: 255,
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                    })
+            })
+        })
+        .collect();
+    assert!(
+        !black_font_formats.is_empty(),
+        "Should have black font formats"
+    );
+
+    // Test theme color usage
+    let theme_color_formats: Vec<_> = formats
+        .iter()
+        .filter(|f| {
+            f.font.as_ref().map_or(false, |font| {
+                matches!(
+                    font.color,
+                    Some(Color::Theme {
+                        theme: 1,
+                        tint: None
+                    })
+                )
+            })
+        })
+        .collect();
+    assert!(
+        !theme_color_formats.is_empty(),
+        "Should have theme color formats"
+    );
 }

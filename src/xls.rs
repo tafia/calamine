@@ -17,7 +17,7 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
+    Cell, CellErrorType, Data, DataWithFormatting, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
     SheetVisible,
 };
 
@@ -192,11 +192,13 @@ impl<RS: Read + Seek> Xls<RS> {
         debug!("cfb loaded");
 
         // Reads vba once for all (better than reading all worksheets once for all)
-        let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            None //Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
-        } else {
-            None
-        };
+        // TODO: Implement VBA reading when needed
+        // let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
+        //     Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
+        // } else {
+        //     None
+        // };
+        let vba = None;
 
         debug!("vba ok");
 
@@ -254,38 +256,63 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataWithFormatting>, XlsError> {
         let sheet = self
             .sheets
             .get(name)
             .map(|r| r.range.clone())
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))?;
 
-        match self.options.header_row {
-            HeaderRow::FirstNonEmptyRow => Ok(sheet),
+        let result_sheet = match self.options.header_row {
+            HeaderRow::FirstNonEmptyRow => sheet,
             HeaderRow::Row(header_row_idx) => {
                 // If `header_row` is a row index, adjust the range
                 if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
-                    Ok(sheet.range((header_row_idx, start.1), end))
+                    sheet.range((header_row_idx, start.1), end)
                 } else {
-                    Ok(sheet)
+                    sheet
                 }
             }
-        }
+        };
+
+        // Convert Data to DataWithFormatting (no formatting info in XLS)
+        let inner = result_sheet.inner.into_iter().map(|data| DataWithFormatting::from_data(data)).collect();
+        Ok(Range {
+            start: result_sheet.start,
+            end: result_sheet.end,
+            inner,
+        })
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataWithFormatting>)> {
         self.sheets
             .iter()
-            .map(|(name, sheet)| (name.to_owned(), sheet.range.clone()))
+            .map(|(name, sheet)| {
+                let inner = sheet.range.inner.iter().map(|data| DataWithFormatting::from_data(data.clone())).collect();
+                let formatted_range = Range {
+                    start: sheet.range.start,
+                    end: sheet.range.end,
+                    inner,
+                };
+                (name.to_owned(), formatted_range)
+            })
             .collect()
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsError> {
-        self.sheets
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<DataWithFormatting>, XlsError> {
+        let formula_range = self.sheets
             .get(name)
-            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
-            .map(|r| r.formula.clone())
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))?
+            .formula
+            .clone();
+        
+        // Convert String to DataWithFormatting (no formatting info in XLS)
+        let inner = formula_range.inner.into_iter().map(|formula| DataWithFormatting::from_data(Data::String(formula))).collect();
+        Ok(Range {
+            start: formula_range.start,
+            end: formula_range.end,
+            inner,
+        })
     }
 
     #[cfg(feature = "picture")]
@@ -403,7 +430,7 @@ impl<RS: Read + Seek> Xls<RS> {
         self.formats = xfs
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
-                Some(s) => *s,
+                Some(s) => s.clone(),
                 _ => builtin_format_by_code(fmt),
             })
             .collect();

@@ -4,7 +4,7 @@ use serde::{forward_to_deserialize_any, Deserialize, Deserializer};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
-use super::{CellErrorType, CellType, Data, Range, Rows};
+use super::{CellErrorType, CellType, Data, DataWithFormatting, Range, Rows};
 
 /// A cell deserialization specific error enum
 #[derive(Debug)]
@@ -589,6 +589,22 @@ impl<'a> ToCellDeserializer<'a> for Data {
     #[inline]
     fn is_empty(&self) -> bool {
         matches!(self, Data::Empty)
+    }
+}
+
+impl<'a> ToCellDeserializer<'a> for DataWithFormatting {
+    type Deserializer = DataDeserializer<'a>;
+
+    fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> DataDeserializer<'a> {
+        DataDeserializer {
+            data_type: &self.data,
+            pos,
+        }
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 

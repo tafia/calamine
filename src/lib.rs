@@ -86,6 +86,11 @@ pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
 pub use crate::datatype::{Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeType};
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
+pub use crate::formats::{
+    builtin_format_by_code, builtin_format_by_id, detect_custom_number_format,
+    detect_custom_number_format_with_interner, Alignment, Border, BorderSide, CellFormat,
+    CellStyle, Color, Fill, Font, FormatStringInterner, PatternType,
+};
 pub use crate::ods::{Ods, OdsError};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
@@ -128,6 +133,134 @@ impl fmt::Display for CellErrorType {
             CellErrorType::Value => write!(f, "#VALUE!"),
             CellErrorType::GettingData => write!(f, "#DATA!"),
         }
+    }
+}
+
+/// A struct that combines cell data with its formatting information
+#[derive(Debug, Clone)]
+pub struct DataWithFormatting {
+    /// The cell data value
+    pub data: Data,
+    /// The cell formatting information
+    pub formatting: Option<CellStyle>,
+}
+
+impl DataWithFormatting {
+    /// Creates a new DataWithFormatting with the given data and formatting
+    pub fn new(data: Data, formatting: Option<CellStyle>) -> Self {
+        Self { data, formatting }
+    }
+
+    /// Creates a new DataWithFormatting with data and no formatting
+    pub fn from_data(data: Data) -> Self {
+        Self {
+            data,
+            formatting: None,
+        }
+    }
+
+    /// Gets the data value
+    pub fn get_data(&self) -> &Data {
+        &self.data
+    }
+
+    /// Gets the formatting information
+    pub fn get_formatting(&self) -> &Option<CellStyle> {
+        &self.formatting
+    }
+
+    /// Checks if the underlying data is empty
+    pub fn is_empty(&self) -> bool {
+        matches!(self.data, Data::Empty)
+    }
+
+    /// Gets the data as a string slice if it's string data
+    pub fn as_str(&self) -> &str {
+        match &self.data {
+            Data::String(s) => s,
+            _ => "",
+        }
+    }
+}
+
+impl Default for DataWithFormatting {
+    fn default() -> Self {
+        Self {
+            data: Data::Empty,
+            formatting: None,
+        }
+    }
+}
+
+impl PartialEq<DataWithFormatting> for DataWithFormatting {
+    fn eq(&self, other: &DataWithFormatting) -> bool {
+        // For the purpose of range operations, cells with empty data are considered equal
+        // regardless of formatting. This preserves the behavior where empty cells are
+        // treated consistently even when they have formatting information.
+        if matches!(self.data, Data::Empty) && matches!(other.data, Data::Empty) {
+            return true;
+        }
+        self.data == other.data && self.formatting == other.formatting
+    }
+}
+
+impl CellType for DataWithFormatting {}
+
+impl fmt::Display for DataWithFormatting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.data)
+    }
+}
+
+impl PartialEq<Data> for DataWithFormatting {
+    fn eq(&self, other: &Data) -> bool {
+        self.data == *other
+    }
+}
+
+impl PartialEq<DataWithFormatting> for Data {
+    fn eq(&self, other: &DataWithFormatting) -> bool {
+        *self == other.data
+    }
+}
+
+impl PartialEq<String> for DataWithFormatting {
+    fn eq(&self, other: &String) -> bool {
+        self.data.to_string() == *other
+    }
+}
+
+impl PartialEq<DataWithFormatting> for String {
+    fn eq(&self, other: &DataWithFormatting) -> bool {
+        *self == other.data.to_string()
+    }
+}
+
+impl PartialEq<f64> for DataWithFormatting {
+    fn eq(&self, other: &f64) -> bool {
+        match &self.data {
+            Data::Float(f) => f == other,
+            Data::Int(i) => *i as f64 == *other,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<DataWithFormatting> for f64 {
+    fn eq(&self, other: &DataWithFormatting) -> bool {
+        other.eq(self)
+    }
+}
+
+impl PartialEq<&str> for DataWithFormatting {
+    fn eq(&self, other: &&str) -> bool {
+        self.data.to_string() == **other
+    }
+}
+
+impl PartialEq<DataWithFormatting> for &str {
+    fn eq(&self, other: &DataWithFormatting) -> bool {
+        **self == other.data.to_string()
     }
 }
 
@@ -268,13 +401,15 @@ where
     fn metadata(&self) -> &Metadata;
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error>;
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataWithFormatting>, Self::Error>;
 
     /// Fetch all worksheet data & paths
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)>;
+    fn worksheets(&mut self) -> Vec<(String, Range<DataWithFormatting>)>;
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
+    fn worksheet_formula(&mut self, _: &str) -> Result<Range<DataWithFormatting>, Self::Error>;
+
+
 
     /// Get all sheet names of this workbook, in workbook order
     ///
@@ -306,7 +441,7 @@ where
 
     /// Get the nth worksheet. Shortcut for getting the nth
     /// worksheet name, then the corresponding worksheet.
-    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<Data>, Self::Error>> {
+    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataWithFormatting>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range(&name))
     }
@@ -1496,6 +1631,17 @@ impl<T> Table<T> {
 impl<T: CellType> From<Table<T>> for Range<T> {
     fn from(table: Table<T>) -> Range<T> {
         table.data
+    }
+}
+
+impl From<Table<DataWithFormatting>> for Range<Data> {
+    fn from(table: Table<DataWithFormatting>) -> Range<Data> {
+        let inner = table.data.inner.into_iter().map(|dwf| dwf.data).collect();
+        Range {
+            start: table.data.start,
+            end: table.data.end,
+            inner,
+        }
     }
 }
 

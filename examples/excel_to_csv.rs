@@ -1,4 +1,4 @@
-use calamine::{open_workbook_auto, Data, Range, Reader};
+use calamine::{open_workbook_auto, Data, DataWithFormatting, Range, Reader};
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -29,11 +29,11 @@ fn main() {
     write_range(&mut dest, &range).unwrap();
 }
 
-fn write_range<W: Write>(dest: &mut W, range: &Range<Data>) -> std::io::Result<()> {
+fn write_range<W: Write>(dest: &mut W, range: &Range<DataWithFormatting>) -> std::io::Result<()> {
     let n = range.get_size().1 - 1;
     for r in range.rows() {
         for (i, c) in r.iter().enumerate() {
-            match *c {
+            match c.data {
                 Data::Empty => Ok(()),
                 Data::String(ref s) | Data::DateTimeIso(ref s) | Data::DurationIso(ref s) => {
                     write!(dest, "{s}")

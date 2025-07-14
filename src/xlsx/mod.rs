@@ -2,23 +2,30 @@ mod cells_reader;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::io::BufReader;
-use std::io::{Read, Seek};
+use std::io::{BufReader, Read, Seek};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use log::warn;
-use quick_xml::events::attributes::{Attribute, Attributes};
-use quick_xml::events::Event;
-use quick_xml::name::QName;
-use quick_xml::Reader as XmlReader;
+use quick_xml::{
+    events::{
+        attributes::{Attribute, Attributes},
+        BytesStart, Event,
+    },
+    name::QName,
+    Reader as XmlReader,
+};
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::datatype::DataRef;
-use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
+use crate::formats::{
+    builtin_format_by_id, detect_custom_number_format_with_interner, Alignment, Border, BorderSide,
+    CellFormat, CellStyle, Color, Fill, Font, FormatStringInterner,
+};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
+    Cell, CellErrorType, Data, DataWithFormatting, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
     SheetType, SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
@@ -200,8 +207,12 @@ pub struct Xlsx<RS> {
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
     tables: Tables,
-    /// Cell (number) formats
+    /// Cell formats (backward compatible)
     formats: Vec<CellFormat>,
+    /// Cell formats (comprehensive formatting information)
+    styles: Vec<CellStyle>,
+    /// Format string interner for reuse across sheets
+    format_interner: FormatStringInterner,
     /// 1904 datetime system
     is_1904: bool,
     /// Metadata
@@ -253,70 +264,566 @@ impl<RS: Read + Seek> Xlsx<RS> {
         };
 
         let mut number_formats = BTreeMap::new();
+        let format_interner = FormatStringInterner::new();
+
+        let mut fonts: Vec<Arc<Font>> = Vec::new();
+        let mut fills: Vec<Arc<Fill>> = Vec::new();
+        let mut borders: Vec<Arc<Border>> = Vec::new();
 
         let mut buf = Vec::with_capacity(1024);
         let mut inner_buf = Vec::with_capacity(1024);
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"numFmts" => loop {
-                    inner_buf.clear();
-                    match xml.read_event_into(&mut inner_buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"numFmt" => {
-                            let mut id = Vec::new();
-                            let mut format = String::new();
-                            for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
-                                    Attribute {
-                                        key: QName(b"numFmtId"),
-                                        value: v,
-                                    } => id.extend_from_slice(&v),
-                                    Attribute {
-                                        key: QName(b"formatCode"),
-                                        value: v,
-                                    } => format = xml.decoder().decode(&v)?.into_owned(),
-                                    _ => (),
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"numFmts" => {
+                    // Parse custom number formats
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"numFmt" => {
+                                let mut id = 0u32;
+                                let mut format = String::new();
+                                for a in e.attributes() {
+                                    match a.map_err(XlsxError::XmlAttr)? {
+                                        Attribute {
+                                            key: QName(b"numFmtId"),
+                                            value: v,
+                                        } => {
+                                            id = atoi_simd::parse::<u32>(&v).unwrap_or(0);
+                                        }
+                                        Attribute {
+                                            key: QName(b"formatCode"),
+                                            value: v,
+                                        } => format = xml.decoder().decode(&v)?.into_owned(),
+                                        _ => (),
+                                    }
+                                }
+                                if !format.is_empty() {
+                                    number_formats.insert(id, format);
                                 }
                             }
-                            if !format.is_empty() {
-                                number_formats.insert(id, format);
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"numFmts" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("numFmts")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fonts" => {
+                    // Parse fonts
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"font" => {
+                                let font = Self::parse_font_element(&mut xml, &mut inner_buf)?;
+                                fonts.push(Arc::new(font));
                             }
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fonts" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("fonts")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
                         }
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"numFmts" => break,
-                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("numFmts")),
-                        Err(e) => return Err(XlsxError::Xml(e)),
-                        _ => (),
                     }
-                },
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => loop {
-                    inner_buf.clear();
-                    match xml.read_event_into(&mut inner_buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
-                            self.formats.push(
-                                e.attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|a| a.key == QName(b"numFmtId"))
-                                    .map_or(CellFormat::Other, |a| {
-                                        match number_formats.get(&*a.value) {
-                                            Some(fmt) => detect_custom_number_format(fmt),
-                                            None => builtin_format_by_id(&a.value),
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fills" => {
+                    // Parse fills
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fill" => {
+                                let fill = Self::parse_fill_element(&mut xml, &mut inner_buf)?;
+                                fills.push(Arc::new(fill));
+                            }
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fills" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("fills")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"borders" => {
+                    // Parse borders
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"border" => {
+                                let border = Self::parse_border_element(&mut xml, &mut inner_buf)?;
+                                borders.push(Arc::new(border));
+                            }
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"borders" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("borders")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => {
+                    // Parse cell formats (comprehensive formatting)
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
+                                let mut cell_formatting = CellStyle::default();
+
+                                // Parse attributes to get references to fonts, fills, borders, number formats
+                                for attr in e.attributes() {
+                                    match attr.map_err(XlsxError::XmlAttr)? {
+                                        Attribute {
+                                            key: QName(b"numFmtId"),
+                                            value: v,
+                                        } => {
+                                            let num_fmt_id =
+                                                atoi_simd::parse::<u32>(&v).unwrap_or(0);
+                                            if let Some(fmt) = number_formats.get(&num_fmt_id) {
+                                                let (detected_format, format_string) =
+                                                    detect_custom_number_format_with_interner(
+                                                        fmt,
+                                                        &format_interner,
+                                                    );
+                                                cell_formatting.number_format = detected_format;
+                                                cell_formatting.format_string = format_string;
+                                            } else {
+                                                cell_formatting.number_format =
+                                                    builtin_format_by_id(
+                                                        &num_fmt_id.to_string().into_bytes(),
+                                                    );
+                                                cell_formatting.format_string = None;
+                                            }
                                         }
-                                    }),
-                            );
+                                        Attribute {
+                                            key: QName(b"fontId"),
+                                            value: v,
+                                        } => {
+                                            let font_id =
+                                                atoi_simd::parse::<usize>(&v).unwrap_or(0);
+                                            cell_formatting.font = fonts.get(font_id).cloned();
+                                        }
+                                        Attribute {
+                                            key: QName(b"fillId"),
+                                            value: v,
+                                        } => {
+                                            let fill_id =
+                                                atoi_simd::parse::<usize>(&v).unwrap_or(0);
+                                            cell_formatting.fill = fills.get(fill_id).cloned();
+                                        }
+                                        Attribute {
+                                            key: QName(b"borderId"),
+                                            value: v,
+                                        } => {
+                                            let border_id =
+                                                atoi_simd::parse::<usize>(&v).unwrap_or(0);
+                                            cell_formatting.border =
+                                                borders.get(border_id).cloned();
+                                        }
+                                        _ => (),
+                                    }
+                                }
+
+                                // Parse alignment if present
+                                cell_formatting.alignment =
+                                    Self::parse_alignment_from_xf(&mut xml, &mut inner_buf)?
+                                        .map(Arc::new);
+
+                                // For backward compatibility, also push to the old formats field
+                                self.formats.push(cell_formatting.number_format.clone());
+                                self.styles.push(cell_formatting);
+                            }
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
                         }
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
-                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
-                        Err(e) => return Err(XlsxError::Xml(e)),
-                        _ => (),
                     }
-                },
+                }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"styleSheet" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("styleSheet")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
             }
         }
+
         Ok(())
+    }
+
+    /// Parse a font element from XML
+    fn parse_font_element(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Font, XlsxError> {
+        use crate::formats::Font;
+
+        let mut font = Font {
+            name: None,
+            size: None,
+            bold: None,
+            italic: None,
+            color: None,
+        };
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"name" => {
+                        if let Some(val) = get_attribute(e.attributes(), QName(b"val"))? {
+                            font.name = Some(Arc::from(xml.decoder().decode(val)?.as_ref()));
+                        }
+                    }
+                    b"sz" => {
+                        if let Some(val) = get_attribute(e.attributes(), QName(b"val"))? {
+                            if let Ok(size) = xml.decoder().decode(val)?.parse::<f64>() {
+                                font.size = Some(size);
+                            }
+                        }
+                    }
+                    b"b" => font.bold = Some(true),
+                    b"i" => font.italic = Some(true),
+                    b"color" => {
+                        font.color = Self::parse_color_from_attributes(e.attributes())?;
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"font" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("font")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(font)
+    }
+
+    /// Parse a fill element from XML
+    fn parse_fill_element(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Fill, XlsxError> {
+        use crate::formats::{Fill, PatternType};
+
+        let mut fill = Fill {
+            pattern_type: PatternType::None,
+            foreground_color: None,
+            background_color: None,
+        };
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"patternFill" => {
+                        if let Some(pattern_type) =
+                            get_attribute(e.attributes(), QName(b"patternType"))?
+                        {
+                            let pattern_str = xml.decoder().decode(pattern_type)?;
+                            fill.pattern_type = match pattern_str.as_ref() {
+                                "none" => PatternType::None,
+                                "solid" => PatternType::Solid,
+                                "lightGray" => PatternType::LightGray,
+                                "mediumGray" => PatternType::MediumGray,
+                                "darkGray" => PatternType::DarkGray,
+                                other => PatternType::Pattern(Arc::from(other)),
+                            };
+                        }
+                    }
+                    b"fgColor" => {
+                        fill.foreground_color = Self::parse_color_from_attributes(e.attributes())?;
+                    }
+                    b"bgColor" => {
+                        fill.background_color = Self::parse_color_from_attributes(e.attributes())?;
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fill" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("fill")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(fill)
+    }
+
+    /// Parse a border element from XML
+    fn parse_border_element(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Border, XlsxError> {
+        use crate::formats::Border;
+
+        let mut border = Border {
+            left: None,
+            right: None,
+            top: None,
+            bottom: None,
+        };
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"left" => {
+                        let mut temp_buf = Vec::new();
+                        border.left = Self::parse_border_side(xml, e, &mut temp_buf)?;
+                    }
+                    b"right" => {
+                        let mut temp_buf = Vec::new();
+                        border.right = Self::parse_border_side(xml, e, &mut temp_buf)?;
+                    }
+                    b"top" => {
+                        let mut temp_buf = Vec::new();
+                        border.top = Self::parse_border_side(xml, e, &mut temp_buf)?;
+                    }
+                    b"bottom" => {
+                        let mut temp_buf = Vec::new();
+                        border.bottom = Self::parse_border_side(xml, e, &mut temp_buf)?;
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"border" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("border")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(border)
+    }
+
+    /// Parse border side information
+    fn parse_border_side(
+        xml: &mut XlReader<'_, RS>,
+        element: &BytesStart<'_>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Option<BorderSide>, XlsxError> {
+        use crate::formats::BorderSide;
+
+        let style = match get_attribute(element.attributes(), QName(b"style"))? {
+            Some(style_attr) => Arc::from(xml.decoder().decode(style_attr)?.as_ref()),
+            None => return Ok(None),
+        };
+
+        let mut color = None;
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"color" => {
+                    color = Self::parse_color_from_attributes(e.attributes())?;
+                }
+                Ok(Event::End(ref e)) if e.local_name() == element.local_name() => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("border side")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(Some(BorderSide { style, color }))
+    }
+
+    /// Parse alignment information from cellXfs
+    fn parse_alignment_from_xf(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Option<Alignment>, XlsxError> {
+        use crate::formats::Alignment;
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"alignment" => {
+                    let mut alignment = Alignment {
+                        horizontal: None,
+                        vertical: None,
+                        wrap_text: None,
+                        indent: None,
+                        shrink_to_fit: None,
+                        text_rotation: None,
+                        reading_order: None,
+                    };
+
+                    for attr in e.attributes() {
+                        match attr.map_err(XlsxError::XmlAttr)? {
+                            Attribute {
+                                key: QName(b"horizontal"),
+                                value: v,
+                            } => {
+                                alignment.horizontal =
+                                    Some(Arc::from(xml.decoder().decode(&v)?.as_ref()));
+                            }
+                            Attribute {
+                                key: QName(b"vertical"),
+                                value: v,
+                            } => {
+                                alignment.vertical =
+                                    Some(Arc::from(xml.decoder().decode(&v)?.as_ref()));
+                            }
+                            Attribute {
+                                key: QName(b"wrapText"),
+                                value: v,
+                            } => {
+                                alignment.wrap_text = Some(&*v == b"1" || &*v == b"true");
+                            }
+                            Attribute {
+                                key: QName(b"indent"),
+                                value: v,
+                            } => {
+                                if let Ok(indent) = xml.decoder().decode(&v)?.parse::<u32>() {
+                                    alignment.indent = Some(indent);
+                                }
+                            }
+                            Attribute {
+                                key: QName(b"shrinkToFit"),
+                                value: v,
+                            } => {
+                                alignment.shrink_to_fit = Some(&*v == b"1" || &*v == b"true");
+                            }
+                            Attribute {
+                                key: QName(b"textRotation"),
+                                value: v,
+                            } => {
+                                if let Ok(rotation) = xml.decoder().decode(&v)?.parse::<i32>() {
+                                    alignment.text_rotation = Some(rotation);
+                                }
+                            }
+                            Attribute {
+                                key: QName(b"readingOrder"),
+                                value: v,
+                            } => {
+                                if let Ok(order) = xml.decoder().decode(&v)?.parse::<u32>() {
+                                    alignment.reading_order = Some(order);
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+
+                    return Ok(Some(alignment));
+                }
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"xf" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("xf")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Parse color from element attributes
+    /// Follows Excel precedence: rgb > theme > indexed > auto
+    fn parse_color_from_attributes(attributes: Attributes<'_>) -> Result<Option<Color>, XlsxError> {
+        use crate::formats::Color;
+
+        let mut rgb_color = None;
+        let mut theme_color = None;
+        let mut indexed_color = None;
+        let mut auto_color = None;
+        let mut tint_value = None;
+
+        // First pass: collect all attributes
+        for attr in attributes {
+            match attr.map_err(XlsxError::XmlAttr)? {
+                Attribute {
+                    key: QName(b"rgb"),
+                    value: v,
+                } => {
+                    let color_str = std::str::from_utf8(&v)
+                        .map_err(|_| XlsxError::Unexpected("Invalid UTF-8 in color RGB value"))?;
+                    if color_str.len() == 8 {
+                        // ARGB format
+                        if let (Ok(a), Ok(r), Ok(g), Ok(b)) = (
+                            u8::from_str_radix(&color_str[0..2], 16),
+                            u8::from_str_radix(&color_str[2..4], 16),
+                            u8::from_str_radix(&color_str[4..6], 16),
+                            u8::from_str_radix(&color_str[6..8], 16),
+                        ) {
+                            rgb_color = Some(Color::Argb { a, r, g, b });
+                        } else {
+                            log::warn!("Invalid ARGB color format: {}", color_str);
+                        }
+                    } else if color_str.len() == 6 {
+                        // RGB format
+                        if let (Ok(r), Ok(g), Ok(b)) = (
+                            u8::from_str_radix(&color_str[0..2], 16),
+                            u8::from_str_radix(&color_str[2..4], 16),
+                            u8::from_str_radix(&color_str[4..6], 16),
+                        ) {
+                            rgb_color = Some(Color::Rgb { r, g, b });
+                        } else {
+                            log::warn!("Invalid RGB color format: {}", color_str);
+                        }
+                    } else {
+                        log::warn!("Invalid color format length: {}", color_str);
+                    }
+                }
+                Attribute {
+                    key: QName(b"theme"),
+                    value: v,
+                } => {
+                    if let Ok(theme) = atoi_simd::parse::<u32>(&v) {
+                        theme_color = Some(theme);
+                    }
+                }
+                Attribute {
+                    key: QName(b"tint"),
+                    value: v,
+                } => {
+                    if let Ok(tint_str) = std::str::from_utf8(&v) {
+                        if let Ok(tint) = tint_str.parse::<f64>() {
+                            // Clamp tint to valid range [-1.0, 1.0]
+                            tint_value = Some(tint.clamp(-1.0, 1.0));
+                        }
+                    }
+                }
+                Attribute {
+                    key: QName(b"indexed"),
+                    value: v,
+                } => {
+                    if let Ok(indexed) = atoi_simd::parse::<u32>(&v) {
+                        indexed_color = Some(indexed);
+                    }
+                }
+                Attribute {
+                    key: QName(b"auto"),
+                    value: v,
+                } => {
+                    if &*v == b"1" || &*v == b"true" {
+                        auto_color = Some(());
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        // Apply precedence: rgb > theme > indexed > auto
+        if let Some(color) = rgb_color {
+            // RGB colors can also have tint in some cases
+            match color {
+                Color::Rgb { r, g, b } if tint_value.is_some() => {
+                    Ok(Some(Color::Argb { a: 255, r, g, b }))
+                }
+                other => Ok(Some(other)),
+            }
+        } else if let Some(theme) = theme_color {
+            Ok(Some(Color::Theme {
+                theme,
+                tint: tint_value,
+            }))
+        } else if let Some(indexed) = indexed_color {
+            Ok(Some(Color::Indexed(indexed)))
+        } else if auto_color.is_some() {
+            Ok(Some(Color::Auto))
+        } else {
+            Ok(None)
+        }
     }
 
     fn read_workbook(
@@ -727,6 +1234,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
         })
     }
 
+    /// Get comprehensive formatting information for a cell by its style index
+    pub fn get_cell_formatting(&self, style_index: usize) -> Option<&CellStyle> {
+        self.styles.get(style_index)
+    }
+
+    /// Get all available cell formats
+    pub fn get_all_cell_formats(&self) -> &[CellStyle] {
+        &self.styles
+    }
+
+    /// Get access to the format string interner for reuse across sheets
+    /// The interner is thread-safe and can be shared across threads
+    pub fn get_format_interner(&self) -> &FormatStringInterner {
+        &self.format_interner
+    }
+
     /// Load the merged regions
     pub fn load_merged_regions(&mut self) -> Result<(), XlsxError> {
         if self.merged_regions.is_none() {
@@ -784,7 +1307,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     /// Get the table by name (owned)
     // TODO: If retrieving multiple tables from a single sheet, get tables by sheet will be more efficient
-    pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<Data>, XlsxError> {
+    pub fn table_by_name(&mut self, table_name: &str) -> Result<Table<DataWithFormatting>, XlsxError> {
         let TableMetadata {
             name,
             sheet_name,
@@ -871,6 +1394,19 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         self.worksheet_merge_cells(&name)
     }
+
+    /// Get a cell reader for the worksheet (with comprehensive formatting)
+    pub fn worksheet_cells_reader_ext(
+        &mut self,
+        name: &str,
+    ) -> Result<XlsxCellReader<'_, RS>, XlsxError> {
+        let xml = xml_reader(&mut self.zip, &format!("xl/worksheets/{}.xml", name))
+            .ok_or_else(|| XlsxError::FileNotFound(format!("xl/worksheets/{}.xml", name)))??;
+        let is_1904 = self.is_1904;
+        let strings = &self.strings;
+        let formats = &self.styles;
+        XlsxCellReader::new(xml, strings, formats, is_1904)
+    }
 }
 
 struct TableMetadata {
@@ -915,7 +1451,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
         let is_1904 = self.is_1904;
         let strings = &self.strings;
-        let formats = &self.formats;
+        let formats = &self.styles;
         XlsxCellReader::new(xml, strings, formats, is_1904)
     }
 }
@@ -930,6 +1466,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             formats: Vec::new(),
+            styles: Vec::new(),
+            format_interner: FormatStringInterner::new(),
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
@@ -968,17 +1506,72 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsxError> {
-        let rge = self.worksheet_range_ref(name)?;
-        let inner = rge.inner.into_iter().map(|v| v.into()).collect();
-        Ok(Range {
-            start: rge.start,
-            end: rge.end,
-            inner,
-        })
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataWithFormatting>, XlsxError> {
+        let header_row = self.options.header_row;
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                log::warn!("'{typ}' not a valid worksheet");
+                return Ok(Range::default());
+            }
+            Err(e) => return Err(e),
+        };
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+
+        match header_row {
+            HeaderRow::FirstNonEmptyRow => {
+                // the header row is the row of the first non-empty cell
+                while let Some((cell, formatting)) = cell_reader.next_cell_with_formatting()? {
+                    if matches!(cell.val, DataRef::Empty) {
+                        continue;
+                    }
+                    let data_with_formatting = DataWithFormatting::new(
+                        cell.val.into(),
+                        formatting.cloned(),
+                    );
+                    cells.push(Cell::new(cell.pos, data_with_formatting));
+                }
+            }
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, we only add non-empty cells after this index.
+                while let Some((cell, formatting)) = cell_reader.next_cell_with_formatting()? {
+                    if matches!(cell.val, DataRef::Empty) {
+                        continue;
+                    }
+                    if cell.pos.0 >= header_row_idx {
+                        let data_with_formatting = DataWithFormatting::new(
+                            cell.val.into(),
+                            formatting.cloned(),
+                        );
+                        cells.push(Cell::new(cell.pos, data_with_formatting));
+                    }
+                }
+
+                // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
+                // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
+                if cells.first().is_some_and(|c| c.pos.0 != header_row_idx) {
+                    cells.insert(
+                        0,
+                        Cell {
+                            pos: (
+                                header_row_idx,
+                                cells.first().expect("cells should not be empty").pos.1,
+                            ),
+                            val: DataWithFormatting::default(),
+                        },
+                    );
+                }
+            }
+        }
+
+        Ok(Range::from_sparse(cells))
     }
 
-    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsxError> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<DataWithFormatting>, XlsxError> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
@@ -992,15 +1585,19 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         if len < 100_000 {
             cells.reserve(len as usize);
         }
-        while let Some(cell) = cell_reader.next_formula()? {
+        while let Some((cell, formatting)) = cell_reader.next_formula_with_formatting()? {
             if !cell.val.is_empty() {
-                cells.push(cell);
+                let data_with_formatting = DataWithFormatting::new(
+                    Data::String(cell.val),
+                    formatting.cloned(),
+                );
+                cells.push(Cell::new(cell.pos, data_with_formatting));
             }
         }
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataWithFormatting>)> {
         let names = self
             .sheets
             .iter()
@@ -1557,6 +2154,8 @@ mod tests {
             sheets: vec![],
             tables: None,
             formats: vec![],
+            styles: vec![],
+            format_interner: FormatStringInterner::new(),
             is_1904: false,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
@@ -1570,5 +2169,81 @@ mod tests {
         assert_eq!("String 1", &xlsx.strings[0]);
         assert_eq!("String 2", &xlsx.strings[1]);
         assert_eq!("String 3", &xlsx.strings[2]);
+    }
+}
+
+#[cfg(test)]
+mod comprehensive_formatting_tests {
+    use super::*;
+    use crate::formats::{
+        Alignment, Border, BorderSide, CellFormat, Color, Fill, Font, PatternType,
+    };
+
+    #[test]
+    fn test_cell_formatting_structure() {
+        // Test that we can create and access CellFormatting structures
+        let formatting = CellStyle {
+            number_format: CellFormat::Other,
+            format_string: None,
+            font: Some(Arc::new(Font {
+                name: Some(Arc::from("Arial")),
+                size: Some(12.0),
+                bold: Some(true),
+                italic: Some(false),
+                color: Some(Color::Rgb { r: 255, g: 0, b: 0 }),
+            })),
+            fill: Some(Arc::new(Fill {
+                pattern_type: PatternType::Solid,
+                foreground_color: Some(Color::Rgb { r: 0, g: 255, b: 0 }),
+                background_color: None,
+            })),
+            border: Some(Arc::new(Border {
+                left: Some(BorderSide {
+                    style: Arc::from("thin"),
+                    color: Some(Color::Rgb { r: 0, g: 0, b: 255 }),
+                }),
+                right: None,
+                top: None,
+                bottom: None,
+            })),
+            alignment: Some(Arc::new(Alignment {
+                horizontal: Some(Arc::from("center")),
+                vertical: Some(Arc::from("middle")),
+                wrap_text: Some(true),
+                indent: Some(1),
+                shrink_to_fit: None,
+                text_rotation: None,
+                reading_order: None,
+            })),
+        };
+
+        // Verify the formatting was set correctly
+        assert_eq!(formatting.number_format, CellFormat::Other);
+        assert!(formatting.font.is_some());
+        assert!(formatting.fill.is_some());
+        assert!(formatting.border.is_some());
+        assert!(formatting.alignment.is_some());
+
+        if let Some(font) = &formatting.font {
+            assert_eq!(font.name, Some(Arc::from("Arial")));
+            assert_eq!(font.size, Some(12.0));
+            assert_eq!(font.bold, Some(true));
+        }
+
+        if let Some(fill) = &formatting.fill {
+            assert_eq!(fill.pattern_type, PatternType::Solid);
+        }
+
+        if let Some(border) = &formatting.border {
+            assert!(border.left.is_some());
+            if let Some(left_border) = &border.left {
+                assert_eq!(left_border.style, Arc::from("thin"));
+            }
+        }
+
+        if let Some(alignment) = &formatting.alignment {
+            assert_eq!(alignment.horizontal, Some(Arc::from("center")));
+            assert_eq!(alignment.wrap_text, Some(true));
+        }
     }
 }

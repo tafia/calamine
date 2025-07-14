@@ -4,7 +4,7 @@ use log::trace;
 
 use crate::{
     datatype::DataRef,
-    formats::{format_excel_f64_ref, CellFormat},
+    formats::{format_excel_f64_ref, CellStyle},
     utils::{read_f64, read_i32, read_u32, read_usize},
     Cell, CellErrorType, Dimensions, XlsbError,
 };
@@ -17,7 +17,7 @@ where
     RS: Read + Seek,
 {
     iter: RecordIter<'a, RS>,
-    formats: &'a [CellFormat],
+    formats: &'a [CellStyle],
     strings: &'a [String],
     extern_sheets: &'a [String],
     metadata_names: &'a [(String, String)],
@@ -32,9 +32,23 @@ impl<'a, RS> XlsbCellsReader<'a, RS>
 where
     RS: Read + Seek,
 {
+    /// Given a *Brt*Cell* record buffer return the referenced
+    /// `CellStyle`, if any.
+    #[inline]
+    fn style_from_buf(&self, buf: &[u8]) -> Option<&'a CellStyle> {
+        // iStyleRef is stored in the low‑order 24 bits that start
+        // at byte 4 of every *Cell* record (see MS‑XLSB 2.5.9).
+        // Only cell records have this structure, so check buffer length first.
+        if buf.len() < 7 {
+            return None;
+        }
+        let idx = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]) as usize;
+        self.formats.get(idx)
+    }
+
     pub(crate) fn new(
         mut iter: RecordIter<'a, RS>,
-        formats: &'a [CellFormat],
+        formats: &'a [CellStyle],
         strings: &'a [String],
         extern_sheets: &'a [String],
         metadata_names: &'a [(String, String)],
@@ -83,11 +97,20 @@ where
     }
 
     pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsbError> {
+        self.next_cell_with_formatting()
+            .map(|opt| opt.map(|(cell, _)| cell))
+    }
+
+    /// Get the next cell with its formatting information
+    pub fn next_cell_with_formatting(
+        &mut self,
+    ) -> Result<Option<(Cell<DataRef<'a>>, Option<&CellStyle>)>, XlsbError> {
         // loop until end of sheet
-        let value = loop {
+        let (value, style_ref) = loop {
             self.buf.clear();
             self.typ = self.iter.read_type()?;
             let _ = self.iter.fill_buffer(&mut self.buf)?;
+            let style_ref = self.style_from_buf(&self.buf);
             let value = match self.typ {
                 // 0x0001 => continue, // Data::Empty, // BrtCellBlank
                 0x0002 => {
@@ -153,16 +176,30 @@ where
                 0x0092 => return Ok(None), // BrtEndSheetData
                 _ => continue, // anything else, ignore and try next, without changing idx
             };
-            break value;
+            break (value, style_ref);
         };
         let col = read_u32(&self.buf);
-        Ok(Some(Cell::new((self.row, col), value)))
+        Ok(Some((Cell::new((self.row, col), value), style_ref)))
+    }
+
+    /// Get formatting information by style index
+    pub fn get_formatting_by_index(&self, style_index: usize) -> Option<&CellStyle> {
+        self.formats.get(style_index)
     }
 
     pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsbError> {
-        let value = loop {
+        self.next_formula_with_formatting()
+            .map(|opt| opt.map(|(cell, _)| cell))
+    }
+
+    /// Get the next formula with its formatting information
+    pub fn next_formula_with_formatting(
+        &mut self,
+    ) -> Result<Option<(Cell<String>, Option<&CellStyle>)>, XlsbError> {
+        let (value, style_ref) = loop {
             self.typ = self.iter.read_type()?;
             let _ = self.iter.fill_buffer(&mut self.buf)?;
+            let style_ref = self.style_from_buf(&self.buf);
 
             let value = match self.typ {
                 // 0x0001 => continue, // Data::Empty, // BrtCellBlank
@@ -218,10 +255,10 @@ where
                 0x0092 => return Ok(None), // BrtEndSheetData
                 _ => continue, // anything else, ignore and try next, without changing idx
             };
-            break value;
+            break (value, style_ref);
         };
         let col = read_u32(&self.buf);
-        Ok(Some(Cell::new((self.row, col), value)))
+        Ok(Some((Cell::new((self.row, col), value), style_ref)))
     }
 }
 

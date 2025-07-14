@@ -14,11 +14,12 @@ use super::{
 };
 use crate::{
     datatype::DataRef,
-    formats::{format_excel_f64_ref, CellFormat},
+    formats::{format_excel_f64_ref, CellFormat, CellStyle},
     Cell, XlsxError,
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
+type CellWithFormatting<'a> = (Cell<DataRef<'a>>, Option<&'a CellStyle>);
 
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a, RS>
@@ -27,7 +28,7 @@ where
 {
     xml: XlReader<'a, RS>,
     strings: &'a [String],
-    formats: &'a [CellFormat],
+    formats: &'a [CellStyle],
     is_1904: bool,
     dimensions: Dimensions,
     row_index: u32,
@@ -44,7 +45,7 @@ where
     pub fn new(
         mut xml: XlReader<'a, RS>,
         strings: &'a [String],
-        formats: &'a [CellFormat],
+        formats: &'a [CellStyle],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
@@ -103,6 +104,14 @@ where
     }
 
     pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsxError> {
+        self.next_cell_with_formatting()
+            .map(|opt| opt.map(|(cell, _)| cell))
+    }
+
+    /// Get the next cell with its formatting information
+    pub fn next_cell_with_formatting(
+        &mut self,
+    ) -> Result<Option<CellWithFormatting<'a>>, XlsxError> {
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
@@ -128,12 +137,13 @@ where
                     } else {
                         (self.row_index, self.col_index)
                     };
-                    let mut value = DataRef::Empty;
+                    let (mut value, mut cell_formatting) = (DataRef::Empty, None);
+
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
                             Ok(Event::Start(ref e)) => {
-                                value = read_value(
+                                let (val, formatting) = read_value_with_formatting(
                                     self.strings,
                                     self.formats,
                                     self.is_1904,
@@ -141,6 +151,8 @@ where
                                     e,
                                     c_element,
                                 )?;
+                                value = val;
+                                cell_formatting = formatting;
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
@@ -149,7 +161,7 @@ where
                         }
                     }
                     self.col_index += 1;
-                    return Ok(Some(Cell::new(pos, value)));
+                    return Ok(Some((Cell::new(pos, value), cell_formatting)));
                 }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
@@ -161,7 +173,20 @@ where
         }
     }
 
+    /// Get formatting information by style index
+    pub fn get_formatting_by_index(&self, style_index: usize) -> Option<&CellStyle> {
+        self.formats.get(style_index)
+    }
+
     pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsxError> {
+        self.next_formula_with_formatting()
+        .map(|opt| opt.map(|(cell, _)| cell))
+    }
+
+    /// Get the next formula with its formatting information
+    pub fn next_formula_with_formatting(
+        &mut self,
+    ) -> Result<Option<(Cell<String>, Option<&CellStyle>)>, XlsxError> {
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
@@ -187,6 +212,16 @@ where
                     } else {
                         (self.row_index, self.col_index)
                     };
+
+                    // Extract formatting information from the cell element
+                    let cell_formatting = match get_attribute(c_element.attributes(), QName(b"s")) {
+                        Ok(Some(style)) => {
+                            let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
+                            self.formats.get(id)
+                        }
+                        _ => None,
+                    };
+
                     let mut value = None;
                     loop {
                         self.cell_buf.clear();
@@ -278,7 +313,10 @@ where
                         }
                     }
                     self.col_index += 1;
-                    return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
+                    return Ok(Some((
+                        Cell::new(pos, value.unwrap_or_default()),
+                        cell_formatting,
+                    )));
                 }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
@@ -291,18 +329,27 @@ where
     }
 }
 
-fn read_value<'s, RS>(
+fn read_value_with_formatting<'s, 'f, RS>(
     strings: &'s [String],
-    formats: &[CellFormat],
+    formats: &'f [CellStyle],
     is_1904: bool,
     xml: &mut XlReader<'_, RS>,
     e: &BytesStart<'_>,
     c_element: &BytesStart<'_>,
-) -> Result<DataRef<'s>, XlsxError>
+) -> Result<(DataRef<'s>, Option<&'f CellStyle>), XlsxError>
 where
     RS: Read + Seek,
 {
-    Ok(match e.local_name().as_ref() {
+    // Extract style information from the cell element
+    let cell_formatting = match get_attribute(c_element.attributes(), QName(b"s")) {
+        Ok(Some(style)) => {
+            let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
+            formats.get(id)
+        }
+        _ => None,
+    };
+
+    let value = match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
             read_string(xml, e.name())?.map_or(DataRef::Empty, DataRef::String)
@@ -320,31 +367,32 @@ where
                     _ => (),
                 }
             }
-            read_v(v, strings, formats, c_element, is_1904)?
+            read_v(
+                v,
+                strings,
+                cell_formatting.map(|f| &f.number_format),
+                c_element,
+                is_1904,
+            )?
         }
         b"f" => {
             xml.read_to_end_into(e.name(), &mut Vec::new())?;
             DataRef::Empty
         }
         _n => return Err(XlsxError::UnexpectedNode("v, f, or is")),
-    })
+    };
+
+    Ok((value, cell_formatting))
 }
 
 /// read the contents of a <v> cell
 fn read_v<'s>(
     v: String,
     strings: &'s [String],
-    formats: &[CellFormat],
+    cell_format: Option<&CellFormat>,
     c_element: &BytesStart<'_>,
     is_1904: bool,
 ) -> Result<DataRef<'s>, XlsxError> {
-    let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
-        Ok(Some(style)) => {
-            let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
-            formats.get(id)
-        }
-        _ => Some(&CellFormat::Other),
-    };
     match get_attribute(c_element.attributes(), QName(b"t"))? {
         Some(b"s") => {
             // shared string

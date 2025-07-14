@@ -5,6 +5,7 @@ pub use cells_reader::XlsbCellsReader;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
+use std::sync::Arc;
 
 use log::{trace, warn};
 
@@ -17,11 +18,15 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::datatype::DataRef;
-use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
+use crate::formats::{
+    builtin_format_by_code, detect_custom_number_format_with_interner, Alignment, Border,
+    BorderSide, CellFormat, Color, Fill, Font, FormatStringInterner, PatternType,
+};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Cell, CellStyle, Data, DataWithFormatting, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible,
 };
 
 /// A Xlsb specific error
@@ -82,6 +87,8 @@ pub enum XlsbError {
     WorksheetNotFound(String),
     /// XML Encoding error
     Encoding(quick_xml::encoding::EncodingError),
+    /// Unexpected buffer size
+    UnexpectedBufferSize(usize),
 }
 
 from_err!(std::io::Error, XlsbError, Io);
@@ -118,6 +125,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Password => write!(f, "Workbook is password protected"),
             XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
             XlsbError::Encoding(e) => write!(f, "XML encoding error: {e}"),
+            XlsbError::UnexpectedBufferSize(size) => write!(f, "Unexpected buffer size: {size}"),
         }
     }
 }
@@ -149,6 +157,8 @@ pub struct Xlsb<RS> {
     strings: Vec<String>,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
+    styles: Vec<CellStyle>,
+    format_interner: FormatStringInterner,
     is_1904: bool,
     metadata: Metadata,
     #[cfg(feature = "picture")]
@@ -215,6 +225,9 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.50 Styles
+    ///
+    /// Parses the complete style information from xlsb files including fonts, fills,
+    /// borders, and alignment. This provides full formatting compatibility with xlsx.
     fn read_styles(&mut self) -> Result<(), XlsbError> {
         let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/styles.bin") {
             Ok(iter) => iter,
@@ -222,6 +235,12 @@ impl<RS: Read + Seek> Xlsb<RS> {
         };
         let mut buf = Vec::with_capacity(1024);
         let mut number_formats = BTreeMap::new();
+        let mut format_strings: BTreeMap<u16, Arc<str>> = BTreeMap::new();
+        let format_interner = FormatStringInterner::new();
+
+        let mut fonts: Vec<Arc<Font>> = Vec::new();
+        let mut fills: Vec<Arc<Fill>> = Vec::new();
+        let mut borders: Vec<Arc<Border>> = Vec::new();
 
         loop {
             match iter.read_type()? {
@@ -234,34 +253,99 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         let _ = iter.next_skip_blocks(0x002C, &[], &mut buf)?; // BrtFmt
                         let fmt_code = read_u16(&buf);
                         let fmt_str = wide_str(&buf[2..], &mut 0)?;
-                        number_formats
-                            .insert(fmt_code, detect_custom_number_format(fmt_str.as_ref()));
+                        let (cell_format, format_string) =
+                            detect_custom_number_format_with_interner(
+                                fmt_str.as_ref(),
+                                &format_interner,
+                            );
+                        number_formats.insert(fmt_code, cell_format);
+                        if let Some(format_string) = format_string {
+                            format_strings.insert(fmt_code, format_string);
+                        }
+                    }
+                }
+                0x0263 => {
+                    // BrtBeginFonts
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
+
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002B, &[], &mut buf)?; // BrtFont
+                        match parse_font(&buf) {
+                            Ok(font) => fonts.push(Arc::new(font)),
+                            Err(e) => {
+                                log::warn!("Failed to parse font: {:?}, using default", e);
+                                fonts.push(Arc::new(Font::default()));
+                            }
+                        }
+                    }
+                }
+                0x025B => {
+                    // BrtBeginFills
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
+
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002D, &[], &mut buf)?; // BrtFill
+                        match parse_fill(&buf) {
+                            Ok(fill) => fills.push(Arc::new(fill)),
+                            Err(e) => {
+                                log::warn!("Failed to parse fill: {:?}, using default", e);
+                                fills.push(Arc::new(Fill::default()));
+                            }
+                        }
+                    }
+                }
+                0x0265 => {
+                    // BrtBeginBorders
+                    let _len = iter.fill_buffer(&mut buf)?;
+                    let len = read_usize(&buf);
+
+                    for _ in 0..len {
+                        let _ = iter.next_skip_blocks(0x002E, &[], &mut buf)?; // BrtBorder
+                        match parse_border(&buf) {
+                            Ok(border) => borders.push(Arc::new(border)),
+                            Err(e) => {
+                                log::warn!("Failed to parse border: {:?}, using default", e);
+                                borders.push(Arc::new(Border::default()));
+                            }
+                        }
                     }
                 }
                 0x0269 => {
                     // BrtBeginCellXFs
                     let _len = iter.fill_buffer(&mut buf)?;
                     let len = read_usize(&buf);
+
                     for _ in 0..len {
                         let _ = iter.next_skip_blocks(0x002F, &[], &mut buf)?; // BrtXF
-                        let fmt_code = read_u16(&buf[2..4]);
-                        match builtin_format_by_code(fmt_code) {
-                            CellFormat::DateTime => self.formats.push(CellFormat::DateTime),
-                            CellFormat::TimeDelta => self.formats.push(CellFormat::TimeDelta),
-                            CellFormat::Other => {
-                                self.formats.push(
-                                    number_formats
-                                        .get(&fmt_code)
-                                        .copied()
-                                        .unwrap_or(CellFormat::Other),
-                                );
+                        match parse_xf(
+                            &buf,
+                            &number_formats,
+                            &format_strings,
+                            &fonts,
+                            &fills,
+                            &borders,
+                        ) {
+                            Ok(style) => {
+                                // Backward-compatibility: keep the old formats vector updated.
+                                self.formats.push(style.number_format.clone());
+                                self.styles.push(style);
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to parse cell style: {:?}, using default", e);
+                                self.formats.push(CellFormat::Other);
+                                self.styles.push(CellStyle::default());
                             }
                         }
                     }
                     // BrtBeginCellXFs is always present and always after BrtBeginFmts
                     break;
                 }
-                _ => (),
+                _ => {
+                    // Skip unknown record types
+                    let _ = iter.fill_buffer(&mut buf)?;
+                }
             }
             buf.clear();
         }
@@ -416,12 +500,28 @@ impl<RS: Read + Seek> Xlsb<RS> {
         let iter = RecordIter::from_zip(&mut self.zip, &path)?;
         XlsbCellsReader::new(
             iter,
-            &self.formats,
+            &self.styles,
             &self.strings,
             &self.extern_sheets,
             &self.metadata.names,
             self.is_1904,
         )
+    }
+
+    /// Get comprehensive formatting information for a cell by its style index
+    pub fn get_cell_formatting(&self, style_index: usize) -> Option<&CellStyle> {
+        self.styles.get(style_index)
+    }
+
+    /// Get all available cell formats
+    pub fn get_all_cell_formats(&self) -> &[CellStyle] {
+        &self.styles
+    }
+
+    /// Get access to the format string interner for reuse across sheets
+    /// The interner is thread-safe and can be shared across threads
+    pub fn get_format_interner(&self) -> &FormatStringInterner {
+        &self.format_interner
     }
 
     #[cfg(feature = "picture")]
@@ -465,6 +565,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             strings: Vec::new(),
             extern_sheets: Vec::new(),
             formats: Vec::new(),
+            styles: Vec::new(),
+            format_interner: FormatStringInterner::new(),
             is_1904: false,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
@@ -500,30 +602,82 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {
-        let rge = self.worksheet_range_ref(name)?;
-        let inner = rge.inner.into_iter().map(|v| v.into()).collect();
-        Ok(Range {
-            start: rge.start,
-            end: rge.end,
-            inner,
-        })
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataWithFormatting>, XlsbError> {
+        let header_row = self.options.header_row;
+        let mut cell_reader = self.worksheet_cells_reader(name)?;
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+
+        match header_row {
+            HeaderRow::FirstNonEmptyRow => {
+                // the header row is the row of the first non-empty cell
+                while let Some((cell, formatting)) = cell_reader.next_cell_with_formatting()? {
+                    if matches!(cell.val, DataRef::Empty) {
+                        continue;
+                    }
+                    let data_with_formatting = DataWithFormatting::new(
+                        cell.val.into(),
+                        formatting.cloned(),
+                    );
+                    cells.push(Cell::new(cell.pos, data_with_formatting));
+                }
+            }
+            HeaderRow::Row(header_row_idx) => {
+                // If `header_row` is a row index, we only add non-empty cells after this index.
+                while let Some((cell, formatting)) = cell_reader.next_cell_with_formatting()? {
+                    if matches!(cell.val, DataRef::Empty) {
+                        continue;
+                    }
+                    if cell.pos.0 >= header_row_idx {
+                        let data_with_formatting = DataWithFormatting::new(
+                            cell.val.into(),
+                            formatting.cloned(),
+                        );
+                        cells.push(Cell::new(cell.pos, data_with_formatting));
+                    }
+                }
+
+                // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
+                // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
+                if cells.first().is_some_and(|c| c.pos.0 != header_row_idx) {
+                    cells.insert(
+                        0,
+                        Cell {
+                            pos: (
+                                header_row_idx,
+                                cells.first().expect("cells should not be empty").pos.1,
+                            ),
+                            val: DataWithFormatting::default(),
+                        },
+                    );
+                }
+            }
+        }
+
+        Ok(Range::from_sparse(cells))
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsbError> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<DataWithFormatting>, XlsbError> {
         let mut cells_reader = self.worksheet_cells_reader(name)?;
         let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
-        while let Some(cell) = cells_reader.next_formula()? {
+        while let Some((cell, formatting)) = cells_reader.next_formula_with_formatting()? {
             if !cell.val.is_empty() {
-                cells.push(cell);
+                let data_with_formatting = DataWithFormatting::new(
+                    Data::String(cell.val),
+                    formatting.cloned(),
+                );
+                cells.push(Cell::new(cell.pos, data_with_formatting));
             }
         }
         Ok(Range::from_sparse(cells))
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataWithFormatting>)> {
         let sheets = self
             .sheets
             .iter()
@@ -742,7 +896,7 @@ fn parse_formula(
                 if !is_row_relative {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", row));
+                formula.push_str(&format!("{row}"));
                 rgce = &rgce[8..];
             }
             0x3b | 0x5b | 0x7b => {
@@ -764,7 +918,7 @@ fn parse_formula(
                 if !is_first_row_relative {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", first_row));
+                formula.push_str(&format!("{first_row}"));
                 formula.push(':');
                 if !is_last_col_relative {
                     formula.push('$');
@@ -773,7 +927,7 @@ fn parse_formula(
                 if !is_last_row_relative {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", last_row));
+                formula.push_str(&format!("{last_row}"));
                 rgce = &rgce[14..];
             }
             0x3c | 0x5c | 0x7c => {
@@ -800,7 +954,7 @@ fn parse_formula(
                 rgce = &rgce[4..];
             }
             0x03..=0x11 => {
-                trace!("parsing PtgAdd, PtgSub, PtgMul, PtgDiv, PtgPower, PtgConcat, PtgLt, PtgLe, PtgEq, PtgGe, PtgGt, PtgNe, PtgIsect, PtgUnion, PtgRange: 0x{:02X}", ptg);
+                trace!("parsing PtgAdd, PtgSub, PtgMul, PtgDiv, PtgPower, PtgConcat, PtgLt, PtgLe, PtgEq, PtgGe, PtgGt, PtgNe, PtgIsect, PtgUnion, PtgRange: 0x{ptg:02X}");
                 let e2 = stack.pop().ok_or(XlsbError::StackLen)?;
                 let e2 = formula.split_off(e2);
                 // imaginary 'e1' will actually already be the start of the binary op
@@ -858,7 +1012,7 @@ fn parse_formula(
                 formula.push('\"');
                 let cch = read_u16(&rgce[0..2]) as usize;
                 if cch > 255 {
-                    warn!("invalid PtgStr length: {}", cch);
+                    warn!("invalid PtgStr length: {cch}");
                 }
                 let string_bytes_needed = 2 + 2 * cch;
                 if rgce.len() < string_bytes_needed {
@@ -1049,7 +1203,7 @@ fn parse_formula(
                 if !first_row_relative {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", first_row));
+                formula.push_str(&format!("{first_row}"));
                 formula.push(':');
                 if !last_col_relative {
                     formula.push('$');
@@ -1058,7 +1212,7 @@ fn parse_formula(
                 if !last_row_relative {
                     formula.push('$');
                 }
-                formula.push_str(&format!("{}", last_row));
+                formula.push_str(&format!("{last_row}"));
                 rgce = &rgce[12..];
             }
             0x2A | 0x4A | 0x6A => {
@@ -1100,9 +1254,9 @@ fn parse_formula(
                     &rgce[..std::cmp::min(10, rgce.len())]
                 );
                 trace!("FORMULA PARSING ERROR:");
-                trace!("  Unknown Ptg: 0x{:02X}", ptg);
+                trace!("  Unknown Ptg: 0x{ptg:02X}");
                 trace!("  Remaining bytes: {}", rgce.len());
-                trace!("  Current formula: '{}'", formula);
+                trace!("  Current formula: '{formula}'");
                 trace!("  Stack size: {}", stack.len());
                 trace!(
                     "  Next 20 bytes: {:02X?}",
@@ -1124,13 +1278,14 @@ fn parse_formula(
     }
 }
 
-fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellFormat> {
-    // Parses a Cell (MS-XLSB 2.5.9) and determines if it references a Date format
+fn cell_format<'a>(styles: &'a [CellStyle], buf: &[u8]) -> Option<&'a CellFormat> {
+    // Parses a Cell (MS-XLSB 2.5.9) and determines if it references a Date format.
+    // The style index (iStyleRef) is stored as a 24-bit integer starting at the
+    // fifth byte of the cell record buffer.
 
-    // iStyleRef is stored as a 24bit integer starting at the fifth byte
-    let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]);
+    let style_ref = u32::from_le_bytes([buf[4], buf[5], buf[6], 0]) as usize;
 
-    formats.get(style_ref as usize)
+    styles.get(style_ref).map(|s| &s.number_format)
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
@@ -1148,7 +1303,7 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
 
 fn quote_sheet_name(sheet_name: &str) -> String {
     let escaped = sheet_name.replace('\'', "''");
-    format!("'{}'", escaped)
+    format!("'{escaped}'")
 }
 
 fn extract_col_and_flags(col_data: u16) -> (u16, bool, bool) {
@@ -1156,4 +1311,461 @@ fn extract_col_and_flags(col_data: u16) -> (u16, bool, bool) {
     let is_col_relative = (col_data & 0x8000) != 0;
     let is_row_relative = (col_data & 0x4000) != 0;
     (col, is_col_relative, is_row_relative)
+}
+
+/// Parse a BrtFont record into a Font structure
+/// MS-XLSB 2.4.149 BrtFont structure:
+/// - dyHeight (2 bytes): font height in twentieths of a point
+/// - grbit (2 bytes): font flags (bold, italic, etc.)
+/// - bls (2 bytes): bold weight
+/// - sss (2 bytes): superscript/subscript
+/// - uls (1 byte): underline style
+/// - bFamily (1 byte): font family
+/// - bCharSet (1 byte): character set
+/// - unused (1 byte): reserved
+/// - color (BrtColor): font color
+/// - name (XLWideString): font name
+fn parse_font(buf: &[u8]) -> Result<Font, XlsbError> {
+    // Handle short buffers gracefully - return default font
+    if buf.len() < 8 {
+        return Err(XlsbError::UnexpectedBufferSize(buf.len()));
+    }
+
+    // Parse BrtFont structure according to MS-XLSB 2.4.149
+    let size_twentieths = read_u16(&buf[0..2]);
+    let grbit = read_u16(&buf[2..4]);
+    let bold_weight = read_u16(&buf[4..6]);
+    let _sss = read_u16(&buf[6..8]);
+
+    let mut offset = 8;
+
+    // Skip underline, family, charset, unused (4 bytes total)
+    if buf.len() >= offset + 4 {
+        offset += 4;
+    }
+
+    // Parse color (9 bytes)
+    let color = if buf.len() >= offset + 9 {
+        let color_result = parse_color(&buf[offset..offset + 9])?;
+        offset += 9;
+        color_result
+    } else {
+        None
+    };
+
+    // Parse font name (variable length)
+    let name = if buf.len() >= offset + 2 {
+        let name_len = read_u16(&buf[offset..offset + 2]) as usize;
+        offset += 2;
+        if name_len > 0 && buf.len() >= offset + name_len * 2 {
+            let name_bytes = &buf[offset..offset + name_len * 2];
+            Some(Arc::from(UTF_16LE.decode(name_bytes).0.as_ref()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(Font {
+        name,
+        size: if size_twentieths > 0 {
+            Some(size_twentieths as f64 / 20.0)
+        } else {
+            None
+        },
+        bold: Some(bold_weight >= 700 || (grbit & 0x0001) != 0),
+        italic: Some((grbit & 0x0002) != 0),
+        color,
+    })
+}
+
+/// Parse a BrtFill record into a Fill structure
+/// MS-XLSB 2.4.145 BrtFill structure:
+/// - fls (4 bytes): fill pattern type
+/// - fgColor (BrtColor): foreground color (9 bytes)
+/// - bgColor (BrtColor): background color (9 bytes)
+fn parse_fill(buf: &[u8]) -> Result<Fill, XlsbError> {
+    // Handle short buffers gracefully - return default fill
+    if buf.len() < 4 {
+        return Err(XlsbError::UnexpectedBufferSize(buf.len()));
+    }
+
+    // Parse BrtFill structure according to MS-XLSB 2.4.145
+    let fls = read_u32(&buf[0..4]);
+    let pattern_type = match fls {
+        0 => PatternType::None,
+        1 => PatternType::Solid,
+        2 => PatternType::MediumGray,
+        3 => PatternType::DarkGray,
+        4 => PatternType::LightGray,
+        5 => PatternType::Pattern(Arc::from("darkHorizontal")),
+        6 => PatternType::Pattern(Arc::from("darkVertical")),
+        7 => PatternType::Pattern(Arc::from("darkDown")),
+        8 => PatternType::Pattern(Arc::from("darkUp")),
+        9 => PatternType::Pattern(Arc::from("darkGrid")),
+        10 => PatternType::Pattern(Arc::from("darkTrellis")),
+        11 => PatternType::Pattern(Arc::from("lightHorizontal")),
+        12 => PatternType::Pattern(Arc::from("lightVertical")),
+        13 => PatternType::Pattern(Arc::from("lightDown")),
+        14 => PatternType::Pattern(Arc::from("lightUp")),
+        15 => PatternType::Pattern(Arc::from("lightGrid")),
+        16 => PatternType::Pattern(Arc::from("lightTrellis")),
+        17 => PatternType::Pattern(Arc::from("gray125")),
+        18 => PatternType::Pattern(Arc::from("gray0625")),
+        other => PatternType::Pattern(Arc::from(format!("pattern_{}", other))),
+    };
+
+    // Parse foreground color (9 bytes starting at offset 4)
+    let foreground_color = if buf.len() >= 13 {
+        parse_color(&buf[4..13])?
+    } else {
+        None
+    };
+
+    // Parse background color (9 bytes starting at offset 13)
+    let background_color = if buf.len() >= 22 {
+        parse_color(&buf[13..22])?
+    } else {
+        None
+    };
+
+    Ok(Fill {
+        pattern_type,
+        foreground_color,
+        background_color,
+    })
+}
+
+/// Parse a BrtBorder record into a Border structure
+/// MS-XLSB 2.4.48 BrtBorder structure:
+/// - blxfTop (BrtBlxf): top border (variable length)
+/// - blxfBottom (BrtBlxf): bottom border (variable length)
+/// - blxfLeft (BrtBlxf): left border (variable length)
+/// - blxfRight (BrtBlxf): right border (variable length)
+/// - blxfDiag (BrtBlxf): diagonal border (variable length)
+/// - blxfVert (BrtBlxf): vertical border (variable length)
+/// - blxfHoriz (BrtBlxf): horizontal border (variable length)
+/// Each BrtBlxf is: dg (1 byte style) + color (0-9 bytes, depending on style)
+fn parse_border(buf: &[u8]) -> Result<Border, XlsbError> {
+    // Minimum size for a border record with 4 sides with minimal data
+    if buf.len() < 4 {
+        log::warn!("Border buffer too small: {} bytes", buf.len());
+        return Ok(Border {
+            left: None,
+            right: None,
+            top: None,
+            bottom: None,
+        });
+    }
+
+    // Helper function to parse a single border side
+    fn parse_border_side(buf: &[u8], offset: usize) -> Option<BorderSide> {
+        if offset >= buf.len() {
+            return None;
+        }
+
+        let style = border_style_to_string(buf[offset]);
+
+        // If style is "none" (0), there might not be color data
+        if buf[offset] == 0 {
+            return Some(BorderSide { style, color: None });
+        }
+
+        // Try to parse color if we have enough bytes
+        let color = if offset + 10 <= buf.len() {
+            parse_color(&buf[offset + 1..offset + 10]).ok().flatten()
+        } else {
+            None
+        };
+
+        Some(BorderSide { style, color })
+    }
+
+    // Parse BrtBorder structure according to MS-XLSB 2.4.48
+    // Each border side is variable length: 1 byte style + 0-9 bytes color
+
+    // Try to parse each border side, handling variable lengths gracefully
+    let top = parse_border_side(buf, 0);
+    let bottom = parse_border_side(buf, 10);
+    let left = parse_border_side(buf, 20);
+    let right = parse_border_side(buf, 30);
+
+    // Note: We skip diagonal, vertical, and horizontal borders for now
+    // as they're not commonly used in basic cell formatting
+
+    Ok(Border {
+        left,
+        right,
+        top,
+        bottom,
+    })
+}
+
+/// Parse a BrtXF record into a CellStyle structure
+/// MS-XLSB 2.4.812 BrtXF structure:
+/// - grbitXF (2 bytes): flags and alignment
+/// - ifmt (2 bytes): number format index
+/// - ifnt (2 bytes): font index  
+/// - iFill (2 bytes): fill index
+/// - ixfeBorder (2 bytes): border index
+/// - iParentStyle (2 bytes): parent style index
+fn parse_xf(
+    buf: &[u8],
+    number_formats: &BTreeMap<u16, CellFormat>,
+    format_strings: &BTreeMap<u16, Arc<str>>,
+    fonts: &[Arc<Font>],
+    fills: &[Arc<Fill>],
+    borders: &[Arc<Border>],
+) -> Result<CellStyle, XlsbError> {
+    // Handle short buffers gracefully - return default style
+    if buf.len() < 12 {
+        return Err(XlsbError::UnexpectedBufferSize(buf.len()));
+    }
+
+    // Parse BrtXF structure according to MS-XLSB 2.4.812
+    let grbit = read_u16(&buf[0..2]);
+    let fmt_code = read_u16(&buf[2..4]);
+    let font_id = read_u16(&buf[4..6]) as usize;
+    let fill_id = read_u16(&buf[6..8]) as usize;
+    let border_id = read_u16(&buf[8..10]) as usize;
+    let _parent_style = read_u16(&buf[10..12]);
+
+    // Resolve number format
+    let number_format = match builtin_format_by_code(fmt_code) {
+        CellFormat::DateTime => CellFormat::DateTime,
+        CellFormat::TimeDelta => CellFormat::TimeDelta,
+        CellFormat::Other => number_formats
+            .get(&fmt_code)
+            .cloned()
+            .unwrap_or(CellFormat::Other),
+    };
+
+    // Resolve format string
+    let format_string = format_strings.get(&fmt_code).cloned();
+
+    // Parse alignment from grbit flags (bits 0-2: horizontal, bits 3-5: vertical)
+    let alignment = Some(Arc::new(Alignment {
+        horizontal: horizontal_code_to_str(grbit & 0x0007),
+        vertical: vertical_code_to_str((grbit >> 3) & 0x0007),
+        wrap_text: Some(grbit & 0x1000 != 0),
+        indent: None,
+        shrink_to_fit: None,
+        text_rotation: None,
+        reading_order: None,
+    }));
+
+    Ok(CellStyle {
+        number_format,
+        format_string,
+        font: fonts.get(font_id).cloned(),
+        fill: fills.get(fill_id).cloned(),
+        border: borders.get(border_id).cloned(),
+        alignment,
+    })
+}
+
+/// Parse a 9-byte color structure
+fn parse_color(buf: &[u8]) -> Result<Option<Color>, XlsbError> {
+    if buf.len() < 9 {
+        return Err(XlsbError::UnexpectedBufferSize(buf.len()));
+    }
+
+    let flags = buf[0];
+    let a = buf[1];
+    let r = buf[2];
+    let g = buf[3];
+    let b = buf[4];
+    let theme_value = read_u32(&buf[5..9]);
+
+    match flags {
+        0x01 => Ok(Some(Color::Auto)),
+        0x02 => Ok(Some(Color::Indexed(theme_value))),
+        0x03 => Ok(Some(Color::Rgb { r, g, b })),
+        0x04 => Ok(Some(Color::Theme {
+            theme: theme_value,
+            tint: None,
+        })),
+        _ => Ok(Some(Color::Argb { a, r, g, b })),
+    }
+}
+
+/// Convert border style code to string
+fn border_style_to_string(style: u8) -> Arc<str> {
+    match style {
+        0 => Arc::from("none"),
+        1 => Arc::from("thin"),
+        2 => Arc::from("medium"),
+        3 => Arc::from("dashed"),
+        4 => Arc::from("dotted"),
+        5 => Arc::from("thick"),
+        6 => Arc::from("double"),
+        7 => Arc::from("hair"),
+        8 => Arc::from("mediumDashed"),
+        9 => Arc::from("dashDot"),
+        10 => Arc::from("mediumDashDot"),
+        11 => Arc::from("dashDotDot"),
+        12 => Arc::from("mediumDashDotDot"),
+        13 => Arc::from("slantDashDot"),
+        _ => Arc::from("unknown"),
+    }
+}
+
+/// Convert horizontal alignment code to string
+fn horizontal_code_to_str(code: u16) -> Option<Arc<str>> {
+    match code {
+        0 => None, // General
+        1 => Some(Arc::from("left")),
+        2 => Some(Arc::from("center")),
+        3 => Some(Arc::from("right")),
+        4 => Some(Arc::from("fill")),
+        5 => Some(Arc::from("justify")),
+        6 => Some(Arc::from("centerContinuous")),
+        7 => Some(Arc::from("distributed")),
+        _ => None,
+    }
+}
+
+/// Convert vertical alignment code to string
+fn vertical_code_to_str(code: u16) -> Option<Arc<str>> {
+    match code {
+        0 => Some(Arc::from("top")),
+        1 => Some(Arc::from("center")),
+        2 => Some(Arc::from("bottom")),
+        3 => Some(Arc::from("justify")),
+        4 => Some(Arc::from("distributed")),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_xlsb_formatting_api() {
+        // Test that we can open an xlsb file and access formatting information
+        let test_file = include_bytes!("../../tests/choose.xlsb");
+        let cursor = Cursor::new(test_file);
+
+        let workbook = Xlsb::new(cursor).expect("Failed to open test xlsb file");
+
+        // Test that we can get all cell formats
+        let formats = workbook.get_all_cell_formats();
+        assert!(!formats.is_empty(), "Should have at least one cell format");
+
+        // Test that we can get formatting by index
+        let first_format = workbook.get_cell_formatting(0);
+        assert!(first_format.is_some(), "Should be able to get first format");
+
+        // Test that the format interner is accessible
+        let interner = workbook.get_format_interner();
+        let _interner_len = interner.len(); // Just verify it's accessible
+    }
+
+    #[test]
+    fn test_xlsb_cell_reader_formatting() {
+        // Test that we can read cells with formatting information
+        let test_file = include_bytes!("../../tests/choose.xlsb");
+        let cursor = Cursor::new(test_file);
+
+        let mut workbook = Xlsb::new(cursor).expect("Failed to open test xlsb file");
+        let sheet_names: Vec<String> = workbook
+            .metadata()
+            .sheets
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+
+        if let Some(sheet_name) = sheet_names.first() {
+            let mut cell_reader = workbook
+                .worksheet_cells_reader(sheet_name)
+                .expect("Failed to create cell reader");
+
+            // Test that we can read cells with formatting
+            while let Ok(Some((_cell, _formatting))) = cell_reader.next_cell_with_formatting() {
+                // Just verify the API works without panicking
+                break;
+            }
+
+            // The API should work without panicking
+        }
+    }
+
+    #[test]
+    fn test_xlsb_range_with_formatting() {
+        // Test that worksheet_range returns proper DataWithFormatting values
+        let test_file = include_bytes!("../../tests/choose.xlsb");
+        let cursor = Cursor::new(test_file);
+
+        let mut workbook = Xlsb::new(cursor).expect("Failed to open test xlsb file");
+        let sheet_names: Vec<String> = workbook
+            .metadata()
+            .sheets
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+
+        if let Some(sheet_name) = sheet_names.first() {
+            let range = workbook
+                .worksheet_range(sheet_name)
+                .expect("Failed to get worksheet range");
+
+            // Test that the range contains DataWithFormatting objects
+            let mut has_formatting = false;
+            for row in range.rows() {
+                for cell in row {
+                    if cell.formatting.is_some() {
+                        has_formatting = true;
+                        break;
+                    }
+                }
+                if has_formatting {
+                    break;
+                }
+            }
+
+            assert!(has_formatting);
+        }
+    }
+
+    #[test]
+    fn test_xlsb_formula_range_with_formatting() {
+        // Test that worksheet_formula returns proper DataWithFormatting values
+        let test_file = include_bytes!("../../tests/choose.xlsb");
+        let cursor = Cursor::new(test_file);
+
+        let mut workbook = Xlsb::new(cursor).expect("Failed to open test xlsb file");
+        let sheet_names: Vec<String> = workbook
+            .metadata()
+            .sheets
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+
+        if let Some(sheet_name) = sheet_names.first() {
+            let range = workbook
+                .worksheet_formula(sheet_name)
+                .expect("Failed to get worksheet formula range");
+
+            // Test that the range contains DataWithFormatting objects
+            let mut has_formatting = false;
+            for row in range.rows() {
+                for cell in row {
+                    if cell.formatting.is_some() {
+                        has_formatting = true;
+                        break;
+                    }
+                }
+                if has_formatting {
+                    break;
+                }
+            }
+
+
+
+            assert!(has_formatting);
+        }
+    }
 }

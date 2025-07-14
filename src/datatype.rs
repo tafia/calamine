@@ -803,18 +803,18 @@ mod date_tests {
 
         // test rounding
         assert_eq!(
-            Data::Float(0.18737500000000001).as_time(),
+            Data::Float(0.187_375).as_time(),
             Some(NaiveTime::from_hms_milli_opt(4, 29, 49, 200).unwrap())
         );
         assert_eq!(
-            Data::Float(0.25951736111111101).as_time(),
+            Data::Float(0.259_517_361_111_111).as_time(),
             Some(NaiveTime::from_hms_milli_opt(6, 13, 42, 300).unwrap())
         );
 
         // test overflow
         assert_eq!(Data::Float(1e20).as_time(), None);
 
-        let unix_epoch_15h30m = Data::Float(25569.645833333333333);
+        let unix_epoch_15h30m = Data::Float(25_569.645_833_333_332);
         let chrono_dt = NaiveDateTime::new(
             NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
             NaiveTime::from_hms_opt(15, 30, 0).unwrap(),

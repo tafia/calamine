@@ -78,7 +78,7 @@ fn run(f: GlobResult) -> Result<(PathBuf, Option<usize>, usize), FileStatus> {
         let range = xl.worksheet_range(&s).map_err(FileStatus::RangeError)?;
         cell_errors += range
             .rows()
-            .flat_map(|r| r.iter().filter(|c| matches!(**c, Data::Error(_))))
+            .flat_map(|r| r.iter().filter(|c| matches!(c.data, Data::Error(_))))
             .count();
     }
 

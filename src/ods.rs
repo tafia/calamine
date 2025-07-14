@@ -18,7 +18,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Data, DataType, DataWithFormatting, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -206,7 +206,7 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, OdsError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataWithFormatting>, OdsError> {
         let sheet = self
             .sheets
             .get(name)
@@ -214,32 +214,57 @@ where
             .0
             .to_owned();
 
-        match self.options.header_row {
-            HeaderRow::FirstNonEmptyRow => Ok(sheet),
+        let result_sheet = match self.options.header_row {
+            HeaderRow::FirstNonEmptyRow => sheet,
             HeaderRow::Row(header_row_idx) => {
                 // If `header_row` is a row index, adjust the range
                 if let (Some(start), Some(end)) = (sheet.start(), sheet.end()) {
-                    Ok(sheet.range((header_row_idx, start.1), end))
+                    sheet.range((header_row_idx, start.1), end)
                 } else {
-                    Ok(sheet)
+                    sheet
                 }
             }
-        }
+        };
+
+        // Convert Data to DataWithFormatting (no formatting info in ODS)
+        let inner = result_sheet.inner.into_iter().map(|data| DataWithFormatting::from_data(data)).collect();
+        Ok(Range {
+            start: result_sheet.start,
+            end: result_sheet.end,
+            inner,
+        })
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataWithFormatting>)> {
         self.sheets
             .iter()
-            .map(|(name, (range, _formula))| (name.to_owned(), range.clone()))
+            .map(|(name, (range, _formula))| {
+                let inner = range.inner.iter().map(|data| DataWithFormatting::from_data(data.clone())).collect();
+                let formatted_range = Range {
+                    start: range.start,
+                    end: range.end,
+                    inner,
+                };
+                (name.to_owned(), formatted_range)
+            })
             .collect()
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, OdsError> {
-        self.sheets
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<DataWithFormatting>, OdsError> {
+        let formula_range = self.sheets
             .get(name)
-            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
-            .map(|r| r.1.to_owned())
+            .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))?
+            .1
+            .to_owned();
+        
+        // Convert String to DataWithFormatting (no formatting info in ODS)
+        let inner = formula_range.inner.into_iter().map(|formula| DataWithFormatting::from_data(Data::String(formula))).collect();
+        Ok(Range {
+            start: formula_range.start,
+            end: formula_range.end,
+            inner,
+        })
     }
 
     #[cfg(feature = "picture")]
@@ -768,7 +793,7 @@ where
 #[cfg(feature = "picture")]
 fn read_pictures<RS: Read + Seek>(
     zip: &mut ZipArchive<RS>,
-) -> Result<Option<Vec<(String, Vec<u8>)>>, OdsError> {
+) -> Result<Option<PictureData>, OdsError> {
     let mut pics = Vec::new();
     for i in 0..zip.len() {
         let mut zfile = zip.by_index(i)?;

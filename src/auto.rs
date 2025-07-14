@@ -3,7 +3,7 @@
 use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
-    open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
+    open_workbook, open_workbook_from_rs, DataRef, DataWithFormatting, HeaderRow, Metadata, Ods, Range, Reader,
     ReaderRef, Xls, Xlsb, Xlsx,
 };
 use std::borrow::Cow;
@@ -124,7 +124,7 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error> {
+    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataWithFormatting>, Self::Error> {
         match self {
             Sheets::Xls(ref mut e) => e.worksheet_range(name).map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsx),
@@ -134,7 +134,7 @@ where
     }
 
     /// Read worksheet formula in corresponding worksheet path
-    fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Self::Error> {
+    fn worksheet_formula(&mut self, name: &str) -> Result<Range<DataWithFormatting>, Self::Error> {
         match self {
             Sheets::Xls(ref mut e) => e.worksheet_formula(name).map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsx),
@@ -143,7 +143,7 @@ where
         }
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataWithFormatting>)> {
         match self {
             Sheets::Xls(ref mut e) => e.worksheets(),
             Sheets::Xlsx(ref mut e) => e.worksheets(),
