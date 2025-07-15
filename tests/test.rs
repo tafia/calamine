@@ -2164,6 +2164,17 @@ fn test_xlsx_case_insensitive_part_name() {
     range_eq!(range, expected_range);
 }
 
+// Test for issue #419 in Xlsb file. See the previous test for the details.
+#[test]
+fn test_xlsb_case_insensitive_part_name() {
+    let mut xlsb: Xlsb<_> = wb("issue_419.xlsb");
+
+    let range = xlsb.worksheet_range("Sheet1").unwrap();
+    let expected_range = [[String("Hello".to_string())]];
+
+    range_eq!(range, expected_range);
+}
+
 // Test for issue #530 where the part names in the xlsx file use a Windows-style
 // backslash. For example "xl\_rels\workbook.xml.rels" instead of
 // "xl/_rels/workbook.xml.rels".

@@ -1418,7 +1418,7 @@ pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError>
 // Convert an Excel Open Packaging "Part" path like "xl/sharedStrings.xml" to
 // the equivalent path/filename in the zip file. The file name in the zip file
 // may be a case-insensitive version of the target path and may use backslashes.
-fn path_to_zip_path<RS: Read + Seek>(zip: &ZipArchive<RS>, path: &str) -> String {
+pub(crate) fn path_to_zip_path<RS: Read + Seek>(zip: &ZipArchive<RS>, path: &str) -> String {
     for zip_path in zip.file_names() {
         let normalized_path = zip_path.replace('\\', "/");
 
