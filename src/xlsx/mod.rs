@@ -1096,11 +1096,9 @@ fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
 ) -> Option<Result<XlReader<'a, RS>, XlsxError>> {
-    let actual_path = zip
-        .file_names()
-        .find(|n| n.eq_ignore_ascii_case(path))?
-        .to_owned();
-    match zip.by_name(&actual_path) {
+    let zip_path = path_to_zip_path(zip, path);
+
+    match zip.by_name(&zip_path) {
         Ok(f) => {
             let mut r = XmlReader::from_reader(BufReader::new(f));
             let config = r.config_mut();
@@ -1417,6 +1415,24 @@ pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError>
     Ok(cell.concat())
 }
 
+// Convert an Excel Open Packaging "Part" path like "xl/sharedStrings.xml" to
+// the equivalent path/filename in the zip file. The file name in the zip file
+// may be a case-insensitive version of the target path and may use backslashes.
+fn path_to_zip_path<RS: Read + Seek>(zip: &ZipArchive<RS>, path: &str) -> String {
+    for zip_path in zip.file_names() {
+        let normalized_path = zip_path.replace('\\', "/");
+
+        if path.eq_ignore_ascii_case(&normalized_path) {
+            return zip_path.to_string();
+        }
+    }
+
+    path.to_string()
+}
+
+// -----------------------------------------------------------------------
+// Unit tests for Xlsx.
+// -----------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;

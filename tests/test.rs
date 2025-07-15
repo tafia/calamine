@@ -2163,3 +2163,11 @@ fn test_xlsx_case_insensitive_part_name() {
 
     range_eq!(range, expected_range);
 }
+
+// Test for issue #530 where the part names in the xlsx file use a Windows-style
+// backslash. For example "xl\_rels\workbook.xml.rels" instead of
+// "xl/_rels/workbook.xml.rels".
+#[test]
+fn test_xlsx_backward_slash_part_name() {
+    let _: Xlsx<_> = wb("issue_530.xlsx");
+}
