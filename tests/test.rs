@@ -2149,3 +2149,17 @@ fn test_oom_allocation() {
     assert_eq!(ws.len(), 1);
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
 }
+
+// Test for issue #419 where the part name is sentence case instead of camel
+// case. The test file contains a sub-file called "xl/SharedStrings.xml" (note
+// the uppercase S in Shared). This is allowed by "Office Open XML File Formats
+// — Open Packaging Conventions" 6.2.2.3.
+#[test]
+fn test_xlsx_case_insensitive_part_name() {
+    let mut xlsx: Xlsx<_> = wb("issue_419.xlsx");
+
+    let range = xlsx.worksheet_range("Sheet1").unwrap();
+    let expected_range = [[String("Hello".to_string())]];
+
+    range_eq!(range, expected_range);
+}
