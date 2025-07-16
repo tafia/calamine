@@ -5,6 +5,30 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2025-07-XX - Draft
+
+### Added
+
+- Add additional documentation and examples for the `Range`, `Cell`, `XlsxError`
+  and `Table` structs, and `Xlsx` Table and Merge methods. Issue #459
+
+### Changed
+
+- Pin zip.rs to v4.2.0.
+
+  The current latest release of `zip.rs`, v4.3.0, requires a MSRV of v1.85.0.
+  This release pins `zip.rs` to v4.2.0 to allow users to maintain a MSRV of
+  v1.73.0 for at least one more release. It is likely that `calamine` v0.30.0 or
+  later will move back to the latest `zip.rs` v4.x and require rustc v1.85.0.
+
+### Fixed
+
+- Fixed issue where XLSX files had Windows style directory separators for
+  internal paths instead of the required Unix style separators. Issue #530.
+- Fixed several XLS parsing issues which could lead to out-of-memory errors. PR
+  #525.
+- Fixed numeric underflow in `Xlsx::from_sparse()` and also ensured that the
+  associated `Range` of cells would be in row-column order. PR #524.
 
 ## [0.28.0] - 2025-06-19
 
@@ -21,9 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bump dependencies.
-
-### Fixed
-
 - (xls): Invalid formats parsing.
 - Always parse string cell as string.
 - Pin zip crate to 2.5.

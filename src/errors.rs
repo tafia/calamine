@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 //! A module to provide a convenient wrapper around all error types
 
 /// A struct to handle any error and a message

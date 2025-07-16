@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 //! A module to parse Open Document Spreadsheets
 //!
 /// # Reference

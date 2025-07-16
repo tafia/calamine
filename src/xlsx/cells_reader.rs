@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,

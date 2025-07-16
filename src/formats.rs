@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 use crate::datatype::{Data, DataRef, ExcelDateTime, ExcelDateTimeType};
 
 #[derive(Debug, Clone, Copy, PartialEq)]

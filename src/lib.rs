@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 //! Rust Excel/`OpenDocument` reader
 //!
 //! # Status
@@ -18,8 +22,7 @@
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
 //!     let total_cells = range.get_size().0 * range.get_size().1;
 //!     let non_empty_cells: usize = range.used_cells().count();
-//!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
-//!              total_cells, non_empty_cells);
+//!     println!("Found {total_cells} cells in 'Sheet1', including {non_empty_cells} non empty cells");
 //!     // alternatively, we can manually filter rows
 //!     assert_eq!(non_empty_cells, range.rows()
 //!         .flat_map(|r| r.iter().filter(|&c| c != &Data::Empty)).count());
@@ -30,7 +33,7 @@
 //!     let vba = vba.to_mut();
 //!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
-//!     println!("{}", module1);
+//!     println!("{module1}");
 //!     for r in vba.get_references() {
 //!         if r.is_missing() {
 //!             println!("Reference {} is broken or not accessible", r.name);
@@ -55,7 +58,6 @@
 //!              s);
 //! }
 //! ```
-#![deny(missing_docs)]
 
 #[macro_use]
 mod utils;
@@ -371,17 +373,80 @@ impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 
-/// A struct to hold cell position and value
+// -----------------------------------------------------------------------
+// The `Cell` struct.
+// -----------------------------------------------------------------------
+
+/// A struct to hold a cell position and value.
+///
+/// A `Cell` is a fundamental worksheet type that is used to create a [`Range`].
+/// It contains a position and a value.
+///
+/// # Examples
+///
+/// An example of creating a range of `Cell`s and iterating over them.
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Iterate over the cells in the range.
+/// for (row, col, data) in range.cells() {
+///     println!("({row}, {col}): {data}");
+/// }
+///
+/// ```
+///
+/// Output:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (1, 0):
+/// (1, 1):
+/// (2, 0): 3
+/// (2, 1):
+/// ```
+///
 #[derive(Debug, Clone)]
 pub struct Cell<T: CellType> {
-    /// Position for the cell (row, column)
+    // The position for the cell (row, column).
     pos: (u32, u32),
-    /// Value for the cell
+
+    // The [`CellType`] value of the cell.
     val: T,
 }
 
 impl<T: CellType> Cell<T> {
-    /// Creates a new `Cell`
+    /// Creates a new `Cell` instance.
+    ///
+    /// # Parameters
+    ///
+    /// - `position`: A tuple representing the cell's position in the form of
+    ///   `(row, column)`.
+    /// - `value`: The value of the cell, which must implement the [`CellType`]
+    ///   trait.
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a new `Cell` instance.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    ///
+    /// assert_eq!(&Data::Int(42), cell.get_value());
+    /// ```
+    ///
     pub fn new(position: (u32, u32), value: T) -> Cell<T> {
         Cell {
             pos: position,
@@ -389,16 +454,46 @@ impl<T: CellType> Cell<T> {
         }
     }
 
-    /// Gets `Cell` position
+    /// Gets `Cell` position.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting a `Cell` position `(row, column)`.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    ///
+    /// assert_eq!((1, 2), cell.get_position());
+    /// ```
+    ///
     pub fn get_position(&self) -> (u32, u32) {
         self.pos
     }
 
-    /// Gets `Cell` value
+    /// Gets `Cell` value.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting a `Cell` value.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    ///
+    /// assert_eq!(&Data::Int(42), cell.get_value());
+    /// ```
+    ///
     pub fn get_value(&self) -> &T {
         &self.val
     }
 }
+
+// -----------------------------------------------------------------------
+// The `Range` struct.
+// -----------------------------------------------------------------------
 
 /// A struct which represents an area of cells and the data within it.
 ///
@@ -474,8 +569,6 @@ impl<T: CellType> Range<T> {
     /// An example of creating a new calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_new.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// // Create a 8x1 Range.
@@ -509,8 +602,6 @@ impl<T: CellType> Range<T> {
     /// An example of creating a new empty calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_empty.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::empty();
@@ -539,8 +630,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting the start position of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_start.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::new((2, 3), (9, 3));
@@ -569,8 +658,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting the end position of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_end.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::new((2, 3), (9, 3));
@@ -597,8 +684,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting the column width of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_width.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::new((2, 3), (9, 3));
@@ -625,8 +710,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting the row height of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_height.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::new((2, 3), (9, 3));
@@ -650,8 +733,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting the (height, width) size of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_size.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::new((2, 3), (9, 3));
@@ -671,8 +752,6 @@ impl<T: CellType> Range<T> {
     /// An example of checking if a calamine `Range` is empty.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_empty.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range: Range<Data> = Range::empty();
@@ -701,8 +780,6 @@ impl<T: CellType> Range<T> {
     /// Cells.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_from_sparse.rs
-    /// #
     /// use calamine::{Cell, Data, Range};
     ///
     /// let cells = vec![
@@ -779,8 +856,6 @@ impl<T: CellType> Range<T> {
     /// An example of setting a value in a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_set_value.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let mut range = Range::new((0, 0), (5, 2));
@@ -863,8 +938,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting a value in a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_get_value.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let range = Range::new((1, 1), (5, 5));
@@ -906,8 +979,6 @@ impl<T: CellType> Range<T> {
     /// positioning.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_get.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// let mut range = Range::new((1, 1), (5, 5));
@@ -936,8 +1007,6 @@ impl<T: CellType> Range<T> {
     /// An example of using a `Row` iterator with a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_rows.rs
-    /// #
     /// use calamine::{Cell, Data, Range};
     ///
     /// let cells = vec![
@@ -957,14 +1026,17 @@ impl<T: CellType> Range<T> {
     ///     }
     /// }
     ///
-    /// // Output in relative coordinates:
-    /// //
-    /// // (0, 0): 1
-    /// // (0, 1): 2
-    /// // (1, 0):
-    /// // (1, 1):
-    /// // (2, 0): 3
-    /// // (2, 1):
+    /// ```
+    ///
+    /// Output in relative coordinates:
+    ///
+    /// ```text
+    /// (0, 0): 1
+    /// (0, 1): 2
+    /// (1, 0):
+    /// (1, 1):
+    /// (2, 0): 3
+    /// (2, 1):
     /// ```
     ///
     pub fn rows(&self) -> Rows<'_, T> {
@@ -991,8 +1063,6 @@ impl<T: CellType> Range<T> {
     /// An example of iterating over the used cells in a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_used_cells.rs
-    /// #
     /// use calamine::{Cell, Data, Range};
     ///
     /// let cells = vec![
@@ -1008,12 +1078,14 @@ impl<T: CellType> Range<T> {
     /// for (row, col, data) in range.used_cells() {
     ///     println!("({row}, {col}): {data}");
     /// }
+    /// ```
     ///
-    /// // Output:
-    /// //
-    /// // (0, 0): 1
-    /// // (0, 1): 2
-    /// // (2, 0): 3
+    /// Output:
+    ///
+    /// ```text
+    /// (0, 0): 1
+    /// (0, 1): 2
+    /// (2, 0): 3
     /// ```
     ///
     pub fn used_cells(&self) -> UsedCells<'_, T> {
@@ -1035,8 +1107,6 @@ impl<T: CellType> Range<T> {
     /// An example of iterating over the used cells in a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_cells.rs
-    /// #
     /// use calamine::{Cell, Data, Range};
     ///
     /// let cells = vec![
@@ -1052,15 +1122,17 @@ impl<T: CellType> Range<T> {
     /// for (row, col, data) in range.cells() {
     ///     println!("({row}, {col}): {data}");
     /// }
+    /// ```
     ///
-    /// // Output:
-    /// //
-    /// // (0, 0): 1
-    /// // (0, 1): 2
-    /// // (1, 0):
-    /// // (1, 1):
-    /// // (2, 0): 3
-    /// // (2, 1):
+    /// Output:
+    ///
+    /// ```text
+    /// (0, 0): 1
+    /// (0, 1): 2
+    /// (1, 0):
+    /// (1, 1):
+    /// (2, 0): 3
+    /// (2, 1):
     /// ```
     ///
     pub fn cells(&self) -> Cells<'_, T> {
@@ -1103,12 +1175,10 @@ impl<T: CellType> Range<T> {
     /// ```
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_deserialize.rs
-    /// #
     /// use calamine::{open_workbook, Error, Reader, Xlsx};
     ///
     /// fn main() -> Result<(), Error> {
-    ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let path = "tests/temperature.xlsx";
     ///
     ///     // Open the workbook.
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
@@ -1154,8 +1224,6 @@ impl<T: CellType> Range<T> {
     /// An example of getting a sub range of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_range.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// // Create a range with some values.
@@ -1246,8 +1314,6 @@ impl<T: CellType + fmt::Display> Range<T> {
     /// An example of getting the header row of a calamine `Range`.
     ///
     /// ```
-    /// # // This code is available in examples/doc_range_headers.rs
-    /// #
     /// use calamine::{Data, Range};
     ///
     /// // Create a range with some values.
@@ -1283,8 +1349,6 @@ impl<T: CellType + fmt::Display> Range<T> {
 /// An example of row indexing for a calamine `Range`.
 ///
 /// ```
-/// # // This code is available in examples/doc_range_index_row.rs
-/// #
 /// use calamine::{Data, Range};
 ///
 /// // Create a range with a value.
@@ -1310,8 +1374,6 @@ impl<T: CellType> Index<usize> for Range<T> {
 /// An example of cell indexing for a calamine `Range`.
 ///
 /// ```
-/// # // This code is available in examples/doc_range_index_cell.rs
-/// #
 /// use calamine::{Data, Range};
 ///
 /// // Create a range with a value.
@@ -1346,8 +1408,6 @@ impl<T: CellType> IndexMut<usize> for Range<T> {
 /// An example of mutable cell indexing for a calamine `Range`.
 ///
 /// ```
-/// # // This code is available in examples/doc_range_index_mut_cell.rs
-/// #
 /// use calamine::{Data, Range};
 ///
 /// // Create a new empty range.
@@ -1368,7 +1428,47 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
     }
 }
 
-/// A struct to iterate over all cells
+// -----------------------------------------------------------------------
+// Range Iterators.
+// -----------------------------------------------------------------------
+
+/// A struct to iterate over all `Cell`s in a `Range`.
+///
+/// # Examples
+///
+/// An example iterating over the cells in a calamine range using the `Cells`
+/// iterator returned by [`Range::cells()`].
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Use the Cells iterator returned by Range::cells().
+/// for (row, col, data) in range.cells() {
+///     println!("({row}, {col}): {data}");
+/// }
+///
+/// ```
+///
+/// Output:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (1, 0):
+/// (1, 1):
+/// (2, 0): 3
+/// (2, 1):
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct Cells<'a, T: CellType> {
     width: usize,
@@ -1401,7 +1501,40 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Cells<'a, T> {
 
 impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 
-/// A struct to iterate over used cells
+/// A struct to iterate over all the used `Cell`s in a `Range`.
+///
+/// # Examples
+///
+/// An example iterating over the used cells in a calamine range using the
+/// `UsedCells` iterator returned by [`Range::used_cells()`].
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Use the UsedCells iterator returned by Range::used_cells().
+/// for (row, col, data) in range.used_cells() {
+///     println!("({row}, {col}): {data}");
+/// }
+///
+/// ```
+///
+/// Output:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (2, 0): 3
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct UsedCells<'a, T: CellType> {
     width: usize,
@@ -1439,7 +1572,45 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
     }
 }
 
-/// An iterator to read `Range` struct row by row
+/// A struct to iterate over all `Rows`s in a `Range`.
+///
+/// # Examples
+///
+/// An example iterating over the rows in a calamine range using the `Rows`
+/// iterator returned by [`Range::rows()`].
+///
+/// ```
+/// use calamine::{Cell, Data, Range};
+///
+/// let cells = vec![
+///     Cell::new((1, 1), Data::Int(1)),
+///     Cell::new((1, 2), Data::Int(2)),
+///     Cell::new((3, 1), Data::Int(3)),
+/// ];
+///
+/// // Create a Range from the cells.
+/// let range = Range::from_sparse(cells);
+///
+/// // Use the Rows iterator returned by Range::rows().
+/// for (row_num, row) in range.rows().enumerate() {
+///     for (col_num, data) in row.iter().enumerate() {
+///         // Print the data in each cell of the row.
+///         println!("({row_num}, {col_num}): {data}");
+///     }
+/// }
+/// ```
+///
+/// Output in relative coordinates:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): 2
+/// (1, 0):
+/// (1, 1):
+/// (2, 0): 3
+/// (2, 1):
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct Rows<'a, T: CellType> {
     inner: Option<std::slice::Chunks<'a, T>>,
@@ -1467,7 +1638,127 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for Rows<'a, T> {
 
 impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 
-/// Struct with the key elements of a table
+// -----------------------------------------------------------------------
+// The `Table` struct.
+// -----------------------------------------------------------------------
+
+/// The `Table` struct represents an Excel worksheet table.
+///
+/// Tables in Excel are a way of grouping a range of cells into a single entity
+/// that has common formatting or that can be referenced in formulas. In
+/// `calamine`, tables can be read and converted to a data [`Range`] for further
+/// processing.
+///
+/// Calamine does not automatically load Table data from a workbook to avoid
+/// unnecessary overhead. Instead you must explicitly load the Table data using
+/// the [`Xlsx::load_tables()`](crate::Xlsx::load_tables) method. Once the
+/// tables have been loaded the following methods can be used to extract and
+/// work with individual tables:
+///
+/// - [`Xlsx::table_by_name()`](crate::Xlsx::table_by_name).
+/// - [`Xlsx::table_by_name_ref()`](crate::Xlsx::table_by_name_ref).
+/// - [`Xlsx::table_names()`](crate::Xlsx::table_names).
+/// - [`Xlsx::table_names_in_sheet()`](crate::Xlsx::table_names_in_sheet).
+///
+/// Note, these methods are only available for the [`Xlsx`] struct since Tables
+/// are a feature of the xlsx/xlsb format. They are not currently implemented
+/// for [`Xlsb`].
+///
+/// Once you have a `Table` instance, you can access its properties and data
+/// using the methods below.
+///
+/// # Examples
+///
+/// An example of reading the data from an Excel worksheet Table using the
+/// `calamine` crate.
+///
+/// The sample Excel file `inventory-table.xlsx` contains a single sheet named
+/// "Sheet1" with the following data laid out in a worksheet Table called
+/// "Table1":
+///
+/// ```text
+///  _____________________________________________________________
+/// |         ||                |                |                |
+/// |         ||       A        |       B        |       C        |
+/// |_________||________________|________________|________________|
+/// |    1    || Item           | Type           | Quantity       |
+/// |_________||________________|________________|________________|
+/// |    2    ||              1 | Apple          |             50 |
+/// |_________||________________|________________|________________|
+/// |    3    ||              2 | Banana         |            200 |
+/// |_________||________________|________________|________________|
+/// |    4    ||              3 | Orange         |             60 |
+/// |_________||________________|________________|________________|
+/// |    5    ||              4 | Pear           |            100 |
+/// |_________||________________|________________|________________|
+/// |_          __________________________________________________|
+///   \ Sheet1 /
+///     ------
+/// ```
+///
+/// ```
+/// use calamine::{open_workbook, Error, Xlsx};
+///
+/// fn main() -> Result<(), Error> {
+///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+///
+///     // Open the workbook.
+///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+///
+///     // Load the tables in the workbook.
+///     workbook.load_tables()?;
+///
+///     // Get the table by name.
+///     let table = workbook.table_by_name("Table1")?;
+///
+///     // Check the table's name.
+///     let table_name = table.name();
+///     assert_eq!(table_name, "Table1");
+///
+///     // Check that it came from Sheet1.
+///     let sheet_name = table.sheet_name();
+///     assert_eq!(sheet_name, "Sheet1");
+///
+///     // Get the table column headers.
+///     let columns_headers = table.columns();
+///     assert_eq!(columns_headers, vec!["Item", "Type", "Quantity"]);
+///
+///     // Get the table data range (without the headers).
+///     let data = table.data();
+///
+///     // Iterate over the rows of the data range.
+///     for (row_num, row) in data.rows().enumerate() {
+///         for (col_num, data) in row.iter().enumerate() {
+///             // Print the data in each cell of the row.
+///             println!("({row_num}, {col_num}): {data}");
+///         }
+///         println!();
+///     }
+///
+///     Ok(())
+/// }
+/// ```
+///
+/// Output in relative coordinates:
+///
+/// ```text
+/// (0, 0): 1
+/// (0, 1): Apple
+/// (0, 2): 50
+///
+/// (1, 0): 2
+/// (1, 1): Banana
+/// (1, 2): 200
+///
+/// (2, 0): 3
+/// (2, 1): Orange
+/// (2, 2): 60
+///
+/// (3, 0): 4
+/// (3, 1): Pear
+/// (3, 2): 100
+/// ```
+///
 pub struct Table<T> {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
@@ -1475,24 +1766,197 @@ pub struct Table<T> {
     pub(crate) data: Range<T>,
 }
 impl<T> Table<T> {
-    /// Get the name of the table
+    /// Get the name of the table.
+    ///
+    /// Tables in Excel have sequentially assigned names like "Table1",
+    /// "Table2", etc. but can also have used assigned names.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the name of an Excel worksheet Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Check the table's name.
+    ///     let table_name = table.name();
+    ///     assert_eq!(table_name, "Table1");
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn name(&self) -> &str {
         &self.name
     }
-    /// Get the name of the sheet that table exists within
+    /// Get the name of the parent worksheet for a table.
+    ///
+    /// This method returns the name of the parent worksheet that contains the
+    /// table.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the parent worksheet name for an Excel worksheet
+    /// Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Check that it came from Sheet1.
+    ///     let sheet_name = table.sheet_name();
+    ///     assert_eq!(sheet_name, "Sheet1");
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn sheet_name(&self) -> &str {
         &self.sheet_name
     }
-    /// Get the names of the columns in the order they occur
+
+    /// Get the header names of the table columns.
+    ///
+    /// This method returns a slice of strings representing the names of the
+    /// column headers in the table.
+    ///
+    /// In Excel table headers can be hidden but the table will still have
+    /// column header names.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the column headers for an Excel worksheet Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Get the table column headers.
+    ///     let columns_headers = table.columns();
+    ///     assert_eq!(columns_headers, vec!["Item", "Type", "Quantity"]);
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn columns(&self) -> &[String] {
         &self.columns
     }
-    /// Get a range representing the data from the table (excludes column headers)
+
+    /// Get a range representing the data from the table
+    ///
+    /// This method returns a reference to the data [`Range`] of the table,
+    ///
+    /// Note that the data range excludes the column headers.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the data range of an Excel worksheet Table.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Data, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the tables in the workbook.
+    ///     workbook.load_tables()?;
+    ///
+    ///     // Get the table by name.
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///
+    ///     // Get the data range of the table.
+    ///     let data_range = table.data();
+    ///
+    ///     // Check one of the values in the data range. Note the relative
+    ///     // positioning within the range returned by the `get()` method.
+    ///     assert_eq!(
+    ///         data_range.get((0, 1)),
+    ///         Some(&Data::String("Apple".to_string()))
+    ///     );
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn data(&self) -> &Range<T> {
         &self.data
     }
 }
 
+/// Convert a `Table<T>` into a `Range<T>`.
+///
+/// # Examples
+///
+/// An example of getting the data range of an Excel worksheet Table via the
+/// `From/Into` trait.
+///
+/// ```
+/// use calamine::{open_workbook, Data, Error, Range, Xlsx};
+///
+/// fn main() -> Result<(), Error> {
+///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+///
+///     // Open the workbook.
+///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+///
+///     // Load the tables in the workbook.
+///     workbook.load_tables()?;
+///
+///     // Get the table by name.
+///     let table = workbook.table_by_name("Table1")?;
+///
+///     // Convert the table into a data range using the `From/Into` trait.
+///     let data_range: Range<Data> = table.into();
+///
+///     // Check one of the values in the data range. Note the relative
+///     // positioning within the range returned by the `get()` method.
+///     assert_eq!(
+///         data_range.get((0, 1)),
+///         Some(&Data::String("Apple".to_string()))
+///     );
+///
+///     Ok(())
+/// }
+/// ```
+///
 impl<T: CellType> From<Table<T>> for Range<T> {
     fn from(table: Table<T>) -> Range<T> {
         table.data

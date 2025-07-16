@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
@@ -172,7 +176,7 @@ impl<RS: Read + Seek> Xls<RS> {
     /// ```
     /// use calamine::{Xls,XlsOptions};
     /// # use std::io::Cursor;
-    /// # const BYTES: &'static [u8] = b"";
+    /// # const BYTES: &[u8] = b"";
     ///
     /// # fn run() -> Result<Xls<Cursor<&'static [u8]>>, calamine::XlsError> {
     /// # let reader = std::io::Cursor::new(BYTES);

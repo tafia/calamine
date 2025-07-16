@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 //! Parse vbaProject.bin file
 //!
 //! Retranscription from [`OfficeParser`].
@@ -150,9 +154,9 @@ impl VbaProject {
     ///     let modules = vba.get_module_names().into_iter()
     ///                      .map(|s| s.to_string()).collect::<Vec<_>>();
     ///     for m in modules {
-    ///         println!("Module {}:", m);
+    ///         println!("Module {m}:");
     ///         println!("{}", vba.get_module(&m)
-    ///                           .expect(&format!("cannot read {:?} module", m)));
+    ///                           .unwrap_or_else(|_| panic!("cannot read {m:?} module")));
     ///     }
     /// }
     /// ```
