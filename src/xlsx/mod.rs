@@ -768,7 +768,24 @@ impl<RS: Read + Seek> Xlsx<RS> {
         })
     }
 
-    /// Load the merged regions
+    /// Load the merged regions in the workbook.
+    ///
+    /// A merged region in Excel is a range of cells that have been merged to
+    /// act as a single cell. It is often used to create headers or titles that
+    /// span multiple columns or rows.
+    ///
+    /// This method must be called before accessing the merged regions using the
+    /// methods:
+    ///
+    /// - [`Xlsx::merged_regions()`].
+    /// - [`Xlsx::merged_regions_by_sheet()`].
+    ///
+    /// These methods are explained below.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::Xml`].
+    ///
     pub fn load_merged_regions(&mut self) -> Result<(), XlsxError> {
         if self.merged_regions.is_none() {
             self.read_merged_regions()
@@ -777,14 +794,143 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
     }
 
-    /// Get the merged regions of all the sheets
+    /// Get the merged regions for all the worksheets in a workbook.
+    ///
+    /// The function returns a ref to a vector of tuples containing the sheet
+    /// name, the sheet path, and the [`Dimensions`] of the merged region. The
+    /// middle element of the tuple can generally be ignored.
+    ///
+    /// The [`Xlsx::load_merged_regions()`] method must be called before calling
+    /// this method.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting all the merged regions in an Excel workbook.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Load the merged regions in the workbook.
+    ///     workbook.load_merged_regions()?;
+    ///
+    ///     // Get all the merged regions in the workbook.
+    ///     let merged_regions = workbook.merged_regions();
+    ///
+    ///     // Print the sheet name and dimensions of each merged region.
+    ///     for (sheet_name, _, dimensions) in merged_regions {
+    ///         println!("{sheet_name}: {dimensions:?}");
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    ///
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Sheet1: Dimensions { start: (0, 7), end: (1, 7) }
+    /// Sheet1: Dimensions { start: (0, 0), end: (1, 0) }
+    /// Sheet1: Dimensions { start: (0, 1), end: (1, 1) }
+    /// Sheet1: Dimensions { start: (0, 2), end: (1, 3) }
+    /// Sheet1: Dimensions { start: (2, 2), end: (2, 3) }
+    /// Sheet1: Dimensions { start: (3, 2), end: (3, 3) }
+    /// Sheet1: Dimensions { start: (0, 4), end: (1, 4) }
+    /// Sheet1: Dimensions { start: (0, 5), end: (1, 5) }
+    /// Sheet1: Dimensions { start: (0, 6), end: (1, 6) }
+    /// Sheet2: Dimensions { start: (0, 0), end: (3, 0) }
+    /// Sheet2: Dimensions { start: (2, 2), end: (3, 3) }
+    /// Sheet2: Dimensions { start: (0, 5), end: (3, 7) }
+    /// Sheet2: Dimensions { start: (0, 1), end: (1, 1) }
+    /// Sheet2: Dimensions { start: (0, 2), end: (1, 3) }
+    /// Sheet2: Dimensions { start: (0, 4), end: (1, 4) }
+    /// ```
+    ///
     pub fn merged_regions(&self) -> &Vec<(String, String, Dimensions)> {
         self.merged_regions
             .as_ref()
             .expect("Merged Regions must be loaded before the are referenced")
     }
 
-    /// Get the merged regions by sheet name
+    /// Get the merged regions in a workbook by the sheet name.
+    ///
+    /// The function returns a vector of tuples containing the sheet name, the
+    /// sheet path, and the [`Dimensions`] of the merged region. The first two
+    /// elements of the tuple can generally be ignored.
+    ///
+    /// The [`Xlsx::load_merged_regions()`] method must be called before calling
+    /// this method.
+    ///
+    /// # Parameters
+    ///
+    /// - `sheet_name`: The name of the worksheet to get the merged regions from.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the merged regions in an Excel workbook, by individual
+    /// worksheet.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Reader, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the names of all the sheets in the workbook.
+    ///     let sheet_names = workbook.sheet_names();
+    ///
+    ///     // Load the merged regions in the workbook.
+    ///     workbook.load_merged_regions()?;
+    ///
+    ///     for sheet_name in &sheet_names {
+    ///         println!("{sheet_name}: ");
+    ///
+    ///         // Get the merged regions in the current sheet.
+    ///         let merged_regions = workbook.merged_regions_by_sheet(sheet_name);
+    ///
+    ///         for (_, _, dimensions) in &merged_regions {
+    ///             // Print the dimensions of each merged region.
+    ///             println!("    {dimensions:?}");
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    ///
+    /// ```
+    ///
+    /// Output:
+    ///
+    ///
+    /// ```text
+    /// Sheet1:
+    ///     Dimensions { start: (0, 7), end: (1, 7) }
+    ///     Dimensions { start: (0, 0), end: (1, 0) }
+    ///     Dimensions { start: (0, 1), end: (1, 1) }
+    ///     Dimensions { start: (0, 2), end: (1, 3) }
+    ///     Dimensions { start: (2, 2), end: (2, 3) }
+    ///     Dimensions { start: (3, 2), end: (3, 3) }
+    ///     Dimensions { start: (0, 4), end: (1, 4) }
+    ///     Dimensions { start: (0, 5), end: (1, 5) }
+    ///     Dimensions { start: (0, 6), end: (1, 6) }
+    /// Sheet2:
+    ///     Dimensions { start: (0, 0), end: (3, 0) }
+    ///     Dimensions { start: (2, 2), end: (3, 3) }
+    ///     Dimensions { start: (0, 5), end: (3, 7) }
+    ///     Dimensions { start: (0, 1), end: (1, 1) }
+    ///     Dimensions { start: (0, 2), end: (1, 3) }
+    ///     Dimensions { start: (0, 4), end: (1, 4) }
+    /// ```
+    ///
     pub fn merged_regions_by_sheet(&self, name: &str) -> Vec<(&String, &String, &Dimensions)> {
         self.merged_regions()
             .iter()
@@ -1088,7 +1234,84 @@ impl<RS: Read + Seek> Xlsx<RS> {
         })
     }
 
-    /// Gets the worksheet merge cell dimensions
+    /// Get the merged cells/regions in a workbook by the sheet name.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] of the merged region.
+    /// This is wrapped in a [`Result`] and an [`Option`].
+    ///
+    /// # Parameters
+    ///
+    /// - `sheet_name`: The name of the worksheet to get the merged regions
+    ///   from.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::Xml`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the merged regions/cells in an Excel workbook, by
+    /// individual worksheet.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Reader, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the names of all the sheets in the workbook.
+    ///     let sheet_names = workbook.sheet_names();
+    ///
+    ///     for sheet_name in &sheet_names {
+    ///         println!("{sheet_name}: ");
+    ///
+    ///         // Get the merged cells in the current sheet.
+    ///         let merge_cells = workbook.worksheet_merge_cells(sheet_name);
+    ///
+    ///         if let Some(dimensions) = merge_cells {
+    ///             let dimensions = dimensions?;
+    ///
+    ///             // Print the dimensions of each merged region.
+    ///             for dimension in &dimensions {
+    ///                 println!("    {dimension:?}");
+    ///             }
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    ///
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Sheet1:
+    ///     Dimensions { start: (0, 7), end: (1, 7) }
+    ///     Dimensions { start: (0, 0), end: (1, 0) }
+    ///     Dimensions { start: (0, 1), end: (1, 1) }
+    ///     Dimensions { start: (0, 2), end: (1, 3) }
+    ///     Dimensions { start: (2, 2), end: (2, 3) }
+    ///     Dimensions { start: (3, 2), end: (3, 3) }
+    ///     Dimensions { start: (0, 4), end: (1, 4) }
+    ///     Dimensions { start: (0, 5), end: (1, 5) }
+    ///     Dimensions { start: (0, 6), end: (1, 6) }
+    /// Sheet2:
+    ///     Dimensions { start: (0, 0), end: (3, 0) }
+    ///     Dimensions { start: (2, 2), end: (3, 3) }
+    ///     Dimensions { start: (0, 5), end: (3, 7) }
+    ///     Dimensions { start: (0, 1), end: (1, 1) }
+    ///     Dimensions { start: (0, 2), end: (1, 3) }
+    ///     Dimensions { start: (0, 4), end: (1, 4) }
+    /// ```
+    ///
     pub fn worksheet_merge_cells(
         &mut self,
         name: &str,
@@ -1122,16 +1345,77 @@ impl<RS: Read + Seek> Xlsx<RS> {
         })
     }
 
-    /// Get the nth worksheet. Shortcut for getting the nth
-    /// sheet name, then the corresponding worksheet.
+    /// Get the merged cells/regions in a workbook by the sheet index.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] of the merged region.
+    /// This is wrapped in a [`Result`] and an [`Option`].
+    ///
+    /// # Parameters
+    ///
+    /// - `sheet_index`: The zero index of the worksheet to get the merged
+    ///   regions from.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::Xml`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the merged regions/cells in an Excel workbook, by
+    /// worksheet index.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the merged cells in the first worksheet.
+    ///     let merge_cells = workbook.worksheet_merge_cells_at(0);
+    ///
+    ///     if let Some(dimensions) = merge_cells {
+    ///         let dimensions = dimensions?;
+    ///
+    ///         // Print the dimensions of each merged region.
+    ///         for dimension in &dimensions {
+    ///             println!("{dimension:?}");
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    ///
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Dimensions { start: (0, 7), end: (1, 7) }
+    /// Dimensions { start: (0, 0), end: (1, 0) }
+    /// Dimensions { start: (0, 1), end: (1, 1) }
+    /// Dimensions { start: (0, 2), end: (1, 3) }
+    /// Dimensions { start: (2, 2), end: (2, 3) }
+    /// Dimensions { start: (3, 2), end: (3, 3) }
+    /// Dimensions { start: (0, 4), end: (1, 4) }
+    /// Dimensions { start: (0, 5), end: (1, 5) }
+    /// Dimensions { start: (0, 6), end: (1, 6) }
+    /// ```
+    ///
     pub fn worksheet_merge_cells_at(
         &mut self,
-        n: usize,
+        sheet_index: usize,
     ) -> Option<Result<Vec<Dimensions>, XlsxError>> {
         let name = self
             .metadata()
             .sheets
-            .get(n)
+            .get(sheet_index)
             .map(|sheet| sheet.name.clone())?;
 
         self.worksheet_merge_cells(&name)
