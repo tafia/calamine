@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 use std::fmt;
 #[cfg(feature = "dates")]
 use std::sync::OnceLock;

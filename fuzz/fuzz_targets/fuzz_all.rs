@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 use calamine::{Xlsx, open_workbook, Reader};

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;

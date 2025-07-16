@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright 2016-2025, Johann Tuffe.
+
 use calamine::{open_workbook_auto, Data, Range, Reader};
 use std::env;
 use std::fs::File;
