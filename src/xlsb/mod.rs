@@ -621,7 +621,9 @@ where
     RS: Read + Seek,
 {
     fn from_zip(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a, RS>, XlsbError> {
-        match zip.by_name(path) {
+        let zip_path = crate::xlsx::path_to_zip_path(zip, path);
+
+        match zip.by_name(&zip_path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),
                 b: [0],
