@@ -10,6 +10,7 @@ use serde::de::Visitor;
 use serde::Deserialize;
 
 use super::CellErrorType;
+use super::Style;
 
 #[cfg(feature = "dates")]
 static EXCEL_EPOCH: OnceLock<chrono::NaiveDateTime> = OnceLock::new();
@@ -20,6 +21,67 @@ const EXCEL_1900_1904_DIFF: f64 = 1462.;
 
 #[cfg(feature = "dates")]
 const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
+
+/// A struct that combines cell value and style information
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CellData {
+    /// The cell value
+    pub value: Data,
+    /// The cell style
+    pub style: Option<Style>,
+}
+
+impl CellData {
+    /// Create a new CellData with just a value
+    pub fn new(value: Data) -> Self {
+        Self { value, style: None }
+    }
+
+    /// Create a new CellData with value and style
+    pub fn with_style(value: Data, style: Style) -> Self {
+        Self {
+            value,
+            style: Some(style),
+        }
+    }
+
+    /// Get the cell value
+    pub fn get_value(&self) -> &Data {
+        &self.value
+    }
+
+    /// Get the cell style
+    pub fn get_style(&self) -> Option<&Style> {
+        self.style.as_ref()
+    }
+
+    /// Set the cell style
+    pub fn set_style(&mut self, style: Style) {
+        self.style = Some(style);
+    }
+
+    /// Remove the cell style
+    pub fn remove_style(&mut self) {
+        self.style = None;
+    }
+
+    /// Check if the cell has style information
+    pub fn has_style(&self) -> bool {
+        self.style.is_some()
+    }
+}
+
+impl From<Data> for CellData {
+    fn from(value: Data) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<CellData> for Data {
+    fn from(cell_data: CellData) -> Self {
+        cell_data.value
+    }
+}
 
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
@@ -878,5 +940,88 @@ mod tests {
         assert_eq!(Data::Bool(false).as_f64(), Some(0.0));
         assert_eq!(DataRef::Bool(true).as_f64(), Some(1.0));
         assert_eq!(DataRef::Bool(false).as_f64(), Some(0.0));
+    }
+}
+
+/// An enum to represent all different data types that can appear as
+/// a value in a worksheet cell
+impl DataType for CellData {
+    fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+    fn is_int(&self) -> bool {
+        self.value.is_int()
+    }
+    fn is_float(&self) -> bool {
+        self.value.is_float()
+    }
+    fn is_bool(&self) -> bool {
+        self.value.is_bool()
+    }
+    fn is_string(&self) -> bool {
+        self.value.is_string()
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_duration_iso(&self) -> bool {
+        self.value.is_duration_iso()
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_datetime(&self) -> bool {
+        self.value.is_datetime()
+    }
+
+    #[cfg(feature = "dates")]
+    fn is_datetime_iso(&self) -> bool {
+        self.value.is_datetime_iso()
+    }
+
+    fn is_error(&self) -> bool {
+        self.value.is_error()
+    }
+
+    fn get_int(&self) -> Option<i64> {
+        self.value.get_int()
+    }
+    fn get_float(&self) -> Option<f64> {
+        self.value.get_float()
+    }
+    fn get_bool(&self) -> Option<bool> {
+        self.value.get_bool()
+    }
+    fn get_string(&self) -> Option<&str> {
+        self.value.get_string()
+    }
+
+    #[cfg(feature = "dates")]
+    fn get_datetime(&self) -> Option<ExcelDateTime> {
+        self.value.get_datetime()
+    }
+
+    #[cfg(feature = "dates")]
+    fn get_datetime_iso(&self) -> Option<&str> {
+        self.value.get_datetime_iso()
+    }
+
+    #[cfg(feature = "dates")]
+    fn get_duration_iso(&self) -> Option<&str> {
+        self.value.get_duration_iso()
+    }
+
+    fn get_error(&self) -> Option<&CellErrorType> {
+        self.value.get_error()
+    }
+
+    fn as_string(&self) -> Option<String> {
+        self.value.as_string()
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        self.value.as_i64()
+    }
+
+    fn as_f64(&self) -> Option<f64> {
+        self.value.as_f64()
     }
 }

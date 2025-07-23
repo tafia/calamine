@@ -602,6 +602,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
                                 cells.first().expect("cells should not be empty").pos.1,
                             ),
                             val: DataRef::Empty,
+                            style: None,
                         },
                     );
                 }

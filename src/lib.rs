@@ -67,6 +67,7 @@ mod cfb;
 mod datatype;
 mod formats;
 mod ods;
+mod style;
 mod xls;
 mod xlsb;
 mod xlsx;
@@ -87,10 +88,11 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 
 pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
-pub use crate::datatype::{Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeType};
+pub use crate::datatype::{CellData, Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeType};
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
+pub use crate::style::*;
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
 pub use crate::xlsx::{Xlsx, XlsxError};
@@ -372,6 +374,7 @@ impl CellType for Data {}
 impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
+impl CellType for CellData {}
 
 // -----------------------------------------------------------------------
 // The `Cell` struct.
@@ -423,6 +426,9 @@ pub struct Cell<T: CellType> {
 
     // The [`CellType`] value of the cell.
     val: T,
+
+    // The style information for the cell.
+    style: Option<Style>,
 }
 
 impl<T: CellType> Cell<T> {
@@ -451,6 +457,39 @@ impl<T: CellType> Cell<T> {
         Cell {
             pos: position,
             val: value,
+            style: None,
+        }
+    }
+
+    /// Creates a new `Cell` instance with style information.
+    ///
+    /// # Parameters
+    ///
+    /// - `position`: A tuple representing the cell's position in the form of
+    ///   `(row, column)`.
+    /// - `value`: The value of the cell, which must implement the [`CellType`]
+    ///   trait.
+    /// - `style`: The style information for the cell.
+    ///
+    /// # Examples
+    ///
+    /// An example of creating a new `Cell` instance with style.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data, Style, Font, FontWeight};
+    ///
+    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
+    /// let cell = Cell::with_style((1, 2), Data::Int(42), style);
+    ///
+    /// assert_eq!(&Data::Int(42), cell.get_value());
+    /// assert!(cell.get_style().is_some());
+    /// ```
+    ///
+    pub fn with_style(position: (u32, u32), value: T, style: Style) -> Cell<T> {
+        Cell {
+            pos: position,
+            val: value,
+            style: Some(style),
         }
     }
 
@@ -488,6 +527,86 @@ impl<T: CellType> Cell<T> {
     ///
     pub fn get_value(&self) -> &T {
         &self.val
+    }
+
+    /// Gets `Cell` style.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting a `Cell` style.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data, Style, Font, FontWeight};
+    ///
+    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
+    /// let cell = Cell::with_style((1, 2), Data::Int(42), style);
+    ///
+    /// assert!(cell.get_style().is_some());
+    /// ```
+    ///
+    pub fn get_style(&self) -> Option<&Style> {
+        self.style.as_ref()
+    }
+
+    /// Sets the style for this cell.
+    ///
+    /// # Examples
+    ///
+    /// An example of setting a `Cell` style.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data, Style, Font, FontWeight};
+    ///
+    /// let mut cell = Cell::new((1, 2), Data::Int(42));
+    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
+    /// cell.set_style(style);
+    ///
+    /// assert!(cell.get_style().is_some());
+    /// ```
+    ///
+    pub fn set_style(&mut self, style: Style) {
+        self.style = Some(style);
+    }
+
+    /// Removes the style from this cell.
+    ///
+    /// # Examples
+    ///
+    /// An example of removing a `Cell` style.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data, Style, Font, FontWeight};
+    ///
+    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
+    /// let mut cell = Cell::with_style((1, 2), Data::Int(42), style);
+    /// cell.remove_style();
+    ///
+    /// assert!(cell.get_style().is_none());
+    /// ```
+    ///
+    pub fn remove_style(&mut self) {
+        self.style = None;
+    }
+
+    /// Checks if the cell has any style information.
+    ///
+    /// # Examples
+    ///
+    /// An example of checking if a `Cell` has style.
+    ///
+    /// ```
+    /// use calamine::{Cell, Data, Style, Font, FontWeight};
+    ///
+    /// let cell = Cell::new((1, 2), Data::Int(42));
+    /// assert!(!cell.has_style());
+    ///
+    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
+    /// let cell_with_style = Cell::with_style((1, 2), Data::Int(42), style);
+    /// assert!(cell_with_style.has_style());
+    /// ```
+    ///
+    pub fn has_style(&self) -> bool {
+        self.style.is_some()
     }
 }
 

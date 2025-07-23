@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod cells_reader;
+mod style_parser;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -25,9 +26,10 @@ use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellForm
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    SheetType, SheetVisible, Style, Table,
 };
 pub use cells_reader::XlsxCellReader;
+use style_parser::parse_style;
 
 pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
@@ -247,6 +249,8 @@ pub struct Xlsx<RS> {
     tables: Tables,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
+    /// Cell styles
+    styles: Vec<Style>,
     /// 1904 datetime system
     is_1904: bool,
     /// Metadata
@@ -337,6 +341,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
+                            // Parse the style
+                            let style = parse_style(&mut xml, e)?;
+                            self.styles.push(style);
+
+                            // Also add format for backward compatibility
                             self.formats.push(
                                 e.attributes()
                                     .filter_map(|a| a.ok())
@@ -1424,6 +1433,24 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         self.worksheet_merge_cells(&name)
     }
+
+    pub fn worksheet_cells_reader<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+        let xml = xml_reader(&mut self.zip, path)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
+        let is_1904 = self.is_1904;
+        let strings = &self.strings;
+        let formats = &self.formats;
+        let styles = &self.styles;
+        XlsxCellReader::new(xml, strings, formats, styles, is_1904)
+    }
 }
 
 struct TableMetadata {
@@ -1453,26 +1480,6 @@ impl InnerTableMetadata {
     }
 }
 
-impl<RS: Read + Seek> Xlsx<RS> {
-    /// Get a reader over all used cells in the given worksheet cell reader
-    pub fn worksheet_cells_reader<'a>(
-        &'a mut self,
-        name: &str,
-    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
-        let (_, path) = self
-            .sheets
-            .iter()
-            .find(|&(n, _)| n == name)
-            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
-        let xml = xml_reader(&mut self.zip, path)
-            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
-        let is_1904 = self.is_1904;
-        let strings = &self.strings;
-        let formats = &self.formats;
-        XlsxCellReader::new(xml, strings, formats, is_1904)
-    }
-}
-
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     type Error = XlsxError;
 
@@ -1483,6 +1490,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             formats: Vec::new(),
+            styles: Vec::new(),
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
@@ -1635,6 +1643,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
                                 cells.first().expect("cells should not be empty").pos.1,
                             ),
                             val: DataRef::Empty,
+                            style: None,
                         },
                     );
                 }
@@ -2126,6 +2135,7 @@ mod tests {
             sheets: vec![],
             tables: None,
             formats: vec![],
+            styles: Vec::new(),
             is_1904: false,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
