@@ -1,10 +1,10 @@
-# Style Support in Calamine
+# Style Reading Support in Calamine
 
-This document describes the new style extraction functionality added to calamine, inspired by the umya-spreadsheet library.
+This document describes the style extraction functionality in calamine for reading style information from Excel files.
 
 ## Overview
 
-Calamine now supports extracting style information from Excel files, including:
+Calamine supports extracting style information from Excel files, including:
 - Font properties (name, size, weight, color, etc.)
 - Fill properties (background colors, patterns)
 - Border properties (style, color, position)
@@ -13,68 +13,84 @@ Calamine now supports extracting style information from Excel files, including:
 
 ## Data Structures
 
-### Style Components
+When reading styles from Excel files, you'll work with these data structures:
 
-The style system is built around several key data structures:
-
-#### Color
+### Color
 ```rust
-use calamine::Color;
-
-let red_color = Color::rgb(255, 0, 0);
-let custom_color = Color::new(255, 128, 64, 32); // ARGB
+// Colors are returned when reading style information
+// You can check color properties like:
+if let Some(color) = font.color {
+    let (r, g, b, a) = color.rgba();
+    println!("Color RGBA: {}, {}, {}, {}", r, g, b, a);
+}
 ```
 
-#### Font
+### Font
 ```rust
-use calamine::{Font, FontWeight, FontStyle, UnderlineStyle};
-
-let font = Font::new()
-    .with_name("Arial".to_string())
-    .with_size(12.0)
-    .with_weight(FontWeight::Bold)
-    .with_style(FontStyle::Italic)
-    .with_color(Color::rgb(255, 0, 0));
+// Font information extracted from Excel files
+if let Some(font) = style.get_font() {
+    // Access font properties
+    if let Some(name) = &font.name {
+        println!("Font name: {}", name);
+    }
+    if let Some(size) = font.size {
+        println!("Font size: {}", size);
+    }
+    println!("Bold: {}", font.is_bold());
+    println!("Italic: {}", font.is_italic());
+    if let Some(color) = font.color {
+        println!("Font color: {}", color);
+    }
+}
 ```
 
-#### Fill
+### Fill
 ```rust
-use calamine::{Fill, FillPattern};
-
-let fill = Fill::solid(Color::rgb(255, 255, 0));
-let pattern_fill = Fill::new()
-    .with_pattern(FillPattern::DarkGray)
-    .with_foreground_color(Color::rgb(255, 0, 0))
-    .with_background_color(Color::rgb(0, 0, 255));
+// Fill information extracted from Excel files
+if let Some(fill) = style.get_fill() {
+    if fill.is_visible() {
+        println!("Cell has background fill");
+        if let Some(color) = fill.get_color() {
+            println!("Fill color: {}", color);
+        }
+        if let Some(pattern) = fill.pattern {
+            println!("Fill pattern: {:?}", pattern);
+        }
+    }
+}
 ```
 
-#### Borders
+### Borders
 ```rust
-use calamine::{Borders, Border, BorderStyle};
-
-let borders = Borders::new();
-let border = Border::with_color(BorderStyle::Thick, Color::rgb(0, 0, 0));
+// Border information extracted from Excel files
+if let Some(borders) = style.get_borders() {
+    if borders.has_visible_borders() {
+        println!("Cell has borders");
+        if borders.left.is_visible() {
+            println!("Left border style: {:?}", borders.left.style);
+            if let Some(color) = borders.left.color {
+                println!("Left border color: {}", color);
+            }
+        }
+        // Similar for right, top, bottom borders
+    }
+}
 ```
 
-#### Alignment
+### Alignment
 ```rust
-use calamine::{Alignment, HorizontalAlignment, VerticalAlignment, TextRotation};
-
-let alignment = Alignment::new()
-    .with_horizontal(HorizontalAlignment::Center)
-    .with_vertical(VerticalAlignment::Middle)
-    .with_wrap_text(true);
-```
-
-#### Complete Style
-```rust
-use calamine::Style;
-
-let style = Style::new()
-    .with_font(font)
-    .with_fill(fill)
-    .with_borders(borders)
-    .with_alignment(alignment);
+// Alignment information extracted from Excel files
+if let Some(alignment) = style.get_alignment() {
+    if let Some(horizontal) = alignment.horizontal {
+        println!("Horizontal alignment: {:?}", horizontal);
+    }
+    if let Some(vertical) = alignment.vertical {
+        println!("Vertical alignment: {:?}", vertical);
+    }
+    if alignment.wrap_text.unwrap_or(false) {
+        println!("Text wrapping enabled");
+    }
+}
 ```
 
 ## Usage Examples
@@ -91,22 +107,27 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
         if let Some(cell_data) = cell {
             if cell_data.has_style() {
                 if let Some(style) = cell_data.get_style() {
+                    println!("Cell ({}, {}) has style:", row, col);
+                    
                     // Access font properties
                     if let Some(font) = style.get_font() {
-                        println!("Font: {}", font.name.as_deref().unwrap_or("Unknown"));
-                        println!("Size: {}", font.size.unwrap_or(0.0));
-                        println!("Bold: {}", font.is_bold());
+                        println!("  Font: {}", font.name.as_deref().unwrap_or("Unknown"));
+                        println!("  Size: {}", font.size.unwrap_or(0.0));
+                        println!("  Bold: {}", font.is_bold());
+                        println!("  Italic: {}", font.is_italic());
                         if let Some(color) = font.color {
-                            println!("Color: {}", color);
+                            let (r, g, b, _) = color.rgba();
+                            println!("  Color: rgb({}, {}, {})", r, g, b);
                         }
                     }
                     
                     // Access fill properties
                     if let Some(fill) = style.get_fill() {
                         if fill.is_visible() {
-                            println!("Has fill");
+                            println!("  Has background fill");
                             if let Some(color) = fill.get_color() {
-                                println!("Fill color: {}", color);
+                                let (r, g, b, _) = color.rgba();
+                                println!("  Fill color: rgb({}, {}, {})", r, g, b);
                             }
                         }
                     }
@@ -114,10 +135,32 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
                     // Access border properties
                     if let Some(borders) = style.get_borders() {
                         if borders.has_visible_borders() {
-                            println!("Has borders");
+                            println!("  Has borders:");
                             if borders.left.is_visible() {
-                                println!("Left border");
+                                println!("    Left: {:?}", borders.left.style);
                             }
+                            if borders.right.is_visible() {
+                                println!("    Right: {:?}", borders.right.style);
+                            }
+                            if borders.top.is_visible() {
+                                println!("    Top: {:?}", borders.top.style);
+                            }
+                            if borders.bottom.is_visible() {
+                                println!("    Bottom: {:?}", borders.bottom.style);
+                            }
+                        }
+                    }
+                    
+                    // Access alignment properties
+                    if let Some(alignment) = style.get_alignment() {
+                        if let Some(horizontal) = alignment.horizontal {
+                            println!("  Horizontal alignment: {:?}", horizontal);
+                        }
+                        if let Some(vertical) = alignment.vertical {
+                            println!("  Vertical alignment: {:?}", vertical);
+                        }
+                        if alignment.wrap_text.unwrap_or(false) {
+                            println!("  Text wrapping: enabled");
                         }
                     }
                 }
@@ -127,41 +170,75 @@ if let Ok(range) = workbook.worksheet_range("Sheet1") {
 }
 ```
 
-### Creating Cells with Styles
+### Checking for Specific Style Properties
 
 ```rust
-use calamine::{Cell, Data, Style, Font, FontWeight, Color};
+use calamine::{open_workbook, Reader, FontWeight, HorizontalAlignment};
 
-let style = Style::new()
-    .with_font(Font::new()
-        .with_name("Arial".to_string())
-        .with_size(12.0)
-        .with_weight(FontWeight::Bold)
-        .with_color(Color::rgb(255, 0, 0)));
+let mut workbook = open_workbook("file.xlsx")?;
 
-let cell = Cell::with_style((0, 0), Data::String("Hello".to_string()), style);
+if let Ok(range) = workbook.worksheet_range("Sheet1") {
+    for (row, col, cell) in range.cells() {
+        if let Some(cell_data) = cell {
+            if cell_data.has_style() {
+                if let Some(style) = cell_data.get_style() {
+                    // Check for bold text
+                    if let Some(font) = style.get_font() {
+                        if font.is_bold() {
+                            println!("Cell ({}, {}) has bold text", row, col);
+                        }
+                    }
+                    
+                    // Check for center alignment
+                    if let Some(alignment) = style.get_alignment() {
+                        if alignment.horizontal == Some(HorizontalAlignment::Center) {
+                            println!("Cell ({}, {}) is center-aligned", row, col);
+                        }
+                    }
+                    
+                    // Check for background color
+                    if let Some(fill) = style.get_fill() {
+                        if fill.is_visible() {
+                            println!("Cell ({}, {}) has background color", row, col);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 ```
 
 ### Working with CellData
 
 ```rust
-use calamine::{CellData, Data, Style};
+use calamine::{CellData, Data};
 
-let cell_data = CellData::with_style(
-    Data::Int(42),
-    Style::new().with_font(Font::new().with_weight(FontWeight::Bold))
-);
-
-if cell_data.has_style() {
-    if let Some(style) = cell_data.get_style() {
-        // Access style properties
+// When iterating through cells, you get CellData which may contain style information
+fn process_cell(cell_data: &CellData) {
+    // Check if cell has any style information
+    if cell_data.has_style() {
+        println!("Cell value: {:?}", cell_data.get_value());
+        
+        if let Some(style) = cell_data.get_style() {
+            if !style.is_empty() {
+                println!("Cell has formatting");
+                
+                // Process style information as shown in previous examples
+                if let Some(font) = style.get_font() {
+                    if font.is_bold() {
+                        println!("Text is bold");
+                    }
+                }
+            }
+        }
     }
 }
 ```
 
 ## Supported Formats
 
-Currently, style extraction is supported for:
+Style extraction is supported for:
 - **XLSX**: Full style support including fonts, fills, borders, and alignment
 - **XLSB**: Basic style support (format-based)
 - **XLS**: Basic style support (format-based)
@@ -173,7 +250,7 @@ The style parser extracts information from the Excel styles.xml file, including:
 
 ### Font Properties
 - Font name
-- Font size
+- Font size  
 - Font weight (bold/normal)
 - Font style (italic/normal)
 - Underline style
@@ -208,45 +285,52 @@ The style parser extracts information from the Excel styles.xml file, including:
 1. **Theme Colors**: Theme color support is limited and may not fully match Excel's rendering
 2. **Indexed Colors**: Indexed color support is basic
 3. **Complex Patterns**: Some complex fill patterns may not be fully supported
-4. **Conditional Formatting**: Conditional formatting styles are not yet supported
+4. **Conditional Formatting**: Conditional formatting styles are not extracted
 
 ## Future Enhancements
 
-Planned improvements include:
+Planned improvements for style reading include:
 - Full theme color support
 - Conditional formatting style extraction
-- Style writing capabilities
 - Enhanced pattern support
 - Better color space handling
 
 ## API Reference
 
-### Core Types
+### Key Types for Reading Styles
 
-- `Style`: Complete cell style container
-- `Font`: Font properties
-- `Fill`: Fill properties
-- `Borders`: Border properties
-- `Alignment`: Alignment properties
-- `Protection`: Protection properties
-- `Color`: Color representation
-- `CellData`: Cell value with optional style
+- `Style`: Complete cell style container (read-only)
+- `Font`: Font properties (read-only)
+- `Fill`: Fill properties (read-only)
+- `Borders`: Border properties (read-only)
+- `Alignment`: Alignment properties (read-only)
+- `Protection`: Protection properties (read-only)
+- `Color`: Color representation (read-only)
+- `CellData`: Cell value with optional style information
 
-### Key Methods
+### Key Methods for Reading Styles
 
-- `Cell::with_style()`: Create a cell with style
-- `Cell::get_style()`: Get cell style
-- `Cell::has_style()`: Check if cell has style
+- `CellData::get_style()`: Get cell style information
+- `CellData::has_style()`: Check if cell has style information
+- `Style::get_font()`: Get font properties
+- `Style::get_fill()`: Get fill properties
+- `Style::get_borders()`: Get border properties
+- `Style::get_alignment()`: Get alignment properties
 - `Style::is_empty()`: Check if style has any properties
 - `Style::has_visible_properties()`: Check if style has visible properties
+- `Font::is_bold()`: Check if font is bold
+- `Font::is_italic()`: Check if font is italic
+- `Fill::is_visible()`: Check if fill is visible
+- `Borders::has_visible_borders()`: Check if borders are visible
 
 ## Migration Guide
 
-For existing code, the new style functionality is backward compatible. Existing code will continue to work without changes. To add style support:
+The style reading functionality is backward compatible. Existing code will continue to work without changes. To add style reading support:
 
-1. Update your cell iteration to check for styles
-2. Use `Cell::with_style()` when creating cells with styles
-3. Access style properties through the style getter methods
+1. Update your cell iteration to check for styles using `has_style()`
+2. Use `get_style()` to access style information
+3. Access specific style properties through the getter methods
+4. Check for visibility using methods like `is_visible()` and `has_visible_borders()`
 
 ## Examples
 
