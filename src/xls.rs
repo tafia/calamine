@@ -22,7 +22,7 @@ use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible,
+    SheetVisible, Style,
 };
 
 #[derive(Debug)]
@@ -290,6 +290,10 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .get(name)
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
             .map(|r| r.formula.clone())
+    }
+
+    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsError> {
+        unimplemented!()
     }
 
     #[cfg(feature = "picture")]

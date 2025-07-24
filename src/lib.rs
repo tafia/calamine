@@ -282,6 +282,8 @@ where
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
+    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, Self::Error>;
+
     /// Get all sheet names of this workbook, in workbook order
     ///
     /// # Examples
@@ -375,6 +377,7 @@ impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
 impl CellType for CellData {}
+impl CellType for Style {}
 
 // -----------------------------------------------------------------------
 // The `Cell` struct.
@@ -1111,8 +1114,8 @@ impl<T: CellType> Range<T> {
     ///
     pub fn get(&self, relative_position: (usize, usize)) -> Option<&T> {
         let (row, col) = relative_position;
-        let (height, width) = self.get_size();
-        if col >= width || row >= height {
+        let width = self.width();
+        if row >= self.height() || col >= width {
             None
         } else {
             self.inner.get(row * width + col)
@@ -1144,7 +1147,6 @@ impl<T: CellType> Range<T> {
     ///         println!("({row_num}, {col_num}): {data}");
     ///     }
     /// }
-    ///
     /// ```
     ///
     /// Output in relative coordinates:

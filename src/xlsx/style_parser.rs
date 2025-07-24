@@ -7,7 +7,6 @@ use quick_xml::{
     name::QName,
     Reader,
 };
-use std::collections::BTreeMap;
 use std::io::BufRead;
 
 use crate::style::*;
@@ -20,6 +19,7 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
             b"rgb" => {
                 let rgb_str = attr.value.as_ref();
                 if rgb_str.len() == 6 {
+                    // RGB format (6 characters)
                     let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
                     let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
@@ -27,6 +27,17 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
                     let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
                     return Ok(Some(Color::rgb(r, g, b)));
+                } else if rgb_str.len() == 8 {
+                    // ARGB format (8 characters)
+                    let a = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid alpha color value"))?;
+                    let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
+                    let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
+                    let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[6..8]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
+                    return Ok(Some(Color::new(a, r, g, b)));
                 }
             }
             b"theme" => {
@@ -46,15 +57,28 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
 /// Parse font weight from string
 fn parse_font_weight(s: &str) -> FontWeight {
     match s {
-        "bold" => FontWeight::Bold,
-        _ => FontWeight::Normal,
+        "bold" | "700" => FontWeight::Bold,
+        "normal" | "400" => FontWeight::Normal,
+        _ => {
+            // Try to parse as numeric weight
+            if let Ok(weight) = s.parse::<u16>() {
+                if weight >= 600 {
+                    FontWeight::Bold
+                } else {
+                    FontWeight::Normal
+                }
+            } else {
+                FontWeight::Normal
+            }
+        }
     }
 }
 
 /// Parse font style from string
 fn parse_font_style(s: &str) -> FontStyle {
     match s {
-        "italic" => FontStyle::Italic,
+        "italic" | "oblique" => FontStyle::Italic,
+        "normal" => FontStyle::Normal,
         _ => FontStyle::Normal,
     }
 }
@@ -137,11 +161,22 @@ fn parse_border_style(s: &str) -> BorderStyle {
 }
 
 /// Parse font element
-fn parse_font<RS: BufRead>(
+pub fn parse_font<RS: BufRead>(
     xml: &mut Reader<RS>,
     start_elem: &BytesStart,
 ) -> Result<Font, XlsxError> {
     let mut font = Font::new();
+
+    // Parse attributes from the opening font element
+    for attr in start_elem.attributes() {
+        let attr = attr?;
+        match attr.key.as_ref() {
+            // Font elements can have attributes like outline, shadow, etc.
+            // Add specific font attribute parsing here if needed
+            _ => {}
+        }
+    }
+
     let mut buf = Vec::new();
 
     loop {
@@ -161,15 +196,43 @@ fn parse_font<RS: BufRead>(
                     }
                 }
                 b"b" => {
-                    font = font.with_weight(FontWeight::Bold);
+                    // Check if the element has a 'val' attribute
+                    let mut weight = FontWeight::Bold; // Default to bold
+                    for attr in e.attributes() {
+                        let attr = attr?;
+                        if attr.key.as_ref() == b"val" {
+                            let val_str = String::from_utf8_lossy(&attr.value);
+                            weight = parse_font_weight(&val_str);
+                            break;
+                        }
+                    }
+                    font = font.with_weight(weight);
                 }
                 b"i" => {
-                    font = font.with_style(FontStyle::Italic);
+                    // Check if the element has a 'val' attribute
+                    let mut style = FontStyle::Italic; // Default to italic
+                    for attr in e.attributes() {
+                        let attr = attr?;
+                        if attr.key.as_ref() == b"val" {
+                            let val_str = String::from_utf8_lossy(&attr.value);
+                            style = parse_font_style(&val_str);
+                            break;
+                        }
+                    }
+                    font = font.with_style(style);
                 }
                 b"u" => {
-                    if let Some(underline_str) = read_string(xml, QName(b"u"))? {
-                        font = font.with_underline(parse_underline_style(&underline_str));
+                    // Check if the element has a 'val' attribute
+                    let mut underline_style = UnderlineStyle::Single; // Default to single underline
+                    for attr in e.attributes() {
+                        let attr = attr?;
+                        if attr.key.as_ref() == b"val" {
+                            let val_str = String::from_utf8_lossy(&attr.value);
+                            underline_style = parse_underline_style(&val_str);
+                            break;
+                        }
                     }
+                    font = font.with_underline(underline_style);
                 }
                 b"strike" => {
                     font = font.with_strikethrough(true);
@@ -199,11 +262,22 @@ fn parse_font<RS: BufRead>(
 }
 
 /// Parse fill element
-fn parse_fill<RS: BufRead>(
+pub fn parse_fill<RS: BufRead>(
     xml: &mut Reader<RS>,
     start_elem: &BytesStart,
 ) -> Result<Fill, XlsxError> {
     let mut fill = Fill::new();
+
+    // Parse attributes from the opening fill element
+    for attr in start_elem.attributes() {
+        let attr = attr?;
+        match attr.key.as_ref() {
+            // Fill elements can have attributes like type, etc.
+            // Add specific fill attribute parsing here if needed
+            _ => {}
+        }
+    }
+
     let mut buf = Vec::new();
 
     loop {
@@ -249,11 +323,22 @@ fn parse_fill<RS: BufRead>(
 }
 
 /// Parse border element
-fn parse_border<RS: BufRead>(
+pub fn parse_border<RS: BufRead>(
     xml: &mut Reader<RS>,
     start_elem: &BytesStart,
 ) -> Result<Borders, XlsxError> {
     let mut borders = Borders::new();
+
+    // Parse attributes from the opening border element
+    for attr in start_elem.attributes() {
+        let attr = attr?;
+        match attr.key.as_ref() {
+            // Border elements can have attributes like diagonalUp, diagonalDown, etc.
+            // Add specific border attribute parsing here if needed
+            _ => {}
+        }
+    }
+
     let mut buf = Vec::new();
 
     loop {
@@ -321,8 +406,8 @@ fn parse_border<RS: BufRead>(
 }
 
 /// Parse alignment element
-fn parse_alignment<RS: BufRead>(
-    xml: &mut Reader<RS>,
+pub fn parse_alignment<RS: BufRead>(
+    _xml: &mut Reader<RS>,
     start_elem: &BytesStart,
 ) -> Result<Alignment, XlsxError> {
     let mut alignment = Alignment::new();
@@ -368,7 +453,7 @@ fn parse_alignment<RS: BufRead>(
 }
 
 /// Parse protection element
-fn parse_protection<RS: BufRead>(
+pub fn parse_protection<RS: BufRead>(
     xml: &mut Reader<RS>,
     start_elem: &BytesStart,
 ) -> Result<Protection, XlsxError> {
@@ -395,51 +480,6 @@ fn parse_protection<RS: BufRead>(
 
     Ok(protection)
 }
-
-/// Parse a complete style (xf element)
-pub fn parse_style<RS: BufRead>(
-    xml: &mut Reader<RS>,
-    start_elem: &BytesStart,
-) -> Result<Style, XlsxError> {
-    let mut style = Style::new();
-    let mut buf = Vec::new();
-
-    loop {
-        buf.clear();
-        match xml.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
-                b"font" => {
-                    let font = parse_font(xml, e)?;
-                    style = style.with_font(font);
-                }
-                b"fill" => {
-                    let fill = parse_fill(xml, e)?;
-                    style = style.with_fill(fill);
-                }
-                b"border" => {
-                    let borders = parse_border(xml, e)?;
-                    style = style.with_borders(borders);
-                }
-                b"alignment" => {
-                    let alignment = parse_alignment(xml, e)?;
-                    style = style.with_alignment(alignment);
-                }
-                b"protection" => {
-                    let protection = parse_protection(xml, e)?;
-                    style = style.with_protection(protection);
-                }
-                _ => {}
-            },
-            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"xf" => break,
-            Ok(Event::Eof) => return Err(XlsxError::XmlEof("xf")),
-            Err(e) => return Err(XlsxError::Xml(e)),
-            _ => {}
-        }
-    }
-
-    Ok(style)
-}
-
 /// Read string content from XML element
 fn read_string<RS: BufRead>(
     xml: &mut Reader<RS>,

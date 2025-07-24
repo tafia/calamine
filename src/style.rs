@@ -307,6 +307,11 @@ impl Font {
     pub fn has_underline(&self) -> bool {
         self.underline != UnderlineStyle::None
     }
+
+    /// Check if font has strikethrough
+    pub fn has_strikethrough(&self) -> bool {
+        self.strikethrough
+    }
 }
 
 /// Horizontal alignment

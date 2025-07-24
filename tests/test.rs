@@ -4,9 +4,9 @@
 
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, BorderStyle, Color, DataRef, DataType, Dimensions,
+    ExcelDateTime, ExcelDateTimeType, HeaderRow, HorizontalAlignment, Ods, Range, Reader,
+    ReaderRef, Sheet, SheetType, SheetVisible, UnderlineStyle, VerticalAlignment, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -2185,4 +2185,126 @@ fn test_xlsb_case_insensitive_part_name() {
 #[test]
 fn test_xlsx_backward_slash_part_name() {
     let _: Xlsx<_> = wb("issue_530.xlsx");
+}
+
+#[test]
+fn test_all_styles() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let values = xlsx.worksheet_range("Sheet 1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+    let get_font = |row: usize, col: usize| styles.get((row, col)).unwrap().get_font().unwrap();
+
+    // assert that the text is bold
+    let a1 = get_font(0, 0);
+    assert!(a1.is_bold());
+
+    // assert top border
+    let a1_style = styles.get((0, 0)).unwrap();
+    assert_eq!(
+        a1_style.borders.as_ref().unwrap().top.style,
+        BorderStyle::Thin
+    );
+
+    // assert that the text is italic
+    let a2 = get_font(1, 0);
+    assert!(a2.is_italic());
+
+    // assert that the text is underlined
+    let a3 = get_font(2, 0);
+    assert!(a3.has_underline());
+
+    // assert that the text is strikethrough
+    let a4 = get_font(3, 0);
+    assert!(a4.has_strikethrough());
+
+    // assert that the color is red
+    let a5 = get_font(4, 0);
+    assert_eq!(a5.color, Some(Color::new(255, 255, 0, 0)));
+
+    // assert that the foreground color is yellow
+    let a6 = styles.get((5, 0)).unwrap().get_fill().unwrap();
+    assert_eq!(a6.foreground_color, Some(Color::new(255, 255, 255, 0)));
+
+    // assert that text is horizontally centered
+    let a7 = styles.get((6, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a7.horizontal, HorizontalAlignment::Center);
+
+    // assert that text is vertically centered
+    let a8 = styles.get((7, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a8.vertical, VerticalAlignment::Center);
+
+    // assert that text is wrapped
+    let a9 = styles.get((8, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a9.wrap_text, true);
+
+    // assert that 1000000 is formatted as 1,000,000
+    let a10 = styles.get((9, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a10.format_code, "#,##0");
+
+    // assert that 100 is formatted as $100.00
+    let a11 = styles.get((10, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a11.format_code, "$0.00");
+
+    // assert that 0.5 is formatted as 0.5%
+    // assert that the value is 0.5
+    let a12 = styles.get((11, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a12.format_code, "0.0%");
+    assert_eq!(values.get((11, 0)).unwrap(), &Float(0.005));
+
+    // assert that 1000000 is formatted as 1.00E+06
+    let a13 = styles.get((12, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a13.format_code, "0.00E+00");
+    assert_eq!(values.get((12, 0)).unwrap(), &Float(1000000.0));
+
+    // assert that 7/21/2025  1:09:31 PM is formatted as 2005-07-21 13:09:31
+    let a14 = styles.get((13, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a14.format_code, "yyyy-mm-dd hh:mm:ss");
+    assert_eq!(
+        values.get((13, 0)).unwrap(),
+        &DateTime(ExcelDateTime::new(
+            45859.54827546296,
+            ExcelDateTimeType::DateTime,
+            false,
+        ))
+    );
+}
+
+#[test]
+fn test_worksheet_style_iter() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    for (row, styles) in styles.rows().enumerate() {
+        for (col, style) in styles.iter().enumerate() {
+            println!("row: {}, col: {}, style: {:?}", row, col, style);
+        }
+    }
+}
+
+#[test]
+fn test_underline_parsing() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let worksheet = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Test that A3 has an underline (empty <u/> element)
+    let a3 = worksheet.get((2, 0)).unwrap().get_font().unwrap();
+    assert!(a3.has_underline());
+    assert_eq!(a3.underline, UnderlineStyle::Single);
+}
+
+#[test]
+fn test_color_parsing() {
+    use calamine::Color;
+
+    // Test that our color parsing works for both RGB and ARGB formats
+    let red_rgb = Color::rgb(255, 0, 0);
+    let red_argb = Color::new(255, 255, 0, 0);
+
+    assert_eq!(red_rgb, red_argb);
+
+    // Test that alpha=255 is the default for RGB
+    assert_eq!(red_rgb.alpha, 255);
+    assert_eq!(red_rgb.red, 255);
+    assert_eq!(red_rgb.green, 0);
+    assert_eq!(red_rgb.blue, 0);
 }
