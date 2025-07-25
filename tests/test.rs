@@ -1673,7 +1673,7 @@ fn issue_102() {
             open_workbook::<Xlsx<_>, std::string::String>(path),
             Err(calamine::XlsxError::Password)
         ),
-        "Is expeced to return XlsxError::Password error"
+        "Is expected to return XlsxError::Password error"
     );
 }
 
@@ -1700,7 +1700,7 @@ fn issue_385() {
             open_workbook::<Xls<_>, std::string::String>(path),
             Err(calamine::XlsError::Password)
         ),
-        "Is expeced to return XlsError::Password error"
+        "Is expected to return XlsError::Password error"
     );
 }
 
@@ -1712,7 +1712,7 @@ fn pass_protected_xlsb() {
             open_workbook::<Xlsb<_>, std::string::String>(path),
             Err(calamine::XlsbError::Password)
         ),
-        "Is expeced to return XlsbError::Password error"
+        "Is expected to return XlsbError::Password error"
     );
 }
 
@@ -1724,7 +1724,7 @@ fn pass_protected_ods() {
             open_workbook::<Ods<_>, std::string::String>(path),
             Err(calamine::OdsError::Password)
         ),
-        "Is expeced to return OdsError::Password error"
+        "Is expected to return OdsError::Password error"
     );
 }
 
@@ -1815,7 +1815,7 @@ fn issue_438_charts() {
 }
 
 #[test]
-fn isssue_444_memory_allocation() {
+fn issue_444_memory_allocation() {
     let mut excel: Xls<_> = wb("issue444.xls"); // should not fail
     let range = excel
         .worksheet_range("Sheet1")
@@ -1824,7 +1824,7 @@ fn isssue_444_memory_allocation() {
 }
 
 #[test]
-fn isssue_446_formulas() {
+fn issue_446_formulas() {
     let mut excel: Xlsx<_> = wb("issue446.xlsx");
     let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
 }

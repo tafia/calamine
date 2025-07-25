@@ -226,7 +226,7 @@ where
                                     // shared reference
                                     match get_attribute(e.attributes(), QName(b"ref"))? {
                                         Some(res) => {
-                                            // orignal reference formula
+                                            // original reference formula
                                             let reference = get_dimension(res)?;
                                             if reference.start.0 != reference.end.0 {
                                                 for i in 0..=(reference.end.0 - reference.start.0) {
