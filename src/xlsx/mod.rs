@@ -1908,7 +1908,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         }
         if c.is_ascii_alphabetic() {
             if is_cell_row {
-                // two cell not possible stick togather in formula
+                // two cell not possible stick together in formula
                 res.extend(cell.iter().map(|c| *c as u8));
                 cell.clear();
                 is_cell_row = false;
