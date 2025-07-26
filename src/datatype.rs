@@ -632,7 +632,7 @@ pub trait DataType {
         if self.is_datetime() {
             self.get_datetime().and_then(|dt| dt.as_duration())
         } else if self.is_duration_iso() {
-            // need replace in the future to smth like chrono::Duration::from_str()
+            // need replace in the future to something like chrono::Duration::from_str()
             // https://github.com/chronotope/chrono/issues/579
             self.as_time().map(|t| {
                 chrono::Duration::nanoseconds(
