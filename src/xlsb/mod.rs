@@ -26,6 +26,7 @@ use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usi
 use crate::vba::VbaProject;
 use crate::{
     Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Style,
 };
 
 /// A Xlsb specific error
@@ -526,6 +527,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         Ok(Range::from_sparse(cells))
     }
 
+    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsbError> {
+        unimplemented!()
+    }
+
     /// MS-XLSB 2.1.7.62
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         let sheets = self
@@ -602,6 +607,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
                                 cells.first().expect("cells should not be empty").pos.1,
                             ),
                             val: DataRef::Empty,
+                            style: None,
                         },
                     );
                 }
