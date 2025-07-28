@@ -62,6 +62,7 @@ mod utils;
 
 mod auto;
 mod cfb;
+mod conditional_formatting;
 mod datatype;
 mod formats;
 mod ods;
@@ -83,6 +84,13 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 
 pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
+pub use crate::conditional_formatting::{
+    AxisPosition, BarDirection, CfvoType, ColorScale, ComparisonOperator, ConditionalFormatRule,
+    ConditionalFormatType, ConditionalFormatValue, ConditionalFormatting, DataBar,
+    DifferentialAlignment, DifferentialBorder, DifferentialBorderSide, DifferentialFill,
+    DifferentialFont, DifferentialFormat, DifferentialNumberFormat, DifferentialProtection,
+    IconSet, IconSetType, PatternFill, RuleScope, TimePeriod,
+};
 pub use crate::datatype::{Data, DataRef, DataType, ExcelDateTime, ExcelDateTimeType};
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;

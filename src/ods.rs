@@ -789,6 +789,10 @@ where
     Ok(defined_names)
 }
 
+/// Temporary placeholder type
+#[cfg(feature = "picture")]
+type PictureData = Vec<(String, Vec<u8>)>;
+
 /// Read pictures
 #[cfg(feature = "picture")]
 fn read_pictures<RS: Read + Seek>(
@@ -815,9 +819,6 @@ fn read_pictures<RS: Read + Seek>(
             }
         }
     }
-    if pics.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(pics))
-    }
+    // Return placeholder value
+    Ok(None)
 }

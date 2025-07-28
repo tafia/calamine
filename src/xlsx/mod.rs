@@ -18,6 +18,7 @@ use quick_xml::{
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::conditional_formatting::{ConditionalFormatting, DifferentialFormat};
 use crate::datatype::DataRef;
 use crate::formats::{
     builtin_format_by_id, detect_custom_number_format_with_interner, Alignment, Border, BorderSide,
@@ -224,6 +225,10 @@ pub struct Xlsx<RS> {
     merged_regions: Option<Vec<(String, String, Dimensions)>>,
     /// Reader options
     options: XlsxOptions,
+    /// Differential formats (for conditional formatting)
+    dxf_formats: Vec<DifferentialFormat>,
+    /// Conditional formatting rules by sheet name
+    conditional_formats: BTreeMap<String, Vec<ConditionalFormatting>>,
 }
 
 /// Xlsx reader options
@@ -430,6 +435,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"dxfs" => {
+                    // Parse differential formats
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"dxf" => {
+                                let dxf = Self::parse_dxf_element(&mut xml, &mut inner_buf, &number_formats, &format_interner)?;
+                                self.dxf_formats.push(dxf);
+                            }
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"dxfs" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("dxfs")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
                         }
@@ -824,6 +845,1037 @@ impl<RS: Read + Seek> Xlsx<RS> {
         } else {
             Ok(None)
         }
+    }
+
+    /// Get conditional formatting for a worksheet
+    pub fn worksheet_conditional_formatting(
+        &mut self,
+        name: &str,
+    ) -> Result<&[ConditionalFormatting], XlsxError> {
+        // Find the sheet path
+        let sheet_path = match self.sheets.iter().find(|(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
+            None => return Err(XlsxError::WorksheetNotFound(name.to_string())),
+        };
+
+        // Check if we've already loaded this sheet's conditional formatting
+        if !self.conditional_formats.contains_key(name) {
+            // Load the conditional formatting
+            let formats = Self::parse_worksheet_conditional_formatting(&sheet_path, &mut self.zip)?;
+            self.conditional_formats.insert(name.to_string(), formats);
+        }
+
+        Ok(self.conditional_formats.get(name).map(|v| v.as_slice()).unwrap_or(&[]))
+    }
+
+    /// Get differential formats
+    pub fn dxf_formats(&self) -> &[DifferentialFormat] {
+        &self.dxf_formats
+    }
+
+    /// Parse conditional formatting from a worksheet
+    fn parse_worksheet_conditional_formatting(
+        sheet_path: &str,
+        zip: &mut ZipArchive<RS>,
+    ) -> Result<Vec<ConditionalFormatting>, XlsxError> {
+        use crate::conditional_formatting::ConditionalFormatting;
+
+        let mut xml = match xml_reader(zip, sheet_path) {
+            None => return Ok(Vec::new()),
+            Some(x) => x?,
+        };
+
+        let mut conditional_formats = Vec::new();
+        let mut buf = Vec::with_capacity(1024);
+
+        // Skip to conditionalFormatting elements
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"conditionalFormatting" => {
+                    let mut ranges = Vec::new();
+                    let mut pivot = false;
+
+                    // Parse attributes
+                    for attr in e.attributes() {
+                        match attr.map_err(XlsxError::XmlAttr)? {
+                            Attribute {
+                                key: QName(b"sqref"),
+                                value: v,
+                            } => {
+                                let sqref = xml.decoder().decode(&v)?;
+                                // Split by space and parse each range
+                                for range_str in sqref.split_whitespace() {
+                                    if let Ok(dims) = get_dimension(range_str.as_bytes()) {
+                                        ranges.push(dims);
+                                    }
+                                }
+                            }
+                            Attribute {
+                                key: QName(b"pivot"),
+                                value: v,
+                            } => {
+                                pivot = &*v == b"1" || &*v == b"true";
+                            }
+                            _ => (),
+                        }
+                    }
+
+                    // Parse rules
+                    let mut rules = Vec::new();
+                    let mut inner_buf = Vec::new();
+
+                    loop {
+                        inner_buf.clear();
+                        match xml.read_event_into(&mut inner_buf) {
+                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cfRule" => {
+                                let mut rule_buf = Vec::new();
+                                let rule = Self::parse_cf_rule(&mut xml, e, &mut rule_buf, pivot)?;
+                                rules.push(rule);
+                            }
+                            Ok(Event::End(ref e))
+                                if e.local_name().as_ref() == b"conditionalFormatting" =>
+                            {
+                                break
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("conditionalFormatting")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+
+                    if !rules.is_empty() && !ranges.is_empty() {
+                        conditional_formats.push(ConditionalFormatting { 
+                            ranges, 
+                            rules,
+                            scope: None,
+                            table: None,
+                        });
+                    }
+                }
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"worksheet" => break,
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(conditional_formats)
+    }
+
+    /// Parse a single cfRule element
+    fn parse_cf_rule(
+        xml: &mut XlReader<'_, RS>,
+        rule_start: &BytesStart<'_>,
+        buf: &mut Vec<u8>,
+        pivot: bool,
+    ) -> Result<crate::conditional_formatting::ConditionalFormatRule, XlsxError> {
+        use crate::conditional_formatting::{
+            CfvoType, ColorScale, ComparisonOperator, ConditionalFormatRule, ConditionalFormatType,
+            ConditionalFormatValue, DataBar, IconSet, IconSetType, TimePeriod,
+        };
+
+        let mut rule_type = ConditionalFormatType::Expression;
+        let mut priority = 0i32;
+        let mut stop_if_true = false;
+        let mut dxf_id = None;
+        let mut formulas = Vec::new();
+        let mut operator = None;
+        let mut text = None;
+        let mut time_period = None;
+        let mut rank = None;
+        let mut bottom = false;
+        let mut percent = false;
+        let mut above_average = true;
+        let mut equal_average = false;
+        let mut std_dev = None;
+
+        // Parse attributes
+        for attr in rule_start.attributes() {
+            match attr.map_err(XlsxError::XmlAttr)? {
+                Attribute {
+                    key: QName(b"type"),
+                    value: v,
+                } => {
+                    let type_str = xml.decoder().decode(&v)?;
+                    rule_type = match type_str.as_ref() {
+                        "cellIs" => ConditionalFormatType::CellIs {
+                            operator: ComparisonOperator::Equal,
+                        },
+                        "expression" => ConditionalFormatType::Expression,
+                        "top10" => ConditionalFormatType::Top10 {
+                            bottom: false,
+                            percent: false,
+                            rank: 10,
+                        },
+                        "duplicateValues" => ConditionalFormatType::DuplicateValues,
+                        "uniqueValues" => ConditionalFormatType::UniqueValues,
+                        "containsText" => ConditionalFormatType::ContainsText {
+                            text: String::new(),
+                        },
+                        "notContainsText" => ConditionalFormatType::NotContainsText {
+                            text: String::new(),
+                        },
+                        "beginsWith" => ConditionalFormatType::BeginsWith {
+                            text: String::new(),
+                        },
+                        "endsWith" => ConditionalFormatType::EndsWith {
+                            text: String::new(),
+                        },
+                        "containsBlanks" => ConditionalFormatType::ContainsBlanks,
+                        "notContainsBlanks" => ConditionalFormatType::NotContainsBlanks,
+                        "containsErrors" => ConditionalFormatType::ContainsErrors,
+                        "notContainsErrors" => ConditionalFormatType::NotContainsErrors,
+                        "timePeriod" => ConditionalFormatType::TimePeriod {
+                            period: TimePeriod::Today,
+                        },
+                        "aboveAverage" => ConditionalFormatType::AboveAverage {
+                            below: false,
+                            equal_average: false,
+                            std_dev: None,
+                        },
+                        "dataBar" => ConditionalFormatType::DataBar(DataBar {
+                            min_cfvo: ConditionalFormatValue {
+                                value_type: CfvoType::Min,
+                                value: None,
+                                gte: false,
+                            },
+                            max_cfvo: ConditionalFormatValue {
+                                value_type: CfvoType::Max,
+                                value: None,
+                                gte: false,
+                            },
+                            color: crate::formats::Color::Rgb { r: 0, g: 0, b: 255 },
+                            negative_color: None,
+                            show_value: true,
+                            min_length: 10,
+                            max_length: 90,
+                            direction: None,
+                            bar_only: false,
+                            border_color: None,
+                            negative_border_color: None,
+                            gradient: true,
+                            axis_position: None,
+                            axis_color: None,
+                        }),
+                        "colorScale" => ConditionalFormatType::ColorScale(ColorScale {
+                            cfvos: Vec::new(),
+                            colors: Vec::new(),
+                        }),
+                        "iconSet" => ConditionalFormatType::IconSet(IconSet {
+                            icon_set: IconSetType::Arrows3,
+                            cfvos: Vec::new(),
+                            show_value: true,
+                            reverse: false,
+                            custom_icons: Vec::new(),
+                            percent: false,
+                        }),
+                        _ => ConditionalFormatType::Expression,
+                    };
+                }
+                Attribute {
+                    key: QName(b"dxfId"),
+                    value: v,
+                } => {
+                    if let Ok(id) = atoi_simd::parse::<u32>(&v) {
+                        dxf_id = Some(id);
+                    }
+                }
+                Attribute {
+                    key: QName(b"priority"),
+                    value: v,
+                } => {
+                    if let Ok(p) = atoi_simd::parse::<i32>(&v) {
+                        priority = p;
+                    }
+                }
+                Attribute {
+                    key: QName(b"stopIfTrue"),
+                    value: v,
+                } => {
+                    stop_if_true = &*v == b"1" || &*v == b"true";
+                }
+                Attribute {
+                    key: QName(b"operator"),
+                    value: v,
+                } => {
+                    let op_str = xml.decoder().decode(&v)?;
+                    operator = Some(match op_str.as_ref() {
+                        "lessThan" => ComparisonOperator::LessThan,
+                        "lessThanOrEqual" => ComparisonOperator::LessThanOrEqual,
+                        "equal" => ComparisonOperator::Equal,
+                        "notEqual" => ComparisonOperator::NotEqual,
+                        "greaterThanOrEqual" => ComparisonOperator::GreaterThanOrEqual,
+                        "greaterThan" => ComparisonOperator::GreaterThan,
+                        "between" => ComparisonOperator::Between,
+                        "notBetween" => ComparisonOperator::NotBetween,
+                        "containsText" => ComparisonOperator::ContainsText,
+                        "notContains" => ComparisonOperator::NotContains,
+                        _ => ComparisonOperator::Equal,
+                    });
+                }
+                Attribute {
+                    key: QName(b"text"),
+                    value: v,
+                } => {
+                    text = Some(xml.decoder().decode(&v)?.into_owned());
+                }
+                Attribute {
+                    key: QName(b"timePeriod"),
+                    value: v,
+                } => {
+                    let period_str = xml.decoder().decode(&v)?;
+                    time_period = Some(match period_str.as_ref() {
+                        "today" => TimePeriod::Today,
+                        "yesterday" => TimePeriod::Yesterday,
+                        "tomorrow" => TimePeriod::Tomorrow,
+                        "last7Days" => TimePeriod::Last7Days,
+                        "thisWeek" => TimePeriod::ThisWeek,
+                        "lastWeek" => TimePeriod::LastWeek,
+                        "nextWeek" => TimePeriod::NextWeek,
+                        "thisMonth" => TimePeriod::ThisMonth,
+                        "lastMonth" => TimePeriod::LastMonth,
+                        "nextMonth" => TimePeriod::NextMonth,
+                        "thisQuarter" => TimePeriod::ThisQuarter,
+                        "lastQuarter" => TimePeriod::LastQuarter,
+                        "nextQuarter" => TimePeriod::NextQuarter,
+                        "thisYear" => TimePeriod::ThisYear,
+                        "lastYear" => TimePeriod::LastYear,
+                        "nextYear" => TimePeriod::NextYear,
+                        "yearToDate" => TimePeriod::YearToDate,
+                        "allDatesInPeriodJanuary" => TimePeriod::AllDatesInJanuary,
+                        "allDatesInPeriodFebruary" => TimePeriod::AllDatesInFebruary,
+                        "allDatesInPeriodMarch" => TimePeriod::AllDatesInMarch,
+                        "allDatesInPeriodApril" => TimePeriod::AllDatesInApril,
+                        "allDatesInPeriodMay" => TimePeriod::AllDatesInMay,
+                        "allDatesInPeriodJune" => TimePeriod::AllDatesInJune,
+                        "allDatesInPeriodJuly" => TimePeriod::AllDatesInJuly,
+                        "allDatesInPeriodAugust" => TimePeriod::AllDatesInAugust,
+                        "allDatesInPeriodSeptember" => TimePeriod::AllDatesInSeptember,
+                        "allDatesInPeriodOctober" => TimePeriod::AllDatesInOctober,
+                        "allDatesInPeriodNovember" => TimePeriod::AllDatesInNovember,
+                        "allDatesInPeriodDecember" => TimePeriod::AllDatesInDecember,
+                        "allDatesInPeriodQuarter1" => TimePeriod::AllDatesInQ1,
+                        "allDatesInPeriodQuarter2" => TimePeriod::AllDatesInQ2,
+                        "allDatesInPeriodQuarter3" => TimePeriod::AllDatesInQ3,
+                        "allDatesInPeriodQuarter4" => TimePeriod::AllDatesInQ4,
+                        _ => TimePeriod::Today,
+                    });
+                }
+                Attribute {
+                    key: QName(b"rank"),
+                    value: v,
+                } => {
+                    if let Ok(r) = atoi_simd::parse::<u32>(&v) {
+                        rank = Some(r);
+                    }
+                }
+                Attribute {
+                    key: QName(b"bottom"),
+                    value: v,
+                } => {
+                    bottom = &*v == b"1" || &*v == b"true";
+                }
+                Attribute {
+                    key: QName(b"percent"),
+                    value: v,
+                } => {
+                    percent = &*v == b"1" || &*v == b"true";
+                }
+                Attribute {
+                    key: QName(b"aboveAverage"),
+                    value: v,
+                } => {
+                    above_average = &*v != b"0" && &*v != b"false";
+                }
+                Attribute {
+                    key: QName(b"equalAverage"),
+                    value: v,
+                } => {
+                    equal_average = &*v == b"1" || &*v == b"true";
+                }
+                Attribute {
+                    key: QName(b"stdDev"),
+                    value: v,
+                } => {
+                    if let Ok(dev) = atoi_simd::parse::<u32>(&v) {
+                        std_dev = Some(dev);
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        // Update rule type with parsed attributes
+        rule_type = match rule_type {
+            ConditionalFormatType::CellIs { .. } => ConditionalFormatType::CellIs {
+                operator: operator.unwrap_or(ComparisonOperator::Equal),
+            },
+            ConditionalFormatType::Top10 { .. } => ConditionalFormatType::Top10 {
+                bottom,
+                percent,
+                rank: rank.unwrap_or(10),
+            },
+            ConditionalFormatType::ContainsText { .. } => ConditionalFormatType::ContainsText {
+                text: text.clone().unwrap_or_default(),
+            },
+            ConditionalFormatType::BeginsWith { .. } => ConditionalFormatType::BeginsWith {
+                text: text.clone().unwrap_or_default(),
+            },
+            ConditionalFormatType::EndsWith { .. } => ConditionalFormatType::EndsWith {
+                text: text.clone().unwrap_or_default(),
+            },
+            ConditionalFormatType::TimePeriod { .. } => ConditionalFormatType::TimePeriod {
+                period: time_period.unwrap_or(TimePeriod::Today),
+            },
+            ConditionalFormatType::AboveAverage { .. } => ConditionalFormatType::AboveAverage {
+                below: !above_average,
+                equal_average,
+                std_dev,
+            },
+            _ => rule_type,
+        };
+
+        // Parse child elements
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"formula" => {
+                        if let Ok(Event::Text(ref t)) = xml.read_event_into(buf) {
+                            let formula_text = xml.decoder().decode(t)?.into_owned();
+                            formulas.push(formula_text);
+                        }
+                    }
+                    b"dataBar" => {
+                        if let ConditionalFormatType::DataBar(ref mut data_bar) = rule_type {
+                            Self::parse_data_bar(xml, buf, data_bar)?;
+                        }
+                    }
+                    b"colorScale" => {
+                        if let ConditionalFormatType::ColorScale(ref mut color_scale) = rule_type {
+                            Self::parse_color_scale(xml, buf, color_scale)?;
+                        }
+                    }
+                    b"iconSet" => {
+                        if let ConditionalFormatType::IconSet(ref mut icon_set) = rule_type {
+                            Self::parse_icon_set(xml, buf, icon_set)?;
+                        }
+                    }
+                    b"extLst" => {
+                        // Skip extensions for now
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cfRule" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("cfRule")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(ConditionalFormatRule {
+            rule_type,
+            priority,
+            stop_if_true,
+            dxf_id,
+            formulas,
+            pivot,
+            text,
+            operator: operator.map(|op| op.to_string()),
+            bottom: if bottom { Some(true) } else { None },
+            percent: if percent { Some(true) } else { None },
+            rank: rank.map(|r| r as i32),
+            above_average: if above_average { Some(true) } else { None },
+            equal_average: if equal_average { Some(true) } else { None },
+            std_dev: std_dev.map(|d| d as i32),
+        })
+    }
+
+    /// Parse data bar element
+    fn parse_data_bar(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+        data_bar: &mut crate::conditional_formatting::DataBar,
+    ) -> Result<(), XlsxError> {
+        use crate::conditional_formatting::{AxisPosition, BarDirection};
+
+        let mut cfvo_count = 0;
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"dataBar" => {
+                        // Parse dataBar attributes
+                        for attr in e.attributes() {
+                            match attr.map_err(XlsxError::XmlAttr)? {
+                                Attribute {
+                                    key: QName(b"showValue"),
+                                    value: v,
+                                } => {
+                                    data_bar.show_value = &*v != b"0" && &*v != b"false";
+                                }
+                                Attribute {
+                                    key: QName(b"minLength"),
+                                    value: v,
+                                } => {
+                                    if let Ok(len) = atoi_simd::parse::<u32>(&v) {
+                                        data_bar.min_length = len;
+                                    }
+                                }
+                                Attribute {
+                                    key: QName(b"maxLength"),
+                                    value: v,
+                                } => {
+                                    if let Ok(len) = atoi_simd::parse::<u32>(&v) {
+                                        data_bar.max_length = len;
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                    b"cfvo" => {
+                        let cfvo = Self::parse_cfvo(e.attributes(), xml)?;
+                        if cfvo_count == 0 {
+                            data_bar.min_cfvo = cfvo;
+                        } else if cfvo_count == 1 {
+                            data_bar.max_cfvo = cfvo;
+                        }
+                        cfvo_count += 1;
+                    }
+                    b"color" => {
+                        if let Some(color) = Self::parse_color_from_attributes(e.attributes())? {
+                            data_bar.color = color;
+                        }
+                    }
+                    b"negativeFillColor" => {
+                        if let Some(color) = Self::parse_color_from_attributes(e.attributes())? {
+                            data_bar.negative_color = Some(color);
+                        }
+                    }
+                    b"borderColor" => {
+                        if let Some(color) = Self::parse_color_from_attributes(e.attributes())? {
+                            data_bar.border_color = Some(color);
+                        }
+                    }
+                    b"negativeBorderColor" => {
+                        if let Some(color) = Self::parse_color_from_attributes(e.attributes())? {
+                            data_bar.negative_border_color = Some(color);
+                        }
+                    }
+                    b"axisColor" => {
+                        if let Some(color) = Self::parse_color_from_attributes(e.attributes())? {
+                            data_bar.axis_color = Some(color);
+                        }
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::Empty(ref e)) => match e.local_name().as_ref() {
+                    b"dataBar" => {
+                        // Handle self-closing dataBar tag with attributes
+                        for attr in e.attributes() {
+                            match attr.map_err(XlsxError::XmlAttr)? {
+                                Attribute {
+                                    key: QName(b"direction"),
+                                    value: v,
+                                } => {
+                                    let dir_str = xml.decoder().decode(&v)?;
+                                    data_bar.direction = Some(match dir_str.as_ref() {
+                                        "leftToRight" => BarDirection::LeftToRight,
+                                        "rightToLeft" => BarDirection::RightToLeft,
+                                        _ => BarDirection::LeftToRight,
+                                    });
+                                }
+                                Attribute {
+                                    key: QName(b"gradient"),
+                                    value: v,
+                                } => {
+                                    data_bar.gradient = &*v != b"0" && &*v != b"false";
+                                }
+                                Attribute {
+                                    key: QName(b"axisPosition"),
+                                    value: v,
+                                } => {
+                                    let pos_str = xml.decoder().decode(&v)?;
+                                    data_bar.axis_position = Some(match pos_str.as_ref() {
+                                        "automatic" => AxisPosition::Automatic,
+                                        "midpoint" => AxisPosition::Midpoint,
+                                        "none" => AxisPosition::None,
+                                        _ => AxisPosition::Automatic,
+                                    });
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                    _ => (),
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"dataBar" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("dataBar")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse color scale element
+    fn parse_color_scale(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+        color_scale: &mut crate::conditional_formatting::ColorScale,
+    ) -> Result<(), XlsxError> {
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"cfvo" => {
+                        let cfvo = Self::parse_cfvo(e.attributes(), xml)?;
+                        color_scale.cfvos.push(cfvo);
+                    }
+                    b"color" => {
+                        if let Some(color) = Self::parse_color_from_attributes(e.attributes())? {
+                            color_scale.colors.push(color);
+                        }
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"colorScale" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("colorScale")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse icon set element
+    fn parse_icon_set(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+        icon_set: &mut crate::conditional_formatting::IconSet,
+    ) -> Result<(), XlsxError> {
+        use crate::conditional_formatting::IconSetType;
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"iconSet" => {
+                    // Parse attributes
+                    for attr in e.attributes() {
+                        match attr.map_err(XlsxError::XmlAttr)? {
+                Attribute {
+                    key: QName(b"iconSet"),
+                    value: v,
+                } => {
+                    let icon_str = xml.decoder().decode(&v)?;
+                    icon_set.icon_set = match icon_str.as_ref() {
+                        "3Arrows" => IconSetType::Arrows3,
+                        "3ArrowsGray" => IconSetType::Arrows3Gray,
+                        "4Arrows" => IconSetType::Arrows4,
+                        "4ArrowsGray" => IconSetType::Arrows4Gray,
+                        "5Arrows" => IconSetType::Arrows5,
+                        "5ArrowsGray" => IconSetType::Arrows5Gray,
+                        "3Flags" => IconSetType::Flags3,
+                        "3TrafficLights1" => IconSetType::TrafficLights3,
+                        "3TrafficLights2" => IconSetType::TrafficLights3Rimmed,
+                        "4TrafficLights" => IconSetType::TrafficLights4,
+                        "3Signs" => IconSetType::Signs3,
+                        "3Symbols" => IconSetType::Symbols3,
+                        "3Symbols2" => IconSetType::Symbols3Uncircled,
+                        "4Rating" => IconSetType::Rating4,
+                        "5Rating" => IconSetType::Rating5,
+                        "5Quarters" => IconSetType::Quarters5,
+                        "3Stars" => IconSetType::Stars3,
+                        "3Triangles" => IconSetType::Triangles3,
+                        "5Boxes" => IconSetType::Boxes5,
+                        "4RedToBlack" => IconSetType::RedToBlack4,
+                        "4RatingBars" => IconSetType::RatingBars4,
+                        "5RatingBars" => IconSetType::RatingBars5,
+                        "3ColoredArrows" => IconSetType::ColoredArrows3,
+                        "4ColoredArrows" => IconSetType::ColoredArrows4,
+                        "5ColoredArrows" => IconSetType::ColoredArrows5,
+                        "3WhiteArrows" => IconSetType::WhiteArrows3,
+                        "4WhiteArrows" => IconSetType::WhiteArrows4,
+                        "5WhiteArrows" => IconSetType::WhiteArrows5,
+                        _ => IconSetType::Arrows3,
+                    };
+                }
+                Attribute {
+                    key: QName(b"showValue"),
+                    value: v,
+                } => {
+                    icon_set.show_value = &*v != b"0" && &*v != b"false";
+                }
+                Attribute {
+                    key: QName(b"reverse"),
+                    value: v,
+                } => {
+                    icon_set.reverse = &*v == b"1" || &*v == b"true";
+                }
+                _ => (),
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"cfvo" => {
+                        let cfvo = Self::parse_cfvo(e.attributes(), xml)?;
+                        icon_set.cfvos.push(cfvo);
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"iconSet" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("iconSet")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse conditional format value object (cfvo)
+    fn parse_cfvo(
+        attributes: quick_xml::events::attributes::Attributes<'_>,
+        xml: &XlReader<'_, RS>,
+    ) -> Result<crate::conditional_formatting::ConditionalFormatValue, XlsxError> {
+        use crate::conditional_formatting::{CfvoType, ConditionalFormatValue};
+
+        let mut cfvo = ConditionalFormatValue {
+            value_type: CfvoType::Min,
+            value: None,
+            gte: false,
+        };
+
+        for attr in attributes {
+            match attr.map_err(XlsxError::XmlAttr)? {
+                Attribute {
+                    key: QName(b"type"),
+                    value: v,
+                } => {
+                    let type_str = xml.decoder().decode(&v)?;
+                    cfvo.value_type = match type_str.as_ref() {
+                        "min" => CfvoType::Min,
+                        "max" => CfvoType::Max,
+                        "num" => CfvoType::Number,
+                        "percent" => CfvoType::Percent,
+                        "percentile" => CfvoType::Percentile,
+                        "formula" => CfvoType::Formula,
+                        "autoMin" => CfvoType::AutoMin,
+                        "autoMax" => CfvoType::AutoMax,
+                        _ => CfvoType::Number,
+                    };
+                }
+                Attribute {
+                    key: QName(b"val"),
+                    value: v,
+                } => {
+                    cfvo.value = Some(xml.decoder().decode(&v)?.into_owned());
+                }
+                Attribute {
+                    key: QName(b"gte"),
+                    value: v,
+                } => {
+                    cfvo.gte = &*v == b"1" || &*v == b"true";
+                }
+                _ => (),
+            }
+        }
+
+        Ok(cfvo)
+    }
+
+    /// Parse a dxf (differential format) element
+    fn parse_dxf_element(
+        xml: &mut XlReader<'_, RS>,
+        buf: &mut Vec<u8>,
+        _number_formats: &BTreeMap<u32, String>,
+        _format_interner: &FormatStringInterner,
+    ) -> Result<DifferentialFormat, XlsxError> {
+        use crate::conditional_formatting::{
+            DifferentialAlignment, DifferentialBorder, DifferentialBorderSide, DifferentialFill,
+            DifferentialFont, DifferentialFormat, DifferentialNumberFormat, PatternFill,
+        };
+
+        let mut dxf = DifferentialFormat::default();
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(buf) {
+                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                    b"font" => {
+                        let mut font = DifferentialFont::default();
+                        let mut inner_buf = Vec::new();
+
+                        loop {
+                            inner_buf.clear();
+                            match xml.read_event_into(&mut inner_buf) {
+                                Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                                    b"name" => {
+                                        if let Some(val) = get_attribute(e.attributes(), QName(b"val"))? {
+                                            font.name = Some(xml.decoder().decode(val)?.into_owned());
+                                        }
+                                    }
+                                    b"sz" => {
+                                        if let Some(val) = get_attribute(e.attributes(), QName(b"val"))? {
+                                            if let Ok(size) = xml.decoder().decode(val)?.parse::<f64>() {
+                                                font.size = Some(size);
+                                            }
+                                        }
+                                    }
+                                    b"b" => font.bold = Some(true),
+                                    b"i" => font.italic = Some(true),
+                                    b"u" => font.underline = Some(true),
+                                    b"strike" => font.strike = Some(true),
+                                    b"color" => {
+                                        font.color = Self::parse_color_from_attributes(e.attributes())?;
+                                    }
+                                    _ => {
+                                        let mut temp_buf = Vec::new();
+                                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                                    }
+                                },
+                                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"font" => break,
+                                Ok(Event::Eof) => return Err(XlsxError::XmlEof("font")),
+                                Err(e) => return Err(XlsxError::Xml(e)),
+                                _ => (),
+                            }
+                        }
+                        dxf.font = Some(font);
+                    }
+                    b"fill" => {
+                        let mut pattern_fill = PatternFill {
+                            pattern_type: None,
+                            fg_color: None,
+                            bg_color: None,
+                        };
+                        let mut inner_buf = Vec::new();
+
+                        loop {
+                            inner_buf.clear();
+                            match xml.read_event_into(&mut inner_buf) {
+                                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"patternFill" => {
+                                    for attr in e.attributes() {
+                                        if let Attribute {
+                                            key: QName(b"patternType"),
+                                            value: v,
+                                        } = attr.map_err(XlsxError::XmlAttr)?
+                                        {
+                                            pattern_fill.pattern_type = Some(xml.decoder().decode(&v)?.into_owned());
+                                        }
+                                    }
+
+                                    let mut pattern_buf = Vec::new();
+                                    loop {
+                                        pattern_buf.clear();
+                                        match xml.read_event_into(&mut pattern_buf) {
+                                            Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                                                b"fgColor" => {
+                                                    pattern_fill.fg_color = Self::parse_color_from_attributes(e.attributes())?;
+                                                }
+                                                b"bgColor" => {
+                                                    pattern_fill.bg_color = Self::parse_color_from_attributes(e.attributes())?;
+                                                }
+                                                _ => {
+                                                    let mut temp_buf = Vec::new();
+                                                    xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                                                }
+                                            },
+                                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"patternFill" => break,
+                                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("patternFill")),
+                                            Err(e) => return Err(XlsxError::Xml(e)),
+                                            _ => (),
+                                        }
+                                    }
+                                }
+                                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fill" => break,
+                                Ok(Event::Eof) => return Err(XlsxError::XmlEof("fill")),
+                                Err(e) => return Err(XlsxError::Xml(e)),
+                                _ => (),
+                            }
+                        }
+                        dxf.fill = Some(DifferentialFill { pattern_fill });
+                    }
+                    b"border" => {
+                        let mut border = DifferentialBorder::default();
+                        let mut inner_buf = Vec::new();
+
+                        // Parse border attributes
+                        for attr in e.attributes() {
+                            match attr.map_err(XlsxError::XmlAttr)? {
+                                Attribute {
+                                    key: QName(b"diagonalUp"),
+                                    value: v,
+                                } => {
+                                    border.diagonal_up = Some(&*v == b"1" || &*v == b"true");
+                                }
+                                Attribute {
+                                    key: QName(b"diagonalDown"),
+                                    value: v,
+                                } => {
+                                    border.diagonal_down = Some(&*v == b"1" || &*v == b"true");
+                                }
+                                _ => (),
+                            }
+                        }
+
+                        loop {
+                            inner_buf.clear();
+                            match xml.read_event_into(&mut inner_buf) {
+                                Ok(Event::Start(ref e)) => {
+                                    let side_name = e.local_name();
+                                    let side = match side_name.as_ref() {
+                                        b"left" => &mut border.left,
+                                        b"right" => &mut border.right,
+                                        b"top" => &mut border.top,
+                                        b"bottom" => &mut border.bottom,
+                                        b"diagonal" => &mut border.diagonal,
+                                        _ => {
+                                            let mut temp_buf = Vec::new();
+                                            xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                                            continue;
+                                        }
+                                    };
+
+                                    let mut border_side = DifferentialBorderSide {
+                                        style: None,
+                                        color: None,
+                                    };
+
+                                    // Parse style attribute
+                                    for attr in e.attributes() {
+                                        if let Attribute {
+                                            key: QName(b"style"),
+                                            value: v,
+                                        } = attr.map_err(XlsxError::XmlAttr)?
+                                        {
+                                            border_side.style = Some(xml.decoder().decode(&v)?.into_owned());
+                                        }
+                                    }
+
+                                    // Parse color element
+                                    let mut side_buf = Vec::new();
+                                    loop {
+                                        side_buf.clear();
+                                        match xml.read_event_into(&mut side_buf) {
+                                            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"color" => {
+                                                border_side.color = Self::parse_color_from_attributes(e.attributes())?;
+                                            }
+                                            Ok(Event::End(ref e)) if e.local_name() == side_name => break,
+                                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("border side")),
+                                            Err(e) => return Err(XlsxError::Xml(e)),
+                                            _ => (),
+                                        }
+                                    }
+
+                                    *side = Some(border_side);
+                                }
+                                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"border" => break,
+                                Ok(Event::Eof) => return Err(XlsxError::XmlEof("border")),
+                                Err(e) => return Err(XlsxError::Xml(e)),
+                                _ => (),
+                            }
+                        }
+                        dxf.border = Some(border);
+                    }
+                    b"numFmt" => {
+                        let mut format_code = String::new();
+                        for attr in e.attributes() {
+                            if let Attribute {
+                                key: QName(b"formatCode"),
+                                value: v,
+                            } = attr.map_err(XlsxError::XmlAttr)?
+                            {
+                                format_code = xml.decoder().decode(&v)?.into_owned();
+                            }
+                        }
+                        if !format_code.is_empty() {
+                            dxf.number_format = Some(DifferentialNumberFormat { 
+                                format_code,
+                                num_fmt_id: None,
+                            });
+                        }
+                    }
+                    b"alignment" => {
+                        let mut alignment = DifferentialAlignment::default();
+                        for attr in e.attributes() {
+                            match attr.map_err(XlsxError::XmlAttr)? {
+                                Attribute {
+                                    key: QName(b"horizontal"),
+                                    value: v,
+                                } => {
+                                    alignment.horizontal = Some(xml.decoder().decode(&v)?.into_owned());
+                                }
+                                Attribute {
+                                    key: QName(b"vertical"),
+                                    value: v,
+                                } => {
+                                    alignment.vertical = Some(xml.decoder().decode(&v)?.into_owned());
+                                }
+                                Attribute {
+                                    key: QName(b"wrapText"),
+                                    value: v,
+                                } => {
+                                    alignment.wrap_text = Some(&*v == b"1" || &*v == b"true");
+                                }
+                                Attribute {
+                                    key: QName(b"shrinkToFit"),
+                                    value: v,
+                                } => {
+                                    alignment.shrink_to_fit = Some(&*v == b"1" || &*v == b"true");
+                                }
+                                Attribute {
+                                    key: QName(b"textRotation"),
+                                    value: v,
+                                } => {
+                                    if let Ok(rotation) = xml.decoder().decode(&v)?.parse::<i32>() {
+                                        alignment.text_rotation = Some(rotation);
+                                    }
+                                }
+                                Attribute {
+                                    key: QName(b"indent"),
+                                    value: v,
+                                } => {
+                                    if let Ok(indent) = xml.decoder().decode(&v)?.parse::<u32>() {
+                                        alignment.indent = Some(indent);
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+                        dxf.alignment = Some(alignment);
+                    }
+                    _ => {
+                        let mut temp_buf = Vec::new();
+                        xml.read_to_end_into(e.name(), &mut temp_buf)?;
+                    }
+                },
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"dxf" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("dxf")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(dxf)
     }
 
     fn read_workbook(
@@ -1476,6 +2528,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             pictures: None,
             merged_regions: None,
             options: XlsxOptions::default(),
+            dxf_formats: Vec::new(),
+            conditional_formats: BTreeMap::new(),
         };
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
@@ -2162,6 +3216,8 @@ mod tests {
             pictures: None,
             merged_regions: None,
             options: XlsxOptions::default(),
+            dxf_formats: vec![],
+            conditional_formats: BTreeMap::new(),
         };
 
         assert!(xlsx.read_shared_strings().is_ok());
