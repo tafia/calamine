@@ -88,6 +88,10 @@ pub enum BorderStyle {
     Double,
     /// Hair border
     Hair,
+    /// Dashed border
+    Dashed,
+    /// Dotted border
+    Dotted,
     /// Medium dashed border
     MediumDashed,
     /// Dash dot border

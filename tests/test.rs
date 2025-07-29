@@ -2321,20 +2321,68 @@ fn test_color_parsing() {
 
 #[test]
 fn test_border_colors() {
-    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
-    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+    let mut xlsx: Xlsx<_> = wb("borders.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
 
-    // Test that borders with colors are properly parsed
-    // This will help verify that border colors are now being captured
-    // Note: This test may need to be adjusted based on the actual content of styles.xlsx
-    let a1_style = styles.get((0, 0)).unwrap();
-    if let Some(borders) = &a1_style.borders {
-        // Test that border style is captured (existing functionality)
-        assert_eq!(borders.top.style, BorderStyle::Thin);
+    let mut found_thin_with_color = false;
+    let mut found_dashed_with_color = false;
 
-        // Test that border color is captured (new functionality)
-        // If borders in the test file have colors, they should now be captured
-        // For now, we'll just verify the structure is correct
-        assert!(borders.top.color.is_some() || borders.top.color.is_none()); // This will always pass but validates the field exists
+    // Test the first few rows to find different border styles with colors
+    for row in 0..5 {
+        for col in 0..5 {
+            if let Some(style) = styles.get((row, col)) {
+                if let Some(borders) = &style.borders {
+                    // Check each border side for styles and colors
+                    for border in [&borders.left, &borders.right, &borders.top, &borders.bottom] {
+                        if border.style != BorderStyle::None && border.color.is_some() {
+                            match border.style {
+                                BorderStyle::Thin => {
+                                    found_thin_with_color = true;
+                                    println!(
+                                        "✓ Found THIN border with RED color at ({}, {})",
+                                        row, col
+                                    );
+                                }
+                                BorderStyle::Dashed => {
+                                    found_dashed_with_color = true;
+                                    println!(
+                                        "✓ Found DASHED border with RED color at ({}, {})",
+                                        row, col
+                                    );
+                                }
+                                _ => {}
+                            }
+
+                            // Verify the color is red as expected
+                            if let Some(color) = border.color {
+                                assert_eq!(
+                                    color.red, 255,
+                                    "Expected red color component to be 255"
+                                );
+                                assert_eq!(
+                                    color.green, 0,
+                                    "Expected green color component to be 0"
+                                );
+                                assert_eq!(color.blue, 0, "Expected blue color component to be 0");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    // Verify we found both types of borders with colors
+    assert!(
+        found_thin_with_color,
+        "Expected to find at least one thin border with color"
+    );
+    assert!(
+        found_dashed_with_color,
+        "Expected to find at least one dashed border with color"
+    );
+
+    println!(
+        "✅ Border color parsing test passed - both solid and dashed borders with colors detected!"
+    );
 }

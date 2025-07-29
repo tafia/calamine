@@ -152,6 +152,8 @@ fn parse_border_style(s: &str) -> BorderStyle {
         "thick" => BorderStyle::Thick,
         "double" => BorderStyle::Double,
         "hair" => BorderStyle::Hair,
+        "dashed" => BorderStyle::Dashed,
+        "dotted" => BorderStyle::Dotted,
         "mediumDashed" => BorderStyle::MediumDashed,
         "dashDot" => BorderStyle::DashDot,
         "dashDotDot" => BorderStyle::DashDotDot,
