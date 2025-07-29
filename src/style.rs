@@ -961,6 +961,35 @@ mod tests {
     }
 
     #[test]
+    fn test_border_with_color() {
+        let border = Border::with_color(BorderStyle::Thin, Color::rgb(255, 0, 0));
+        assert_eq!(border.style, BorderStyle::Thin);
+        assert_eq!(border.color, Some(Color::rgb(255, 0, 0)));
+        assert!(border.is_visible());
+    }
+
+    #[test]
+    fn test_border_without_color() {
+        let border = Border::new(BorderStyle::Medium);
+        assert_eq!(border.style, BorderStyle::Medium);
+        assert_eq!(border.color, None);
+        assert!(border.is_visible());
+    }
+
+    #[test]
+    fn test_borders_with_mixed_colors() {
+        let mut borders = Borders::new();
+        borders.left = Border::with_color(BorderStyle::Thin, Color::rgb(255, 0, 0));
+        borders.right = Border::new(BorderStyle::Medium);
+        borders.top = Border::with_color(BorderStyle::Thick, Color::rgb(0, 255, 0));
+
+        assert_eq!(borders.left.color, Some(Color::rgb(255, 0, 0)));
+        assert_eq!(borders.right.color, None);
+        assert_eq!(borders.top.color, Some(Color::rgb(0, 255, 0)));
+        assert!(borders.has_visible_borders());
+    }
+
+    #[test]
     fn test_column_width() {
         let column_width = ColumnWidth::new(5, 12.5)
             .with_custom_width(true)

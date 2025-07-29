@@ -350,6 +350,7 @@ pub fn parse_border<RS: BufRead>(
                         let mut style = BorderStyle::None;
                         let mut color = None;
 
+                        // Parse attributes for style
                         for attr in e.attributes() {
                             let attr = attr?;
                             match attr.key.as_ref() {
@@ -361,10 +362,41 @@ pub fn parse_border<RS: BufRead>(
                             }
                         }
 
+                        // Check for color attributes directly on the border element (fallback)
                         if let Some(border_color) =
                             parse_color(&e.attributes().collect::<Result<Vec<_>, _>>()?)?
                         {
                             color = Some(border_color);
+                        }
+
+                        // Parse nested elements (primarily for color)
+                        let mut inner_buf = Vec::new();
+                        loop {
+                            inner_buf.clear();
+                            match xml.read_event_into(&mut inner_buf) {
+                                Ok(Event::Start(ref inner_e)) => {
+                                    match inner_e.local_name().as_ref() {
+                                        b"color" => {
+                                            if let Some(border_color) = parse_color(
+                                                &inner_e
+                                                    .attributes()
+                                                    .collect::<Result<Vec<_>, _>>()?,
+                                            )? {
+                                                color = Some(border_color);
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                Ok(Event::End(ref inner_e))
+                                    if inner_e.local_name().as_ref() == e.local_name().as_ref() =>
+                                {
+                                    break
+                                }
+                                Ok(Event::Eof) => return Err(XlsxError::XmlEof("border side")),
+                                Err(e) => return Err(XlsxError::Xml(e)),
+                                _ => {}
+                            }
                         }
 
                         let border = if let Some(c) = color {
@@ -454,7 +486,7 @@ pub fn parse_alignment<RS: BufRead>(
 
 /// Parse protection element
 pub fn parse_protection<RS: BufRead>(
-    xml: &mut Reader<RS>,
+    _xml: &mut Reader<RS>,
     start_elem: &BytesStart,
 ) -> Result<Protection, XlsxError> {
     let mut protection = Protection::new();
