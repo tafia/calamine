@@ -2282,6 +2282,16 @@ fn test_worksheet_style_iter() {
 }
 
 #[test]
+fn test_worksheet_layout() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let layout = xlsx.worksheet_layout("Sheet 1").unwrap();
+    assert_eq!(layout.column_widths.len(), 1);
+    assert_eq!(layout.row_heights.len(), 1);
+    assert_eq!(layout.default_column_width, Some(8.43));
+    assert_eq!(layout.default_row_height, Some(15.0));
+}
+
+#[test]
 fn test_underline_parsing() {
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let worksheet = xlsx.worksheet_style("Sheet 1").unwrap();

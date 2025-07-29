@@ -22,7 +22,7 @@ use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible, Style,
+    SheetVisible, Style, WorksheetLayout,
 };
 
 #[derive(Debug)]
@@ -278,6 +278,16 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         }
     }
 
+    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsError> {
+        // TODO: Implement XLS style parsing
+        Ok(Range::default())
+    }
+
+    fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, XlsError> {
+        // XLS doesn't support column width/row height information in the same way as XLSX
+        Ok(WorksheetLayout::new())
+    }
+
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         self.sheets
             .iter()
@@ -290,10 +300,6 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .get(name)
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
             .map(|r| r.formula.clone())
-    }
-
-    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsError> {
-        unimplemented!()
     }
 
     #[cfg(feature = "picture")]

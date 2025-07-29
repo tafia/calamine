@@ -603,6 +603,195 @@ impl Protection {
     }
 }
 
+/// Column width information
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnWidth {
+    /// Column index (0-based)
+    pub column: u32,
+    /// Width in Excel units (characters)
+    pub width: f64,
+    /// Whether the width is custom (manually set)
+    pub custom_width: bool,
+    /// Whether the column is hidden
+    pub hidden: bool,
+    /// Best fit width
+    pub best_fit: bool,
+}
+
+impl ColumnWidth {
+    /// Create a new column width
+    pub fn new(column: u32, width: f64) -> Self {
+        Self {
+            column,
+            width,
+            custom_width: false,
+            hidden: false,
+            best_fit: false,
+        }
+    }
+
+    /// Set custom width flag
+    pub fn with_custom_width(mut self, custom: bool) -> Self {
+        self.custom_width = custom;
+        self
+    }
+
+    /// Set hidden flag
+    pub fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Set best fit flag
+    pub fn with_best_fit(mut self, best_fit: bool) -> Self {
+        self.best_fit = best_fit;
+        self
+    }
+
+    /// Check if column is visible
+    pub fn is_visible(&self) -> bool {
+        !self.hidden
+    }
+}
+
+/// Row height information
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowHeight {
+    /// Row index (0-based)
+    pub row: u32,
+    /// Height in points
+    pub height: f64,
+    /// Whether the height is custom (manually set)
+    pub custom_height: bool,
+    /// Whether the row is hidden
+    pub hidden: bool,
+    /// Thick top border
+    pub thick_top: bool,
+    /// Thick bottom border
+    pub thick_bottom: bool,
+}
+
+impl RowHeight {
+    /// Create a new row height
+    pub fn new(row: u32, height: f64) -> Self {
+        Self {
+            row,
+            height,
+            custom_height: false,
+            hidden: false,
+            thick_top: false,
+            thick_bottom: false,
+        }
+    }
+
+    /// Set custom height flag
+    pub fn with_custom_height(mut self, custom: bool) -> Self {
+        self.custom_height = custom;
+        self
+    }
+
+    /// Set hidden flag
+    pub fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Set thick top border
+    pub fn with_thick_top(mut self, thick_top: bool) -> Self {
+        self.thick_top = thick_top;
+        self
+    }
+
+    /// Set thick bottom border
+    pub fn with_thick_bottom(mut self, thick_bottom: bool) -> Self {
+        self.thick_bottom = thick_bottom;
+        self
+    }
+
+    /// Check if row is visible
+    pub fn is_visible(&self) -> bool {
+        !self.hidden
+    }
+}
+
+/// Worksheet layout information
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WorksheetLayout {
+    /// Column widths
+    pub column_widths: Vec<ColumnWidth>,
+    /// Row heights
+    pub row_heights: Vec<RowHeight>,
+    /// Default column width
+    pub default_column_width: Option<f64>,
+    /// Default row height
+    pub default_row_height: Option<f64>,
+}
+
+impl WorksheetLayout {
+    /// Create a new worksheet layout
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a column width
+    pub fn add_column_width(mut self, column_width: ColumnWidth) -> Self {
+        self.column_widths.push(column_width);
+        self
+    }
+
+    /// Add a row height
+    pub fn add_row_height(mut self, row_height: RowHeight) -> Self {
+        self.row_heights.push(row_height);
+        self
+    }
+
+    /// Set default column width
+    pub fn with_default_column_width(mut self, width: f64) -> Self {
+        self.default_column_width = Some(width);
+        self
+    }
+
+    /// Set default row height
+    pub fn with_default_row_height(mut self, height: f64) -> Self {
+        self.default_row_height = Some(height);
+        self
+    }
+
+    /// Get column width for a specific column
+    pub fn get_column_width(&self, column: u32) -> Option<&ColumnWidth> {
+        self.column_widths.iter().find(|cw| cw.column == column)
+    }
+
+    /// Get row height for a specific row
+    pub fn get_row_height(&self, row: u32) -> Option<&RowHeight> {
+        self.row_heights.iter().find(|rh| rh.row == row)
+    }
+
+    /// Get effective column width (custom or default)
+    pub fn get_effective_column_width(&self, column: u32) -> f64 {
+        self.get_column_width(column)
+            .map(|cw| cw.width)
+            .or(self.default_column_width)
+            .unwrap_or(8.43) // Excel default column width
+    }
+
+    /// Get effective row height (custom or default)
+    pub fn get_effective_row_height(&self, row: u32) -> f64 {
+        self.get_row_height(row)
+            .map(|rh| rh.height)
+            .or(self.default_row_height)
+            .unwrap_or(15.0) // Excel default row height
+    }
+
+    /// Check if layout has any custom dimensions
+    pub fn has_custom_dimensions(&self) -> bool {
+        !self.column_widths.is_empty()
+            || !self.row_heights.is_empty()
+            || self.default_column_width.is_some()
+            || self.default_row_height.is_some()
+    }
+}
+
 /// Complete cell style
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Style {
@@ -769,5 +958,77 @@ mod tests {
         assert!(!style.is_empty());
         assert!(style.get_font().is_some());
         assert!(style.get_fill().is_some());
+    }
+
+    #[test]
+    fn test_column_width() {
+        let column_width = ColumnWidth::new(5, 12.5)
+            .with_custom_width(true)
+            .with_hidden(false)
+            .with_best_fit(true);
+
+        assert_eq!(column_width.column, 5);
+        assert_eq!(column_width.width, 12.5);
+        assert!(column_width.custom_width);
+        assert!(!column_width.hidden);
+        assert!(column_width.best_fit);
+        assert!(column_width.is_visible());
+    }
+
+    #[test]
+    fn test_row_height() {
+        let row_height = RowHeight::new(10, 20.0)
+            .with_custom_height(true)
+            .with_hidden(false)
+            .with_thick_top(true)
+            .with_thick_bottom(false);
+
+        assert_eq!(row_height.row, 10);
+        assert_eq!(row_height.height, 20.0);
+        assert!(row_height.custom_height);
+        assert!(!row_height.hidden);
+        assert!(row_height.thick_top);
+        assert!(!row_height.thick_bottom);
+        assert!(row_height.is_visible());
+    }
+
+    #[test]
+    fn test_worksheet_layout() {
+        let layout = WorksheetLayout::new()
+            .add_column_width(ColumnWidth::new(0, 10.0))
+            .add_column_width(ColumnWidth::new(1, 15.0))
+            .add_row_height(RowHeight::new(0, 18.0))
+            .add_row_height(RowHeight::new(1, 22.0))
+            .with_default_column_width(8.43)
+            .with_default_row_height(15.0);
+
+        assert_eq!(layout.column_widths.len(), 2);
+        assert_eq!(layout.row_heights.len(), 2);
+        assert_eq!(layout.default_column_width, Some(8.43));
+        assert_eq!(layout.default_row_height, Some(15.0));
+        assert!(layout.has_custom_dimensions());
+
+        // Test getting specific column width
+        let col_width = layout.get_column_width(0).unwrap();
+        assert_eq!(col_width.width, 10.0);
+
+        // Test getting specific row height
+        let row_height = layout.get_row_height(1).unwrap();
+        assert_eq!(row_height.height, 22.0);
+
+        // Test effective widths/heights
+        assert_eq!(layout.get_effective_column_width(0), 10.0); // Custom width
+        assert_eq!(layout.get_effective_column_width(5), 8.43); // Default width
+        assert_eq!(layout.get_effective_row_height(0), 18.0); // Custom height
+        assert_eq!(layout.get_effective_row_height(5), 15.0); // Default height
+    }
+
+    #[test]
+    fn test_worksheet_layout_defaults() {
+        let layout = WorksheetLayout::new();
+
+        assert!(!layout.has_custom_dimensions());
+        assert_eq!(layout.get_effective_column_width(0), 8.43); // Excel default
+        assert_eq!(layout.get_effective_row_height(0), 15.0); // Excel default
     }
 }

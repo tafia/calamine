@@ -25,8 +25,8 @@ use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFo
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Style,
+    Cell, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, Style, WorksheetLayout,
 };
 
 /// A Xlsb specific error
@@ -528,7 +528,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsbError> {
-        unimplemented!()
+        // TODO: Implement XLSB style parsing
+        Ok(Range::default())
+    }
+
+    fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, XlsbError> {
+        // XLSB doesn't support column width/row height information in the same way as XLSX yet
+        Ok(WorksheetLayout::new())
     }
 
     /// MS-XLSB 2.1.7.62

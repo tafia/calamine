@@ -92,7 +92,11 @@ pub use crate::datatype::{CellData, Data, DataRef, DataType, ExcelDateTime, Exce
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
-pub use crate::style::*;
+pub use crate::style::{
+    Alignment, Border, BorderStyle, Borders, Color, ColumnWidth, Fill, FillPattern, Font,
+    FontStyle, FontWeight, HorizontalAlignment, NumberFormat, Protection, RowHeight, Style,
+    TextRotation, UnderlineStyle, VerticalAlignment, WorksheetLayout,
+};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
 pub use crate::xlsx::{Xlsx, XlsxError};
@@ -283,6 +287,9 @@ where
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
     fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, Self::Error>;
+
+    /// Read worksheet layout information (column widths and row heights)
+    fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, Self::Error>;
 
     /// Get all sheet names of this workbook, in workbook order
     ///

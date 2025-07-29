@@ -23,10 +23,11 @@ use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
+use crate::style::{ColumnWidth, RowHeight, WorksheetLayout};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Style, Table,
+    Cell, CellErrorType, CellType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef,
+    Sheet, SheetType, SheetVisible, Style, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -1691,6 +1692,241 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let styles = &self.styles;
         XlsxCellReader::new(xml, strings, formats, styles, is_1904)
     }
+
+    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                warn!("'{typ}' not a worksheet");
+                return Ok(Range::default());
+            }
+            Err(e) => return Err(e),
+        };
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+        while let Some(cell) = cell_reader.next_style()? {
+            if !cell.val.is_empty() {
+                cells.push(cell);
+            }
+        }
+        Ok(Range::from_sparse(cells))
+    }
+
+    fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+
+        let mut xml = xml_reader(&mut self.zip, path)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
+
+        let mut layout = WorksheetLayout::new();
+        let mut buf = Vec::with_capacity(1024);
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetFormatPr" => {
+                    // Parse default column width and row height
+                    for attr in e.attributes() {
+                        let attr = attr.map_err(XlsxError::XmlAttr)?;
+                        match attr.key.as_ref() {
+                            b"defaultColWidth" => {
+                                if let Ok(width_str) = xml.decoder().decode(&attr.value) {
+                                    if let Ok(width) = width_str.parse::<f64>() {
+                                        layout = layout.with_default_column_width(width);
+                                    }
+                                }
+                            }
+                            b"defaultRowHeight" => {
+                                if let Ok(height_str) = xml.decoder().decode(&attr.value) {
+                                    if let Ok(height) = height_str.parse::<f64>() {
+                                        layout = layout.with_default_row_height(height);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cols" => {
+                    // Parse column definitions
+                    loop {
+                        buf.clear();
+                        match xml.read_event_into(&mut buf) {
+                            Ok(Event::Start(ref col_e))
+                                if col_e.local_name().as_ref() == b"col" =>
+                            {
+                                let mut col_info = None;
+                                let mut width = 0.0;
+                                let mut custom_width = false;
+                                let mut hidden = false;
+                                let mut best_fit = false;
+
+                                for attr in col_e.attributes() {
+                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                                    match attr.key.as_ref() {
+                                        b"min" => {
+                                            if let Ok(min_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(min_col) = min_str.parse::<u32>() {
+                                                    col_info = Some(min_col - 1);
+                                                    // Convert to 0-based
+                                                }
+                                            }
+                                        }
+                                        b"width" => {
+                                            if let Ok(width_str) = xml.decoder().decode(&attr.value)
+                                            {
+                                                if let Ok(w) = width_str.parse::<f64>() {
+                                                    width = w;
+                                                }
+                                            }
+                                        }
+                                        b"customWidth" => {
+                                            custom_width = attr.value.as_ref() != b"0";
+                                        }
+                                        b"hidden" => {
+                                            hidden = attr.value.as_ref() != b"0";
+                                        }
+                                        b"bestFit" => {
+                                            best_fit = attr.value.as_ref() != b"0";
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if let Some(col) = col_info {
+                                    let column_width = ColumnWidth::new(col, width)
+                                        .with_custom_width(custom_width)
+                                        .with_hidden(hidden)
+                                        .with_best_fit(best_fit);
+                                    layout = layout.add_column_width(column_width);
+                                }
+                            }
+                            Ok(Event::End(ref end_e)) if end_e.local_name().as_ref() == b"cols" => {
+                                break;
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("cols")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    // Parse row definitions
+                    loop {
+                        buf.clear();
+                        match xml.read_event_into(&mut buf) {
+                            Ok(Event::Start(ref row_e))
+                                if row_e.local_name().as_ref() == b"row" =>
+                            {
+                                let mut row_num = None;
+                                let mut height = 0.0;
+                                let mut custom_height = false;
+                                let mut hidden = false;
+                                let mut thick_top = false;
+                                let mut thick_bottom = false;
+
+                                for attr in row_e.attributes() {
+                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                                    match attr.key.as_ref() {
+                                        b"r" => {
+                                            if let Ok(row_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(r) = row_str.parse::<u32>() {
+                                                    row_num = Some(r - 1); // Convert to 0-based
+                                                }
+                                            }
+                                        }
+                                        b"ht" => {
+                                            if let Ok(height_str) =
+                                                xml.decoder().decode(&attr.value)
+                                            {
+                                                if let Ok(h) = height_str.parse::<f64>() {
+                                                    height = h;
+                                                }
+                                            }
+                                        }
+                                        b"customHeight" => {
+                                            custom_height = attr.value.as_ref() != b"0";
+                                        }
+                                        b"hidden" => {
+                                            hidden = attr.value.as_ref() != b"0";
+                                        }
+                                        b"thickTop" => {
+                                            thick_top = attr.value.as_ref() != b"0";
+                                        }
+                                        b"thickBot" => {
+                                            thick_bottom = attr.value.as_ref() != b"0";
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                // Only add row height if it's custom or has special properties
+                                if let Some(row) = row_num {
+                                    if custom_height
+                                        || hidden
+                                        || thick_top
+                                        || thick_bottom
+                                        || height > 0.0
+                                    {
+                                        let row_height = RowHeight::new(row, height)
+                                            .with_custom_height(custom_height)
+                                            .with_hidden(hidden)
+                                            .with_thick_top(thick_top)
+                                            .with_thick_bottom(thick_bottom);
+                                        layout = layout.add_row_height(row_height);
+                                    }
+                                }
+
+                                // Skip to the end of this row element
+                                xml.read_to_end_into(row_e.name(), &mut Vec::new())?;
+                            }
+                            Ok(Event::End(ref end_e))
+                                if end_e.local_name().as_ref() == b"sheetData" =>
+                            {
+                                break;
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => {}
+                        }
+                    }
+                    break; // We're done after processing sheetData
+                }
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => {}
+            }
+        }
+
+        Ok(layout)
+    }
+
+    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+        let names = self
+            .sheets
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect::<Vec<_>>();
+        names
+            .into_iter()
+            .filter_map(|n| {
+                let rge = self.worksheet_range(&n).ok()?;
+                Some((n, rge))
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
+    }
 }
 
 struct TableMetadata {
@@ -1821,6 +2057,199 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             }
         }
         Ok(Range::from_sparse(cells))
+    }
+
+    fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+
+        let mut xml = xml_reader(&mut self.zip, path)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
+
+        let mut layout = WorksheetLayout::new();
+        let mut buf = Vec::with_capacity(1024);
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetFormatPr" => {
+                    // Parse default column width and row height
+                    for attr in e.attributes() {
+                        let attr = attr.map_err(XlsxError::XmlAttr)?;
+                        match attr.key.as_ref() {
+                            b"defaultColWidth" => {
+                                if let Ok(width_str) = xml.decoder().decode(&attr.value) {
+                                    if let Ok(width) = width_str.parse::<f64>() {
+                                        layout = layout.with_default_column_width(width);
+                                    }
+                                }
+                            }
+                            b"defaultRowHeight" => {
+                                if let Ok(height_str) = xml.decoder().decode(&attr.value) {
+                                    if let Ok(height) = height_str.parse::<f64>() {
+                                        layout = layout.with_default_row_height(height);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cols" => {
+                    // Parse column definitions
+                    loop {
+                        buf.clear();
+                        match xml.read_event_into(&mut buf) {
+                            Ok(Event::Start(ref col_e))
+                                if col_e.local_name().as_ref() == b"col" =>
+                            {
+                                let mut col_info = None;
+                                let mut width = 0.0;
+                                let mut custom_width = false;
+                                let mut hidden = false;
+                                let mut best_fit = false;
+
+                                for attr in col_e.attributes() {
+                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                                    match attr.key.as_ref() {
+                                        b"min" => {
+                                            if let Ok(min_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(min_col) = min_str.parse::<u32>() {
+                                                    col_info = Some(min_col - 1);
+                                                    // Convert to 0-based
+                                                }
+                                            }
+                                        }
+                                        b"width" => {
+                                            if let Ok(width_str) = xml.decoder().decode(&attr.value)
+                                            {
+                                                if let Ok(w) = width_str.parse::<f64>() {
+                                                    width = w;
+                                                }
+                                            }
+                                        }
+                                        b"customWidth" => {
+                                            custom_width = attr.value.as_ref() != b"0";
+                                        }
+                                        b"hidden" => {
+                                            hidden = attr.value.as_ref() != b"0";
+                                        }
+                                        b"bestFit" => {
+                                            best_fit = attr.value.as_ref() != b"0";
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if let Some(col) = col_info {
+                                    let column_width = ColumnWidth::new(col, width)
+                                        .with_custom_width(custom_width)
+                                        .with_hidden(hidden)
+                                        .with_best_fit(best_fit);
+                                    layout = layout.add_column_width(column_width);
+                                }
+                            }
+                            Ok(Event::End(ref end_e)) if end_e.local_name().as_ref() == b"cols" => {
+                                break;
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("cols")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    // Parse row definitions
+                    loop {
+                        buf.clear();
+                        match xml.read_event_into(&mut buf) {
+                            Ok(Event::Start(ref row_e))
+                                if row_e.local_name().as_ref() == b"row" =>
+                            {
+                                let mut row_num = None;
+                                let mut height = 0.0;
+                                let mut custom_height = false;
+                                let mut hidden = false;
+                                let mut thick_top = false;
+                                let mut thick_bottom = false;
+
+                                for attr in row_e.attributes() {
+                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                                    match attr.key.as_ref() {
+                                        b"r" => {
+                                            if let Ok(row_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(r) = row_str.parse::<u32>() {
+                                                    row_num = Some(r - 1); // Convert to 0-based
+                                                }
+                                            }
+                                        }
+                                        b"ht" => {
+                                            if let Ok(height_str) =
+                                                xml.decoder().decode(&attr.value)
+                                            {
+                                                if let Ok(h) = height_str.parse::<f64>() {
+                                                    height = h;
+                                                }
+                                            }
+                                        }
+                                        b"customHeight" => {
+                                            custom_height = attr.value.as_ref() != b"0";
+                                        }
+                                        b"hidden" => {
+                                            hidden = attr.value.as_ref() != b"0";
+                                        }
+                                        b"thickTop" => {
+                                            thick_top = attr.value.as_ref() != b"0";
+                                        }
+                                        b"thickBot" => {
+                                            thick_bottom = attr.value.as_ref() != b"0";
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                // Only add row height if it's custom or has special properties
+                                if let Some(row) = row_num {
+                                    if custom_height
+                                        || hidden
+                                        || thick_top
+                                        || thick_bottom
+                                        || height > 0.0
+                                    {
+                                        let row_height = RowHeight::new(row, height)
+                                            .with_custom_height(custom_height)
+                                            .with_hidden(hidden)
+                                            .with_thick_top(thick_top)
+                                            .with_thick_bottom(thick_bottom);
+                                        layout = layout.add_row_height(row_height);
+                                    }
+                                }
+
+                                // Skip to the end of this row element
+                                xml.read_to_end_into(row_e.name(), &mut Vec::new())?;
+                            }
+                            Ok(Event::End(ref end_e))
+                                if end_e.local_name().as_ref() == b"sheetData" =>
+                            {
+                                break;
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => {}
+                        }
+                    }
+                    break; // We're done after processing sheetData
+                }
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => {}
+            }
+        }
+
+        Ok(layout)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {

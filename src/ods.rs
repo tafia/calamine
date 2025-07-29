@@ -24,6 +24,7 @@ use zip::result::ZipError;
 use crate::vba::VbaProject;
 use crate::{
     Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, Style,
+    WorksheetLayout,
 };
 use std::marker::PhantomData;
 
@@ -249,7 +250,13 @@ where
     }
 
     fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, OdsError> {
-        unimplemented!()
+        // TODO: Implement ODS style parsing
+        Ok(Range::default())
+    }
+
+    fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, OdsError> {
+        // ODS doesn't support column width/row height information in the same way as XLSX
+        Ok(WorksheetLayout::new())
     }
 
     #[cfg(feature = "picture")]

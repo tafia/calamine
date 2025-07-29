@@ -239,10 +239,10 @@ fn process_cell(cell_data: &CellData) {
 ## Supported Formats
 
 Style extraction is supported for:
-- **XLSX**: Full style support including fonts, fills, borders, and alignment
-- **XLSB**: Basic style support (format-based)
-- **XLS**: Basic style support (format-based)
-- **ODS**: Basic style support (format-based)
+- [x] **XLSX**: Full style support including fonts, fills, borders, and alignment
+- [ ] **XLSB**: Basic style support (format-based)
+- [ ] **XLS**: Basic style support (format-based)
+- [ ] **ODS**: Basic style support (format-based)
 
 ## Style Parsing
 
