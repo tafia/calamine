@@ -12,6 +12,104 @@ use std::io::BufRead;
 use crate::style::*;
 use crate::XlsxError;
 
+/// Get theme color by index (Excel's default theme colors)
+fn get_theme_color(theme_index: u8) -> Color {
+    match theme_index {
+        0 => Color::rgb(0, 0, 0),       // dk1 - dark 1 (black/window text)
+        1 => Color::rgb(255, 255, 255), // lt1 - light 1 (white/window background)
+        2 => Color::rgb(31, 73, 125),   // dk2 - dark 2 (dark blue)
+        3 => Color::rgb(238, 236, 225), // lt2 - light 2 (light cream)
+        4 => Color::rgb(79, 129, 189),  // accent1 - blue
+        5 => Color::rgb(192, 80, 77),   // accent2 - red
+        6 => Color::rgb(155, 187, 89),  // accent3 - green
+        7 => Color::rgb(128, 100, 162), // accent4 - purple
+        8 => Color::rgb(75, 172, 198),  // accent5 - cyan
+        9 => Color::rgb(247, 150, 70),  // accent6 - orange
+        10 => Color::rgb(0, 0, 255),    // hlink - hyperlink (blue)
+        11 => Color::rgb(128, 0, 128),  // folHlink - followed hyperlink (purple)
+        _ => Color::rgb(0, 0, 0),       // Default to black for unknown theme colors
+    }
+}
+
+/// Get indexed color by value (Excel's default indexed color palette)
+fn get_indexed_color(indexed_value: u8) -> Color {
+    match indexed_value {
+        // System colors (0-7)
+        0 => Color::rgb(0, 0, 0),       // Black
+        1 => Color::rgb(255, 255, 255), // White
+        2 => Color::rgb(255, 0, 0),     // Red
+        3 => Color::rgb(0, 255, 0),     // Green
+        4 => Color::rgb(0, 0, 255),     // Blue
+        5 => Color::rgb(255, 255, 0),   // Yellow
+        6 => Color::rgb(255, 0, 255),   // Magenta
+        7 => Color::rgb(0, 255, 255),   // Cyan
+
+        // Default palette colors (8-63)
+        8 => Color::rgb(0, 0, 0),        // Black
+        9 => Color::rgb(255, 255, 255),  // White
+        10 => Color::rgb(255, 0, 0),     // Red
+        11 => Color::rgb(0, 255, 0),     // Green
+        12 => Color::rgb(0, 0, 255),     // Blue
+        13 => Color::rgb(255, 255, 0),   // Yellow
+        14 => Color::rgb(255, 0, 255),   // Magenta
+        15 => Color::rgb(0, 255, 255),   // Cyan
+        16 => Color::rgb(128, 0, 0),     // Dark Red
+        17 => Color::rgb(0, 128, 0),     // Dark Green
+        18 => Color::rgb(0, 0, 128),     // Dark Blue
+        19 => Color::rgb(128, 128, 0),   // Dark Yellow
+        20 => Color::rgb(128, 0, 128),   // Dark Magenta
+        21 => Color::rgb(0, 128, 128),   // Dark Cyan
+        22 => Color::rgb(192, 192, 192), // Light Gray
+        23 => Color::rgb(128, 128, 128), // Gray
+        24 => Color::rgb(153, 153, 255), // Light Blue
+        25 => Color::rgb(153, 51, 102),  // Dark Pink
+        26 => Color::rgb(255, 255, 204), // Light Yellow
+        27 => Color::rgb(204, 255, 255), // Light Cyan
+        28 => Color::rgb(102, 0, 102),   // Dark Purple
+        29 => Color::rgb(255, 128, 128), // Light Red
+        30 => Color::rgb(0, 102, 204),   // Medium Blue
+        31 => Color::rgb(204, 204, 255), // Light Purple
+        32 => Color::rgb(0, 0, 128),     // Dark Blue
+        33 => Color::rgb(255, 0, 255),   // Magenta
+        34 => Color::rgb(255, 255, 0),   // Yellow
+        35 => Color::rgb(0, 255, 255),   // Cyan
+        36 => Color::rgb(128, 0, 128),   // Purple
+        37 => Color::rgb(128, 0, 0),     // Maroon
+        38 => Color::rgb(0, 128, 128),   // Teal
+        39 => Color::rgb(0, 0, 255),     // Blue
+        40 => Color::rgb(0, 204, 255),   // Sky Blue
+        41 => Color::rgb(204, 255, 255), // Light Turquoise
+        42 => Color::rgb(204, 255, 204), // Light Green
+        43 => Color::rgb(255, 255, 153), // Light Yellow
+        44 => Color::rgb(153, 204, 255), // Pale Blue
+        45 => Color::rgb(255, 153, 204), // Pink
+        46 => Color::rgb(204, 153, 255), // Lavender
+        47 => Color::rgb(255, 204, 153), // Tan
+        48 => Color::rgb(51, 102, 255),  // Light Blue
+        49 => Color::rgb(51, 204, 204),  // Aqua
+        50 => Color::rgb(153, 204, 0),   // Lime
+        51 => Color::rgb(255, 204, 0),   // Gold
+        52 => Color::rgb(255, 153, 0),   // Orange
+        53 => Color::rgb(255, 102, 0),   // Orange Red
+        54 => Color::rgb(102, 102, 153), // Blue Gray
+        55 => Color::rgb(150, 150, 150), // Gray 40%
+        56 => Color::rgb(0, 51, 102),    // Dark Teal
+        57 => Color::rgb(51, 153, 102),  // Sea Green
+        58 => Color::rgb(0, 51, 0),      // Dark Green
+        59 => Color::rgb(51, 51, 0),     // Olive
+        60 => Color::rgb(153, 51, 0),    // Brown
+        61 => Color::rgb(153, 51, 102),  // Plum
+        62 => Color::rgb(51, 51, 153),   // Indigo
+        63 => Color::rgb(51, 51, 51),    // Gray 80%
+
+        // Special values
+        64 => Color::rgb(192, 192, 192), // System window background
+        65 => Color::rgb(0, 0, 0),       // System auto color
+
+        _ => Color::rgb(0, 0, 0), // Default to black for unknown indexed colors
+    }
+}
+
 /// Parse color from XML attributes
 fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
     for attr in attributes {
@@ -41,12 +139,18 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
                 }
             }
             b"theme" => {
-                // TODO: Handle theme colors
-                return Ok(None);
+                let theme_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(theme_index) = theme_str.parse::<u8>() {
+                    // Convert theme color index to actual color using Excel's default theme colors
+                    return Ok(Some(get_theme_color(theme_index)));
+                }
             }
             b"indexed" => {
-                // TODO: Handle indexed colors
-                return Ok(None);
+                let indexed_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(indexed_value) = indexed_str.parse::<u8>() {
+                    // Convert indexed color to actual color using Excel's indexed color palette
+                    return Ok(Some(get_indexed_color(indexed_value)));
+                }
             }
             _ => {}
         }

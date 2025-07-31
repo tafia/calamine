@@ -2332,6 +2332,7 @@ fn test_border_colors() {
         for col in 0..5 {
             if let Some(style) = styles.get((row, col)) {
                 if let Some(borders) = &style.borders {
+                    println!("borders: {:?}", borders);
                     // Check each border side for styles and colors
                     for border in [&borders.left, &borders.right, &borders.top, &borders.bottom] {
                         if border.style != BorderStyle::None && border.color.is_some() {
@@ -2354,17 +2355,10 @@ fn test_border_colors() {
                             }
 
                             // Verify the color is red as expected
-                            if let Some(color) = border.color {
-                                assert_eq!(
-                                    color.red, 255,
-                                    "Expected red color component to be 255"
-                                );
-                                assert_eq!(
-                                    color.green, 0,
-                                    "Expected green color component to be 0"
-                                );
-                                assert_eq!(color.blue, 0, "Expected blue color component to be 0");
-                            }
+                            let color = border.color.unwrap();
+                            assert_eq!(color.red, 255, "Expected red color component to be 255");
+                            assert_eq!(color.green, 0, "Expected green color component to be 0");
+                            assert_eq!(color.blue, 0, "Expected blue color component to be 0");
                         }
                     }
                 }
@@ -2380,9 +2374,5 @@ fn test_border_colors() {
     assert!(
         found_dashed_with_color,
         "Expected to find at least one dashed border with color"
-    );
-
-    println!(
-        "✅ Border color parsing test passed - both solid and dashed borders with colors detected!"
     );
 }
