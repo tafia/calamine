@@ -12,55 +12,6 @@ use std::io::BufRead;
 use crate::style::*;
 use crate::XlsxError;
 
-/// Get conservative theme color defaults (most commonly used values)
-fn get_conservative_theme_color(theme_index: u8) -> Color {
-    match theme_index {
-        0 => Color::rgb(0, 0, 0),       // dk1 - dark 1 (usually black)
-        1 => Color::rgb(255, 255, 255), // lt1 - light 1 (usually white)
-        2 => Color::rgb(68, 84, 106),   // dk2 - dark 2 (conservative dark blue)
-        3 => Color::rgb(221, 217, 195), // lt2 - light 2 (conservative light gray)
-        4 => Color::rgb(68, 114, 196),  // accent1 (conservative blue)
-        5 => Color::rgb(237, 125, 49),  // accent2 (conservative orange)
-        6 => Color::rgb(165, 165, 165), // accent3 (conservative gray)
-        7 => Color::rgb(255, 192, 0),   // accent4 (conservative yellow)
-        8 => Color::rgb(91, 155, 213),  // accent5 (conservative light blue)
-        9 => Color::rgb(112, 173, 71),  // accent6 (conservative green)
-        10 => Color::rgb(0, 0, 255),    // hlink - hyperlink (blue)
-        11 => Color::rgb(128, 0, 128),  // folHlink - followed hyperlink (purple)
-        _ => Color::rgb(0, 0, 0),       // Default to black for unknown theme colors
-    }
-}
-
-/// Get conservative indexed color defaults (basic palette)
-fn get_conservative_indexed_color(indexed_value: u8) -> Color {
-    match indexed_value {
-        // Basic color palette - most commonly used indexed colors
-        0 => Color::rgb(0, 0, 0),        // Black
-        1 => Color::rgb(255, 255, 255),  // White
-        2 => Color::rgb(255, 0, 0),      // Red
-        3 => Color::rgb(0, 255, 0),      // Green
-        4 => Color::rgb(0, 0, 255),      // Blue
-        5 => Color::rgb(255, 255, 0),    // Yellow
-        6 => Color::rgb(255, 0, 255),    // Magenta
-        7 => Color::rgb(0, 255, 255),    // Cyan
-        8 => Color::rgb(128, 0, 0),      // Dark Red
-        9 => Color::rgb(0, 128, 0),      // Dark Green
-        10 => Color::rgb(0, 0, 128),     // Dark Blue
-        11 => Color::rgb(128, 128, 0),   // Dark Yellow
-        12 => Color::rgb(128, 0, 128),   // Dark Magenta
-        13 => Color::rgb(0, 128, 128),   // Dark Cyan
-        14 => Color::rgb(192, 192, 192), // Light Gray
-        15 => Color::rgb(128, 128, 128), // Gray
-
-        // Special system colors
-        64 => Color::rgb(240, 240, 240), // System window background (light gray)
-        65 => Color::rgb(0, 0, 0),       // System auto color (black)
-
-        // For less common indexed colors, return a neutral gray to avoid wrong colors
-        _ => Color::rgb(128, 128, 128), // Gray - conservative default
-    }
-}
-
 /// Parse color from XML attributes
 fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
     for attr in attributes {
@@ -90,20 +41,12 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
                 }
             }
             b"theme" => {
-                let theme_str = String::from_utf8_lossy(&attr.value);
-                if let Ok(theme_index) = theme_str.parse::<u8>() {
-                    // Use conservative defaults for common theme colors
-                    // TODO: Parse actual theme colors from theme file
-                    return Ok(Some(get_conservative_theme_color(theme_index)));
-                }
+                // TODO: Handle theme colors
+                return Ok(None);
             }
             b"indexed" => {
-                let indexed_str = String::from_utf8_lossy(&attr.value);
-                if let Ok(indexed_value) = indexed_str.parse::<u8>() {
-                    // Use conservative defaults for common indexed colors
-                    // TODO: Parse indexed colors from palette
-                    return Ok(Some(get_conservative_indexed_color(indexed_value)));
-                }
+                // TODO: Handle indexed colors
+                return Ok(None);
             }
             _ => {}
         }
