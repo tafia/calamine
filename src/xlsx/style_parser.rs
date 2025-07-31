@@ -12,6 +12,26 @@ use std::io::BufRead;
 use crate::style::*;
 use crate::XlsxError;
 
+/// Get theme color from Excel's theme color palette
+/// Based on Office Open XML standard theme colors
+fn get_theme_color(theme: u8) -> Color {
+    match theme {
+        0 => Color::rgb(255, 255, 255), // Light 1 (White)
+        1 => Color::rgb(0, 0, 0),       // Dark 1 (Black)
+        2 => Color::rgb(68, 84, 106),   // Light 2 (Light Gray)
+        3 => Color::rgb(31, 73, 125),   // Dark 2 (Dark Blue)
+        4 => Color::rgb(79, 129, 189),  // Accent 1 (Blue)
+        5 => Color::rgb(192, 80, 77),   // Accent 2 (Red)
+        6 => Color::rgb(155, 187, 89),  // Accent 3 (Green)
+        7 => Color::rgb(128, 100, 162), // Accent 4 (Purple)
+        8 => Color::rgb(75, 172, 198),  // Accent 5 (Cyan)
+        9 => Color::rgb(247, 150, 70),  // Accent 6 (Orange)
+        10 => Color::rgb(99, 99, 99),   // Hyperlink (Blue)
+        11 => Color::rgb(128, 0, 128),  // Followed Hyperlink (Purple)
+        _ => Color::rgb(0, 0, 0),       // Default to black for unknown theme colors
+    }
+}
+
 /// Get indexed color from Excel's official color index palette
 /// Based on: https://learn.microsoft.com/en-us/office/vba/api/excel.colorindex
 fn get_indexed_color(index: u8) -> Color {
@@ -125,8 +145,10 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
                 }
             }
             b"theme" => {
-                // TODO: Handle theme colors
-                return Ok(None);
+                let theme_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(theme_value) = theme_str.parse::<u8>() {
+                    return Ok(Some(get_theme_color(theme_value)));
+                }
             }
             b"indexed" => {
                 let indexed_str = String::from_utf8_lossy(&attr.value);

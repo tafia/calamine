@@ -2376,3 +2376,76 @@ fn test_border_colors() {
         "Expected to find at least one dashed border with color"
     );
 }
+
+#[test]
+fn test_problematic_formats() {
+    let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
+    let range = xlsx.worksheet_range("Sheet1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    println!("Reading problematic_formats.xlsx...");
+
+    // Check cell A1 (0,0) - should have white font
+    if let Some(a1_style) = styles.get((0, 0)) {
+        if let Some(font) = a1_style.get_font() {
+            println!("A1 font properties:");
+            if let Some(name) = &font.name {
+                println!("  Font name: {}", name);
+            }
+            if let Some(size) = font.size {
+                println!("  Font size: {}", size);
+            }
+            println!("  Bold: {}", font.is_bold());
+            println!("  Italic: {}", font.is_italic());
+
+            match font.color {
+                Some(color) => {
+                    println!(
+                        "  Font color: RGB({}, {}, {}) Alpha({})",
+                        color.red, color.green, color.blue, color.alpha
+                    );
+                    println!("  Color: {}", color);
+
+                    // Check if it's white (255, 255, 255)
+                    if color.is_white() {
+                        println!("  ✓ Font color is white as expected");
+                    } else {
+                        println!("  ✗ Font color is NOT white! Expected: RGB(255, 255, 255), Got: RGB({}, {}, {})", color.red, color.green, color.blue);
+                    }
+                }
+                None => println!("  Font color: None (default)"),
+            }
+        } else {
+            println!("A1 has no font information");
+        }
+    } else {
+        println!("A1 has no style information");
+    }
+
+    // Check cell A2 (1,0) - get format string
+    if let Some(a2_style) = styles.get((1, 0)) {
+        println!("\nA2 style properties:");
+        if let Some(font) = a2_style.get_font() {
+            println!("  Has font information");
+        }
+        if let Some(number_format) = a2_style.get_number_format() {
+            println!("  Number format: {}", number_format.format_code);
+            if let Some(id) = number_format.format_id {
+                println!("  Format ID: {}", id);
+            }
+        } else {
+            println!("  No number format information (using default 'General')");
+        }
+    } else {
+        println!("A2 has no style information");
+    }
+
+    // Print cell values too
+    println!("\nCell values:");
+    if let Some(a1_value) = range.get((0, 0)) {
+        println!("A1 value: {:?}", a1_value);
+    }
+    if let Some(a2_value) = range.get((1, 0)) {
+        println!("A2 value: {:?}", a2_value);
+    }
+}
