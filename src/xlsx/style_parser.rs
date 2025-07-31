@@ -12,124 +12,6 @@ use std::io::BufRead;
 use crate::style::*;
 use crate::XlsxError;
 
-/// Get default Excel 2007+ theme color scheme (Office theme)
-/// Based on Office Open XML specification
-fn get_default_theme_colors() -> [Color; 12] {
-    [
-        // Text/Background colors
-        Color::rgb(0, 0, 0),       // Dark 1 (dk1) - Black
-        Color::rgb(255, 255, 255), // Light 1 (lt1) - White
-        Color::rgb(31, 73, 125),   // Dark 2 (dk2) - Dark Blue
-        Color::rgb(238, 236, 225), // Light 2 (lt2) - Light Gray
-        // Accent colors
-        Color::rgb(79, 129, 189),  // Accent 1 - Blue
-        Color::rgb(192, 80, 77),   // Accent 2 - Red
-        Color::rgb(155, 187, 89),  // Accent 3 - Green
-        Color::rgb(128, 100, 162), // Accent 4 - Purple
-        Color::rgb(75, 172, 198),  // Accent 5 - Aqua
-        Color::rgb(247, 150, 70),  // Accent 6 - Orange
-        // Hyperlink colors
-        Color::rgb(79, 129, 189), // Hyperlink - Blue (same as Accent 1)
-        Color::rgb(149, 79, 114), // Followed Hyperlink - Purple
-    ]
-}
-
-/// Calculate final color with tint applied
-/// Based on Office Open XML specification for tint calculations
-fn apply_tint_to_color(color: Color, tint: f64) -> Color {
-    if tint == 0.0 {
-        return color;
-    }
-
-    // Convert RGB to HSL
-    let r = color.red as f64 / 255.0;
-    let g = color.green as f64 / 255.0;
-    let b = color.blue as f64 / 255.0;
-
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    let delta = max - min;
-
-    // Calculate luminance
-    let l = (max + min) / 2.0;
-
-    // Apply tint to luminance using Excel's formula
-    let new_l = if tint < 0.0 {
-        // Darker
-        l * (1.0 + tint)
-    } else {
-        // Lighter
-        l * (1.0 - tint) + (1.0 - 1.0 * (1.0 - tint))
-    };
-
-    // Clamp luminance to [0, 1] range
-    let new_l = new_l.clamp(0.0, 1.0);
-
-    // Calculate saturation if needed
-    let s = if delta == 0.0 {
-        0.0
-    } else if l < 0.5 {
-        delta / (max + min)
-    } else {
-        delta / (2.0 - max - min)
-    };
-
-    // Calculate hue if needed
-    let h = if delta == 0.0 {
-        0.0
-    } else if max == r {
-        ((g - b) / delta) % 6.0
-    } else if max == g {
-        (b - r) / delta + 2.0
-    } else {
-        (r - g) / delta + 4.0
-    };
-
-    let h = h * 60.0;
-    let h = if h < 0.0 { h + 360.0 } else { h };
-
-    // Convert HSL back to RGB with new luminance
-    let c = (1.0 - (2.0 * new_l - 1.0).abs()) * s;
-    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m = new_l - c / 2.0;
-
-    let (r_prime, g_prime, b_prime) = if h < 60.0 {
-        (c, x, 0.0)
-    } else if h < 120.0 {
-        (x, c, 0.0)
-    } else if h < 180.0 {
-        (0.0, c, x)
-    } else if h < 240.0 {
-        (0.0, x, c)
-    } else if h < 300.0 {
-        (x, 0.0, c)
-    } else {
-        (c, 0.0, x)
-    };
-
-    let new_r = ((r_prime + m) * 255.0).round().clamp(0.0, 255.0) as u8;
-    let new_g = ((g_prime + m) * 255.0).round().clamp(0.0, 255.0) as u8;
-    let new_b = ((b_prime + m) * 255.0).round().clamp(0.0, 255.0) as u8;
-
-    Color::new(color.alpha, new_r, new_g, new_b)
-}
-
-/// Get theme color by index (0-11)
-fn get_theme_color(theme_index: u8, tint: Option<f64>) -> Option<Color> {
-    let theme_colors = get_default_theme_colors();
-
-    if theme_index >= 12 {
-        return None;
-    }
-
-    let base_color = theme_colors[theme_index as usize];
-
-    match tint {
-        Some(tint_value) => Some(apply_tint_to_color(base_color, tint_value)),
-        None => Some(base_color),
-    }
-}
-
 /// Get indexed color from Excel's official color index palette
 /// Based on: https://learn.microsoft.com/en-us/office/vba/api/excel.colorindex
 fn get_indexed_color(index: u8) -> Color {
@@ -243,18 +125,8 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
                 }
             }
             b"theme" => {
-                let theme_str = String::from_utf8_lossy(&attr.value);
-                if let Ok(theme_index) = theme_str.parse::<u8>() {
-                    // Look for optional tint attribute
-                    let tint = attributes
-                        .iter()
-                        .find(|a| a.key.as_ref() == b"tint")
-                        .and_then(|a| String::from_utf8_lossy(&a.value).parse::<f64>().ok());
-
-                    if let Some(color) = get_theme_color(theme_index, tint) {
-                        return Ok(Some(color));
-                    }
-                }
+                // TODO: Handle theme colors
+                return Ok(None);
             }
             b"indexed" => {
                 let indexed_str = String::from_utf8_lossy(&attr.value);
@@ -266,65 +138,6 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
         }
     }
     Ok(None)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_theme_colors() {
-        let theme_colors = get_default_theme_colors();
-
-        // Test first few theme colors match expected Office theme values
-        assert_eq!(theme_colors[0], Color::rgb(0, 0, 0)); // Dark 1 - Black
-        assert_eq!(theme_colors[1], Color::rgb(255, 255, 255)); // Light 1 - White
-        assert_eq!(theme_colors[2], Color::rgb(31, 73, 125)); // Dark 2 - Dark Blue
-        assert_eq!(theme_colors[4], Color::rgb(79, 129, 189)); // Accent 1 - Blue
-    }
-
-    #[test]
-    fn test_get_theme_color() {
-        // Test basic theme color retrieval
-        assert_eq!(get_theme_color(0, None), Some(Color::rgb(0, 0, 0))); // Dark 1
-        assert_eq!(get_theme_color(1, None), Some(Color::rgb(255, 255, 255))); // Light 1
-        assert_eq!(get_theme_color(4, None), Some(Color::rgb(79, 129, 189))); // Accent 1
-
-        // Test invalid theme index
-        assert_eq!(get_theme_color(12, None), None);
-    }
-
-    #[test]
-    fn test_apply_tint_to_color() {
-        let blue = Color::rgb(79, 129, 189); // Accent 1
-
-        // Test no tint
-        assert_eq!(apply_tint_to_color(blue, 0.0), blue);
-
-        // Test lighter tint (positive value)
-        let lighter = apply_tint_to_color(blue, 0.5);
-        assert!(lighter.red >= blue.red);
-        assert!(lighter.green >= blue.green);
-        assert!(lighter.blue >= blue.blue);
-
-        // Test darker tint (negative value)
-        let darker = apply_tint_to_color(blue, -0.5);
-        assert!(darker.red <= blue.red);
-        assert!(darker.green <= blue.green);
-        assert!(darker.blue <= blue.blue);
-    }
-
-    #[test]
-    fn test_get_theme_color_with_tint() {
-        // Test theme color with tint
-        let base_color = get_theme_color(4, None).unwrap(); // Accent 1
-        let tinted_color = get_theme_color(4, Some(0.5)).unwrap();
-
-        // Tinted color should be lighter
-        assert!(tinted_color.red >= base_color.red);
-        assert!(tinted_color.green >= base_color.green);
-        assert!(tinted_color.blue >= base_color.blue);
-    }
 }
 
 /// Parse font weight from string
