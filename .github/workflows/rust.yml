@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: ensure dependencies
-      if: ${{ matrix.toolchain == '1.75' }}
+      if: ${{ startsWith(matrix.toolchain, '1.') && fromJson(matrix.toolchain) < 1.85 }}
       run: CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS="fallback" cargo update
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@master
