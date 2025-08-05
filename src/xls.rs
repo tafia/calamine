@@ -728,7 +728,7 @@ fn parse_mul_rk(
         });
     }
 
-    let col = col_first as u32;
+    let mut col = col_first as u32;
 
     for rk in r[4..r.len() - 2].chunks(6) {
         cells.push(Cell::new((row as u32, col), rk_num(rk, formats, is_1904)));
