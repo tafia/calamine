@@ -5,13 +5,19 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.30.0] - 2025-XX-XX (Draft for next release)
-
-### Added
+## [0.30.0] - 2025-08-07
 
 ### Changed
 
-### Fixed
+- Unpinned the `zip.rs` dependency from v4.2.0 to allow cargo to choose the
+  correct version for the user's rustc version.
+
+  The Rust MSRV was bumped to v1.75.0 (which it should have been for for
+  `zip.rs` compatibility in previous releases).
+
+  See the discussion at [Issue #527].
+
+  [Issue #527]: https://github.com/jmcnamara/rust_xlsxwriter/issues/527
 
 
 ## [0.29.0] - 2025-07-17
