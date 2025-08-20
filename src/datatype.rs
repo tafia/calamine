@@ -760,6 +760,22 @@ impl ExcelDateTime {
         let excel_duration = chrono::Duration::milliseconds(ms.round() as i64);
         excel_epoch.checked_add_signed(excel_duration)
     }
+
+    /// Check if the datetime is stored in the 1904 date system.
+    ///
+    /// Excel supports two date epochs: 1900-01-01 and 1904-01-01. The 1904
+    /// epoch was mainly used with older versions of "Excel for Mac" but it is
+    /// still available via a UI configuration option in other Excel versions.
+    /// Excel users occasionally use the 1904 epoch to enable negative time
+    /// values.
+    ///
+    /// In general `calamine` handles both epochs automatically. This method is
+    /// provided in case you need to calculate the date manually or with a
+    /// library other than `chrono`.
+    ///
+    pub fn is_1904(&self) -> bool {
+        self.is_1904
+    }
 }
 
 impl Default for ExcelDateTime {

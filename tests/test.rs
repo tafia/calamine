@@ -750,6 +750,13 @@ fn date_xls_1904() {
         )))
     );
 
+    // Check for 1904 flag.
+    if let DateTime(datetime) = range.get_value((0, 0)).unwrap() {
+        assert!(datetime.is_1904());
+    } else {
+        panic!("Expected a DateTime with 1904 flag");
+    }
+
     #[cfg(feature = "dates")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
@@ -785,6 +792,13 @@ fn date_xlsx() {
         )))
     );
 
+    // Check for DateTime without 1904 flag.
+    if let DateTime(datetime) = range.get_value((0, 0)).unwrap() {
+        assert!(!datetime.is_1904());
+    } else {
+        panic!("Expected a DateTime without 1904 flag");
+    }
+
     #[cfg(feature = "dates")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
@@ -819,6 +833,13 @@ fn date_xlsx_1904() {
             true
         )))
     );
+
+    // Check for 1904 flag.
+    if let DateTime(datetime) = range.get_value((0, 0)).unwrap() {
+        assert!(datetime.is_1904());
+    } else {
+        panic!("Expected a DateTime with 1904 flag");
+    }
 
     #[cfg(feature = "dates")]
     {
@@ -977,6 +998,13 @@ fn date_xlsb_1904() {
             true
         )))
     );
+
+    // Check for 1904 flag.
+    if let DateTime(datetime) = range.get_value((0, 0)).unwrap() {
+        assert!(datetime.is_1904());
+    } else {
+        panic!("Expected a DateTime with 1904 flag");
+    }
 
     #[cfg(feature = "dates")]
     {
