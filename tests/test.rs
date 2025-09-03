@@ -2154,6 +2154,37 @@ fn test_oom_allocation() {
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
 }
 
+// Test for issue #548. The SST table in the test file has an incorrect unique
+// string count.
+#[test]
+fn test_incorrect_sst_unique_count() {
+    // Check for the string that appears last in the SST table: "11th May 2023".
+    // This appears in cell C10 of each worksheet in the workbook.
+    let mut xls: Xls<_> = wb("gh548_incorrect_sst_unique_count.xls");
+    let range = xls.worksheet_range("System Level Data").unwrap();
+
+    assert_eq!(
+        range.get_value((9, 2)).unwrap(),
+        &String("11th May 2023".into())
+    );
+}
+
+// Test the parsing of an SST table that finishes with a complete, untruncated,
+// string at the end of the block, and where the next string is in a CONTINUE
+// block. This is related to the previous test for gh548 to ensure that the edge
+// condition is met.
+#[test]
+fn test_sst_continue() {
+    let mut xls: Xls<_> = wb("sst_continue.xls");
+    let range = xls.worksheet_range("Sheet1").unwrap();
+
+    // Check for the string that appears last in the SST table.
+    assert_eq!(
+        range.get_value((135, 0)).unwrap(),
+        &String("New CONTINUE block".into())
+    );
+}
+
 // Test for issue #419 where the part name is sentence case instead of camel
 // case. The test file contains a sub-file called "xl/SharedStrings.xml" (note
 // the uppercase S in Shared). This is allowed by "Office Open XML File Formats
