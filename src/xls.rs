@@ -892,6 +892,9 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
     }
 }
 
+// Parse the Excel xls Shared String Table (SST). See [MS-XLS] 2.4.265.
+//
+// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b6231b92-d32e-4626-badd-c3310a672bab
 fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, XlsError> {
     if r.data.len() < 8 {
         return Err(XlsError::Len {
@@ -900,13 +903,15 @@ fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, 
             found: r.data.len(),
         });
     }
-    let len: usize = read_i32(&r.data[4..8]).try_into().unwrap();
-    let mut sst = Vec::with_capacity(len);
+    let mut sst = vec![];
+
+    // Skip cstTotal and cstUnique headers in SST record.
     r.data = &r.data[8..];
 
-    for _ in 0..len {
+    while !r.data.is_empty() || r.continue_record() {
         sst.push(read_rich_extended_string(r, encoding)?);
     }
+
     Ok(sst)
 }
 
@@ -958,7 +963,7 @@ fn read_rich_extended_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
-    if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
+    if r.data.len() < 3 {
         return Err(XlsError::Len {
             typ: "rich extended string",
             expected: 3,
