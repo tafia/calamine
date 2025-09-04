@@ -1759,6 +1759,7 @@ impl<'a, T: 'a + CellType> ExactSizeIterator for Rows<'a, T> {}
 /// (3, 2): 100
 /// ```
 ///
+#[derive(Debug, Clone)]
 pub struct Table<T> {
     pub(crate) name: String,
     pub(crate) sheet_name: String,
