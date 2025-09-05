@@ -147,6 +147,18 @@ fn test_xlsm_vba() {
 }
 
 #[test]
+fn test_xls_vba() {
+    // Test that the VBA project module source is read from an xls file.
+    let mut excel: Xls<_> = wb("vba.xls");
+    let vba = excel.vba_project().unwrap().unwrap();
+    assert_eq!(
+        vba.get_module("testVBA").unwrap(),
+        "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
+         vba!\"\r\nEnd Sub\r\n"
+    );
+}
+
+#[test]
 fn test_xlsb_range_values() {
     // Test that a range of numbers and strings is read from an xlsb file.
     let mut excel: Xlsb<_> = wb("issues.xlsb");
@@ -3169,14 +3181,13 @@ fn test_xls_oom_allocation() {
     assert_eq!(ws.len(), 1);
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
 
+    // The cfb crate rejects the malformed FAT up front.
     let path = test_path("OOM_alloc3.xls");
-    assert!(
-        matches!(
-            open_workbook::<Xls<_>, _>(path),
-            Err(calamine::XlsError::Cfb(_))
-        ),
-        "Is expected to return XlsError::Cfb error"
-    );
+    match open_workbook::<Xls<_>, _>(path) {
+        Err(calamine::XlsError::Cfb(e)) if e.to_string().contains("FAT") => {}
+        Err(e) => panic!("Is expected to return a malformed-FAT error: {e}"),
+        Ok(_) => panic!("Is expected to return a malformed-FAT error"),
+    }
 }
 
 // Test that an SST table with an incorrect unique string count is read.
@@ -3993,12 +4004,10 @@ fn test_xls_too_small() {
     let path = test_path("too_small.xls");
     let res: Result<Xls<_>, _> = open_workbook(&path);
     match res {
-
-        Err(calamine::XlsError::Cfb(e)) if e.to_string() == "Invalid OLE (68 bytes is too small, signature \\x41\\x74\\x74\\x61\\x63\\x68\\x6d\\x65 invalid, not an office document?)" => {}
-        Err(calamine::XlsError::Cfb(e)) => {
-            panic!("Is expected to return CfbError::Ole(_) error: {e}")
-        }
-        Ok(_) | Err(_) => panic!("Is expected to return CfbError::Ole(_) error"),
+        // The cfb crate rejects the undersized container up front.
+        Err(calamine::XlsError::Cfb(e)) if e.to_string().contains("too small") => {}
+        Err(e) => panic!("Is expected to return an undersized CFB error: {e}"),
+        Ok(_) => panic!("Is expected to return an undersized CFB error"),
     }
 }
 
@@ -4924,9 +4933,14 @@ fn test_xlsb_unknown_record_before_names() {
 #[test]
 fn test_xls_cfb_short_directory_chunk_does_not_panic() {
     // Test that a compound file whose directory stream length is not a multiple
-    // of 128 doesn't panic. See pull request #762.
-    let xls: Xls<_> = wb("cfb_dir_short_chunk_panic.xls");
-    assert_eq!(xls.sheet_names(), vec!["Sheet1"]);
+    // of 128 doesn't panic. The cfb crate rejects the inconsistent FAT up front,
+    // so the file is reported as malformed rather than read.
+    let path = test_path("cfb_dir_short_chunk_panic.xls");
+    match open_workbook::<Xls<_>, _>(path) {
+        Err(XlsError::Cfb(e)) if e.to_string().contains("Malformed FAT") => {}
+        Err(e) => panic!("Is expected to return a malformed-FAT error: {e}"),
+        Ok(_) => panic!("Is expected to return a malformed-FAT error"),
+    }
 }
 
 #[test]

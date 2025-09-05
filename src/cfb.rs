@@ -23,19 +23,45 @@ const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
 /// A Cfb specific error enum
 #[derive(Debug)]
 pub enum CfbError {
+    /// I/O error from the underlying reader.
     Io(std::io::Error),
+
+    /// The `cfb` crate rejected the file as a malformed or truncated compound
+    /// file. The message is from the `cfb` crate.
+    Malformed(std::io::Error),
+
+    /// The file is not an OLE compound file. It is either too small or does not
+    /// start with the CFB signature.
     Ole {
+        /// The length of the file in bytes.
         len: usize,
+
+        /// The first 8 bytes of the file, when they are not the CFB signature.
         signature: Option<[u8; 8]>,
     },
+
+    /// The compound file has no root directory entry.
     EmptyRootDir,
+
+    /// The named stream was not found in the compound file.
     StreamNotFound(String),
+
+    /// A header field has an unexpected value.
     Invalid {
+        /// The name of the field.
         name: &'static str,
+
+        /// The expected value or values.
         expected: &'static str,
+
+        /// The value found.
         found: u16,
     },
+
+    /// The workbook code page is not a known encoding.
     CodePageNotFound(u16),
+
+    /// A sector id points past the end of the file.
     SectorBeyondEof(u32),
 }
 
@@ -49,6 +75,7 @@ impl std::fmt::Display for CfbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CfbError::Io(e) => write!(f, "I/O error: {e}"),
+            CfbError::Malformed(e) => write!(f, "{e}"),
             CfbError::Ole { len, signature } => {
                 write!(f, "Invalid OLE (",)?;
                 if *len < 512 {
@@ -82,14 +109,28 @@ impl std::fmt::Display for CfbError {
 impl std::error::Error for CfbError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            CfbError::Io(e) => Some(e),
+            CfbError::Io(e) | CfbError::Malformed(e) => Some(e),
             _ => None,
+        }
+    }
+}
+
+impl CfbError {
+    // Classify an error from the cfb crate. The crate reports a malformed or
+    // truncated container through these kinds; any other kind is a genuine I/O
+    // failure and is handed back unchanged.
+    pub(crate) fn from_crate(e: std::io::Error) -> Result<CfbError, std::io::Error> {
+        use std::io::ErrorKind::{InvalidData, InvalidInput, OutOfMemory, UnexpectedEof};
+        match e.kind() {
+            InvalidData | InvalidInput | OutOfMemory | UnexpectedEof => Ok(CfbError::Malformed(e)),
+            _ => Err(e),
         }
     }
 }
 
 /// A struct for managing Compound File Binary format
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Cfb {
     directories: Vec<Directory>,
     sectors: Sectors,
@@ -178,6 +219,7 @@ impl Cfb {
     }
 
     /// Gets a stream by name out of directories
+    #[allow(dead_code)]
     pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>, CfbError> {
         match self
             .directories

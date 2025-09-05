@@ -8,7 +8,7 @@ pub use cells_reader::XlsbCellsReader;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Cursor, Read, Seek};
 
 use log::debug;
 
@@ -557,8 +557,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
             return Ok(None);
         };
-        let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len)?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // Wrap the buffer in a Cursor to supply the Seek bound that
+        // `VbaProject::new()` requires of the cfb crate.
+        let mut cursor = Cursor::new(buf);
+        let vba = VbaProject::new(&mut cursor)?;
         Ok(Some(vba))
     }
 
