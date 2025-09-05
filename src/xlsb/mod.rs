@@ -8,7 +8,7 @@ pub use cells_reader::XlsbCellsReader;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Cursor, Read, Seek};
 
 use log::debug;
 
@@ -491,12 +491,19 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsbError>> {
-        self.zip.by_name("xl/vbaProject.bin").ok().map(|mut f| {
-            let len = f.size() as usize;
-            VbaProject::new(&mut f, len)
+        let mut f = self.zip.by_name("xl/vbaProject.bin").ok()?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).ok()?;
+
+        // Wrap buffer in a Cursor to add the required Seek trait.
+        let mut cursor = Cursor::new(buf);
+
+        Some(
+            VbaProject::new(&mut cursor)
                 .map(Cow::Owned)
-                .map_err(XlsbError::Vba)
-        })
+                .map_err(XlsbError::Vba),
+        )
     }
 
     fn metadata(&self) -> &Metadata {
