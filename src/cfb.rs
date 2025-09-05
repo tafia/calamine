@@ -63,6 +63,7 @@ impl std::error::Error for CfbError {
 
 /// A struct for managing Compound File Binary format
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Cfb {
     directories: Vec<Directory>,
     sectors: Sectors,
@@ -137,6 +138,7 @@ impl Cfb {
     }
 
     /// Gets a stream by name out of directories
+    #[allow(dead_code)]
     pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>, CfbError> {
         match self.directories.iter().find(|d| &*d.name == name) {
             None => Err(CfbError::StreamNotFound(name.to_string())),

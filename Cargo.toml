@@ -15,6 +15,7 @@ rust-version = "1.83" # For quick-xml + encoding_rs.
 
 [dependencies]
 log = "0.4"
+cfb = "0.12"
 serde = "1.0"
 codepage = "0.1.1"
 atoi_simd = "0.16"

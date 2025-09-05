@@ -119,8 +119,19 @@ fn issue_9() {
 }
 
 #[test]
-fn vba() {
+fn vba_xlsm() {
     let mut excel: Xlsx<_> = wb("vba.xlsm");
+    let mut vba = excel.vba_project().unwrap().unwrap();
+    assert_eq!(
+        vba.to_mut().get_module("testVBA").unwrap(),
+        "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
+         vba!\"\r\nEnd Sub\r\n"
+    );
+}
+
+#[test]
+fn vba_xls() {
+    let mut excel: Xls<_> = wb("vba.xls");
     let mut vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
         vba.to_mut().get_module("testVBA").unwrap(),

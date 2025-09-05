@@ -4,18 +4,19 @@
 
 //! Parse vbaProject.bin file
 //!
-//! Retranscription from [`OfficeParser`].
+//! Transcription from [`OfficeParser`].
 //!
 //! [`OfficeParser`]: https://github.com/unixfreak0037/officeparser/blob/master/officeparser.py
 
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::PathBuf;
 
 use byteorder::{LittleEndian, ReadBytesExt};
+use cfb::CompoundFile;
 use log::{debug, log_enabled, warn, Level};
 
-use crate::cfb::{Cfb, XlsEncoding};
+use crate::cfb::XlsEncoding;
 use crate::utils::read_u16;
 
 /// A VBA specific error enum
@@ -77,7 +78,6 @@ impl std::error::Error for VbaError {
 }
 
 /// A struct for managing VBA reading
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct VbaProject {
     references: Vec<Reference>,
@@ -89,16 +89,19 @@ impl VbaProject {
     /// Create a new `VbaProject` out of the vbaProject.bin `ZipFile` or xls file
     ///
     /// Starts reading project metadata (header, directories, sectors and minisectors).
-    pub fn new<R: Read>(r: &mut R, len: usize) -> Result<VbaProject, VbaError> {
-        let mut cfb = Cfb::new(r, len)?;
-        VbaProject::from_cfb(r, &mut cfb)
-    }
+    pub fn new<RS: Read + Seek>(r: &mut RS) -> Result<VbaProject, VbaError> {
+        let mut cfb = CompoundFile::open(r)?;
 
-    /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
-    pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
-        // dir stream
-        let stream = cfb.get_stream("dir", r)?;
-        let stream = crate::cfb::decompress_stream(&stream)?;
+        // Read the VBA/dir stream in the vbaProject CFB file. Its location is
+        // different in the xlsm and xlsx files.
+        let mut stream = cfb
+            .open_stream("VBA/dir") // xlsm.
+            .or_else(|_| cfb.open_stream("_VBA_PROJECT_CUR/VBA/dir"))?; // xls.
+
+        let mut stream_buf = vec![];
+        stream.read_to_end(&mut stream_buf)?;
+
+        let stream = crate::cfb::decompress_stream(&stream_buf)?;
         let stream = &mut &*stream;
 
         // read dir information record (not used)
@@ -107,18 +110,23 @@ impl VbaProject {
         // array of REFERENCE records
         let refs = Reference::from_stream(stream, &encoding)?;
 
-        // modules
+        // Get the module metadata.
         let mods: Vec<Module> = read_modules(stream, &encoding)?;
 
-        // read all modules
-        let modules: BTreeMap<String, Vec<u8>> = mods
-            .into_iter()
-            .map(|m| {
-                cfb.get_stream(&m.stream_name, r).and_then(|s| {
-                    crate::cfb::decompress_stream(&s[m.text_offset..]).map(move |s| (m.name, s))
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        // Read the module data.
+        let mut modules = BTreeMap::new();
+        for m in mods {
+            // We need to account for different paths in the xlsm/xls VBA streams.
+            let mut module_stream = cfb
+                .open_stream(format!("VBA/{}", m.stream_name))
+                .or_else(|_| cfb.open_stream(format!("_VBA_PROJECT_CUR/VBA/{}", m.stream_name)))?;
+
+            let mut stream_buf = vec![];
+            module_stream.read_to_end(&mut stream_buf)?;
+
+            let data = crate::cfb::decompress_stream(&stream_buf[m.text_offset..])?;
+            modules.insert(m.name, data);
+        }
 
         Ok(VbaProject {
             references: refs,

@@ -8,7 +8,7 @@ mod cells_reader;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
@@ -1511,9 +1511,15 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
         let mut f = self.zip.by_name("xl/vbaProject.bin").ok()?;
-        let len = f.size() as usize;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).ok()?;
+
+        // Wrap buffer in a Cursor to add the required Seek trait.
+        let mut cursor = Cursor::new(buf);
+
         Some(
-            VbaProject::new(&mut f, len)
+            VbaProject::new(&mut cursor)
                 .map(Cow::Owned)
                 .map_err(XlsxError::Vba),
         )
