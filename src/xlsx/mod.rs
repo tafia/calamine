@@ -10,7 +10,7 @@ mod style_parser;
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
 use std::collections::HashSet;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
@@ -2832,8 +2832,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let Some(mut f) = self.zip.by_name(path.as_ref()).ok() else {
             return Ok(None);
         };
-        let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len)?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // Wrap the buffer in a Cursor to supply the Seek bound that
+        // `VbaProject::new()` requires of the cfb crate.
+        let mut cursor = Cursor::new(buf);
+        let vba = VbaProject::new(&mut cursor)?;
         Ok(Some(vba))
     }
 
