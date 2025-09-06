@@ -6,12 +6,13 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek};
 use std::marker::PhantomData;
 
+use cfb::CompoundFile;
 use log::debug;
 
-use crate::cfb::{Cfb, XlsEncoding};
+use crate::cfb::XlsEncoding;
 use crate::formats::{
     builtin_format_by_code, detect_custom_number_format, format_excel_f64, format_excel_i64,
     CellFormat,
@@ -187,22 +188,27 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # fn main() { assert!(run().is_err()); }
     /// ```
     pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
-        let mut cfb = {
-            let offset_end = reader.seek(SeekFrom::End(0))? as usize;
-            reader.seek(SeekFrom::Start(0))?;
-            Cfb::new(&mut reader, offset_end)?
-        };
+        let mut cfb = CompoundFile::open(&mut reader)?;
 
-        debug!("cfb loaded");
+        // The stream can be "Workbook" or "Book" depending on the file version.
+        // It is also possible that some files have both.
+        let mut stream = cfb
+            .open_stream("Workbook")
+            .or_else(|_| cfb.open_stream("Book"))?;
+
+        // Read the stream into memory.
+        let mut stream_buf = vec![];
+        stream.read_to_end(&mut stream_buf)?;
+
+        // TODO:: Convert VBA reading to use cfb.rs crate.
+        let vba = None;
 
         // Reads vba once for all (better than reading all worksheets once for all)
-        let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
-        } else {
-            None
-        };
-
-        debug!("vba ok");
+        // let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
+        //     Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
+        // } else {
+        //     None
+        // };
 
         let mut xls = Xls {
             sheets: BTreeMap::new(),
@@ -216,9 +222,7 @@ impl<RS: Read + Seek> Xls<RS> {
             pictures: None,
         };
 
-        xls.parse_workbook(reader, cfb)?;
-
-        debug!("xls parsed");
+        xls.parse_workbook(&stream_buf)?;
 
         Ok(xls)
     }
@@ -306,12 +310,7 @@ struct Xti {
 }
 
 impl<RS: Read + Seek> Xls<RS> {
-    fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
-        // gets workbook and worksheets stream, or early exit
-        let stream = cfb
-            .get_stream("Workbook", &mut reader)
-            .or_else(|_| cfb.get_stream("Book", &mut reader))?;
-
+    fn parse_workbook(&mut self, stream: &[u8]) -> Result<(), XlsError> {
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
         let mut defined_names = Vec::new();
