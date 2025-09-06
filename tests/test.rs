@@ -1790,6 +1790,17 @@ fn issue_391_shared_formula() {
 }
 
 #[test]
+fn issue_553_non_ascii_shared_formula() {
+    // Test incrementing a shared formula in an xlsx file where the formula
+    // contains utf-8 characters.
+    let mut excel: Xlsx<_> = wb("issue_553.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    assert!(formula
+        .cells()
+        .all(|(_, _, x)| x == r#"IF(ROW()>5,"한글","영어")"#))
+}
+
+#[test]
 fn issue_420_empty_s_attribute() {
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 

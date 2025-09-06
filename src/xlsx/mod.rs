@@ -1884,8 +1884,8 @@ where
 }
 
 /// advance the cell name by the offset
-fn offset_cell_name(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(name.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice())?;
+fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+    let cell = get_row_column(name.iter().map(|c| *c).collect::<Vec<_>>().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
         (cell.1 as i64 + offset.1) as u32,
@@ -1895,11 +1895,11 @@ fn offset_cell_name(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxEr
 /// advance all valid cell names in the string by the offset
 fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
     let mut res: Vec<u8> = Vec::new();
-    let mut cell: Vec<char> = Vec::new();
+    let mut cell: Vec<u8> = Vec::new();
     let mut is_cell_row = false;
     let mut in_quote = false;
-    for c in s.chars() {
-        if c == '"' {
+    for c in s.bytes() {
+        if c == '"' as u8 {
             in_quote = !in_quote;
         }
         if in_quote {
@@ -1925,7 +1925,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
             }
             cell.clear();
             is_cell_row = false;
-            res.push(c as u8);
+            res.push(c);
         }
     }
     if !cell.is_empty() {
@@ -2083,6 +2083,10 @@ mod tests {
             )
             .unwrap(),
             "A2 is a cell, B2 is another, also C108, but XFE123 is not and \"A3\" in quote wont change.".to_owned()
+        );
+        assert_eq!(
+            replace_cell_names("한글 A1 テスト", (0, 1)).unwrap(),
+            "한글 B1 テスト".to_owned()
         );
     }
 
