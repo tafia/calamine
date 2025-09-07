@@ -12,6 +12,7 @@ use std::io::{BufReader, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
+use cfb::CompoundFile;
 use log::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::Event;
@@ -1846,11 +1847,8 @@ where
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsxError::Password);
         }
     }
