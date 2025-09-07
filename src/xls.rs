@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
-use std::fmt::Write;
+use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
@@ -1066,6 +1066,29 @@ impl<'a> Record<'a> {
             self.data = next;
             len -= l;
         }
+        Ok(())
+    }
+}
+
+// Simple Debug impl to dump record data in hex format.
+impl fmt::Debug for Record<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "\nRecord = 0x{:04X}, Length = 0x{:04X}, {}",
+            self.typ,
+            self.data.len(),
+            self.data.len()
+        )?;
+
+        let mut iter = self.data.chunks(16);
+        for chunk in iter.by_ref() {
+            for byte in chunk {
+                write!(f, "{byte:02X} ")?;
+            }
+            writeln!(f)?;
+        }
+
         Ok(())
     }
 }
