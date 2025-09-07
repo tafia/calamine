@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek};
 use std::marker::PhantomData;
 
 use cfb::CompoundFile;
