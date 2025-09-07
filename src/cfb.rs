@@ -4,6 +4,7 @@
 
 //! Compound File Binary format MS-CFB
 
+#![allow(dead_code)]
 use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Read;
