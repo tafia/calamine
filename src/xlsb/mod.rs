@@ -5,6 +5,7 @@
 mod cells_reader;
 
 pub use cells_reader::XlsbCellsReader;
+use cfb::CompoundFile;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -1032,11 +1033,8 @@ fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellForm
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsbError::Password);
         }
     }
