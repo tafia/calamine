@@ -20,13 +20,6 @@ macro_rules! from_err {
     };
 }
 
-/// Converts a &[u8] into an iterator of `u32`s
-pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
-    assert_eq!(s.len() % 4, 0);
-    s.chunks(4)
-        .map(|data| u32::from_le_bytes(data.try_into().unwrap()))
-}
-
 #[inline]
 pub fn read_u32(s: &[u8]) -> u32 {
     u32::from_le_bytes(s[..4].try_into().unwrap())
@@ -45,11 +38,6 @@ pub fn read_u16(s: &[u8]) -> u16 {
 #[inline]
 pub fn read_i16(s: &[u8]) -> i16 {
     i16::from_le_bytes(s[..2].try_into().unwrap())
-}
-
-#[inline]
-pub fn read_u64(s: &[u8]) -> u64 {
-    u64::from_le_bytes(s[..8].try_into().unwrap())
 }
 
 #[inline]
@@ -1144,7 +1132,15 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use quick_xml::events::BytesRef;
+
+    use crate::utils::{unescape_entity_to_buffer, unescape_xml};
+
+    fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
+        assert_eq!(s.len() % 4, 0);
+        s.chunks(4)
+            .map(|data| u32::from_le_bytes(data.try_into().unwrap()))
+    }
 
     #[test]
     fn sound_to_u32() {
