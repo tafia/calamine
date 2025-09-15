@@ -37,6 +37,8 @@ default = []
 
 # `chrono`: Adds support for Chrono dates and times.
 chrono = ["dep:chrono"]
+
+# `picture`: Adds support for reading raw data for pictures in spreadsheets.
 picture = []
 
 # `dates`: Backwards compatible synonym for the `chrono` feature.

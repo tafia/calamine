@@ -71,9 +71,12 @@ pub enum XlsError {
     Etpg(u8),
     /// No vba project
     NoVba,
-    /// Invalid OfficeArt Record
+
+    /// Invalid OfficeArt Record.
     #[cfg(feature = "picture")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
     Art(&'static str),
+
     /// Worksheet not found
     WorksheetNotFound(String),
     /// Invalid iFmt value
@@ -1530,7 +1533,7 @@ fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
     }
 }
 
-/// OfficeArtRecord [MS-ODRAW 1.3.1]
+// OfficeArtRecord [MS-ODRAW 1.3.1].
 #[cfg(feature = "picture")]
 struct ArtRecord<'a> {
     instance: u16,
@@ -1576,7 +1579,7 @@ impl<'a> Iterator for ArtRecordIter<'a> {
     }
 }
 
-/// Parsing pictures
+// Parsing pictures.
 #[cfg(feature = "picture")]
 fn parse_pictures(stream: &[u8]) -> Result<Vec<(String, Vec<u8>)>, XlsError> {
     let mut pics = Vec::new();
