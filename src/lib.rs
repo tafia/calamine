@@ -317,8 +317,45 @@ where
         Some(self.worksheet_range(&name))
     }
 
-    /// Get all pictures, tuple as (ext: String, data: Vec<u8>)
+    /// Get the raw data of the pictures in a workbook.
+    ///
+    /// Returns a vector of tuples containing the file extension and a buffer of
+    /// the image data.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the raw data of pictures in an spreadsheet file.
+    ///
+    /// ```
+    /// # use calamine::{open_workbook, Error, Reader, Xlsx};
+    /// #
+    /// # fn main() -> Result<(), Error> {
+    /// #     let path = "tests/picture.xlsx";
+    /// #
+    ///     // Open the workbook.
+    ///     let workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the data for each picture.
+    ///     if let Some(pics) = workbook.pictures() {
+    ///         for (ext, data) in pics {
+    ///             println!("Type: '{}', Size: {} bytes", ext, data.len());
+    ///         }
+    ///     }
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// #
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Type: 'jpg', Size: 20762 bytes
+    /// Type: 'png', Size: 23453 bytes
+    /// ```
+    ///
     #[cfg(feature = "picture")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
 }
 
