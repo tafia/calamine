@@ -41,3 +41,7 @@ jobs:
       if: ${{ matrix.toolchain == 'stable' }}
       run: |
         cargo fmt -- --check
+    - name: Clippy checks
+      if: ${{ matrix.toolchain == 'stable' }}
+      run: |
+        cargo clippy --lib --examples --tests -- -Dwarnings
