@@ -22,7 +22,10 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{
+    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, Style,
+    WorksheetLayout,
+};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -244,6 +247,16 @@ where
             .get(name)
             .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
             .map(|r| r.1.to_owned())
+    }
+
+    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, OdsError> {
+        // TODO: Implement ODS style parsing
+        Ok(Range::default())
+    }
+
+    fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, OdsError> {
+        // ODS doesn't support column width/row height information in the same way as XLSX
+        Ok(WorksheetLayout::new())
     }
 
     #[cfg(feature = "picture")]
