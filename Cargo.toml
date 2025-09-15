@@ -22,8 +22,10 @@ byteorder = "1.5"
 encoding_rs = "0.8"
 fast-float2 = "0.2"
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
-chrono = { version = "0.4", features = ["serde"], optional = true, default-features = false }
 quick-xml = { version = "0.38", features = ["encoding"] }
+
+# Optional dependencies.
+chrono = { version = "0.4", features = ["serde"], optional = true, default-features = false }
 
 [dev-dependencies]
 glob = "0.3"
