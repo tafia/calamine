@@ -3,7 +3,7 @@
 // Copyright 2016-2025, Johann Tuffe.
 
 use std::fmt;
-#[cfg(feature = "dates")]
+#[cfg(feature = "chrono")]
 use std::sync::OnceLock;
 
 use serde::de::Visitor;
@@ -20,14 +20,14 @@ const YEAR_DAYS_4: u64 = YEAR_DAYS * 4 + 1;
 const YEAR_DAYS_100: u64 = YEAR_DAYS * 100 + 25;
 const YEAR_DAYS_400: u64 = YEAR_DAYS * 400 + 97;
 
-#[cfg(feature = "dates")]
+#[cfg(feature = "chrono")]
 static EXCEL_EPOCH: OnceLock<chrono::NaiveDateTime> = OnceLock::new();
 
-#[cfg(feature = "dates")]
-/// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
+#[cfg(feature = "chrono")]
+// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
 const EXCEL_1900_1904_DIFF: f64 = 1462.;
 
-#[cfg(feature = "dates")]
+#[cfg(feature = "chrono")]
 const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
 /// An enum to represent all different data types that can appear as
@@ -74,17 +74,20 @@ impl DataType for Data {
         matches!(*self, Data::String(_))
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_duration_iso(&self) -> bool {
         matches!(*self, Data::DurationIso(_))
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime(&self) -> bool {
         matches!(*self, Data::DateTime(_))
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime_iso(&self) -> bool {
         matches!(*self, Data::DateTimeIso(_))
     }
@@ -122,7 +125,8 @@ impl DataType for Data {
         }
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime(&self) -> Option<ExcelDateTime> {
         match self {
             Data::DateTime(v) => Some(*v),
@@ -130,7 +134,8 @@ impl DataType for Data {
         }
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime_iso(&self) -> Option<&str> {
         match self {
             Data::DateTimeIso(v) => Some(&**v),
@@ -138,7 +143,8 @@ impl DataType for Data {
         }
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_duration_iso(&self) -> Option<&str> {
         match self {
             Data::DurationIso(v) => Some(&**v),
@@ -388,17 +394,20 @@ impl DataType for DataRef<'_> {
         matches!(*self, DataRef::String(_) | DataRef::SharedString(_))
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_duration_iso(&self) -> bool {
         matches!(*self, DataRef::DurationIso(_))
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime(&self) -> bool {
         matches!(*self, DataRef::DateTime(_))
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime_iso(&self) -> bool {
         matches!(*self, DataRef::DateTimeIso(_))
     }
@@ -439,7 +448,8 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime(&self) -> Option<ExcelDateTime> {
         match self {
             DataRef::DateTime(v) => Some(*v),
@@ -447,7 +457,8 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime_iso(&self) -> Option<&str> {
         match self {
             DataRef::DateTimeIso(v) => Some(&**v),
@@ -455,7 +466,8 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_duration_iso(&self) -> Option<&str> {
         match self {
             DataRef::DurationIso(v) => Some(&**v),
@@ -555,15 +567,18 @@ pub trait DataType {
     fn is_error(&self) -> bool;
 
     /// Assess if datatype is an ISO8601 duration
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_duration_iso(&self) -> bool;
 
     /// Assess if datatype is a datetime
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime(&self) -> bool;
 
     /// Assess if datatype is an ISO8601 datetime
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime_iso(&self) -> bool;
 
     /// Try getting int value
@@ -579,15 +594,18 @@ pub trait DataType {
     fn get_string(&self) -> Option<&str>;
 
     /// Try getting datetime value
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime(&self) -> Option<ExcelDateTime>;
 
     /// Try getting datetime ISO8601 value
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime_iso(&self) -> Option<&str>;
 
     /// Try getting duration ISO8601 value
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_duration_iso(&self) -> Option<&str>;
 
     /// Try getting Error value
@@ -603,7 +621,8 @@ pub trait DataType {
     fn as_f64(&self) -> Option<f64>;
 
     /// Try converting data type into a date
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn as_date(&self) -> Option<chrono::NaiveDate> {
         use std::str::FromStr;
         if self.is_datetime_iso() {
@@ -617,7 +636,8 @@ pub trait DataType {
     }
 
     /// Try converting data type into a time
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn as_time(&self) -> Option<chrono::NaiveTime> {
         use std::str::FromStr;
         if self.is_datetime_iso() {
@@ -634,7 +654,8 @@ pub trait DataType {
     }
 
     /// Try converting data type into a duration
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn as_duration(&self) -> Option<chrono::Duration> {
         use chrono::Timelike;
 
@@ -653,8 +674,8 @@ pub trait DataType {
         }
     }
 
-    /// Try converting data type into a datetime
-    #[cfg(feature = "dates")]
+    // Try converting data type into a datetime.
+    #[cfg(feature = "chrono")]
     fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
         use std::str::FromStr;
 
@@ -718,8 +739,8 @@ impl ExcelDateTime {
         }
     }
 
-    /// Is used only for converting excel value to chrono
-    #[cfg(feature = "dates")]
+    // Is used only for converting excel value to chrono.
+    #[cfg(feature = "chrono")]
     fn from_value_only(value: f64) -> Self {
         ExcelDateTime {
             value,
@@ -727,14 +748,16 @@ impl ExcelDateTime {
         }
     }
 
-    /// True if excel datetime has duration format ([hh]:mm:ss, for example)
-    #[cfg(feature = "dates")]
+    /// True if excel datetime has duration format (`[hh]:mm:ss`, for example)
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     pub fn is_duration(&self) -> bool {
         matches!(self.datetime_type, ExcelDateTimeType::TimeDelta)
     }
 
     /// True if excel datetime has datetime format (not duration)
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     pub fn is_datetime(&self) -> bool {
         matches!(self.datetime_type, ExcelDateTimeType::DateTime)
     }
@@ -794,15 +817,17 @@ impl ExcelDateTime {
         Self::excel_to_standard_datetime(self.value, self.is_1904)
     }
 
-    /// Try converting data type into a duration
-    #[cfg(feature = "dates")]
+    /// Try converting data type into a duration.
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     pub fn as_duration(&self) -> Option<chrono::Duration> {
         let ms = self.value * MS_MULTIPLIER;
         Some(chrono::Duration::milliseconds(ms.round() as i64))
     }
 
-    /// Try converting data type into a datetime
-    #[cfg(feature = "dates")]
+    /// Try converting data type into a datetime.
+    #[cfg(feature = "chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
         let excel_epoch = EXCEL_EPOCH.get_or_init(|| {
             chrono::NaiveDate::from_ymd_opt(1899, 12, 30)
@@ -998,7 +1023,7 @@ impl fmt::Display for ExcelDateTime {
     }
 }
 
-#[cfg(all(test, feature = "dates"))]
+#[cfg(all(test, feature = "chrono"))]
 mod date_tests {
     use super::*;
 
@@ -1006,6 +1031,7 @@ mod date_tests {
     fn test_dates() {
         use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 
+        #[allow(clippy::excessive_precision)]
         let unix_epoch = Data::Float(25569.);
         assert_eq!(
             unix_epoch.as_datetime(),
@@ -1026,18 +1052,24 @@ mod date_tests {
         );
 
         // test rounding
+        #[allow(clippy::excessive_precision)]
+        let date = Data::Float(0.18737500000000001);
         assert_eq!(
-            Data::Float(0.18737500000000001).as_time(),
+            date.as_time(),
             Some(NaiveTime::from_hms_milli_opt(4, 29, 49, 200).unwrap())
         );
+
+        #[allow(clippy::excessive_precision)]
+        let date = Data::Float(0.25951736111111101);
         assert_eq!(
-            Data::Float(0.25951736111111101).as_time(),
+            date.as_time(),
             Some(NaiveTime::from_hms_milli_opt(6, 13, 42, 300).unwrap())
         );
 
         // test overflow
         assert_eq!(Data::Float(1e20).as_time(), None);
 
+        #[allow(clippy::excessive_precision)]
         let unix_epoch_15h30m = Data::Float(25569.645833333333333);
         let chrono_dt = NaiveDateTime::new(
             NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
