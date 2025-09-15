@@ -1885,7 +1885,7 @@ where
 
 /// advance the cell name by the offset
 fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(name.iter().map(|c| *c).collect::<Vec<_>>().as_slice())?;
+    let cell = get_row_column(name.to_vec().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
         (cell.1 as i64 + offset.1) as u32,
@@ -1899,17 +1899,17 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
     let mut is_cell_row = false;
     let mut in_quote = false;
     for c in s.bytes() {
-        if c == '"' as u8 {
+        if c == b'"' {
             in_quote = !in_quote;
         }
         if in_quote {
-            res.push(c as u8);
+            res.push(c);
             continue;
         }
         if c.is_ascii_alphabetic() {
             if is_cell_row {
                 // two cell not possible stick together in formula
-                res.extend(cell.iter().map(|c| *c as u8));
+                res.extend(cell.iter().copied());
                 cell.clear();
                 is_cell_row = false;
             }
@@ -1921,7 +1921,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
             if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
                 res.extend(cell_name);
             } else {
-                res.extend(cell.iter().map(|c| *c as u8));
+                res.extend(cell.iter().copied());
             }
             cell.clear();
             is_cell_row = false;
@@ -1932,7 +1932,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
             res.extend(cell_name);
         } else {
-            res.extend(cell.iter().map(|c| *c as u8));
+            res.extend(cell.iter().copied());
         }
     }
     match String::from_utf8(res) {
