@@ -34,8 +34,14 @@ rstest = { version = "0.21.0", default-features = false }
 
 [features]
 default = []
-dates = ["chrono"]
+
+# `chrono`: Adds support for Chrono dates and times.
+chrono = ["dep:chrono"]
 picture = []
 
+# `dates`: Backwards compatible synonym for the `chrono` feature.
+dates = ["chrono"]
+
 [package.metadata.docs.rs]
-features = ["dates", "picture"]
+features = ["chrono", "picture"]
+rustdoc-args = ["--cfg", "docsrs"]
