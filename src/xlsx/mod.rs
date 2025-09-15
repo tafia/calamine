@@ -8,10 +8,11 @@ mod cells_reader;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
+use cfb::CompoundFile;
 use log::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::Event;
@@ -1509,9 +1510,15 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
         let mut f = self.zip.by_name("xl/vbaProject.bin").ok()?;
-        let len = f.size() as usize;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).ok()?;
+
+        // Wrap buffer in a Cursor to add the required Seek trait.
+        let mut cursor = Cursor::new(buf);
+
         Some(
-            VbaProject::new(&mut f, len)
+            VbaProject::new(&mut cursor)
                 .map(Cow::Owned)
                 .map_err(XlsxError::Vba),
         )
@@ -1837,11 +1844,8 @@ where
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsxError::Password);
         }
     }

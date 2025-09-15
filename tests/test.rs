@@ -119,8 +119,19 @@ fn issue_9() {
 }
 
 #[test]
-fn vba() {
+fn vba_xlsm() {
     let mut excel: Xlsx<_> = wb("vba.xlsm");
+    let mut vba = excel.vba_project().unwrap().unwrap();
+    assert_eq!(
+        vba.to_mut().get_module("testVBA").unwrap(),
+        "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
+         vba!\"\r\nEnd Sub\r\n"
+    );
+}
+
+#[test]
+fn vba_xls() {
+    let mut excel: Xls<_> = wb("vba.xls");
     let mut vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
         vba.to_mut().get_module("testVBA").unwrap(),
@@ -1666,18 +1677,6 @@ fn any_sheets_ods() {
 }
 
 #[test]
-fn issue_102() {
-    let path = format!("{}/tests/pass_protected.xlsx", env!("CARGO_MANIFEST_DIR"));
-    assert!(
-        matches!(
-            open_workbook::<Xlsx<_>, std::string::String>(path),
-            Err(calamine::XlsxError::Password)
-        ),
-        "Is expected to return XlsxError::Password error"
-    );
-}
-
-#[test]
 fn issue_374() {
     let mut workbook: Xls<_> = wb("biff5_write.xls");
 
@@ -1704,8 +1703,21 @@ fn issue_385() {
     );
 }
 
+// Test for issue #102.
 #[test]
-fn pass_protected_xlsb() {
+fn password_protected_xlsx() {
+    let path = format!("{}/tests/pass_protected.xlsx", env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        matches!(
+            open_workbook::<Xlsx<_>, std::string::String>(path),
+            Err(calamine::XlsxError::Password)
+        ),
+        "Is expected to return XlsxError::Password error"
+    );
+}
+
+#[test]
+fn password_protected_xlsb() {
     let path = format!("{}/tests/pass_protected.xlsb", env!("CARGO_MANIFEST_DIR"));
     assert!(
         matches!(
@@ -1717,7 +1729,7 @@ fn pass_protected_xlsb() {
 }
 
 #[test]
-fn pass_protected_ods() {
+fn password_protected_ods() {
     let path = format!("{}/tests/pass_protected.ods", env!("CARGO_MANIFEST_DIR"));
     assert!(
         matches!(
