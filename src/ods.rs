@@ -772,8 +772,9 @@ where
     Ok(defined_names)
 }
 
-/// Read pictures
+// Read pictures.
 #[cfg(feature = "picture")]
+#[allow(clippy::type_complexity)]
 fn read_pictures<RS: Read + Seek>(
     zip: &mut ZipArchive<RS>,
 ) -> Result<Option<Vec<(String, Vec<u8>)>>, OdsError> {

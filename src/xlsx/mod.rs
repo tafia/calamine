@@ -684,7 +684,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    /// Read pictures
+    // Read pictures.
     #[cfg(feature = "picture")]
     fn read_pictures(&mut self) -> Result<(), XlsxError> {
         let mut pics = Vec::new();
