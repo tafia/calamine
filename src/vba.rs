@@ -13,7 +13,6 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::{debug, log_enabled, warn, Level};
 
 use crate::cfb::{Cfb, XlsEncoding};
 use crate::utils::read_u16;
@@ -161,7 +160,6 @@ impl VbaProject {
     /// }
     /// ```
     pub fn get_module(&self, name: &str) -> Result<String, VbaError> {
-        debug!("read module {name}");
         let data = self.get_module_raw(name)?;
         Ok(self.encoding.decode_all(data))
     }
@@ -194,8 +192,6 @@ impl Reference {
 
     /// Gets the list of references from the `dir_stream` relevant part
     fn from_stream(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Reference>, VbaError> {
-        debug!("read all references metadata");
-
         let mut references = Vec::new();
         let mut reference = Reference {
             name: "".to_string(),
@@ -286,7 +282,6 @@ impl Reference {
             }
         }
 
-        debug!("references: {references:#?}");
         Ok(references)
     }
 
@@ -321,8 +316,6 @@ struct Module {
 }
 
 fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
-    debug!("read dir header");
-
     // PROJECTSYSKIND
     *stream = &stream[10..];
 
@@ -360,7 +353,6 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
 }
 
 fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module>, VbaError> {
-    debug!("read all modules metadata");
     *stream = &stream[4..];
 
     let module_len = stream.read_u16::<LittleEndian>()? as usize;
@@ -436,8 +428,8 @@ fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8], V
 fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaError> {
     check_record(id, r)?;
     let record = read_variable_record(r, 1)?;
-    if log_enabled!(Level::Warn) && record.len() > 100_000 {
-        warn!(
+    if record.len() > 100_000 {
+        eprintln!(
             "record id {} as a suspicious huge length of {} (hex: {:x})",
             id,
             record.len(),
@@ -449,7 +441,6 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaE
 
 /// Check that next record matches `id`
 fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
-    debug!("check record {id:x}");
     let record_id = r.read_u16::<LittleEndian>()?;
     if record_id != id {
         Err(VbaError::InvalidRecordId {

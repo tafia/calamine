@@ -8,8 +8,6 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Read;
 
-use log::debug;
-
 use encoding_rs::{Encoding, UTF_16LE, UTF_8};
 
 use crate::utils::*;
@@ -81,7 +79,6 @@ impl Cfb {
         let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
 
         // load fat and dif sectors
-        debug!("load difat {h:?}");
         let mut sector_id = h.difat_start;
         while sector_id < RESERVED_SECTORS {
             difat.extend(to_u32(sectors.get(sector_id, reader)?));
@@ -89,14 +86,12 @@ impl Cfb {
         }
 
         // load the FATs
-        debug!("load fat (len {})", h.fat_len);
         let mut fats = Vec::with_capacity(h.fat_len);
         for id in difat.into_iter().filter(|id| *id < DIFSECT) {
             fats.extend(to_u32(sectors.get(id, reader)?));
         }
 
         // get the list of directory sectors
-        debug!("load directories");
         let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * h.sector_size)?;
         let dirs = dirs
             .chunks(128)
@@ -108,7 +103,6 @@ impl Cfb {
         }
 
         // load the mini streams
-        debug!("load minis {dirs:?}");
         let (mini_fats, ministream) = if h.mini_fat_len > 0 {
             let ministream = sectors.get_chain(dirs[0].start, &fats, reader, dirs[0].len)?;
             let minifat = sectors.get_chain(
@@ -335,7 +329,6 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
         1 << 15,
     ];
 
-    debug!("decompress stream");
     let mut res = Vec::new();
 
     if s[0] != 0x01 {

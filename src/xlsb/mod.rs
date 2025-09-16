@@ -10,8 +10,6 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 
-use log::debug;
-
 use encoding_rs::UTF_16LE;
 use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
@@ -403,7 +401,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     self.metadata.names = defined_names;
                     return Ok(());
                 }
-                _ => debug!("Unsupported type {typ:X}"),
+                _ => eprintln!("Unsupported type {typ:X}"),
             }
         }
     }
@@ -779,7 +777,6 @@ fn parse_formula(
             }
             0x01 => {
                 // PtgExp: array/shared formula, ignore
-                debug!("ignoring PtgExp array/shared formula");
                 stack.push(formula.len());
                 rgce = &rgce[4..];
             }

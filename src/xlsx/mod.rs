@@ -1535,7 +1535,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
-                warn!("'{typ}' not a worksheet");
+                eprintln!("'{typ}' not a worksheet");
                 return Ok(Range::default());
             }
             Err(e) => return Err(e),
@@ -1580,7 +1580,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
-                log::warn!("'{typ}' not a valid worksheet");
+                eprintln!("'{typ}' not a valid worksheet");
                 return Ok(Range::default());
             }
             Err(e) => return Err(e),
@@ -1703,10 +1703,12 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
             let rows = parts[1].0 - parts[0].0;
             let columns = parts[1].1 - parts[0].1;
             if rows > MAX_ROWS {
-                warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
+                eprintln!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
             }
             if columns > MAX_COLUMNS {
-                warn!("xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})");
+                eprintln!(
+                    "xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})"
+                );
             }
             Ok(Dimensions {
                 start: parts[0],

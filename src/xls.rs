@@ -9,8 +9,6 @@ use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
-use log::debug;
-
 use crate::cfb::{Cfb, XlsEncoding};
 use crate::formats::{
     builtin_format_by_code, detect_custom_number_format, format_excel_f64, format_excel_i64,
@@ -193,16 +191,12 @@ impl<RS: Read + Seek> Xls<RS> {
             Cfb::new(&mut reader, offset_end)?
         };
 
-        debug!("cfb loaded");
-
         // Reads vba once for all (better than reading all worksheets once for all)
         let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
             Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
         } else {
             None
         };
-
-        debug!("vba ok");
 
         let mut xls = Xls {
             sheets: BTreeMap::new(),
@@ -217,8 +211,6 @@ impl<RS: Read + Seek> Xls<RS> {
         };
 
         xls.parse_workbook(reader, cfb)?;
-
-        debug!("xls parsed");
 
         Ok(xls)
     }
@@ -353,7 +345,7 @@ impl<RS: Read + Seek> Xls<RS> {
                         Ok((idx, format)) => {
                             formats.insert(idx, format);
                         }
-                        Err(e) => log::warn!("{e}"),
+                        Err(e) => eprintln!("{e}"),
                     },
                     // XFS
                     0x00E0 => {
@@ -412,8 +404,6 @@ impl<RS: Read + Seek> Xls<RS> {
             })
             .collect();
 
-        debug!("formats: {:?}", self.formats);
-
         let defined_names = defined_names
             .into_iter()
             .map(|(name, (i, mut f))| {
@@ -427,8 +417,6 @@ impl<RS: Read + Seek> Xls<RS> {
                 (name, f)
             })
             .collect::<Vec<_>>();
-
-        debug!("defined_names: {defined_names:?}");
 
         let mut sheets = BTreeMap::new();
         let fmla_sheet_names = sheet_names
@@ -491,7 +479,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &encoding,
                         )
                         .unwrap_or_else(|e| {
-                            debug!("{e}");
+                            eprintln!("{e}");
                             format!(
                                 "Unrecognised formula \
                                  for cell ({row}, {col}): {e:?}"
@@ -1263,7 +1251,6 @@ fn parse_formula(
             }
             0x01 => {
                 // PtgExp: array/shared formula, ignore
-                debug!("ignoring PtgExp array/shared formula");
                 stack.push(formula.len());
                 rgce = &rgce[4..];
             }
