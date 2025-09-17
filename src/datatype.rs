@@ -74,20 +74,14 @@ impl DataType for Data {
         matches!(*self, Data::String(_))
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_duration_iso(&self) -> bool {
         matches!(*self, Data::DurationIso(_))
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime(&self) -> bool {
         matches!(*self, Data::DateTime(_))
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime_iso(&self) -> bool {
         matches!(*self, Data::DateTimeIso(_))
     }
@@ -125,8 +119,6 @@ impl DataType for Data {
         }
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime(&self) -> Option<ExcelDateTime> {
         match self {
             Data::DateTime(v) => Some(*v),
@@ -134,8 +126,6 @@ impl DataType for Data {
         }
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime_iso(&self) -> Option<&str> {
         match self {
             Data::DateTimeIso(v) => Some(&**v),
@@ -143,8 +133,6 @@ impl DataType for Data {
         }
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_duration_iso(&self) -> Option<&str> {
         match self {
             Data::DurationIso(v) => Some(&**v),
@@ -394,20 +382,14 @@ impl DataType for DataRef<'_> {
         matches!(*self, DataRef::String(_) | DataRef::SharedString(_))
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_duration_iso(&self) -> bool {
         matches!(*self, DataRef::DurationIso(_))
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime(&self) -> bool {
         matches!(*self, DataRef::DateTime(_))
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime_iso(&self) -> bool {
         matches!(*self, DataRef::DateTimeIso(_))
     }
@@ -448,8 +430,6 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime(&self) -> Option<ExcelDateTime> {
         match self {
             DataRef::DateTime(v) => Some(*v),
@@ -457,8 +437,6 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime_iso(&self) -> Option<&str> {
         match self {
             DataRef::DateTimeIso(v) => Some(&**v),
@@ -466,8 +444,6 @@ impl DataType for DataRef<'_> {
         }
     }
 
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_duration_iso(&self) -> Option<&str> {
         match self {
             DataRef::DurationIso(v) => Some(&**v),
@@ -567,18 +543,12 @@ pub trait DataType {
     fn is_error(&self) -> bool;
 
     /// Assess if datatype is an ISO8601 duration
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_duration_iso(&self) -> bool;
 
     /// Assess if datatype is a datetime
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime(&self) -> bool;
 
     /// Assess if datatype is an ISO8601 datetime
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn is_datetime_iso(&self) -> bool;
 
     /// Try getting int value
@@ -594,18 +564,12 @@ pub trait DataType {
     fn get_string(&self) -> Option<&str>;
 
     /// Try getting datetime value
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime(&self) -> Option<ExcelDateTime>;
 
     /// Try getting datetime ISO8601 value
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_datetime_iso(&self) -> Option<&str>;
 
     /// Try getting duration ISO8601 value
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn get_duration_iso(&self) -> Option<&str>;
 
     /// Try getting Error value
@@ -749,15 +713,11 @@ impl ExcelDateTime {
     }
 
     /// True if excel datetime has duration format (`[hh]:mm:ss`, for example)
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     pub fn is_duration(&self) -> bool {
         matches!(self.datetime_type, ExcelDateTimeType::TimeDelta)
     }
 
     /// True if excel datetime has datetime format (not duration)
-    #[cfg(feature = "chrono")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     pub fn is_datetime(&self) -> bool {
         matches!(self.datetime_type, ExcelDateTimeType::DateTime)
     }
