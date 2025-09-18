@@ -471,7 +471,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         let mut value = String::new();
                         loop {
                             match xml.read_event_into(&mut val_buf)? {
-                                Event::Text(t) => value.push_str(&t.unescape()?),
+                                Event::Text(t) => value.push_str(&t.decode()?),
+                                Event::GeneralRef(ref e) => {
+                                    crate::utils::decode_entity_ref_into(e.as_ref(), &mut value);
+                                }
                                 Event::End(end) if end.name() == e.name() => break,
                                 Event::Eof => return Err(XlsxError::XmlEof("workbook")),
                                 _ => (),
@@ -1815,7 +1818,10 @@ where
                 let mut value = String::new();
                 loop {
                     match xml.read_event_into(&mut val_buf)? {
-                        Event::Text(t) => value.push_str(&t.unescape()?),
+                        Event::Text(t) => value.push_str(&t.decode()?),
+                        Event::GeneralRef(ref e) => {
+                            crate::utils::decode_entity_ref_into(e.as_ref(), &mut value);
+                        }
                         Event::End(end) if end.name() == e.name() => break,
                         Event::Eof => return Err(XlsxError::XmlEof("t")),
                         _ => (),
