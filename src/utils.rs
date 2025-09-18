@@ -1110,7 +1110,8 @@ mod tests {
 ///
 /// This approach is maximally efficient as it writes directly to the target
 /// string without any intermediate allocations.
-/// It also uses simdutf8 to decode the entity name for faster decoding.
+/// For standard XML entities (`amp`, `lt`, `gt`, `quot`, `apos`), decoding is done via direct character matching.
+/// For other entity names, simdutf8 is used to decode the entity name for faster decoding.
 pub fn decode_entity_ref_into(entity_name: &[u8], target: &mut String) {
     match entity_name {
         b"amp" => target.push('&'),
