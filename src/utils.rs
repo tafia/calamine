@@ -1054,6 +1054,35 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
     129, // "AVERAGEIFS"
 ];
 
+/// Writes decoded XML entity references directly into the target string
+///
+/// This function handles the standard XML entity references that were
+/// automatically decoded in quick-xml 0.37 but are now reported as
+/// Event::GeneralRef in quick-xml 0.38.
+///
+/// This approach is maximally efficient as it writes directly to the target
+/// string without any intermediate allocations.
+/// For standard XML entities (`amp`, `lt`, `gt`, `quot`, `apos`), decoding is done via direct character matching.
+/// For other entity names, simdutf8 is used insstead of std::str::from_utf8 for faster decoding.
+pub fn decode_entity_ref_into(entity_name: &[u8], target: &mut String) {
+    match entity_name {
+        b"amp" => target.push('&'),
+        b"lt" => target.push('<'),
+        b"gt" => target.push('>'),
+        b"quot" => target.push('"'),
+        b"apos" => target.push('\''),
+        _ => {
+            // For other entity references, preserve as-is
+            target.push('&');
+            if let Ok(s) = simdutf8::basic::from_utf8(entity_name) {
+                target.push_str(s);
+            } else {
+                target.push_str(&String::from_utf8_lossy(entity_name));
+            }
+            target.push(';');
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1099,35 +1128,5 @@ mod tests {
         decode_entity_ref_into(b"amp", &mut result);
         decode_entity_ref_into(b"lt", &mut result);
         assert_eq!(result, "&<");
-    }
-}
-
-/// Writes decoded XML entity references directly into the target string
-///
-/// This function handles the standard XML entity references that were
-/// automatically decoded in quick-xml 0.37 but are now reported as
-/// Event::GeneralRef in quick-xml 0.38.
-///
-/// This approach is maximally efficient as it writes directly to the target
-/// string without any intermediate allocations.
-/// For standard XML entities (`amp`, `lt`, `gt`, `quot`, `apos`), decoding is done via direct character matching.
-/// For other entity names, simdutf8 is used to decode the entity name for faster decoding.
-pub fn decode_entity_ref_into(entity_name: &[u8], target: &mut String) {
-    match entity_name {
-        b"amp" => target.push('&'),
-        b"lt" => target.push('<'),
-        b"gt" => target.push('>'),
-        b"quot" => target.push('"'),
-        b"apos" => target.push('\''),
-        _ => {
-            // For other entity references, preserve as-is
-            target.push('&');
-            if let Ok(s) = simdutf8::basic::from_utf8(entity_name) {
-                target.push_str(s);
-            } else {
-                target.push_str(&String::from_utf8_lossy(entity_name));
-            }
-            target.push(';');
-        }
     }
 }
