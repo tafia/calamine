@@ -668,7 +668,10 @@ where
             buf.clear();
             match reader.read_event_into(buf) {
                 Ok(Event::Text(ref e)) => {
-                    s.push_str(&e.unescape()?);
+                    s.push_str(&e.decode()?);
+                }
+                Ok(Event::GeneralRef(ref e)) => {
+                    crate::utils::decode_entity_ref_into(e.as_ref(), &mut s);
                 }
                 Ok(Event::End(ref e))
                     if e.name() == QName(b"table:table-cell")

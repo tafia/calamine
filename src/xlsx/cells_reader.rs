@@ -318,7 +318,10 @@ where
             loop {
                 v_buf.clear();
                 match xml.read_event_into(&mut v_buf)? {
-                    Event::Text(t) => v.push_str(&t.unescape()?),
+                    Event::Text(t) => v.push_str(&t.decode()?),
+                    Event::GeneralRef(ref e) => {
+                        crate::utils::decode_entity_ref_into(e.as_ref(), &mut v);
+                    }
                     Event::End(end) if end.name() == e.name() => break,
                     Event::Eof => return Err(XlsxError::XmlEof("v")),
                     _ => (),
@@ -416,7 +419,10 @@ where
             let mut f = String::new();
             loop {
                 match xml.read_event_into(&mut f_buf)? {
-                    Event::Text(t) => f.push_str(&t.unescape()?),
+                    Event::Text(t) => f.push_str(&t.decode()?),
+                    Event::GeneralRef(ref e) => {
+                        crate::utils::decode_entity_ref_into(e.as_ref(), &mut f);
+                    }
                     Event::End(end) if end.name() == e.name() => break,
                     Event::Eof => return Err(XlsxError::XmlEof("f")),
                     _ => (),
