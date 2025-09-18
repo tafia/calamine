@@ -1066,4 +1066,67 @@ mod tests {
             [u32::from_le_bytes(*b"ABCD"), u32::from_le_bytes(*b"EFGH")]
         );
     }
+
+    #[test]
+    fn test_decode_entity_ref_into() {
+        let mut result = String::new();
+
+        decode_entity_ref_into(b"amp", &mut result);
+        assert_eq!(result, "&");
+
+        result.clear();
+        decode_entity_ref_into(b"lt", &mut result);
+        assert_eq!(result, "<");
+
+        result.clear();
+        decode_entity_ref_into(b"gt", &mut result);
+        assert_eq!(result, ">");
+
+        result.clear();
+        decode_entity_ref_into(b"quot", &mut result);
+        assert_eq!(result, "\"");
+
+        result.clear();
+        decode_entity_ref_into(b"apos", &mut result);
+        assert_eq!(result, "'");
+
+        result.clear();
+        decode_entity_ref_into(b"custom", &mut result);
+        assert_eq!(result, "&custom;");
+
+        // Test multiple entities in one string
+        result.clear();
+        decode_entity_ref_into(b"amp", &mut result);
+        decode_entity_ref_into(b"lt", &mut result);
+        assert_eq!(result, "&<");
+    }
+}
+
+/// Writes decoded XML entity references directly into the target string
+///
+/// This function handles the standard XML entity references that were
+/// automatically decoded in quick-xml 0.37 but are now reported as
+/// Event::GeneralRef in quick-xml 0.38.
+///
+/// This approach is maximally efficient as it writes directly to the target
+/// string without any intermediate allocations.
+/// It also uses simdutf8 to decode the entity name for faster decoding.
+pub fn decode_entity_ref_into(entity_name: &[u8], target: &mut String) {
+    match entity_name {
+        b"amp" => target.push('&'),
+        b"lt" => target.push('<'),
+        b"gt" => target.push('>'),
+        b"quot" => target.push('"'),
+        b"apos" => target.push('\''),
+        _ => {
+            // For other entity references, preserve as-is
+            target.push('&');
+            if let Ok(s) = simdutf8::basic::from_utf8(entity_name) {
+                target.push_str(s);
+            } else {
+                target.push_str(&String::from_utf8_lossy(entity_name));
+            }
+            target.push(';');
+        }
+    }
 }
