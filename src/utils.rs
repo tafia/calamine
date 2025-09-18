@@ -1054,17 +1054,18 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
     129, // "AVERAGEIFS"
 ];
 
-/// Writes decoded XML entity references directly into the target string
-///
-/// This function handles the standard XML entity references that were
-/// automatically decoded in quick-xml 0.37 but are now reported as
-/// Event::GeneralRef in quick-xml 0.38.
-///
-/// This approach is maximally efficient as it writes directly to the target
-/// string without any intermediate allocations.
-/// For standard XML entities (`amp`, `lt`, `gt`, `quot`, `apos`), decoding is done via direct character matching.
-/// For other entity names, simdutf8 is used insstead of std::str::from_utf8 for faster decoding.
-pub fn decode_entity_ref_into(entity_name: &[u8], target: &mut String) {
+// Writes decoded XML entity references directly into the target string
+//
+// This function handles the standard XML entity references that were
+// automatically decoded in quick-xml 0.37 but are now reported as
+// Event::GeneralRef in quick-xml 0.38.
+//
+// This approach is maximally efficient as it writes directly to the target
+// string without any intermediate allocations.
+// For standard XML entities (`amp`, `lt`, `gt`, `quot`, `apos`), decoding is done via direct character matching.
+// For other entity names, simdutf8 is used insstead of std::str::from_utf8 for faster decoding.
+#[inline]
+pub(crate) fn decode_entity_ref_into(entity_name: &[u8], target: &mut String) {
     match entity_name {
         b"amp" => target.push('&'),
         b"lt" => target.push('<'),
