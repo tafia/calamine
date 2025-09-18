@@ -42,6 +42,7 @@ chrono = ["dep:chrono"]
 
 # `picture`: Adds support for reading raw data for pictures in spreadsheets.
 picture = []
+pivot-cache = []
 
 # `dates`: Backwards compatible synonym for the `chrono` feature.
 dates = ["chrono"]
