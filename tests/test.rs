@@ -715,7 +715,7 @@ fn date_xls() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -750,7 +750,7 @@ fn date_xls_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -785,7 +785,7 @@ fn date_xlsx() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -820,7 +820,7 @@ fn date_xlsx_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -851,7 +851,7 @@ fn date_xlsx_iso() {
         Some(&DateTimeIso("10:10:10".to_string()))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -895,7 +895,7 @@ fn date_ods() {
         Some(&DurationIso("PT10H10M10.123456S".to_string()))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -943,7 +943,7 @@ fn date_xlsb() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -978,7 +978,7 @@ fn date_xlsb_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));

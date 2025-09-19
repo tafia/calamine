@@ -182,10 +182,22 @@ for s in sheets {
 }
 ```
 
-## Features
 
-- `dates`: Add date related fn to `DataType`.
-- `picture`: Extract picture data.
+## Crate Features
+
+The following is a list of the optional features supported by the `calamine`
+crate. They are all off by default.
+
+- `chrono`: Adds support for Chrono date/time types to the API.
+- `dates`: A deprecated backwards compatible synonym for the `chrono` feature.
+- `picture`: Adds support for reading raw data for pictures in spreadsheets.
+
+A `calamine` feature can be enabled in your `Cargo.toml` file as follows:
+
+```bash
+cargo add calamine -F chrono
+```
+
 
 ### Others
 
