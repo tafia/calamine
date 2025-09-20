@@ -101,6 +101,7 @@ use crate::vba::VbaProject;
 /// An enum to represent all different errors that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CellErrorType {
     /// Division by 0 error
     Div0,

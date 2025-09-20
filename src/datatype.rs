@@ -24,6 +24,7 @@ const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Data {
     /// Signed integer
     Int(i64),
@@ -684,6 +685,7 @@ impl<'a> From<DataRef<'a>> for Data {
 /// Excel datetime type. Possible: date, time, datetime, duration.
 /// At this time we can only determine datetime (date and time are datetime too) and duration.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ExcelDateTimeType {
     /// `DateTime`
     DateTime,
@@ -693,6 +695,7 @@ pub enum ExcelDateTimeType {
 
 /// Structure for Excel date and time representation.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExcelDateTime {
     value: f64,
     datetime_type: ExcelDateTimeType,
