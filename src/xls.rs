@@ -296,6 +296,10 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
     }
+    #[cfg(feature = "pivot-cache")]
+    fn pivot_tables(&self) -> Option<Vec<String>> {
+        unimplemented!("Pivot Tables are not yet implemented for Xls")
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
