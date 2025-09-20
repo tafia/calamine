@@ -301,6 +301,17 @@ fn special_chrs_ods() {
     );
 }
 
+// Test for decoding/unescaping simple XML entities and also for numeric
+// entities like "&#xA;" for new line.
+#[test]
+fn decode_xml_entities() {
+    let mut excel: Xlsx<_> = wb("encoded_entities.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&String("&".to_string())));
+    assert_eq!(range.get_value((1, 0)), Some(&String("\n".to_string())));
+}
+
 #[test]
 fn partial_richtext_ods() {
     let mut excel: Ods<_> = wb("richtext_issue.ods");
