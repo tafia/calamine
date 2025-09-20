@@ -2555,31 +2555,152 @@ fn test_xlsx_empty_shared_string() {
 #[test]
 #[cfg(feature = "pivot-cache")]
 fn test_pivot_table_meta_data() {
-    let mut wb: Xlsx<_> = wb("pivots.xlsx");
-    assert!(wb.load_pivot_table_metadata().is_ok());
-    assert!(vec!["PivotTable1".to_string(), "PivotTable2".to_string()].iter().eq(wb.pivot_tables().unwrap().iter()));
-
+    let wb: Xlsx<_> = wb("pivots.xlsx");
+    let mut results = wb.pivot_tables();
+    results.sort();
+    let expected = vec!["PivotTable1", "PivotTable2"];
+    assert_eq!(expected, results);
 }
 
 #[test]
 #[cfg(feature = "pivot-cache")]
 fn test_pivot_cache_data_mapping() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
-    let _ = wb.load_pivot_table_metadata();
     let expected = vec![
-        vec![String("Id".to_string()), String("Name".to_string()), String("Category".to_string()), String("Value".to_string()), String("Size".to_string()), String("Date".to_string()), String("Value / Size".to_string()), String("IsBlue".to_string()), String("Null".to_string()), String("Misc".to_string())],
-        vec![Int(1), String("a".to_string()), String("blue".to_string()), Int(10), Float(1.78), DateTimeIso("2024-11-01T00:00:00".to_string()), Float(5.617977528089887), Bool(true), Empty, Empty],
-        vec![Int(2), String("b".to_string()), String("blue".to_string()), Int(20), Float(2.012), DateTimeIso("2024-01-04T00:00:00".to_string()), Float(9.940357852882704), Bool(true), Empty, Float(2.012)],
-        vec![Int(3), String("c".to_string()), String("blue".to_string()), Int(15), Float(3.121), DateTimeIso("2024-01-31T00:00:00".to_string()), Float(4.806151874399231), Bool(true), Empty, DateTimeIso("2024-02-01T00:00:00".to_string())],
-        vec![Int(4), String("d".to_string()), String("blue".to_string()), Int(20), Float(1.052), DateTimeIso("2024-01-21T00:00:00".to_string()), Float(19.011406844106464), Bool(true), Empty, Error(Ref)],
-        vec![Int(5), String("e".to_string()), String("blue".to_string()), Int(10), Float(3.102), DateTimeIso("2024-02-01T00:00:00".to_string()), Float(3.2237266279819474), Bool(true), Empty, Float(3.102)],
-        vec![Int(6), String("f".to_string()), String("yellow".to_string()), Int(5), Float(1.02), DateTimeIso("2024-01-01T00:00:00".to_string()), Float(4.901960784313726), Bool(false), Empty, Int(20)],
-        vec![Int(7), String("g".to_string()), String("yellow".to_string()), Int(10), Int(0), DateTimeIso("2024-01-11T00:00:00".to_string()), Error(Ref), Bool(false), Empty, Bool(true)],
-        vec![Int(8), String("h".to_string()), String("yellow".to_string()), Int(15), Float(4.031), DateTimeIso("1999-01-01T00:00:00".to_string()), Float(3.721161002232697), Bool(false), Empty, Int(5)],
-        vec![Int(9), String("i".to_string()), String("yellow".to_string()), Int(15), Float(1.0421), DateTimeIso("2024-12-01T00:00:00".to_string()), Float(14.394012090970156), Bool(false), Empty, Int(10)],
-        vec![Int(10), String("j".to_string()), String("yellow".to_string()), Int(5), Float(1.20452), DateTimeIso("2024-01-01T00:00:00".to_string()), Float(4.151031116129246), Bool(false), Empty, String("blue".to_string())],
+        vec![
+            String("Id".to_string()),
+            String("Name".to_string()),
+            String("Category".to_string()),
+            String("Value".to_string()),
+            String("Size".to_string()),
+            String("Date".to_string()),
+            String("Value / Size".to_string()),
+            String("IsBlue".to_string()),
+            String("Null".to_string()),
+            String("Misc".to_string()),
+        ],
+        vec![
+            Int(1),
+            String("a".to_string()),
+            String("blue".to_string()),
+            Int(10),
+            Float(1.78),
+            DateTimeIso("2024-11-01T00:00:00".to_string()),
+            Float(5.617977528089887),
+            Bool(true),
+            Empty,
+            Empty,
+        ],
+        vec![
+            Int(2),
+            String("b".to_string()),
+            String("blue".to_string()),
+            Int(20),
+            Float(2.012),
+            DateTimeIso("2024-01-04T00:00:00".to_string()),
+            Float(9.940357852882704),
+            Bool(true),
+            Empty,
+            Float(2.012),
+        ],
+        vec![
+            Int(3),
+            String("c".to_string()),
+            String("blue".to_string()),
+            Int(15),
+            Float(3.121),
+            DateTimeIso("2024-01-31T00:00:00".to_string()),
+            Float(4.806151874399231),
+            Bool(true),
+            Empty,
+            DateTimeIso("2024-02-01T00:00:00".to_string()),
+        ],
+        vec![
+            Int(4),
+            String("d".to_string()),
+            String("blue".to_string()),
+            Int(20),
+            Float(1.052),
+            DateTimeIso("2024-01-21T00:00:00".to_string()),
+            Float(19.011406844106464),
+            Bool(true),
+            Empty,
+            Error(Ref),
+        ],
+        vec![
+            Int(5),
+            String("e".to_string()),
+            String("blue".to_string()),
+            Int(10),
+            Float(3.102),
+            DateTimeIso("2024-02-01T00:00:00".to_string()),
+            Float(3.2237266279819474),
+            Bool(true),
+            Empty,
+            Float(3.102),
+        ],
+        vec![
+            Int(6),
+            String("f".to_string()),
+            String("yellow".to_string()),
+            Int(5),
+            Float(1.02),
+            DateTimeIso("2024-01-01T00:00:00".to_string()),
+            Float(4.901960784313726),
+            Bool(false),
+            Empty,
+            Int(20),
+        ],
+        vec![
+            Int(7),
+            String("g".to_string()),
+            String("yellow".to_string()),
+            Int(10),
+            Int(0),
+            DateTimeIso("2024-01-11T00:00:00".to_string()),
+            Error(Ref),
+            Bool(false),
+            Empty,
+            Bool(true),
+        ],
+        vec![
+            Int(8),
+            String("h".to_string()),
+            String("yellow".to_string()),
+            Int(15),
+            Float(4.031),
+            DateTimeIso("1999-01-01T00:00:00".to_string()),
+            Float(3.721161002232697),
+            Bool(false),
+            Empty,
+            Int(5),
+        ],
+        vec![
+            Int(9),
+            String("i".to_string()),
+            String("yellow".to_string()),
+            Int(15),
+            Float(1.0421),
+            DateTimeIso("2024-12-01T00:00:00".to_string()),
+            Float(14.394012090970156),
+            Bool(false),
+            Empty,
+            Int(10),
+        ],
+        vec![
+            Int(10),
+            String("j".to_string()),
+            String("yellow".to_string()),
+            Int(5),
+            Float(1.20452),
+            DateTimeIso("2024-01-01T00:00:00".to_string()),
+            Float(4.151031116129246),
+            Bool(false),
+            Empty,
+            String("blue".to_string()),
+        ],
     ];
-    let mut results = wb.get_pivot_data_by_name_ref("PivotTable1").unwrap();
+    let mut results = wb.pivot_table_data("PivotTable1").unwrap();
     for expected_data in expected.into_iter() {
         assert_eq!(results.next(), Some(expected_data));
     }
@@ -2589,8 +2710,15 @@ fn test_pivot_cache_data_mapping() {
 #[cfg(feature = "pivot-cache")]
 fn test_pivot_table_cache_match() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
-    assert!(wb.load_pivot_table_metadata().is_ok());
-    let results1 = wb.get_pivot_data_by_name_ref("PivotTable1").unwrap().into_iter().collect::<Vec<_>>();
-    let results2 =  wb.get_pivot_data_by_name_ref("PivotTable2").unwrap().into_iter().collect::<Vec<_>>();
+    let results1 = wb
+        .pivot_table_data("PivotTable1")
+        .unwrap()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let results2 = wb
+        .pivot_table_data("PivotTable2")
+        .unwrap()
+        .into_iter()
+        .collect::<Vec<_>>();
     assert_eq!(results1, results2);
 }
