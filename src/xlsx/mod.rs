@@ -22,6 +22,7 @@ use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
+use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
@@ -471,7 +472,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         let mut value = String::new();
                         loop {
                             match xml.read_event_into(&mut val_buf)? {
-                                Event::Text(t) => value.push_str(&t.unescape()?),
+                                Event::Text(t) => value.push_str(&t.xml10_content()?),
+                                Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                                 Event::End(end) if end.name() == e.name() => break,
                                 Event::Eof => return Err(XlsxError::XmlEof("workbook")),
                                 _ => (),
@@ -1815,7 +1817,8 @@ where
                 let mut value = String::new();
                 loop {
                     match xml.read_event_into(&mut val_buf)? {
-                        Event::Text(t) => value.push_str(&t.unescape()?),
+                        Event::Text(t) => value.push_str(&t.xml10_content()?),
+                        Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                         Event::End(end) if end.name() == e.name() => break,
                         Event::Eof => return Err(XlsxError::XmlEof("t")),
                         _ => (),

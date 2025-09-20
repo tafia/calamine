@@ -19,6 +19,7 @@ use super::{
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
+    utils::unescape_entity_to_buffer,
     Cell, XlsxError,
 };
 
@@ -318,7 +319,8 @@ where
             loop {
                 v_buf.clear();
                 match xml.read_event_into(&mut v_buf)? {
-                    Event::Text(t) => v.push_str(&t.unescape()?),
+                    Event::Text(t) => v.push_str(&t.xml10_content()?),
+                    Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut v)?,
                     Event::End(end) if end.name() == e.name() => break,
                     Event::Eof => return Err(XlsxError::XmlEof("v")),
                     _ => (),
@@ -416,7 +418,8 @@ where
             let mut f = String::new();
             loop {
                 match xml.read_event_into(&mut f_buf)? {
-                    Event::Text(t) => f.push_str(&t.unescape()?),
+                    Event::Text(t) => f.push_str(&t.xml10_content()?),
+                    Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut f)?,
                     Event::End(end) if end.name() == e.name() => break,
                     Event::Eof => return Err(XlsxError::XmlEof("f")),
                     _ => (),
