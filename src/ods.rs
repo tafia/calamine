@@ -252,10 +252,10 @@ where
         self.pictures.to_owned()
     }
 
-    #[cfg(feature = "pivot-cache")]
-    fn pivot_tables(&self) -> Option<Vec<String>> {
-        unimplemented!("Pivot Tables are not yet implemented for ODS")
-    }
+    // #[cfg(feature = "pivot-cache")]
+    // fn pivot_tables(&self) -> Option<Vec<String>> {
+    //     unimplemented!("Pivot Tables are not yet implemented for ODS")
+    // }
 }
 
 struct Content {
