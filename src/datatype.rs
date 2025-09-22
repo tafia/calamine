@@ -25,6 +25,7 @@ const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(untagged))]
 pub enum Data {
     /// Signed integer
     Int(i64),
