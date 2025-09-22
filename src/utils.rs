@@ -4,7 +4,11 @@
 
 //! Internal module providing handy function
 
+use std::borrow::Cow;
+
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
+
+const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _x00HH_.
 
 macro_rules! from_err {
     ($from:ty, $to:tt, $var:tt) => {
@@ -102,6 +106,58 @@ pub(crate) fn unescape_entity_to_buffer(
     Err(quick_xml::Error::Escape(
         quick_xml::escape::EscapeError::UnrecognizedEntity(0..0, format!("&{decoded};")),
     ))
+}
+
+// Function to unescape Excel XML escapes in a string. Excel encodes a character
+// like "\r" as "_x000D_". In turn it escapes the literal string "_x000D_" as
+// "_x005F_x000D_".
+pub(crate) fn unescape_xml(original: &str) -> Cow<'_, str> {
+    if !original.contains("_x00") {
+        return Cow::Borrowed(original);
+    }
+
+    let bytes = original.as_bytes();
+    let mut escaped_string = String::with_capacity(original.len());
+    let mut i = 0;
+    let mut has_changes = false;
+
+    while i < bytes.len() {
+        // Look for an escape sequence like: "_x00HH_"
+        if i + UNICODE_ESCAPE_LENGTH <= bytes.len()
+            && bytes[i] == b'_'
+            && bytes.get(i..i + 4) == Some(b"_x00")
+            && bytes[i + 6] == b'_'
+        {
+            // Extract and validate the hex digits.
+            if let Ok(hex_str) = std::str::from_utf8(&bytes[i + 4..i + 6]) {
+                if let Ok(hex_value) = u8::from_str_radix(hex_str, 16) {
+                    // Valid escape sequence, convert to a character.
+                    escaped_string.push(hex_value as char);
+
+                    // Skip the processed escape sequence.
+                    i += UNICODE_ESCAPE_LENGTH;
+                    has_changes = true;
+                    continue;
+                }
+            }
+        }
+
+        // Not an escape sequence, so we copy the current UTF-8 character.
+        let remaining = &original[i..];
+        match remaining.chars().next() {
+            Some(ch) => {
+                escaped_string.push(ch);
+                i += ch.len_utf8();
+            }
+            None => break,
+        }
+    }
+
+    if has_changes {
+        Cow::Owned(escaped_string)
+    } else {
+        Cow::Borrowed(original)
+    }
 }
 
 pub const FTAB_LEN: usize = 485;
@@ -1147,6 +1203,44 @@ mod tests {
         ))) = result
         {
             assert!(msg.contains("not_a_real_entity"));
+        }
+    }
+
+    #[test]
+    fn xml_with_escapes() {
+        let test_cases = vec![
+            ("_", "_"),
+            ("_x", "_x"),
+            ("_x0", "_x0"),
+            ("_x00", "_x00"),
+            ("_x005F_", "_"),
+            ("_x000D_", "\r"),
+            ("_x000", "_x000"),
+            ("_x001F_", "\x1F"),
+            ("_x000D", "_x000D"),
+            ("_x00ZZ_", "_x00ZZ_"),
+            ("_x_x_x", "_x_x_x"),
+            ("_x00½_", "_x00½_"),
+            ("_x000G_", "_x000G_"),
+            ("_x597G_", "_x597G_"),
+            ("😀_x000D_😀", "😀\r😀"),
+            ("_x005F_x0000_", "_x0000_"),
+            ("_x005F_x000a_", "_x000a_"),
+            ("_x005F_x000A_", "_x000A_"),
+            ("_x005F_x005F_", "_x005F_"),
+            ("_x005F_x597D_", "_x597D_"),
+            ("_x005F_x597d_", "_x597d_"),
+            ("__x005F_x0000__", "__x0000__"),
+            ("Hello_x000D_World", "Hello\rWorld"),
+            ("Control_x001F_Char", "Control\x1FChar"),
+            ("Hello_x000D_World_x000D_", "Hello\rWorld\r"),
+            ("Just_a_normal_string", "Just_a_normal_string"),
+            ("Hello_x000D_World_x000D__x000D_", "Hello\rWorld\r\r"),
+            ("Multiple_x000D__x000D__x000D_Chars", "Multiple\r\r\rChars"),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_eq!(unescape_xml(input), expected);
         }
     }
 }

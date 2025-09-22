@@ -312,6 +312,31 @@ fn decode_xml_entities() {
     assert_eq!(range.get_value((1, 0)), Some(&String("\n".to_string())));
 }
 
+// Test for unescaping Excel XML escapes in a cell string. Excel encodes a
+// character like "\r" as "_x000D_". In turn it escapes the literal string
+// "_x000D_" as "_x005F_x000D_".
+//
+// See https://github.com/tafia/calamine/issues/469
+#[test]
+fn unescape_excel_xml() {
+    let mut excel: Xlsx<_> = wb("has_x000D_.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
+
+    // Test a file with an inline string.
+    let mut excel: Xlsx<_> = wb("has_x000D_inline.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
+}
+
 #[test]
 fn partial_richtext_ods() {
     let mut excel: Ods<_> = wb("richtext_issue.ods");
