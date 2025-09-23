@@ -162,16 +162,6 @@ where
             Sheets::Ods(e) => e.pictures(),
         }
     }
-
-    // #[cfg(feature = "pivot-cache")]
-    // fn pivot_tables(&self) -> Option<Vec<String>> {
-    //     match self {
-    //         Sheets::Xlsx(ref e) => e.pivot_tables(),
-    //         Sheets::Xls(ref e) => e.pivot_tables(),
-    //         Sheets::Xlsb(ref e) => e.pivot_tables(),
-    //         Sheets::Ods(ref e) => e.pivot_tables(),
-    //     }
-    // }
 }
 
 impl<RS> ReaderRef<RS> for Sheets<RS>

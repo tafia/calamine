@@ -753,13 +753,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     #[cfg(feature = "pivot-cache")]
     // Get the target location of the pivot table's pivot cache definitions.
-    fn find_pivot_cache_definitions_from_pivot(
-        &mut self,
-        path: impl AsRef<str>,
-    ) -> Result<String, XlsxError> {
-        let last_folder_index = path.as_ref().rfind('/').expect("should be in a folder");
-        let (base_folder, file_name) = path.as_ref().split_at(last_folder_index);
-        let rel_path = format!("{base_folder}/_rels{file_name}.rels");
+    fn find_pivot_cache_definitions_from_pivot(&mut self, path: &str) -> Result<String, XlsxError> {
+        let (base_folder, file_name) = path.rsplit_once('/').expect("should be in a folder");
+        let rel_path = format!("{base_folder}/_rels/{file_name}.rels");
         let mut xml = match xml_reader(&mut self.zip, &rel_path) {
             None => return Err(XlsxError::FileNotFound(rel_path.to_owned())),
             Some(x) => x?,
@@ -770,15 +766,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
-                    let mut _id = String::new();
                     let mut target = String::new();
                     let mut is_pivot_cache_definitions_type = false;
                     for a in e.attributes() {
                         match a.map_err(XlsxError::XmlAttr)? {
-                            Attribute {
-                                key: QName(b"Id"),
-                                value: v,
-                            } => _id = xml.decoder().decode(&v)?.into_owned(),
                             Attribute {
                                 key: QName(b"Target"),
                                 value: v,
@@ -791,13 +782,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         }
                     }
                     if is_pivot_cache_definitions_type {
-                        if target.starts_with("../") {
+                        if let Some(target) = target.strip_prefix("../") {
                             // this is an incomplete implementation, but should be good enough for excel
-                            let new_index =
-                                base_folder.rfind('/').expect("Must be a parent folder");
-                            let full_path =
-                                format!("{}{}", &base_folder[..new_index], &target[2..]);
-                            paths.push(full_path);
+                            let (parent, _) = base_folder
+                                .rsplit_once('/')
+                                .expect("Must be a parent folder");
+                            paths.push(format!("{parent}/{target}"));
                         } else if target.is_empty() { // do nothing
                         } else {
                             paths.push(target);
@@ -826,11 +816,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
     // Get the target location of the pivot cache record file.
     fn find_pivot_cache_records_from_pivot_cache_definition(
         &mut self,
-        path: impl AsRef<str>,
+        path: &str,
     ) -> Result<String, XlsxError> {
-        let last_folder_index = path.as_ref().rfind('/').expect("should be in a folder");
-        let (base_folder, file_name) = path.as_ref().split_at(last_folder_index);
-        let rel_path = format!("{base_folder}/_rels{file_name}.rels");
+        let (base_folder, file_name) = path.rsplit_once('/').expect("should be in a folder");
+        let rel_path = format!("{base_folder}/_rels/{file_name}.rels");
         let mut xml = match xml_reader(&mut self.zip, rel_path.as_ref()) {
             None => return Err(XlsxError::FileNotFound(rel_path.to_owned())),
             Some(x) => x?,
@@ -841,15 +830,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
-                    let mut _id = String::new();
                     let mut target = String::new();
                     let mut is_pivot_cache_record_type = false;
                     for a in e.attributes() {
                         match a.map_err(XlsxError::XmlAttr)? {
-                            Attribute {
-                                key: QName(b"Id"),
-                                value: v,
-                            } => _id = xml.decoder().decode(&v)?.into_owned(),
                             Attribute {
                                 key: QName(b"Target"),
                                 value: v,
@@ -933,13 +917,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
                             if is_pivot_table_type {
-                                if target.starts_with("../") {
+                                if let Some(target) = target.strip_prefix("../") {
                                     // this is an incomplete implementation, but should be good enough for excel
-                                    let new_index =
-                                        base_folder.rfind('/').expect("Must be a parent folder");
-                                    let full_path =
-                                        format!("{}{}", &base_folder[..new_index], &target[2..]);
-                                    sheet_to_pivot_map.insert(full_path, sheet_name.clone());
+                                    let (parent, _) = base_folder
+                                        .rsplit_once('/')
+                                        .expect("Must be a parent folder");
+                                    sheet_to_pivot_map
+                                        .insert(format!("{parent}/{target}"), sheet_name.clone());
                                 } else if target.is_empty() { // do nothing
                                 } else {
                                     sheet_to_pivot_map.insert(target, sheet_name.clone());
@@ -965,10 +949,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
     // Returns the name of the pivot table and the location on the sheet.
     fn find_range_and_pivot_name_from_pivot_path(
         &mut self,
-        pivot_path: impl AsRef<str>,
+        pivot_path: &str,
     ) -> Result<String, XlsxError> {
-        let mut xml = match xml_reader(&mut self.zip, pivot_path.as_ref()) {
-            None => return Err(XlsxError::FileNotFound(pivot_path.as_ref().to_string())),
+        let mut xml = match xml_reader(&mut self.zip, pivot_path) {
+            None => return Err(XlsxError::FileNotFound(pivot_path.to_string())),
             Some(x) => x?,
         };
         let mut buf = Vec::with_capacity(64);
