@@ -25,9 +25,15 @@ pub trait PivotDataUtil {
                 .1
                 .map(|val| {
                     if val.contains(&b'.') {
-                        Data::Float(Self::bytes_to_f64(val.as_ref(), decoder))
+                        match Self::bytes_to_f64(val.as_ref(), decoder) {
+                            Some(val) => Data::Float(val),
+                            None => Data::Error(CellErrorType::GettingData),
+                        }
                     } else {
-                        Data::Int(Self::bytes_to_i64(val.as_ref(), decoder))
+                        match Self::bytes_to_i64(val.as_ref(), decoder) {
+                            Some(val) => Data::Int(val),
+                            None => Data::Error(CellErrorType::GettingData),
+                        }
                     }
                 })
                 .unwrap_or(Data::Empty)),
@@ -45,13 +51,14 @@ pub trait PivotDataUtil {
             b"b" => Ok(item
                 .1
                 .map(|val| {
-                    Data::Bool({
+                    {
+                        // boolean tags only support W3C XML Schema
                         match val.as_ref() {
-                            b"0" | b"false" => false,
-                            b"1" | b"true" => true,
-                            _ => unreachable!("boolean tags only support W3C XML Schema"),
+                            b"0" | b"false" => Data::Bool(false),
+                            b"1" | b"true" => Data::Bool(true),
+                            _ => Data::Error(CellErrorType::GettingData),
                         }
-                    })
+                    }
                 })
                 .unwrap_or(Data::Empty)),
             b"e" => Ok(item
@@ -65,13 +72,9 @@ pub trait PivotDataUtil {
     }
 
     fn is_item(e: &BytesStart) -> bool {
-        if e.local_name().as_ref().len() > 1 {
-            false
-        } else {
-            [b"s", b"n", b"m", b"e", b"b", b"d", b"x"]
-                .into_iter()
-                .any(|val| val.eq(e.local_name().as_ref()))
-        }
+        [b"s", b"n", b"m", b"e", b"b", b"d", b"x"]
+            .into_iter()
+            .any(|val| val.eq(e.local_name().as_ref()))
     }
 
     fn data(e: &BytesStart, decoder: &Decoder) -> Result<Data, crate::errors::Error> {
@@ -90,12 +93,22 @@ pub trait PivotDataUtil {
             }),
         )
     }
-
-    fn bytes_to_i64(val: &[u8], decoder: &Decoder) -> i64 {
-        decoder.decode(val).unwrap().parse::<i64>().unwrap()
+    // Parse failures are handled with None and left to `Self::parse_item` to address.
+    fn bytes_to_i64(val: &[u8], decoder: &Decoder) -> Option<i64> {
+        if let Ok(val) = decoder.decode(val) {
+            atoi_simd::parse::<i64>(val.as_bytes()).ok()
+        } else {
+            None
+        }
     }
-    fn bytes_to_f64(val: &[u8], decoder: &Decoder) -> f64 {
-        decoder.decode(val).unwrap().parse::<f64>().unwrap()
+
+    // Parse failures are handled with None and left to `Self::parse_item` to address.
+    fn bytes_to_f64(val: &[u8], decoder: &Decoder) -> Option<f64> {
+        if let Ok(val) = decoder.decode(val) {
+            fast_float2::parse(val.as_bytes()).ok()
+        } else {
+            None
+        }
     }
 }
 
