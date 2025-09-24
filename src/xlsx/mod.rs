@@ -711,22 +711,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     #[cfg(feature = "pivot-cache")]
-    // Sets pivot table data. Called by enabling feature pivot-cache.
-    // Unlike tables this is a direct opt-in and only needs to be called once to retrieve supporting information.
-    fn load_pivot_table_metadata(&mut self) -> Result<(), XlsxError> {
-        match self.read_pivot_table_metadata() {
-            Ok(pivot_tables) => {
-                if !pivot_tables.is_empty() {
-                    self.pivot_tables = Some(pivot_tables);
-                }
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
-    }
-    #[cfg(feature = "pivot-cache")]
-    // Finds pivot tables from sheet data and then finds their associated cache.
-    fn read_pivot_table_metadata(&mut self) -> Result<Vec<PivotTableRef>, XlsxError> {
+    // Finds pivot tables from sheets, finds the metadata with their associated cache and sets the pivot_tables field.
+    fn read_pivot_table_metadata(&mut self) -> Result<(), XlsxError> {
         let mut pivot_table_references = vec![];
 
         for (i, (ref pivot_path, sheet)) in (self.find_pivot_table_paths_from_sheets()?)
@@ -746,7 +732,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 i,
             ));
         }
-        Ok(pivot_table_references)
+        self.pivot_tables = Some(pivot_table_references);
+        Ok(())
     }
 
     #[cfg(feature = "pivot-cache")]
@@ -1960,7 +1947,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         #[cfg(feature = "picture")]
         xlsx.read_pictures()?;
         #[cfg(feature = "pivot-cache")]
-        xlsx.load_pivot_table_metadata()?;
+        xlsx.read_pivot_table_metadata()?;
         Ok(xlsx)
     }
 
