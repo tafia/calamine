@@ -1105,12 +1105,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             }) = a
                             {
                                 field_names.push(xml.decoder().decode(value.as_ref())?.to_string());
+                                fields.push(vec![]);
                                 break;
                             }
                         }
-                    }
-                    Ok(Event::Start(e)) if e.local_name().as_ref() == b"sharedItems" => {
-                        fields.push(vec![]);
                     }
                     Ok(Event::Start(e)) if is_item(&e) => {
                         if let Some(field) = fields.last_mut() {
