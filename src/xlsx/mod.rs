@@ -11,7 +11,7 @@ use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellForm
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
 #[cfg(feature = "pivot-cache")]
-use crate::xlsx::pivot_cache::PivotCache;
+use crate::xlsx::pivot_cache::*;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
     SheetType, SheetVisible, Table,
@@ -729,7 +729,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     fn read_pivot_table_metadata(&mut self) -> Result<Vec<PivotTableRef>, XlsxError> {
         let mut pivot_table_references = vec![];
 
-        for (i, (ref pivot_path, ref sheet)) in (self.find_pivot_table_paths_from_sheets()?)
+        for (i, (ref pivot_path, sheet)) in (self.find_pivot_table_paths_from_sheets()?)
             .into_iter()
             .enumerate()
         {
@@ -738,15 +738,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let record_cache_path =
                 self.find_pivot_cache_records_from_pivot_cache_definition(&definition_cache_path)?;
 
-            pivot_table_references.push(
-                PivotTableRefBuilder::new()
-                    .name(name)
-                    .sheet(sheet)
-                    .definitions(definition_cache_path)
-                    .records(record_cache_path)
-                    .cache_number(i)
-                    .build(),
-            );
+            pivot_table_references.push(PivotTableRef::new(
+                name,
+                sheet,
+                record_cache_path,
+                definition_cache_path,
+                i,
+            ));
         }
         Ok(pivot_table_references)
     }
@@ -1037,11 +1035,39 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     #[cfg(feature = "pivot-cache")]
-    /// returns pivot table data based on the pivot table name
+    /// Get an iterator over a named Pivot Table's cached data.
+    ///
+    /// Invalid Pivot Table names will return None.
+    ///
+    /// # Examples
+    ///
+    /// An example of retrieving pivot  data for a Pivot Table named PivotTable1
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///
+    ///     let path = "tests/pivots.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the Pivot Table names in the workbook.
+    ///     if let Some(pivot_table_data) = workbook.pivot_table_data("PivotTable1") {
+    ///         for row in pivot_table_data? {
+    ///             // do something
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
     pub fn pivot_table_data(
         &'_ mut self,
         pivot_table_name: &str,
-    ) -> Option<impl Iterator<Item = Vec<Data>> + '_> {
+    ) -> Option<Result<PivotCacheIter<'_, RS>, XlsxError>> {
         self.pivot_tables
             .as_ref()
             .and_then(|val| {
@@ -1053,7 +1079,85 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                 })
             })
-            .map(|n| PivotCache::new(self, n).into_iter())
+            .map(|n| self.pivot_cache_iter(n))
+    }
+
+    #[cfg(feature = "pivot-cache")]
+    fn pivot_cache_iter(&'_ mut self, n: usize) -> Result<PivotCacheIter<'_, RS>, XlsxError> {
+        let definitions = self.pivot_tables.as_ref().unwrap()[n].definitions();
+        let records = self.pivot_tables.as_ref().unwrap()[n].records();
+
+        let mut fields: Vec<Vec<(Tag, Value)>> = vec![];
+        let mut definition_map = std::collections::HashMap::new();
+        let mut field_names = vec![];
+
+        // Converting into an iterator requires first reading a pivotCacheDefinitions.xml file
+        // to get lookup values used in pivotCacheRecords.xml file.
+        {
+            let mut xml = match xml_reader(&mut self.zip, definitions) {
+                None => {
+                    return Err(XlsxError::FileNotFound(format!(
+                        "File not found: {}",
+                        definitions
+                    )))
+                }
+                Some(x) => x?,
+            };
+
+            let mut buf = Vec::with_capacity(64);
+            // building list of field names and definitions from some pivotCacheDefinitions.xml file
+            loop {
+                buf.clear();
+
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e)) if e.local_name().as_ref() == b"cacheField" => {
+                        for ref a in e.attributes() {
+                            if let Ok(Attribute {
+                                key: QName(b"name"),
+                                value,
+                            }) = a
+                            {
+                                field_names.push(xml.decoder().decode(value.as_ref())?.to_string());
+                                break;
+                            }
+                        }
+                    }
+                    Ok(Event::Start(e)) if e.local_name().as_ref() == b"sharedItems" => {
+                        fields.push(vec![]);
+                    }
+                    Ok(Event::Start(e)) if is_item(&e) => {
+                        if let Some(field) = fields.last_mut() {
+                            field.push(byte_start_to_item(&e));
+                        }
+                    }
+                    Ok(Event::Eof) => break,
+                    Ok(_) => {}
+                    Err(e) => {
+                        panic!("{e}")
+                    }
+                }
+            }
+
+            // add the definitions to the definition map with a key on field name
+            for (field, name) in fields.into_iter().zip(field_names.iter()) {
+                definition_map.insert(name.to_string(), field);
+            }
+        }
+
+        xml_reader(&mut self.zip, records).map_or_else(
+            || {
+                Err(XlsxError::FileNotFound(format!(
+                    "File not found: {records}"
+                )))
+            },
+            |record_reader| {
+                Ok(PivotCacheIter::new(
+                    definition_map,
+                    field_names,
+                    record_reader?,
+                ))
+            },
+        )
     }
 
     #[cfg(feature = "pivot-cache")]
@@ -2566,41 +2670,186 @@ pub(crate) fn path_to_zip_path<RS: Read + Seek>(zip: &ZipArchive<RS>, path: &str
 
 #[cfg(feature = "pivot-cache")]
 mod pivot_cache {
-    use super::{xml_reader, XlReader, Xlsx};
-    use crate::pivot::PivotDataUtil;
-    use crate::pivot::{Tag, Value};
-    use crate::Data;
+    use super::XlReader;
+    use crate::{CellErrorType, Data, XlsxError};
+    use quick_xml::events::attributes::Attribute;
+    use quick_xml::events::BytesStart;
     use quick_xml::events::Event;
     use quick_xml::name::QName;
+    use quick_xml::Decoder;
     use std::collections::HashMap;
     use std::io::{Read, Seek};
 
-    pub struct PivotCache<'a, RS: Read + Seek + 'a> {
-        pub xl: &'a mut Xlsx<RS>,
-        pub cache_number: usize,
-    }
+    pub type Tag = Box<[u8]>;
+    pub type Value = Option<Box<[u8]>>;
 
-    impl<'a, RS: Read + Seek + 'a> PivotCache<'a, RS> {
-        pub fn new(xl: &'a mut Xlsx<RS>, cache_number: usize) -> Self {
-            Self { xl, cache_number }
+    /// Parse an item within a PivotCache Record into its appropriate [`Data`] type.
+    pub fn parse_item(item: (Tag, Value), decoder: &Decoder) -> Result<Data, XlsxError> {
+        match item.0.as_ref() {
+            b"m" => Ok(Data::Empty),
+            b"s" => Ok(item
+                .1
+                .map(|val| {
+                    if let Ok(val) = decoder.decode(val.as_ref()) {
+                        Data::String(val.to_string())
+                    } else {
+                        Data::Error(CellErrorType::GettingData)
+                    }
+                })
+                .unwrap_or(Data::Empty)),
+            b"n" => Ok(item
+                .1
+                .map(|val| {
+                    if val.contains(&b'.') {
+                        match bytes_to_f64(val.as_ref(), decoder) {
+                            Some(val) => Data::Float(val),
+                            None => Data::Error(CellErrorType::GettingData),
+                        }
+                    } else {
+                        match bytes_to_i64(val.as_ref(), decoder) {
+                            Some(val) => Data::Int(val),
+                            None => Data::Error(CellErrorType::GettingData),
+                        }
+                    }
+                })
+                .unwrap_or(Data::Empty)),
+            b"d" => Ok(item
+                .1
+                .as_ref()
+                .map(|val| {
+                    if let Ok(val) = decoder.decode(val) {
+                        Data::DateTimeIso(val.into())
+                    } else {
+                        Data::Error(CellErrorType::GettingData)
+                    }
+                })
+                .unwrap_or(Data::Empty)),
+            b"b" => Ok(item
+                .1
+                .map(|val| {
+                    {
+                        // boolean tags only support W3C XML Schema
+                        match val.as_ref() {
+                            b"0" | b"false" => Data::Bool(false),
+                            b"1" | b"true" => Data::Bool(true),
+                            _ => Data::Error(CellErrorType::GettingData),
+                        }
+                    }
+                })
+                .unwrap_or(Data::Empty)),
+            b"e" => Ok(item
+                .1
+                .map(|_| Data::Error(CellErrorType::Ref))
+                .unwrap_or(Data::Empty)),
+            _ => Err(XlsxError::Unexpected(
+                "unhandled pivot cache tag for record",
+            )),
         }
     }
 
-    impl<'a, RS: Read + Seek + 'a> PivotDataUtil for PivotCache<'a, RS> {}
+    /// Check if tag is an item within a PivotCache Record, which does not require a Definitions lookup.
+    pub fn is_item(e: &BytesStart) -> bool {
+        [b"s", b"n", b"m", b"e", b"b", b"d"]
+            .into_iter()
+            .any(|val| val.eq(e.local_name().as_ref()))
+    }
 
-    impl<RS> PivotDataUtil for Xlsx<RS> {}
-    impl<RS> PivotDataUtil for &mut Xlsx<RS> {}
+    pub fn byte_start_to_item(e: &BytesStart) -> (Tag, Value) {
+        (
+            Box::from(e.local_name().as_ref()),
+            e.attributes().find_map(|attr| match attr {
+                Ok(Attribute {
+                    key: QName(b"v"),
+                    value: v,
+                }) => Some(Box::from(v)),
+                _ => None,
+            }),
+        )
+    }
 
-    impl<'a, RS: Read + Seek + 'a> PivotDataUtil for PivotCacheIter<'a, RS> {}
+    // Parse failures are handled with None and left to `Self::parse_item` to address.
+    fn bytes_to_i64(val: &[u8], decoder: &Decoder) -> Option<i64> {
+        if let Ok(val) = decoder.decode(val) {
+            atoi_simd::parse::<i64>(val.as_bytes()).ok()
+        } else {
+            None
+        }
+    }
+
+    // Parse failures are handled with None and left to `parse_item` to address.
+    fn bytes_to_f64(val: &[u8], decoder: &Decoder) -> Option<f64> {
+        if let Ok(val) = decoder.decode(val) {
+            fast_float2::parse(val.as_bytes()).ok()
+        } else {
+            None
+        }
+    }
+
+    pub struct PivotTableRef {
+        name: String,
+        sheet: String,
+        records: String,
+        definitions: String,
+        cache_number: usize,
+    }
+
+    impl PivotTableRef {
+        pub fn new(
+            name: String,
+            sheet: String,
+            records: String,
+            definitions: String,
+            cache_number: usize,
+        ) -> Self {
+            Self {
+                name,
+                sheet,
+                records,
+                definitions,
+                cache_number,
+            }
+        }
+        pub fn name(&self) -> &str {
+            self.name.as_ref()
+        }
+        pub fn sheet(&self) -> &str {
+            self.sheet.as_ref()
+        }
+        pub fn records(&self) -> &str {
+            self.records.as_ref()
+        }
+        pub fn definitions(&self) -> &str {
+            self.definitions.as_ref()
+        }
+        pub fn cache_number(&self) -> usize {
+            self.cache_number
+        }
+    }
+
     pub struct PivotCacheIter<'a, RS: Read + Seek + 'a> {
-        //xl: &'a mut Xlsx<RS>,
         definitions: HashMap<String, Vec<(Tag, Value)>>,
         field_names: Vec<String>,
         reader: XlReader<'a, RS>,
     }
 
-    /// ISO/IEC29500: 2008.
-    /// https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.pivotcacherecord?view=openxml-3.0.1
+    impl<'a, RS: Read + Seek + 'a> PivotCacheIter<'a, RS> {
+        pub fn new(
+            definitions: HashMap<String, Vec<(Tag, Value)>>,
+            field_names: Vec<String>,
+            reader: XlReader<'a, RS>,
+        ) -> Self {
+            Self {
+                definitions,
+                field_names,
+                reader,
+            }
+        }
+    }
+
+    // Iterates over <r>, the tag for a row, found in the PivotCacheRecords.xml file.
+    // PivotCacheIter must also hold some lookup values / metadata to support the content within <r>.
+    //
+    // https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.pivotcacherecord?view=openxml-3.0.1
     impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
         type Item = Vec<Data>;
 
@@ -2612,17 +2861,21 @@ mod pivot_cache {
                 buf.clear();
                 match self.reader.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"x" => {
-                        for ref a in e.attributes().flatten() {
-                            if a.key == QName(b"v") {
+                        for a in e.attributes() {
+                            if let Ok(Attribute {
+                                key: QName(b"v"),
+                                value,
+                            }) = a
+                            {
                                 let value_position = self
                                     .reader
                                     .decoder()
-                                    .decode(a.value.as_ref())
+                                    .decode(value.as_ref())
                                     .map(|val| val.parse::<usize>().unwrap())
                                     .unwrap();
                                 let column_name = &self.field_names[col_number];
                                 row.push(
-                                    <Self as PivotDataUtil>::parse_item(
+                                    parse_item(
                                         self.definitions.get(column_name).unwrap()[value_position]
                                             .clone(),
                                         &self.reader.decoder(),
@@ -2635,8 +2888,10 @@ mod pivot_cache {
 
                         col_number += 1;
                     }
-                    Ok(Event::Start(e)) if Self::is_item(&e) => {
-                        row.push(Self::data(&e, &self.reader.decoder()).unwrap());
+                    Ok(Event::Start(e)) if is_item(&e) => {
+                        row.push(
+                            parse_item(byte_start_to_item(&e), &self.reader.decoder()).unwrap(),
+                        );
                         col_number += 1;
                     }
                     Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => return Some(row),
@@ -2654,88 +2909,6 @@ mod pivot_cache {
                         panic!("{e}")
                     }
                 }
-            }
-        }
-    }
-    impl<'a, RS: Read + Seek> IntoIterator for PivotCache<'a, RS> {
-        type Item = Vec<Data>;
-        type IntoIter = PivotCacheIter<'a, RS>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            let definitions =
-                self.xl.pivot_tables.as_ref().unwrap()[self.cache_number].definitions();
-            let records = self.xl.pivot_tables.as_ref().unwrap()[self.cache_number].records();
-
-            let mut fields: Vec<Vec<(Tag, Value)>> = vec![];
-            let mut map = HashMap::new();
-            let mut field_names = vec![];
-
-            {
-                let mut xml = xml_reader(&mut self.xl.zip, definitions).unwrap().unwrap();
-                /*
-                   Definitions
-                */
-                let mut buf = Vec::with_capacity(64);
-
-                loop {
-                    buf.clear();
-
-                    match xml.read_event_into(&mut buf) {
-                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"cacheFields" => {
-                            'cache_fields_tag: for ref a in e.attributes().flatten() {
-                                if a.key.as_ref() == b"count" {
-                                    let capacity = xml
-                                        .decoder()
-                                        .decode(a.value.as_ref())
-                                        .unwrap()
-                                        .parse::<usize>()
-                                        .unwrap();
-                                    fields = Vec::with_capacity(capacity);
-                                    field_names = Vec::with_capacity(capacity);
-                                    break 'cache_fields_tag;
-                                }
-                            }
-                        }
-                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"cacheField" => {
-                            'cache_field_tag: for ref a in e.attributes().flatten() {
-                                if a.key.as_ref() == b"name" {
-                                    field_names.push(
-                                        xml.decoder().decode(a.value.as_ref()).unwrap().to_string(),
-                                    );
-                                    break 'cache_field_tag;
-                                }
-                            }
-                        }
-                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"sharedItems" => {
-                            fields.push(vec![]);
-                        }
-                        Ok(Event::Start(e)) if Self::is_item(&e) => {
-                            if let Some(field) = fields.last_mut() {
-                                field.push(<Self as PivotDataUtil>::byte_start_to_item(&e));
-                            }
-                        }
-                        Ok(Event::Eof) => break,
-                        Ok(_) => {}
-                        Err(e) => {
-                            panic!("{e}")
-                        }
-                    }
-                }
-
-                for (field, name) in fields.into_iter().zip(field_names.iter()) {
-                    map.insert(name.to_string(), field);
-                }
-                if map.len() < field_names.len() {
-                    for name in field_names.iter() {
-                        map.entry(name.to_string()).or_insert(vec![]);
-                    }
-                }
-            }
-            PivotCacheIter {
-                //xl: self,
-                definitions: map,
-                field_names,
-                reader: xml_reader(&mut self.xl.zip, records).unwrap().unwrap(),
             }
         }
     }

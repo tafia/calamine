@@ -2700,8 +2700,8 @@ fn test_pivot_cache_data_mapping() {
             String("blue".to_string()),
         ],
     ];
-    let mut results = wb.pivot_table_data("PivotTable1").unwrap();
-    for expected_data in expected.into_iter() {
+    let mut results = wb.pivot_table_data("PivotTable1").unwrap().unwrap();
+    for expected_data in expected {
         assert_eq!(results.next(), Some(expected_data));
     }
 }
@@ -2713,12 +2713,12 @@ fn test_pivot_table_cache_match() {
     let results1 = wb
         .pivot_table_data("PivotTable1")
         .unwrap()
-        .into_iter()
+        .unwrap()
         .collect::<Vec<_>>();
     let results2 = wb
         .pivot_table_data("PivotTable2")
         .unwrap()
-        .into_iter()
+        .unwrap()
         .collect::<Vec<_>>();
     assert_eq!(results1, results2);
 }
