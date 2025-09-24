@@ -2863,8 +2863,7 @@ mod pivot_cache {
                                 let column_name = &self.field_names[col_number];
                                 row.push(
                                     parse_item(
-                                        self.definitions.get(column_name).unwrap()[value_position]
-                                            .clone(),
+                                        self.definitions[column_name][value_position].clone(),
                                         &self.reader.decoder(),
                                     )
                                     .unwrap(),
