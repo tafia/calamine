@@ -2558,7 +2558,11 @@ fn test_pivot_table_meta_data() {
     let wb: Xlsx<_> = wb("pivots.xlsx");
     let mut results = wb.pivot_tables();
     results.sort();
-    let expected = vec!["PivotTable1", "PivotTable2"];
+    let expected = vec![
+        ("PivotTable1".to_string(), "PivotSheet1".to_string()),
+        ("PivotTable1".to_string(), "PivotSheet3".to_string()),
+        ("PivotTable2".to_string(), "PivotSheet2".to_string()),
+    ];
     assert_eq!(expected, results);
 }
 
@@ -2700,7 +2704,10 @@ fn test_pivot_cache_data_mapping() {
             String("blue".to_string()),
         ],
     ];
-    let mut results = wb.pivot_table_data("PivotTable1").unwrap().unwrap();
+    let mut results = wb
+        .pivot_table_data("PivotTable1", "PivotSheet1")
+        .unwrap()
+        .unwrap();
     for expected_data in expected {
         assert_eq!(results.next(), Some(expected_data));
     }
@@ -2711,12 +2718,12 @@ fn test_pivot_cache_data_mapping() {
 fn test_pivot_table_cache_match() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let results1 = wb
-        .pivot_table_data("PivotTable1")
+        .pivot_table_data("PivotTable1", "PivotSheet1")
         .unwrap()
         .unwrap()
         .collect::<Vec<_>>();
     let results2 = wb
-        .pivot_table_data("PivotTable2")
+        .pivot_table_data("PivotTable2", "PivotSheet2")
         .unwrap()
         .unwrap()
         .collect::<Vec<_>>();
