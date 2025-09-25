@@ -3,7 +3,7 @@
 // Copyright 2016-2025, Johann Tuffe.
 
 use quick_xml::{
-    events::{attributes::Attribute, BytesStart, Event},
+    events::{BytesStart, Event},
     name::QName,
 };
 use std::{
@@ -13,13 +13,12 @@ use std::{
 };
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, read_string, replace_cell_names,
-    Dimensions, XlReader,
+    get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
 };
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
-    Cell, XlsxError,
+    Cell, Style, XlsxError,
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
@@ -32,6 +31,7 @@ where
     xml: XlReader<'a, RS>,
     strings: &'a [String],
     formats: &'a [CellFormat],
+    styles: &'a [Style],
     is_1904: bool,
     dimensions: Dimensions,
     row_index: u32,
@@ -49,57 +49,43 @@ where
         mut xml: XlReader<'a, RS>,
         strings: &'a [String],
         formats: &'a [CellFormat],
+        styles: &'a [Style],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
+        let mut dimensions = Dimensions {
+            start: (0, 0),
+            end: (0, 0),
+        };
         let mut buf = Vec::with_capacity(1024);
-        let mut dimensions = Dimensions::default();
-        let mut sh_type = None;
-        'xml: loop {
+        loop {
             buf.clear();
-            match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
-                Event::Start(ref e) => match e.local_name().as_ref() {
-                    b"dimension" => {
-                        for a in e.attributes() {
-                            if let Attribute {
-                                key: QName(b"ref"),
-                                value: rdim,
-                            } = a.map_err(XlsxError::XmlAttr)?
-                            {
-                                dimensions = get_dimension(&rdim)?;
-                                continue 'xml;
-                            }
-                        }
-                        return Err(XlsxError::UnexpectedNode("dimension"));
-                    }
-                    b"sheetData" => break,
-                    typ => {
-                        if sh_type.is_none() {
-                            sh_type = Some(xml.decoder().decode(typ)?.to_string());
-                        }
-                    }
-                },
-                Event::Eof => {
-                    if let Some(typ) = sh_type {
-                        return Err(XlsxError::NotAWorksheet(typ));
-                    } else {
-                        return Err(XlsxError::XmlEof("worksheet"));
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"dimension" => {
+                    let attribute = get_attribute(e.attributes(), QName(b"ref"))?;
+                    if let Some(range) = attribute {
+                        dimensions = get_dimension(range)?;
                     }
                 }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(Self {
+                        xml,
+                        strings,
+                        formats,
+                        styles,
+                        is_1904,
+                        dimensions,
+                        row_index: 0,
+                        col_index: 0,
+                        buf: Vec::with_capacity(1024),
+                        cell_buf: Vec::with_capacity(1024),
+                        formulas: Vec::with_capacity(1024),
+                    });
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
             }
         }
-        Ok(Self {
-            xml,
-            strings,
-            formats,
-            is_1904,
-            dimensions,
-            row_index: 0,
-            col_index: 0,
-            buf: Vec::with_capacity(1024),
-            cell_buf: Vec::with_capacity(1024),
-            formulas: Vec::with_capacity(1024),
-        })
     }
 
     pub fn dimensions(&self) -> Dimensions {
@@ -133,6 +119,19 @@ where
                         (self.row_index, self.col_index)
                     };
                     let mut value = DataRef::Empty;
+                    let mut style = None;
+
+                    // Extract style ID if present
+                    if let Ok(Some(style_id_str)) =
+                        get_attribute(c_element.attributes(), QName(b"s"))
+                    {
+                        if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
+                            if style_id < self.styles.len() {
+                                style = Some(self.styles[style_id].clone());
+                            }
+                        }
+                    }
+
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
@@ -153,7 +152,12 @@ where
                         }
                     }
                     self.col_index += 1;
-                    return Ok(Some(Cell::new(pos, value)));
+
+                    if let Some(cell_style) = style {
+                        return Ok(Some(Cell::with_style(pos, value, cell_style)));
+                    } else {
+                        return Ok(Some(Cell::new(pos, value)));
+                    }
                 }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
@@ -192,6 +196,19 @@ where
                         (self.row_index, self.col_index)
                     };
                     let mut value = None;
+                    let mut style = None;
+
+                    // Extract style ID if present
+                    if let Ok(Some(style_id_str)) =
+                        get_attribute(c_element.attributes(), QName(b"s"))
+                    {
+                        if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
+                            if style_id < self.styles.len() {
+                                style = Some(self.styles[style_id].clone());
+                            }
+                        }
+                    }
+
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
@@ -207,7 +224,7 @@ where
                                     let mut offset_map: HashMap<(u32, u32), (i64, i64)> =
                                         HashMap::new();
                                     // shared index
-                                    let shared_index =
+                                    let _shared_index =
                                         match get_attribute(e.attributes(), QName(b"si"))? {
                                             Some(res) => match atoi_simd::parse::<usize>(res) {
                                                 Ok(res) => res,
@@ -253,26 +270,20 @@ where
                                                     );
                                                 }
                                             }
-
-                                            if let Some(f) = formula.borrow() {
-                                                while self.formulas.len() < shared_index {
-                                                    self.formulas.push(None);
-                                                }
-                                                self.formulas.push(Some((f.clone(), offset_map)));
-                                            }
-                                            value = formula;
+                                            self.formulas.push(Some((
+                                                value.clone().unwrap_or_default(),
+                                                offset_map,
+                                            )));
                                         }
                                         None => {
-                                            // calculated formula
-                                            if let Some(Some((f, offset_map))) =
-                                                self.formulas.get(shared_index)
-                                            {
-                                                if let Some(offset) = offset_map.get(&pos) {
-                                                    value = Some(replace_cell_names(f, *offset)?);
-                                                }
-                                            }
+                                            self.formulas.push(Some((
+                                                value.clone().unwrap_or_default(),
+                                                HashMap::new(),
+                                            )));
                                         }
                                     }
+                                } else {
+                                    self.formulas.push(None);
                                 }
                             }
                             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
@@ -282,7 +293,83 @@ where
                         }
                     }
                     self.col_index += 1;
-                    return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
+
+                    if let Some(cell_style) = style {
+                        return Ok(Some(Cell::with_style(
+                            pos,
+                            value.unwrap_or_default(),
+                            cell_style,
+                        )));
+                    } else {
+                        return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
+                    }
+                }
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+    }
+
+    pub fn next_style(&mut self) -> Result<Option<Cell<Style>>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(ref row_element))
+                    if row_element.local_name().as_ref() == b"row" =>
+                {
+                    let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
+                    if let Some(range) = attribute {
+                        let row = get_row(range)?;
+                        self.row_index = row;
+                    }
+                }
+                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
+                    let pos = if let Some(range) = attribute {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+
+                    // Extract style ID if present
+                    let style = if let Ok(Some(style_id_str)) =
+                        get_attribute(c_element.attributes(), QName(b"s"))
+                    {
+                        if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
+                            if style_id < self.styles.len() {
+                                self.styles[style_id].clone()
+                            } else {
+                                Style::new()
+                            }
+                        } else {
+                            Style::new()
+                        }
+                    } else {
+                        Style::new()
+                    };
+
+                    // Skip the cell content since we only care about the style
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+                    return Ok(Some(Cell::new(pos, style)));
                 }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
