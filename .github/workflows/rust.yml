@@ -31,12 +31,12 @@ jobs:
     - name: Run tests
       run: |
         cargo test --all-features
-    - name: Install rustfmt
+    - name: Install rustfmt, clippy
       uses: dtolnay/rust-toolchain@master
       if: ${{ matrix.toolchain == 'stable' }}
       with:
           toolchain: ${{ matrix.toolchain }}
-          components: rustfmt
+          components: rustfmt, clippy
     - name: Format checks
       if: ${{ matrix.toolchain == 'stable' }}
       run: |
