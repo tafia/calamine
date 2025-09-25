@@ -1095,9 +1095,24 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             {
                                 field_names.push(xml.decoder().decode(value.as_ref())?.to_string());
                                 fields.push(vec![]);
-                                break;
+                            }
+                            // The formula property of cacheField represents a calculated field / item.
+                            // This does not represent the underlying data and should be removed.
+                            else if let Ok(Attribute {
+                                key: QName(b"formula"),
+                                value: _value,
+                            }) = a
+                            {
+                                field_names.pop();
+                                fields.pop();
                             }
                         }
+                    }
+                    // Exclude grouped fields from results.
+                    // This does not represent the underlying data and should be removed.
+                    Ok(Event::Start(e)) if e.local_name().as_ref() == b"groupItems" => {
+                        field_names.pop();
+                        fields.pop();
                     }
                     Ok(Event::Start(e)) if is_item(&e) => {
                         if let Some(field) = fields.last_mut() {
