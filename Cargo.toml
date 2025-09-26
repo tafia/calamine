@@ -36,6 +36,7 @@ rstest = { version = "0.21.0", default-features = false }
 default = []
 dates = ["chrono"]
 picture = []
+serde = ["serde/derive"]
 
 [package.metadata.docs.rs]
 features = ["dates", "picture"]
