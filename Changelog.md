@@ -5,13 +5,45 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.31.0] - 2025-XX-XX (Draft for next release)
-
-### Added
+## [0.31.0] - 2025-09-27
 
 ### Changed
 
+- Upgraded `quick-xml` to v0.38. This was a significant change in `quick-xml`
+  relative to v0.37 and required changes in `calamine` to entity handling. It
+  also fixes EOL handling which may lead to regressions in `calamine`
+  applications if they expected to see `"\r\n"` in strings instead of the
+  correct (for XML and Excel) `"\n"`.
+
+  For most users these will be inconsequential changes but please take note
+  before upgrading production code.
+
+- Renamed the `"dates"` feature flag to `"chrono"` since there is now some
+  native date handling features without `"chrono"`. The `"chrono"` flag is more
+  specific and accurate. The `"dates"` flag is still supported as before for
+  backward compatibility.
+
+  This change also made some datatype methods related to date/times available in
+  the `"default"` feature set. They were previously hidden unnecessarily behind
+  the "dates/"chrono" flag.
+
+### Added
+
+- Added a conversion function to `ExcelDateTime` to convert the inner serial
+  Excel datetime to standard year, month, date, hour, minute, second and
+  millisecond components. Works for 1900 and 1904 epochs.
+
 ### Fixed
+
+- Fixed issue where Excel xlsx shared formula failed if it contained Unicode
+  characters. [Issue #553].
+
+  [Issue #553]: https://github.com/tafia/calamine/issues/553
+
+- Fixed issue where Excel XML escapes in strings weren't unescaped. For example
+  `"_x000D_" -> "\r"`. [Issue #469].
+
+  [Issue #469]: https://github.com/tafia/calamine/issues/469
 
 
 ## [0.30.1] - 2025-09-06
