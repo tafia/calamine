@@ -301,6 +301,42 @@ fn special_chrs_ods() {
     );
 }
 
+// Test for decoding/unescaping simple XML entities and also for numeric
+// entities like "&#xA;" for new line.
+#[test]
+fn decode_xml_entities() {
+    let mut excel: Xlsx<_> = wb("encoded_entities.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&String("&".to_string())));
+    assert_eq!(range.get_value((1, 0)), Some(&String("\n".to_string())));
+}
+
+// Test for unescaping Excel XML escapes in a cell string. Excel encodes a
+// character like "\r" as "_x000D_". In turn it escapes the literal string
+// "_x000D_" as "_x005F_x000D_".
+//
+// See https://github.com/tafia/calamine/issues/469
+#[test]
+fn unescape_excel_xml() {
+    let mut excel: Xlsx<_> = wb("has_x000D_.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
+
+    // Test a file with an inline string.
+    let mut excel: Xlsx<_> = wb("has_x000D_inline.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
+}
+
 #[test]
 fn partial_richtext_ods() {
     let mut excel: Ods<_> = wb("richtext_issue.ods");
@@ -315,14 +351,14 @@ fn xlsx_richtext_namespaced() {
     range_eq!(
         range,
         [[
-            String("inline string\r\nLine 2\r\nLine 3".to_string()),
+            String("inline string\nLine 2\nLine 3".to_string()),
             Empty,
             Empty,
             Empty,
             Empty,
             Empty,
             Empty,
-            String("shared string\r\nLine 2\r\nLine 3".to_string())
+            String("shared string\nLine 2\nLine 3".to_string())
         ]]
     );
 }
@@ -715,7 +751,7 @@ fn date_xls() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -750,7 +786,7 @@ fn date_xls_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -785,7 +821,7 @@ fn date_xlsx() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -820,7 +856,7 @@ fn date_xlsx_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -851,7 +887,7 @@ fn date_xlsx_iso() {
         Some(&DateTimeIso("10:10:10".to_string()))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -895,7 +931,7 @@ fn date_ods() {
         Some(&DurationIso("PT10H10M10.123456S".to_string()))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -943,7 +979,7 @@ fn date_xlsb() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -978,7 +1014,7 @@ fn date_xlsb_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
