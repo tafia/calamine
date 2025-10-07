@@ -25,7 +25,11 @@ const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(untagged))]
+#[cfg_attr(
+    feature = "serde",
+    serde(tag = "_calamine_data_kind", content = "_calamine_data_value")
+)]
+// #[cfg_attr(feature = "serde", serde(untagged))]
 pub enum Data {
     /// Signed integer
     Int(i64),
@@ -286,6 +290,113 @@ impl<'de> Deserialize<'de> for Data {
             #[inline]
             fn visit_unit<E>(self) -> Result<Data, E> {
                 Ok(Data::Empty)
+            }
+
+            #[cfg(feature = "serde")]
+            /// For converting from `serde` serialization only.
+            #[inline]
+            fn visit_map<A>(self, mut map: A) -> Result<Data, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                static KIND_FIELD_NAME: &str = "_calamine_data_kind";
+                static VALUE_FIELD_NAME: &str = "_calamine_data_value";
+
+                #[derive(Deserialize, Debug)]
+                #[serde(untagged)]
+                enum DataKind {
+                    String(String),
+                    Int(i64),
+                    Float(f64),
+                    Bool(bool),
+                    ExcelDateTime(ExcelDateTime),
+                    CellErrorType(CellErrorType),
+                }
+
+                let Some((k1, v1)) = map.next_entry::<String, DataKind>()? else {
+                    todo!("no fields");
+                };
+
+                if k1 == KIND_FIELD_NAME {
+                    let DataKind::String(ref kind) = v1 else {
+                        todo!("invalid identifier kind");
+                    };
+                    if kind == "Empty" {
+                        return Ok(Data::Empty);
+                    }
+                }
+
+                let Some((k2, v2)) = map.next_entry::<String, DataKind>()? else {
+                    todo!("only 1 field");
+                };
+                if map.next_entry::<String, DataKind>()?.is_some() {
+                    todo!("extra fields");
+                };
+
+                let (kind, data) = if k1 == KIND_FIELD_NAME && k2 == VALUE_FIELD_NAME {
+                    (v1, v2)
+                } else if k1 == VALUE_FIELD_NAME && k2 == KIND_FIELD_NAME {
+                    (v2, v1)
+                } else {
+                    todo!("invalid fields");
+                };
+
+                let DataKind::String(kind) = kind else {
+                    todo!("invalid identifier kind");
+                };
+
+                match kind.as_str() {
+                    "Int" => {
+                        let DataKind::Int(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::Int(data))
+                    }
+                    "Float" => {
+                        let DataKind::Float(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::Float(data))
+                    }
+                    "String" => {
+                        let DataKind::String(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::String(data))
+                    }
+                    "Bool" => {
+                        let DataKind::Bool(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::Bool(data))
+                    }
+                    "DateTime" => {
+                        let DataKind::ExcelDateTime(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::DateTime(data))
+                    }
+                    "DateTimeIso" => {
+                        let DataKind::String(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::DateTimeIso(data))
+                    }
+                    "DurationIso" => {
+                        let DataKind::String(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::DurationIso(data))
+                    }
+                    "Error" => {
+                        let DataKind::CellErrorType(data) = data else {
+                            todo!("invalid data kind");
+                        };
+                        Ok(Data::Error(data))
+                    }
+                    "Empty" => unreachable!("handled above"),
+                    _ => todo!("invalid kind field value"),
+                }
             }
         }
 

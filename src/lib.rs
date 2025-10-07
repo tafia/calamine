@@ -102,6 +102,7 @@ use crate::vba::VbaProject;
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(untagged))]
 pub enum CellErrorType {
     /// Division by 0 error
     Div0,
