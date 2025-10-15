@@ -1948,6 +1948,24 @@ fn issue_553_non_ascii_shared_formula() {
 }
 
 #[test]
+fn issue_565_multi_axis_shared_formula() {
+    // B1:D2 contains a shared formula that expands in 2 dimnensions
+    let mut excel: Xlsx<_> = wb("issue_565_multi_axis_shared.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+
+    let expected_formulas = [["A1", "B1", "C1", "D1"], ["A2", "B2", "C2", "D2"]];
+
+    for (row_idx, row) in expected_formulas.iter().enumerate() {
+        for (col_idx, expected_formula) in row.iter().enumerate() {
+            assert_eq!(
+                formula.get_value((row_idx as u32, col_idx as u32)),
+                Some(&expected_formula.to_string())
+            );
+        }
+    }
+}
+
+#[test]
 fn issue_420_empty_s_attribute() {
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 
