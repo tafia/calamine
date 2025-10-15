@@ -229,37 +229,25 @@ where
                                         Some(res) => {
                                             // original reference formula
                                             let reference = get_dimension(res)?;
-                                            if reference.start.0 != reference.end.0 {
-                                                for i in 0..=(reference.end.0 - reference.start.0) {
+
+                                            for row in reference.start.0..=reference.end.0 {
+                                                for column in reference.start.1..=reference.end.1 {
                                                     offset_map.insert(
-                                                        (reference.start.0 + i, reference.start.1),
+                                                        (row, column),
                                                         (
-                                                            (reference.start.0 as i64
-                                                                - pos.0 as i64
-                                                                + i as i64),
-                                                            0,
-                                                        ),
-                                                    );
-                                                }
-                                            } else if reference.start.1 != reference.end.1 {
-                                                for i in 0..=(reference.end.1 - reference.start.1) {
-                                                    offset_map.insert(
-                                                        (reference.start.0, reference.start.1 + i),
-                                                        (
-                                                            0,
-                                                            (reference.start.1 as i64
-                                                                - pos.1 as i64
-                                                                + i as i64),
+                                                            row as i64 - pos.0 as i64,
+                                                            column as i64 - pos.1 as i64,
                                                         ),
                                                     );
                                                 }
                                             }
 
                                             if let Some(f) = formula.borrow() {
-                                                while self.formulas.len() < shared_index {
-                                                    self.formulas.push(None);
+                                                if self.formulas.len() <= shared_index {
+                                                    self.formulas.resize(shared_index + 1, None);
                                                 }
-                                                self.formulas.push(Some((f.clone(), offset_map)));
+                                                self.formulas[shared_index] =
+                                                    Some((f.clone(), offset_map));
                                             }
                                             value = formula;
                                         }
