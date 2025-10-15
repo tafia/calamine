@@ -99,6 +99,12 @@ pub enum XlsxError {
     /// Missing row number when parsing an `A1` style range string.
     RangeWithoutRowComponent,
 
+    /// Column number exceeds maximum allowed columns.
+    ColumnNumberOverflow,
+
+    /// Row number exceeds maximum allowed rows.
+    RowNumberOverflow,
+
     /// Error when parsing dimensions of a worksheet.
     DimensionCount(usize),
 
@@ -180,6 +186,8 @@ impl std::fmt::Display for XlsxError {
             XlsxError::RangeWithoutRowComponent => {
                 write!(f, "Range is missing the expected row component.")
             }
+            XlsxError::ColumnNumberOverflow => write!(f, "column number overflow"),
+            XlsxError::RowNumberOverflow => write!(f, "row number overflow"),
             XlsxError::Unexpected(e) => write!(f, "{e}"),
             XlsxError::Unrecognized { typ, val } => write!(f, "Unrecognized {typ}: {val}"),
             XlsxError::CellError(e) => write!(f, "Unsupported cell error value '{e}'"),
@@ -1877,16 +1885,112 @@ where
     Ok(merge_cells)
 }
 
-/// advance the cell name by the offset
-fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(name.to_vec().as_slice())?;
-    coordinate_to_name((
-        (cell.0 as i64 + offset.0) as u32,
-        (cell.1 as i64 + offset.1) as u32,
-    ))
+struct CellReference {
+    row: u32,
+    col: u32,
+    absolute_row: bool,
+    absolute_col: bool,
 }
 
-/// advance all valid cell names in the string by the offset
+// Parse a cell reference as it appears in formulas (e.g., "A1", "$A1", "A$1", "$A$1").
+fn parse_cell_reference(name: &[u8]) -> Result<CellReference, XlsxError> {
+    let mut cell = CellReference {
+        row: 0,
+        col: 0,
+        absolute_row: false,
+        absolute_col: false,
+    };
+
+    for &c in name.iter() {
+        match c {
+            b'$' => {
+                if cell.col == 0 {
+                    cell.absolute_col = true;
+                } else if cell.row == 0 {
+                    cell.absolute_row = true;
+                } else {
+                    return Err(XlsxError::Alphanumeric(c));
+                }
+            }
+            c @ b'A'..=b'Z' | c @ b'a'..=b'z' => {
+                if cell.row != 0 {
+                    return Err(XlsxError::Alphanumeric(c));
+                }
+                cell.col = cell
+                    .col
+                    .wrapping_mul(26)
+                    .wrapping_add((c.to_ascii_uppercase() - b'A') as u32 + 1);
+            }
+            c @ b'0'..=b'9' => {
+                if cell.col == 0 {
+                    return Err(XlsxError::RangeWithoutColumnComponent);
+                }
+                cell.row = cell.row.wrapping_mul(10).wrapping_add((c - b'0') as u32);
+            }
+            _ => return Err(XlsxError::Alphanumeric(c)),
+        }
+    }
+
+    cell.row = cell
+        .row
+        .checked_sub(1)
+        .ok_or(XlsxError::RangeWithoutRowComponent)?;
+    cell.col = cell
+        .col
+        .checked_sub(1)
+        .ok_or(XlsxError::RangeWithoutColumnComponent)?;
+
+    if cell.col >= MAX_COLUMNS {
+        return Err(XlsxError::ColumnNumberOverflow);
+    }
+    if cell.row >= MAX_ROWS {
+        return Err(XlsxError::RowNumberOverflow);
+    }
+
+    Ok(cell)
+}
+
+// Format a cell reference (e.g., "$A$1", "A1", etc.).
+fn format_cell_reference(cell: &CellReference) -> Result<Vec<u8>, XlsxError> {
+    if cell.row >= MAX_ROWS {
+        return Err(XlsxError::RowNumberOverflow);
+    }
+    let mut buf = Vec::new();
+    if cell.absolute_col {
+        buf.push(b'$');
+    }
+    buf.extend(column_number_to_name(cell.col)?);
+    if cell.absolute_row {
+        buf.push(b'$');
+    }
+    buf.extend((cell.row + 1).to_string().into_bytes());
+    Ok(buf)
+}
+
+// Advance the cell name by the offset.
+fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+    let cell = parse_cell_reference(name)?;
+
+    let new_row = if cell.absolute_row {
+        cell.row
+    } else {
+        (cell.row as i64 + offset.0) as u32
+    };
+    let new_col = if cell.absolute_col {
+        cell.col
+    } else {
+        (cell.col as i64 + offset.1) as u32
+    };
+
+    format_cell_reference(&CellReference {
+        row: new_row,
+        col: new_col,
+        absolute_row: cell.absolute_row,
+        absolute_col: cell.absolute_col,
+    })
+}
+
+// Advance all valid cell names in the string by the offset.
 fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
     let mut res: Vec<u8> = Vec::new();
     let mut cell: Vec<u8> = Vec::new();
@@ -1900,7 +2004,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
             res.push(c);
             continue;
         }
-        if c.is_ascii_alphabetic() {
+        if c.is_ascii_alphabetic() || c == b'$' {
             if is_cell_row {
                 // two cell not possible stick together in formula
                 res.extend(cell.iter().copied());
@@ -1939,7 +2043,7 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
 /// If the column number not in 1~16384, an Error is returned.
 pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
     if num >= MAX_COLUMNS {
-        return Err(XlsxError::Unexpected("column number overflow"));
+        return Err(XlsxError::ColumnNumberOverflow);
     }
     let mut col: Vec<u8> = Vec::new();
     let mut num = num + 1;
@@ -1950,16 +2054,6 @@ pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
     }
     col.reverse();
     Ok(col)
-}
-
-/// Convert a cell coordinate to Excelsheet cell name.
-/// If the column number not in 1~16384, an Error is returned.
-pub(crate) fn coordinate_to_name(cell: (u32, u32)) -> Result<Vec<u8>, XlsxError> {
-    let cell = &[
-        column_number_to_name(cell.1)?,
-        (cell.0 + 1).to_string().into_bytes(),
-    ];
-    Ok(cell.concat())
 }
 
 // Convert an Excel Open Packaging "Part" path like "xl/sharedStrings.xml" to
@@ -2055,12 +2149,100 @@ mod tests {
     }
 
     #[test]
-    fn test_coordinate_to_name() {
-        assert_eq!(coordinate_to_name((0, 0)).unwrap(), b"A1");
-        assert_eq!(
-            coordinate_to_name((MAX_ROWS - 1, MAX_COLUMNS - 1)).unwrap(),
-            b"XFD1048576"
-        );
+    fn test_parse_cell_reference() {
+        let check = |input: &[u8], row, col, abs_row, abs_col| {
+            let cell = parse_cell_reference(input).unwrap();
+            assert_eq!(
+                (cell.row, cell.col, cell.absolute_row, cell.absolute_col),
+                (row, col, abs_row, abs_col),
+            );
+        };
+
+        check(b"A1", 0, 0, false, false);
+        check(b"$A1", 0, 0, false, true);
+        check(b"A$1", 0, 0, true, false);
+        check(b"$A$1", 0, 0, true, true);
+        check(b"XFD1048576", MAX_ROWS - 1, MAX_COLUMNS - 1, false, false);
+    }
+
+    #[test]
+    fn test_format_cell_reference() {
+        let check = |row, col, abs_row, abs_col, expected: &[u8]| {
+            let buf = format_cell_reference(&CellReference {
+                row,
+                col,
+                absolute_row: abs_row,
+                absolute_col: abs_col,
+            })
+            .unwrap();
+            assert_eq!(buf, expected);
+        };
+
+        check(0, 0, false, false, b"A1");
+        check(0, 0, false, true, b"$A1");
+        check(0, 0, true, false, b"A$1");
+        check(0, 0, true, true, b"$A$1");
+        check(MAX_ROWS - 1, MAX_COLUMNS - 1, false, false, b"XFD1048576");
+    }
+
+    #[test]
+    fn test_offset_cell_name() {
+        let check = |input: &[u8], offset, expected: &[u8]| {
+            assert_eq!(offset_cell_name(input, offset).unwrap(), expected);
+        };
+
+        check(b"A1", (1, 1), b"B2");
+        check(b"$A1", (1, 1), b"$A2");
+        check(b"A$1", (1, 1), b"B$1");
+        check(b"$A$1", (1, 1), b"$A$1");
+    }
+
+    #[test]
+    fn test_parse_cell_reference_overflow() {
+        let check_col_err = |input: &[u8]| {
+            assert!(matches!(
+                parse_cell_reference(input),
+                Err(XlsxError::ColumnNumberOverflow)
+            ));
+        };
+        let check_row_err = |input: &[u8]| {
+            assert!(matches!(
+                parse_cell_reference(input),
+                Err(XlsxError::RowNumberOverflow)
+            ));
+        };
+
+        check_col_err(b"XFE1");
+        check_col_err(b"AAAA1");
+        check_row_err(b"A1048577");
+        check_row_err(b"A99999999999999999999");
+        check_col_err(b"$XFE$1");
+    }
+
+    #[test]
+    fn test_offset_cell_name_overflow() {
+        let check_col_err = |input: &[u8], offset| {
+            assert!(matches!(
+                offset_cell_name(input, offset),
+                Err(XlsxError::ColumnNumberOverflow)
+            ));
+        };
+        let check_row_err = |input: &[u8], offset| {
+            assert!(matches!(
+                offset_cell_name(input, offset),
+                Err(XlsxError::RowNumberOverflow)
+            ));
+        };
+
+        // Original cell reference is out of bounds
+        check_col_err(b"XFE1", (0, 0));
+        check_row_err(b"A1048577", (0, 0));
+
+        // Offset pushes valid cell out of bounds
+        check_col_err(b"XFD1", (0, 1));
+        check_row_err(b"A1048576", (1, 0));
+        check_row_err(b"XFD1048576", (1, 0));
+        check_col_err(b"XFD1048576", (0, 1));
     }
 
     #[test]

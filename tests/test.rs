@@ -2029,6 +2029,29 @@ fn shared_formula_reversed() {
 }
 
 #[test]
+fn issue_567_absolute_shared_formula() {
+    // Test absolute references in shared formulas. B$1 dragged to E3 should increment
+    // the column (B, C, D, E) but keep the row fixed at 1.
+    let mut excel: Xlsx<_> = wb("issue_567_absolute_shared.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+
+    let expected_formulas = [
+        ["A$1", "B$1", "C$1", "D$1", "E$1"],
+        ["A$1", "B$1", "C$1", "D$1", "E$1"],
+        ["A$1", "B$1", "C$1", "D$1", "E$1"],
+    ];
+
+    for (row_idx, row) in expected_formulas.iter().enumerate() {
+        for (col_idx, expected_formula) in row.iter().enumerate() {
+            assert_eq!(
+                formula.get_value((row_idx as u32, col_idx as u32)),
+                Some(&expected_formula.to_string())
+            );
+        }
+    }
+}
+
+#[test]
 fn issue_420_empty_s_attribute() {
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 
