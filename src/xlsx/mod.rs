@@ -1887,12 +1887,35 @@ where
 }
 
 /// advance the cell name by the offset
-fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(name.to_vec().as_slice())?;
-    coordinate_to_name((
-        (cell.0 as i64 + offset.0) as u32,
-        (cell.1 as i64 + offset.1) as u32,
-    ))
+fn offset_cell_name(
+    name: &[u8],
+    offset: (i64, i64),
+    absolute: (bool, bool),
+) -> Result<Vec<u8>, XlsxError> {
+    let (row, col) = get_row_column(&name)?;
+
+    let new_row = if absolute.0 {
+        row
+    } else {
+        (row as i64 + offset.0) as u32
+    };
+    let new_col = if absolute.1 {
+        col
+    } else {
+        (col as i64 + offset.1) as u32
+    };
+
+    let mut result = Vec::new();
+    if absolute.1 {
+        result.push(b'$');
+    }
+    result.extend(column_number_to_name(new_col)?);
+    if absolute.0 {
+        result.push(b'$');
+    }
+    result.extend((new_row + 1).to_string().into_bytes());
+
+    Ok(result)
 }
 
 /// advance all valid cell names in the string by the offset
@@ -1901,6 +1924,8 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
     let mut cell: Vec<u8> = Vec::new();
     let mut is_cell_row = false;
     let mut in_quote = false;
+    let mut seen_dollar = false;
+    let mut absolute = (false, false);
     for c in s.bytes() {
         if c == b'"' {
             in_quote = !in_quote;
@@ -1915,28 +1940,48 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
                 res.extend(cell.iter().copied());
                 cell.clear();
                 is_cell_row = false;
+                absolute = (false, false);
+            }
+            if seen_dollar {
+                absolute.1 = true;
             }
             cell.push(c);
         } else if c.is_ascii_digit() {
+            if seen_dollar {
+                absolute.0 = true;
+            }
             is_cell_row = true;
             cell.push(c);
+        } else if c == b'$' {
+            seen_dollar = true;
         } else {
-            if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
+            if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset, absolute) {
                 res.extend(cell_name);
             } else {
                 res.extend(cell.iter().copied());
             }
+            if seen_dollar {
+                res.push(b'$');
+            }
+            absolute = (false, false);
             cell.clear();
             is_cell_row = false;
             res.push(c);
         }
+
+        if c != b'$' {
+            seen_dollar = false;
+        }
     }
     if !cell.is_empty() {
-        if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
+        if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset, absolute) {
             res.extend(cell_name);
         } else {
             res.extend(cell.iter().copied());
         }
+    }
+    if seen_dollar {
+        res.push(b'$');
     }
     match String::from_utf8(res) {
         Ok(s) => Ok(s),
