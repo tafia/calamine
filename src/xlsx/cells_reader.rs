@@ -243,10 +243,11 @@ where
                                             }
 
                                             if let Some(f) = formula.borrow() {
-                                                while self.formulas.len() < shared_index {
-                                                    self.formulas.push(None);
+                                                if self.formulas.len() <= shared_index {
+                                                    self.formulas.resize(shared_index + 1, None);
                                                 }
-                                                self.formulas.push(Some((f.clone(), offset_map)));
+                                                self.formulas[shared_index] =
+                                                    Some((f.clone(), offset_map));
                                             }
                                             value = formula;
                                         }

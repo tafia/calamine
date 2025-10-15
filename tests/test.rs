@@ -1948,6 +1948,42 @@ fn issue_553_non_ascii_shared_formula() {
 }
 
 #[test]
+fn non_monotonic_si_shared_formula() {
+    // This excel has been manually edited so that the si numbers do not monotonically increase (si
+    // 0 swapped with 1)
+    let mut excel: Xlsx<_> = wb("non_monotonic_si.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+
+    let expected_values = [
+        [Float(1.), Float(2.), Float(3.)],
+        [Float(2.), Float(4.), Float(6.)],
+        [Float(3.), Float(6.), Float(9.)],
+        [Float(4.), Float(8.), Float(12.)],
+        [Float(5.), Float(10.), Float(15.)],
+        [Float(6.), Float(12.), Float(18.)],
+    ];
+    range_eq!(range, expected_values);
+
+    let expected_formulas = [
+        ["A1+1", "B1+2", "C1+3"],
+        ["A2+1", "B2+2", "C2+3"],
+        ["A3+1", "B3+2", "C3+3"],
+        ["A4+1", "B4+2", "C4+3"],
+        ["A5+1", "B5+2", "C5+3"],
+    ];
+
+    for (row_idx, row) in expected_formulas.iter().enumerate() {
+        for (col_idx, expected_formula) in row.iter().enumerate() {
+            assert_eq!(
+                formula.get_value((row_idx as u32 + 1, col_idx as u32)),
+                Some(&expected_formula.to_string())
+            );
+        }
+    }
+}
+
+#[test]
 fn issue_565_multi_axis_shared_formula() {
     // B1:D2 contains a shared formula that expands in 2 dimnensions
     let mut excel: Xlsx<_> = wb("issue_565_multi_axis_shared.xlsx");
