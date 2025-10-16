@@ -1798,6 +1798,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         xlsx.read_pictures()?;
         #[cfg(feature = "pivot-cache")]
         xlsx.read_pivot_table_metadata()?;
+
         Ok(xlsx)
     }
 
