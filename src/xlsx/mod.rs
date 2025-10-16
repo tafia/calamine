@@ -6,18 +6,6 @@
 
 mod cells_reader;
 
-use crate::datatype::DataRef;
-use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
-use crate::utils::{unescape_entity_to_buffer, unescape_xml};
-use crate::vba::VbaProject;
-#[cfg(feature = "pivot-cache")]
-use crate::xlsx::pivot_cache::*;
-use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
-};
-pub use cells_reader::XlsxCellReader;
-
 use log::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
 use quick_xml::events::Event;
@@ -30,6 +18,18 @@ use std::io::{Read, Seek};
 use std::str::FromStr;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
+
+use crate::datatype::DataRef;
+use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
+use crate::utils::{unescape_entity_to_buffer, unescape_xml};
+use crate::vba::VbaProject;
+#[cfg(feature = "pivot-cache")]
+use crate::xlsx::pivot_cache::*;
+use crate::{
+    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
+    SheetType, SheetVisible, Table,
+};
+pub use cells_reader::XlsxCellReader;
 
 pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
