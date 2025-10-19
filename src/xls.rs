@@ -323,7 +323,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xfs = Vec::new();
         let mut biff = Biff::Biff8; // Binary Interchange File Format (BIFF) version
         let codepage = self.options.force_codepage.unwrap_or(1200);
-        let mut encoding = XlsEncoding::from_codepage(codepage)?;
+        let mut encoding = XlsEncoding::from_codepage(codepage);
         #[cfg(feature = "picture")]
         let mut draw_group: Vec<u8> = Vec::new();
         {
@@ -337,7 +337,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     // CodePage
                     0x0042 => {
                         if self.options.force_codepage.is_none() {
-                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
+                            encoding = XlsEncoding::from_codepage(read_u16(r.data));
                         }
                     }
                     0x013D => {
@@ -1678,7 +1678,7 @@ mod tests {
 
     #[test]
     fn test_parse_string() {
-        let enc = XlsEncoding::from_codepage(1252).unwrap();
+        let enc = XlsEncoding::from_codepage(1252);
         parse_string(&[0, 1], &enc, Biff::Biff8).unwrap_err();
     }
 }

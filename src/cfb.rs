@@ -10,7 +10,7 @@ use std::io::Read;
 
 use log::debug;
 
-use encoding_rs::{Encoding, UTF_16LE, UTF_8};
+use encoding_rs::{Encoding, UTF_16LE, UTF_8, WINDOWS_1252};
 
 use crate::utils::*;
 
@@ -421,9 +421,12 @@ pub struct XlsEncoding {
 }
 
 impl XlsEncoding {
-    pub fn from_codepage(codepage: u16) -> Result<XlsEncoding, CfbError> {
-        let e = codepage::to_encoding(codepage).ok_or(CfbError::CodePageNotFound(codepage))?;
-        Ok(XlsEncoding { encoding: e })
+    pub fn from_codepage(codepage: u16) -> XlsEncoding {
+        let encoding = codepage::to_encoding(codepage).unwrap_or({
+            log::warn!("{}", CfbError::CodePageNotFound(codepage));
+            WINDOWS_1252
+        });
+        XlsEncoding { encoding }
     }
 
     fn high_byte(&self, high_byte: Option<bool>) -> Option<bool> {
