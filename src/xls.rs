@@ -931,10 +931,9 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
     Ok(read_u16(&r.data[2..]))
 }
 
-/// Decode Format
+/// Decode Format [MS-XLS 2.4.126]
 ///
 /// See: <https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b>
-/// 2.4.126
 fn parse_format(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
@@ -957,7 +956,7 @@ fn parse_format(
     Ok((ifmt, detect_custom_number_format(&s)))
 }
 
-/// Decode `XLUnicodeRichExtendedString`.
+/// Decode `XLUnicodeRichExtendedString` [MS-XLS 2.5.293].
 ///
 /// See: <https://docs.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/173d9f51-e5d3-43da-8de2-be7f22e119b9>
 fn read_rich_extended_string(
