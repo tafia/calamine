@@ -963,6 +963,10 @@ fn read_rich_extended_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
+    if r.data.is_empty() {
+        // spec violation: at very least cch and flags should be present
+        return Ok(String::new());
+    }
     if r.data.len() < 3 {
         return Err(XlsError::Len {
             typ: "rich extended string",
