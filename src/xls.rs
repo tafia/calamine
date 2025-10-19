@@ -105,7 +105,7 @@ impl std::fmt::Display for XlsError {
                 typ,
             } => write!(
                 f,
-                "Invalid {typ} length, expected {expected} maximum, found {found}",
+                "Invalid {typ} length, expected at least {expected}, found {found}",
             ),
             XlsError::ContinueRecordTooShort => write!(
                 f,
