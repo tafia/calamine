@@ -397,9 +397,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x00EB => {
                         // MsoDrawingGroup
                         draw_group.extend(r.data);
-                        if let Some(cont) = r.cont {
-                            draw_group.extend(cont.iter().flat_map(|v| *v));
-                        }
+                        draw_group.extend(r.cont.iter().flat_map(|v| *v));
                     }
                     0x000A => break, // EOF,
                     _ => (),
@@ -1041,21 +1039,16 @@ fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s
 struct Record<'a> {
     typ: u16,
     data: &'a [u8],
-    cont: Option<Vec<&'a [u8]>>,
+    cont: Vec<&'a [u8]>,
 }
 
 impl<'a> Record<'a> {
     fn continue_record(&mut self) -> bool {
-        match self.cont {
-            None => false,
-            Some(ref mut v) => {
-                if v.is_empty() {
-                    false
-                } else {
-                    self.data = v.remove(0);
-                    true
-                }
-            }
+        if self.cont.is_empty() {
+            false
+        } else {
+            self.data = self.cont.remove(0);
+            true
         }
     }
 
@@ -1120,8 +1113,8 @@ impl<'a> Iterator for RecordIter<'a> {
         let d = &data[4..];
 
         // Append next record data if it is a Continue record
-        let cont = if next.len() > 4 && read_u16(next) == 0x003C {
-            let mut cont = Vec::new();
+        let mut cont = Vec::new();
+        if next.len() > 4 && read_u16(next) == 0x003C {
             while self.stream.len() > 4 && read_u16(self.stream) == 0x003C {
                 len = read_u16(&self.stream[2..]) as usize;
                 if self.stream.len() < len + 4 {
@@ -1131,10 +1124,7 @@ impl<'a> Iterator for RecordIter<'a> {
                 cont.push(&sp.0[4..]);
                 self.stream = sp.1;
             }
-            Some(cont)
-        } else {
-            None
-        };
+        }
 
         Some(Ok(Record {
             typ: t,
