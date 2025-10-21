@@ -334,4 +334,4 @@ The style reading functionality is backward compatible. Existing code will conti
 
 ## Examples
 
-See the `examples/style_example.rs` file for a complete working example of style extraction and usage. 
+See the `examples/style.rs` file for a complete working example of style extraction and usage. 
