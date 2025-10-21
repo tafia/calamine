@@ -10,6 +10,7 @@ use quick_xml::{
 use std::io::BufRead;
 
 use crate::style::*;
+use crate::utils::unescape_entity_to_buffer;
 use crate::XlsxError;
 
 /// Get theme color from Excel's theme color palette
@@ -273,19 +274,20 @@ fn parse_border_style(s: &str) -> BorderStyle {
 /// Parse font element
 pub fn parse_font<RS: BufRead>(
     xml: &mut Reader<RS>,
-    start_elem: &BytesStart,
+    _start_elem: &BytesStart,
 ) -> Result<Font, XlsxError> {
     let mut font = Font::new();
 
-    // Parse attributes from the opening font element
-    for attr in start_elem.attributes() {
-        let attr = attr?;
-        match attr.key.as_ref() {
-            // Font elements can have attributes like outline, shadow, etc.
-            // Add specific font attribute parsing here if needed
-            _ => {}
-        }
-    }
+    // Font elements can have attributes like outline, shadow, etc.
+    // TODO(ddimaria): Add specific font attribute parsing here if needed
+
+    // // Parse attributes from the opening font element
+    // for attr in start_elem.attributes() {
+    //     let attr = attr?;
+    //     match attr.key.as_ref() {
+    //         _ => {}
+    //     }
+    // }
 
     let mut buf = Vec::new();
 
@@ -294,13 +296,45 @@ pub fn parse_font<RS: BufRead>(
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
                 b"name" => {
-                    if let Some(name) = read_string(xml, QName(b"name"))? {
-                        font = font.with_name(name);
+                    // Check if name is in val attribute first
+                    let mut name = None;
+                    for attr in e.attributes() {
+                        let attr = attr?;
+                        if attr.key.as_ref() == b"val" {
+                            name = Some(String::from_utf8_lossy(&attr.value).to_string());
+                            break;
+                        }
+                    }
+                    // If not in attribute, try reading as text content
+                    if name.is_none() {
+                        name = read_string(xml, QName(b"name"))?;
+                    } else {
+                        // Skip to end of element
+                        xml.read_to_end_into(e.name(), &mut Vec::new())?;
+                    }
+                    if let Some(n) = name {
+                        font = font.with_name(n);
                     }
                 }
                 b"sz" => {
-                    if let Some(size_str) = read_string(xml, QName(b"sz"))? {
-                        if let Ok(size) = size_str.parse::<f64>() {
+                    // Check if size is in val attribute first
+                    let mut size_str = None;
+                    for attr in e.attributes() {
+                        let attr = attr?;
+                        if attr.key.as_ref() == b"val" {
+                            size_str = Some(String::from_utf8_lossy(&attr.value).to_string());
+                            break;
+                        }
+                    }
+                    // If not in attribute, try reading as text content
+                    if size_str.is_none() {
+                        size_str = read_string(xml, QName(b"sz"))?;
+                    } else {
+                        // Skip to end of element
+                        xml.read_to_end_into(e.name(), &mut Vec::new())?;
+                    }
+                    if let Some(s) = size_str {
+                        if let Ok(size) = s.parse::<f64>() {
                             font = font.with_size(size);
                         }
                     }
@@ -374,19 +408,21 @@ pub fn parse_font<RS: BufRead>(
 /// Parse fill element
 pub fn parse_fill<RS: BufRead>(
     xml: &mut Reader<RS>,
-    start_elem: &BytesStart,
+    _start_elem: &BytesStart,
 ) -> Result<Fill, XlsxError> {
     let mut fill = Fill::new();
 
-    // Parse attributes from the opening fill element
-    for attr in start_elem.attributes() {
-        let attr = attr?;
-        match attr.key.as_ref() {
-            // Fill elements can have attributes like type, etc.
-            // Add specific fill attribute parsing here if needed
-            _ => {}
-        }
-    }
+    // Fill elements can have attributes like type, etc.
+    // TODO(ddimaria): Add specific fill attribute parsing here if needed
+
+    // // Parse attributes from the opening fill element
+    // for attr in start_elem.attributes() {
+    //     let attr = attr?;
+    //     match attr.key.as_ref() {
+    //         //
+    //         _ => {}
+    //     }
+    // }
 
     let mut buf = Vec::new();
 
@@ -397,12 +433,9 @@ pub fn parse_fill<RS: BufRead>(
                 b"patternFill" => {
                     for attr in e.attributes() {
                         let attr = attr?;
-                        match attr.key.as_ref() {
-                            b"patternType" => {
-                                let pattern_str = String::from_utf8_lossy(&attr.value);
-                                fill = fill.with_pattern(parse_fill_pattern(&pattern_str));
-                            }
-                            _ => {}
+                        if attr.key.as_ref() == b"patternType" {
+                            let pattern_str = String::from_utf8_lossy(&attr.value);
+                            fill = fill.with_pattern(parse_fill_pattern(&pattern_str));
                         }
                     }
                 }
@@ -435,19 +468,20 @@ pub fn parse_fill<RS: BufRead>(
 /// Parse border element
 pub fn parse_border<RS: BufRead>(
     xml: &mut Reader<RS>,
-    start_elem: &BytesStart,
+    _start_elem: &BytesStart,
 ) -> Result<Borders, XlsxError> {
     let mut borders = Borders::new();
 
+    // Border elements can have attributes like diagonalUp, diagonalDown, etc.
+    // TODO(ddimaria): Add specific border attribute parsing here if needed
+
     // Parse attributes from the opening border element
-    for attr in start_elem.attributes() {
-        let attr = attr?;
-        match attr.key.as_ref() {
-            // Border elements can have attributes like diagonalUp, diagonalDown, etc.
-            // Add specific border attribute parsing here if needed
-            _ => {}
-        }
-    }
+    // for attr in start_elem.attributes() {
+    //     let attr = attr?;
+    //     match attr.key.as_ref() {
+    //         _ => {}
+    //     }
+    // }
 
     let mut buf = Vec::new();
 
@@ -463,12 +497,9 @@ pub fn parse_border<RS: BufRead>(
                         // Parse attributes for style
                         for attr in e.attributes() {
                             let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"style" => {
-                                    let style_str = String::from_utf8_lossy(&attr.value);
-                                    style = parse_border_style(&style_str);
-                                }
-                                _ => {}
+                            if attr.key.as_ref() == b"style" {
+                                let style_str = String::from_utf8_lossy(&attr.value);
+                                style = parse_border_style(&style_str);
                             }
                         }
 
@@ -485,17 +516,12 @@ pub fn parse_border<RS: BufRead>(
                             inner_buf.clear();
                             match xml.read_event_into(&mut inner_buf) {
                                 Ok(Event::Start(ref inner_e)) => {
-                                    match inner_e.local_name().as_ref() {
-                                        b"color" => {
-                                            if let Some(border_color) = parse_color(
-                                                &inner_e
-                                                    .attributes()
-                                                    .collect::<Result<Vec<_>, _>>()?,
-                                            )? {
-                                                color = Some(border_color);
-                                            }
+                                    if inner_e.local_name().as_ref() == b"color" {
+                                        if let Some(border_color) = parse_color(
+                                            &inner_e.attributes().collect::<Result<Vec<_>, _>>()?,
+                                        )? {
+                                            color = Some(border_color);
                                         }
-                                        _ => {}
                                     }
                                 }
                                 Ok(Event::End(ref inner_e))
@@ -634,7 +660,10 @@ fn read_string<RS: BufRead>(
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Text(e)) => {
-                content.push_str(&e.unescape()?);
+                content.push_str(&e.xml10_content()?);
+            }
+            Ok(Event::GeneralRef(e)) => {
+                unescape_entity_to_buffer(&e, &mut content)?;
             }
             Ok(Event::End(ref e)) if e.local_name() == closing.into() => break,
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("string")),

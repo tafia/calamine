@@ -2,7 +2,7 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-use calamine::{open_workbook, Cell, Color, Data, Font, FontWeight, Reader, Style};
+use calamine::{Cell, Color, Data, Font, FontWeight, Style};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example of creating a cell with style

@@ -25,8 +25,8 @@ use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFo
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
-    SheetVisible, Style, WorksheetLayout,
+    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Style, WorksheetLayout,
 };
 
 /// A Xlsb specific error

@@ -27,8 +27,8 @@ use crate::style::{ColumnWidth, RowHeight, WorksheetLayout};
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, CellType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef,
-    Sheet, SheetType, SheetVisible, Style, Table,
+    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
+    SheetType, SheetVisible, Style, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -1695,7 +1695,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
         XlsxCellReader::new(xml, strings, formats, styles, is_1904)
     }
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
+    /// Get the styles for a worksheet.
+    ///
+    /// This function returns a [`Range<Style>`] for the specified worksheet.
+    /// The range contains the styles for the cells in the worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the styles for.
+    ///
+    pub fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
@@ -1717,7 +1726,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
+    /// Get the layout for a worksheet.
+    ///
+    /// This function returns a [`WorksheetLayout`] for the specified worksheet.
+    /// The layout contains the column widths and row heights for the cells in the worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the layout for.
+    ///
+    pub fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
         let (_, path) = self
             .sheets
             .iter()
@@ -1910,7 +1928,15 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(layout)
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+    /// Get all worksheets in the workbook.
+    ///
+    /// This function returns a vector of tuples, where each tuple contains the name of a worksheet and the range of cells in the worksheet.
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, where each tuple contains the name of a worksheet and the range of cells in the worksheet.
+    ///
+    pub fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         let names = self
             .sheets
             .iter()
@@ -2586,8 +2612,20 @@ where
     Ok(merge_cells)
 }
 
-/// advance the cell name by the offset
-fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+/// Advance the cell name by the offset
+///
+/// This function advances the cell name by the offset.
+///
+/// # Parameters
+///
+/// - `name`: The cell name to advance.
+/// - `offset`: The offset to advance the cell name by.
+///
+/// # Returns
+///
+/// A vector of bytes representing the advanced cell name.
+///
+pub fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
     let cell = get_row_column(name.to_vec().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
@@ -2595,8 +2633,20 @@ fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxErro
     ))
 }
 
-/// advance all valid cell names in the string by the offset
-fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+/// Replace all valid cell names in the string by the offset
+///
+/// This function replaces all valid cell names in the string by the offset.
+///
+/// # Parameters
+///
+/// - `s`: The string to replace the cell names in.
+/// - `offset`: The offset to replace the cell names by.
+///
+/// # Returns
+///
+/// A string with the cell names replaced by the offset.
+///
+pub fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
     let mut res: Vec<u8> = Vec::new();
     let mut cell: Vec<u8> = Vec::new();
     let mut is_cell_row = false;

@@ -75,8 +75,10 @@ impl fmt::Display for Color {
 
 /// Border style enumeration
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum BorderStyle {
     /// No border
+    #[default]
     None,
     /// Thin border
     Thin,
@@ -102,11 +104,6 @@ pub enum BorderStyle {
     SlantDashDot,
 }
 
-impl Default for BorderStyle {
-    fn default() -> Self {
-        BorderStyle::None
-    }
-}
 
 /// Border side
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -173,38 +170,34 @@ impl Borders {
 
 /// Font weight
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum FontWeight {
     /// Normal weight
+    #[default]
     Normal,
     /// Bold weight
     Bold,
 }
 
-impl Default for FontWeight {
-    fn default() -> Self {
-        FontWeight::Normal
-    }
-}
 
 /// Font style
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum FontStyle {
     /// Normal style
+    #[default]
     Normal,
     /// Italic style
     Italic,
 }
 
-impl Default for FontStyle {
-    fn default() -> Self {
-        FontStyle::Normal
-    }
-}
 
 /// Underline style
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum UnderlineStyle {
     /// No underline
+    #[default]
     None,
     /// Single underline
     Single,
@@ -216,11 +209,6 @@ pub enum UnderlineStyle {
     DoubleAccounting,
 }
 
-impl Default for UnderlineStyle {
-    fn default() -> Self {
-        UnderlineStyle::None
-    }
-}
 
 /// Font properties
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -320,6 +308,7 @@ impl Font {
 
 /// Horizontal alignment
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum HorizontalAlignment {
     /// Left alignment
     Left,
@@ -334,23 +323,21 @@ pub enum HorizontalAlignment {
     /// Fill alignment
     Fill,
     /// General alignment (default)
+    #[default]
     General,
 }
 
-impl Default for HorizontalAlignment {
-    fn default() -> Self {
-        HorizontalAlignment::General
-    }
-}
 
 /// Vertical alignment
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum VerticalAlignment {
     /// Top alignment
     Top,
     /// Center alignment
     Center,
     /// Bottom alignment
+    #[default]
     Bottom,
     /// Justify alignment
     Justify,
@@ -358,16 +345,13 @@ pub enum VerticalAlignment {
     Distributed,
 }
 
-impl Default for VerticalAlignment {
-    fn default() -> Self {
-        VerticalAlignment::Bottom
-    }
-}
 
 /// Text rotation in degrees
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum TextRotation {
     /// No rotation
+    #[default]
     None,
     /// Rotated by degrees (0-180)
     Degrees(u16),
@@ -375,11 +359,6 @@ pub enum TextRotation {
     Stacked,
 }
 
-impl Default for TextRotation {
-    fn default() -> Self {
-        TextRotation::None
-    }
-}
 
 /// Cell alignment properties
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -443,8 +422,10 @@ impl Alignment {
 
 /// Fill pattern type
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum FillPattern {
     /// No fill
+    #[default]
     None,
     /// Solid fill
     Solid,
@@ -484,11 +465,6 @@ pub enum FillPattern {
     LightTrellis,
 }
 
-impl Default for FillPattern {
-    fn default() -> Self {
-        FillPattern::None
-    }
-}
 
 /// Fill properties
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -908,13 +884,13 @@ impl Style {
         (self
             .font
             .as_ref()
-            .map_or(false, |f| f.color.is_some() || f.is_bold() || f.is_italic()))
-            || (self.fill.as_ref().map_or(false, |f| f.is_visible()))
+            .is_some_and(|f| f.color.is_some() || f.is_bold() || f.is_italic()))
+            || (self.fill.as_ref().is_some_and(|f| f.is_visible()))
             || (self
                 .borders
                 .as_ref()
-                .map_or(false, |b| b.has_visible_borders()))
-            || (self.alignment.as_ref().map_or(false, |a| {
+                .is_some_and(|b| b.has_visible_borders()))
+            || (self.alignment.as_ref().is_some_and(|a| {
                 a.horizontal != HorizontalAlignment::General
                     || a.vertical != VerticalAlignment::Bottom
                     || a.text_rotation != TextRotation::None

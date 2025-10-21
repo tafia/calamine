@@ -2,7 +2,7 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-use calamine::{open_workbook, Reader, WorksheetLayout, Xlsx};
+use calamine::{open_workbook, Reader, Xlsx};
 
 /// Example demonstrating how to capture column widths and row heights from Excel files
 fn main() -> Result<(), Box<dyn std::error::Error>> {

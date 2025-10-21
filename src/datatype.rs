@@ -1125,6 +1125,83 @@ mod date_tests {
     }
 }
 
+/// An enum to represent all different data types that can appear as
+/// a value in a worksheet cell
+impl DataType for CellData {
+    fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+    fn is_int(&self) -> bool {
+        self.value.is_int()
+    }
+    fn is_float(&self) -> bool {
+        self.value.is_float()
+    }
+    fn is_bool(&self) -> bool {
+        self.value.is_bool()
+    }
+    fn is_string(&self) -> bool {
+        self.value.is_string()
+    }
+
+    fn is_duration_iso(&self) -> bool {
+        self.value.is_duration_iso()
+    }
+
+    fn is_datetime(&self) -> bool {
+        self.value.is_datetime()
+    }
+
+    fn is_datetime_iso(&self) -> bool {
+        self.value.is_datetime_iso()
+    }
+
+    fn is_error(&self) -> bool {
+        self.value.is_error()
+    }
+
+    fn get_int(&self) -> Option<i64> {
+        self.value.get_int()
+    }
+    fn get_float(&self) -> Option<f64> {
+        self.value.get_float()
+    }
+    fn get_bool(&self) -> Option<bool> {
+        self.value.get_bool()
+    }
+    fn get_string(&self) -> Option<&str> {
+        self.value.get_string()
+    }
+
+    fn get_datetime(&self) -> Option<ExcelDateTime> {
+        self.value.get_datetime()
+    }
+
+    fn get_datetime_iso(&self) -> Option<&str> {
+        self.value.get_datetime_iso()
+    }
+
+    fn get_duration_iso(&self) -> Option<&str> {
+        self.value.get_duration_iso()
+    }
+
+    fn get_error(&self) -> Option<&CellErrorType> {
+        self.value.get_error()
+    }
+
+    fn as_string(&self) -> Option<String> {
+        self.value.as_string()
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        self.value.as_i64()
+    }
+
+    fn as_f64(&self) -> Option<f64> {
+        self.value.as_f64()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1621,88 +1698,5 @@ mod tests {
             let got = (got.3, got.4, got.5, got.6); // Time parts only.
             assert_eq!(expected, got);
         }
-    }
-}
-
-/// An enum to represent all different data types that can appear as
-/// a value in a worksheet cell
-impl DataType for CellData {
-    fn is_empty(&self) -> bool {
-        self.value.is_empty()
-    }
-    fn is_int(&self) -> bool {
-        self.value.is_int()
-    }
-    fn is_float(&self) -> bool {
-        self.value.is_float()
-    }
-    fn is_bool(&self) -> bool {
-        self.value.is_bool()
-    }
-    fn is_string(&self) -> bool {
-        self.value.is_string()
-    }
-
-    #[cfg(feature = "dates")]
-    fn is_duration_iso(&self) -> bool {
-        self.value.is_duration_iso()
-    }
-
-    #[cfg(feature = "dates")]
-    fn is_datetime(&self) -> bool {
-        self.value.is_datetime()
-    }
-
-    #[cfg(feature = "dates")]
-    fn is_datetime_iso(&self) -> bool {
-        self.value.is_datetime_iso()
-    }
-
-    fn is_error(&self) -> bool {
-        self.value.is_error()
-    }
-
-    fn get_int(&self) -> Option<i64> {
-        self.value.get_int()
-    }
-    fn get_float(&self) -> Option<f64> {
-        self.value.get_float()
-    }
-    fn get_bool(&self) -> Option<bool> {
-        self.value.get_bool()
-    }
-    fn get_string(&self) -> Option<&str> {
-        self.value.get_string()
-    }
-
-    #[cfg(feature = "dates")]
-    fn get_datetime(&self) -> Option<ExcelDateTime> {
-        self.value.get_datetime()
-    }
-
-    #[cfg(feature = "dates")]
-    fn get_datetime_iso(&self) -> Option<&str> {
-        self.value.get_datetime_iso()
-    }
-
-    #[cfg(feature = "dates")]
-    fn get_duration_iso(&self) -> Option<&str> {
-        self.value.get_duration_iso()
-    }
-
-    fn get_error(&self) -> Option<&CellErrorType> {
-        self.value.get_error()
-    }
-
-    fn as_string(&self) -> Option<String> {
-        self.value.as_string()
-    }
-
-    fn as_i64(&self) -> Option<i64> {
-        self.value.as_i64()
-    }
-
-    fn as_f64(&self) -> Option<f64> {
-        self.value.as_f64()
     }
 }
