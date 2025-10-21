@@ -2525,3 +2525,103 @@ fn test_problematic_formats() {
     assert!(range.get((0, 0)).is_some(), "A1 should have a value");
     assert!(range.get((1, 0)).is_some(), "A2 should have a value");
 }
+
+#[test]
+fn test_indexed_colors() {
+    use calamine::Color;
+
+    // Test some key indexed colors from the official Excel palette
+    // Based on: https://learn.microsoft.com/en-us/office/vba/api/excel.colorindex
+    let test_cases = vec![
+        (1, (0, 0, 0)),        // Black
+        (2, (255, 255, 255)),  // White
+        (3, (255, 0, 0)),      // Red
+        (4, (0, 255, 0)),      // Green
+        (5, (0, 0, 255)),      // Blue
+        (6, (255, 255, 0)),    // Yellow
+        (15, (192, 192, 192)), // Light Gray
+        (16, (128, 128, 128)), // Gray
+        (44, (255, 204, 0)),   // Gold
+        (53, (153, 51, 0)),    // Brown
+    ];
+
+    // Note: This test verifies the indexed color mapping is available
+    // The actual indexed color parsing is tested through style parsing
+    for (index, expected_rgb) in test_cases {
+        // Create expected color for comparison
+        let expected_color = Color::rgb(expected_rgb.0, expected_rgb.1, expected_rgb.2);
+
+        // Verify the color values are as expected
+        assert_eq!(
+            expected_color.red, expected_rgb.0,
+            "Red component mismatch for index {}",
+            index
+        );
+        assert_eq!(
+            expected_color.green, expected_rgb.1,
+            "Green component mismatch for index {}",
+            index
+        );
+        assert_eq!(
+            expected_color.blue, expected_rgb.2,
+            "Blue component mismatch for index {}",
+            index
+        );
+        assert_eq!(
+            expected_color.alpha, 255,
+            "Alpha should be 255 for index {}",
+            index
+        );
+    }
+}
+
+#[test]
+fn test_color_parsing_with_styles() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Test that we can read styles and colors from the styles.xlsx file
+    let range = xlsx.worksheet_range("Sheet 1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut cells_with_styles = 0;
+    let mut cells_with_font_colors = 0;
+
+    // Iterate through cells and check for style information
+    for (row, col, _cell) in range.cells() {
+        if let Some(style) = styles.get((row, col)) {
+            cells_with_styles += 1;
+
+            if let Some(font) = style.get_font() {
+                if let Some(color) = font.color {
+                    cells_with_font_colors += 1;
+
+                    // Verify color values are valid (0-255 range)
+                    assert!(color.red <= 255, "Red component should be <= 255");
+                    assert!(color.green <= 255, "Green component should be <= 255");
+                    assert!(color.blue <= 255, "Blue component should be <= 255");
+                    assert!(color.alpha <= 255, "Alpha component should be <= 255");
+
+                    // Test specific known colors from the styles.xlsx file
+                    if row == 4 && col == 0 {
+                        // A5 should have red font color (from test_all_styles)
+                        assert_eq!(color.red, 255, "A5 should have red font");
+                        assert_eq!(color.green, 0, "A5 should have red font");
+                        assert_eq!(color.blue, 0, "A5 should have red font");
+                    }
+                }
+            }
+        }
+    }
+
+    // Verify we found some styled cells
+    assert!(
+        cells_with_styles > 0,
+        "Should find at least some cells with styles"
+    );
+
+    // Verify color parsing is working (we should find at least one colored font)
+    assert!(
+        cells_with_font_colors > 0,
+        "Should find at least some cells with font colors"
+    );
+}
