@@ -6,6 +6,20 @@
 
 mod cells_reader;
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::io::BufReader;
+use std::io::{Read, Seek};
+use std::str::FromStr;
+
+use log::warn;
+use quick_xml::events::attributes::{Attribute, Attributes};
+use quick_xml::events::Event;
+use quick_xml::name::QName;
+use quick_xml::Reader as XmlReader;
+use zip::read::{ZipArchive, ZipFile};
+use zip::result::ZipError;
+
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
@@ -17,19 +31,6 @@ use crate::{
     SheetType, SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
-
-use log::warn;
-use quick_xml::events::attributes::{Attribute, Attributes};
-use quick_xml::events::Event;
-use quick_xml::name::QName;
-use quick_xml::Reader as XmlReader;
-use std::borrow::Cow;
-use std::collections::BTreeMap;
-use std::io::BufReader;
-use std::io::{Read, Seek};
-use std::str::FromStr;
-use zip::read::{ZipArchive, ZipFile};
-use zip::result::ZipError;
 
 pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
