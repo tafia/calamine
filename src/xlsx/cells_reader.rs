@@ -122,15 +122,17 @@ where
                     let mut value = DataRef::Empty;
                     let mut style = None;
 
-                    // Extract style ID if present
-                    if let Ok(Some(style_id_str)) =
+                    // Extract style ID if present, default to 0 if not present
+                    let style_id = if let Ok(Some(style_id_str)) =
                         get_attribute(c_element.attributes(), QName(b"s"))
                     {
-                        if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
-                            if style_id < self.styles.len() {
-                                style = Some(self.styles[style_id].clone());
-                            }
-                        }
+                        atoi_simd::parse::<usize>(style_id_str).unwrap_or(0)
+                    } else {
+                        0 // Default to style ID 0 when not present
+                    };
+
+                    if style_id < self.styles.len() {
+                        style = Some(self.styles[style_id].clone());
                     }
 
                     loop {
@@ -199,15 +201,17 @@ where
                     let mut value = None;
                     let mut style = None;
 
-                    // Extract style ID if present
-                    if let Ok(Some(style_id_str)) =
+                    // Extract style ID if present, default to 0 if not present
+                    let style_id = if let Ok(Some(style_id_str)) =
                         get_attribute(c_element.attributes(), QName(b"s"))
                     {
-                        if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
-                            if style_id < self.styles.len() {
-                                style = Some(self.styles[style_id].clone());
-                            }
-                        }
+                        atoi_simd::parse::<usize>(style_id_str).unwrap_or(0)
+                    } else {
+                        0 // Default to style ID 0 when not present
+                    };
+
+                    if style_id < self.styles.len() {
+                        style = Some(self.styles[style_id].clone());
                     }
 
                     loop {
