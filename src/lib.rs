@@ -613,46 +613,6 @@ impl<T: CellType> Cell<T> {
         self.style.as_ref()
     }
 
-    /// Sets the style for this cell.
-    ///
-    /// # Examples
-    ///
-    /// An example of setting a `Cell` style.
-    ///
-    /// ```
-    /// use calamine::{Cell, Data, Style, Font, FontWeight};
-    ///
-    /// let mut cell = Cell::new((1, 2), Data::Int(42));
-    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
-    /// cell.set_style(style);
-    ///
-    /// assert!(cell.get_style().is_some());
-    /// ```
-    ///
-    pub fn set_style(&mut self, style: Style) {
-        self.style = Some(style);
-    }
-
-    /// Removes the style from this cell.
-    ///
-    /// # Examples
-    ///
-    /// An example of removing a `Cell` style.
-    ///
-    /// ```
-    /// use calamine::{Cell, Data, Style, Font, FontWeight};
-    ///
-    /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
-    /// let mut cell = Cell::with_style((1, 2), Data::Int(42), style);
-    /// cell.remove_style();
-    ///
-    /// assert!(cell.get_style().is_none());
-    /// ```
-    ///
-    pub fn remove_style(&mut self) {
-        self.style = None;
-    }
-
     /// Checks if the cell has any style information.
     ///
     /// # Examples

@@ -64,16 +64,6 @@ impl CellData {
         self.style.as_ref()
     }
 
-    /// Set the cell style
-    pub fn set_style(&mut self, style: Style) {
-        self.style = Some(style);
-    }
-
-    /// Remove the cell style
-    pub fn remove_style(&mut self) {
-        self.style = None;
-    }
-
     /// Check if the cell has style information
     pub fn has_style(&self) -> bool {
         self.style.is_some()
