@@ -1,0 +1,7 @@
+[default.extend-words]
+typ = "typ"
+ODF = "ODF"
+PERMUT = "PERMUT"
+AVERAGEIFS = "AVERAGEIFS"
+Shs = "Shs"
+TTEST = "TTEST"

@@ -182,10 +182,22 @@ for s in sheets {
 }
 ```
 
-## Features
 
-- `dates`: Add date related fn to `DataType`.
-- `picture`: Extract picture data.
+## Crate Features
+
+The following is a list of the optional features supported by the `calamine`
+crate. They are all off by default.
+
+- `chrono`: Adds support for Chrono date/time types to the API.
+- `dates`: A deprecated backwards compatible synonym for the `chrono` feature.
+- `picture`: Adds support for reading raw data for pictures in spreadsheets.
+
+A `calamine` feature can be enabled in your `Cargo.toml` file as follows:
+
+```bash
+cargo add calamine -F chrono
+```
+
 
 ### Others
 
@@ -383,18 +395,18 @@ Very noisy chart, but `excelize`'s spikes must be from the GC?
 
 ## Unsupported
 
-Many (most) part of the specifications are not implemented, the focus has been put on reading cell **values** and **vba** code.
+Many (most) parts of the specifications are not implemented, the focus has been put on reading cell **values** and **vba** code.
 
 The main unsupported items are:
 
 - no support for writing excel files, this is a read-only library
-- no support for reading extra contents, such as formatting, excel parameter, encrypted components etc ...
+- no support for reading extra content, such as formatting, excel parameter, encrypted components etc ...
 - no support for reading VB for opendocuments
 
 ## Credits
 
 Thanks to [xlsx-js](https://github.com/SheetJS/js-xlsx) developers!
-This library is by far the simplest open source implementation I could find and helps making sense out of official documentation.
+This library is by far the simplest open source implementation I could find and helps making sense out of the official documentation.
 
 Thanks also to all the contributors!
 

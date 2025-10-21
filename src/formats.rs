@@ -75,7 +75,7 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
         // [h]:mm:ss
         b"46" => CellFormat::TimeDelta,
         _ => CellFormat::Other
-}
+    }
 }
 
 /// Check if code corresponds to builtin date format

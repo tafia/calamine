@@ -8,12 +8,15 @@ jobs:
     strategy:
       matrix:
         toolchain:
-          - "1.75"  # MSRV
+          - "1.83"  # MSRV.
           - stable
           - beta
           - nightly
     steps:
     - uses: actions/checkout@v4
+    - name: ensure dependencies
+      if: ${{ startsWith(matrix.toolchain, '1.') && fromJson(matrix.toolchain) < 1.85 }}
+      run: CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS="fallback" cargo update
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@master
       with:
@@ -28,13 +31,17 @@ jobs:
     - name: Run tests
       run: |
         cargo test --all-features
-    - name: Install rustfmt
+    - name: Install rustfmt, clippy
       uses: dtolnay/rust-toolchain@master
       if: ${{ matrix.toolchain == 'stable' }}
       with:
           toolchain: ${{ matrix.toolchain }}
-          components: rustfmt
+          components: rustfmt, clippy
     - name: Format checks
       if: ${{ matrix.toolchain == 'stable' }}
       run: |
         cargo fmt -- --check
+    - name: Clippy checks
+      if: ${{ matrix.toolchain == 'stable' }}
+      run: |
+        cargo clippy --lib --examples --tests -- -Dwarnings

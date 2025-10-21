@@ -5,13 +5,85 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.30.0] - 2025-XX-XX (Draft for next release)
+## [0.32.0] - 2025-XX-XX (Draft for next release)
 
 ### Added
 
 ### Changed
 
 ### Fixed
+
+
+## [0.31.0] - 2025-09-27
+
+### Changed
+
+- Upgraded `quick-xml` to v0.38. This was a significant change in `quick-xml`
+  relative to v0.37 and required changes in `calamine` to entity handling. It
+  also fixes EOL handling which may lead to regressions in `calamine`
+  applications if they expected to see `"\r\n"` in strings instead of the
+  correct (for XML and Excel) `"\n"`.
+
+  For most users these will be inconsequential changes but please take note
+  before upgrading production code.
+
+- Renamed the `"dates"` feature flag to `"chrono"` since there is now some
+  native date handling features without `"chrono"`. The `"chrono"` flag is more
+  specific and accurate. The `"dates"` flag is still supported as before for
+  backward compatibility.
+
+  This change also made some datatype methods related to date/times available in
+  the `"default"` feature set. They were previously hidden unnecessarily behind
+  the "dates/"chrono" flag.
+
+### Added
+
+- Added a conversion function to `ExcelDateTime` to convert the inner serial
+  Excel datetime to standard year, month, date, hour, minute, second and
+  millisecond components. Works for 1900 and 1904 epochs.
+
+### Fixed
+
+- Fixed issue where Excel xlsx shared formula failed if it contained Unicode
+  characters. [Issue #553].
+
+  [Issue #553]: https://github.com/tafia/calamine/issues/553
+
+- Fixed issue where Excel XML escapes in strings weren't unescaped. For example
+  `"_x000D_" -> "\r"`. [Issue #469].
+
+  [Issue #469]: https://github.com/tafia/calamine/issues/469
+
+
+## [0.30.1] - 2025-09-06
+
+### Added
+
+- Added `Debug` and `Clone` to `Table` for easier debugging. [PR #547].
+
+  [PR #547]: https://github.com/tafia/calamine/issues/547
+
+### Fixed
+
+- Fixed issue [Issue #548] for xls files where the `SST` record had an incorrect
+  number of unique strings.
+
+  [Issue #548]: https://github.com/tafia/calamine/issues/548
+
+
+## [0.30.0] - 2025-08-07
+
+### Changed
+
+- Unpinned the `zip.rs` dependency from v4.2.0 to allow cargo to choose the
+  correct version for the user's rustc version.
+
+  The Rust MSRV was bumped to v1.75.0 (which it should have been for for
+  `zip.rs` compatibility in previous releases).
+
+  See the discussion at [Issue #527].
+
+  [Issue #527]: https://github.com/tafia/calamine/issues/527
 
 
 ## [0.29.0] - 2025-07-17

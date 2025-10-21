@@ -301,6 +301,42 @@ fn special_chrs_ods() {
     );
 }
 
+// Test for decoding/unescaping simple XML entities and also for numeric
+// entities like "&#xA;" for new line.
+#[test]
+fn decode_xml_entities() {
+    let mut excel: Xlsx<_> = wb("encoded_entities.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(range.get_value((0, 0)), Some(&String("&".to_string())));
+    assert_eq!(range.get_value((1, 0)), Some(&String("\n".to_string())));
+}
+
+// Test for unescaping Excel XML escapes in a cell string. Excel encodes a
+// character like "\r" as "_x000D_". In turn it escapes the literal string
+// "_x000D_" as "_x005F_x000D_".
+//
+// See https://github.com/tafia/calamine/issues/469
+#[test]
+fn unescape_excel_xml() {
+    let mut excel: Xlsx<_> = wb("has_x000D_.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
+
+    // Test a file with an inline string.
+    let mut excel: Xlsx<_> = wb("has_x000D_inline.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
+}
+
 #[test]
 fn partial_richtext_ods() {
     let mut excel: Ods<_> = wb("richtext_issue.ods");
@@ -315,14 +351,14 @@ fn xlsx_richtext_namespaced() {
     range_eq!(
         range,
         [[
-            String("inline string\r\nLine 2\r\nLine 3".to_string()),
+            String("inline string\nLine 2\nLine 3".to_string()),
             Empty,
             Empty,
             Empty,
             Empty,
             Empty,
             Empty,
-            String("shared string\r\nLine 2\r\nLine 3".to_string())
+            String("shared string\nLine 2\nLine 3".to_string())
         ]]
     );
 }
@@ -715,7 +751,7 @@ fn date_xls() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -750,7 +786,7 @@ fn date_xls_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -785,7 +821,7 @@ fn date_xlsx() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -820,7 +856,7 @@ fn date_xlsx_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -851,7 +887,7 @@ fn date_xlsx_iso() {
         Some(&DateTimeIso("10:10:10".to_string()))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -895,7 +931,7 @@ fn date_ods() {
         Some(&DurationIso("PT10H10M10.123456S".to_string()))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -943,7 +979,7 @@ fn date_xlsb() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -978,7 +1014,7 @@ fn date_xlsb_1904() {
         )))
     );
 
-    #[cfg(feature = "dates")]
+    #[cfg(feature = "chrono")]
     {
         let date = chrono::NaiveDate::from_ymd_opt(2021, 1, 1).unwrap();
         assert_eq!(range.get_value((0, 0)).unwrap().as_date(), Some(date));
@@ -1673,7 +1709,7 @@ fn issue_102() {
             open_workbook::<Xlsx<_>, std::string::String>(path),
             Err(calamine::XlsxError::Password)
         ),
-        "Is expeced to return XlsxError::Password error"
+        "Is expected to return XlsxError::Password error"
     );
 }
 
@@ -1700,7 +1736,7 @@ fn issue_385() {
             open_workbook::<Xls<_>, std::string::String>(path),
             Err(calamine::XlsError::Password)
         ),
-        "Is expeced to return XlsError::Password error"
+        "Is expected to return XlsError::Password error"
     );
 }
 
@@ -1712,7 +1748,7 @@ fn pass_protected_xlsb() {
             open_workbook::<Xlsb<_>, std::string::String>(path),
             Err(calamine::XlsbError::Password)
         ),
-        "Is expeced to return XlsbError::Password error"
+        "Is expected to return XlsbError::Password error"
     );
 }
 
@@ -1724,7 +1760,7 @@ fn pass_protected_ods() {
             open_workbook::<Ods<_>, std::string::String>(path),
             Err(calamine::OdsError::Password)
         ),
-        "Is expeced to return OdsError::Password error"
+        "Is expected to return OdsError::Password error"
     );
 }
 
@@ -1790,6 +1826,17 @@ fn issue_391_shared_formula() {
 }
 
 #[test]
+fn issue_553_non_ascii_shared_formula() {
+    // Test incrementing a shared formula in an xlsx file where the formula
+    // contains utf-8 characters.
+    let mut excel: Xlsx<_> = wb("issue_553.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    assert!(formula
+        .cells()
+        .all(|(_, _, x)| x == r#"IF(ROW()>5,"한글","영어")"#))
+}
+
+#[test]
 fn issue_420_empty_s_attribute() {
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 
@@ -1815,7 +1862,7 @@ fn issue_438_charts() {
 }
 
 #[test]
-fn isssue_444_memory_allocation() {
+fn issue_444_memory_allocation() {
     let mut excel: Xls<_> = wb("issue444.xls"); // should not fail
     let range = excel
         .worksheet_range("Sheet1")
@@ -1824,7 +1871,7 @@ fn isssue_444_memory_allocation() {
 }
 
 #[test]
-fn isssue_446_formulas() {
+fn issue_446_formulas() {
     let mut excel: Xlsx<_> = wb("issue446.xlsx");
     let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
 }
@@ -2152,6 +2199,37 @@ fn test_oom_allocation() {
     let ws = xls.worksheets();
     assert_eq!(ws.len(), 1);
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
+}
+
+// Test for issue #548. The SST table in the test file has an incorrect unique
+// string count.
+#[test]
+fn test_incorrect_sst_unique_count() {
+    // Check for the string that appears last in the SST table: "11th May 2023".
+    // This appears in cell C10 of each worksheet in the workbook.
+    let mut xls: Xls<_> = wb("gh548_incorrect_sst_unique_count.xls");
+    let range = xls.worksheet_range("System Level Data").unwrap();
+
+    assert_eq!(
+        range.get_value((9, 2)).unwrap(),
+        &String("11th May 2023".into())
+    );
+}
+
+// Test the parsing of an SST table that finishes with a complete, untruncated,
+// string at the end of the block, and where the next string is in a CONTINUE
+// block. This is related to the previous test for gh548 to ensure that the edge
+// condition is met.
+#[test]
+fn test_sst_continue() {
+    let mut xls: Xls<_> = wb("sst_continue.xls");
+    let range = xls.worksheet_range("Sheet1").unwrap();
+
+    // Check for the string that appears last in the SST table.
+    assert_eq!(
+        range.get_value((135, 0)).unwrap(),
+        &String("New CONTINUE block".into())
+    );
 }
 
 // Test for issue #419 where the part name is sentence case instead of camel

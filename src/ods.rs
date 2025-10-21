@@ -21,6 +21,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
 use crate::{
     Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, Style,
@@ -680,8 +681,11 @@ where
         loop {
             buf.clear();
             match reader.read_event_into(buf) {
-                Ok(Event::Text(ref e)) => {
-                    s.push_str(&e.unescape()?);
+                Ok(Event::Text(t)) => {
+                    s.push_str(&t.xml10_content()?);
+                }
+                Ok(Event::GeneralRef(e)) => {
+                    unescape_entity_to_buffer(&e, &mut s)?;
                 }
                 Ok(Event::End(ref e))
                     if e.name() == QName(b"table:table-cell")
@@ -781,8 +785,9 @@ where
     Ok(defined_names)
 }
 
-/// Read pictures
+// Read pictures.
 #[cfg(feature = "picture")]
+#[allow(clippy::type_complexity)]
 fn read_pictures<RS: Read + Seek>(
     zip: &mut ZipArchive<RS>,
 ) -> Result<Option<Vec<(String, Vec<u8>)>>, OdsError> {

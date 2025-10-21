@@ -24,6 +24,7 @@ use zip::result::ZipError;
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::style::{ColumnWidth, RowHeight, WorksheetLayout};
+use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, CellType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef,
@@ -672,7 +673,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         let mut value = String::new();
                         loop {
                             match xml.read_event_into(&mut val_buf)? {
-                                Event::Text(t) => value.push_str(&t.unescape()?),
+                                Event::Text(t) => value.push_str(&t.xml10_content()?),
+                                Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                                 Event::End(end) if end.name() == e.name() => break,
                                 Event::Eof => return Err(XlsxError::XmlEof("workbook")),
                                 _ => (),
@@ -883,7 +885,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    /// Read pictures
+    // Read pictures.
     #[cfg(feature = "picture")]
     fn read_pictures(&mut self) -> Result<(), XlsxError> {
         let mut pics = Vec::new();
@@ -2515,7 +2517,8 @@ where
                 let mut value = String::new();
                 loop {
                     match xml.read_event_into(&mut val_buf)? {
-                        Event::Text(t) => value.push_str(&t.unescape()?),
+                        Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
+                        Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                         Event::End(end) if end.name() == e.name() => break,
                         Event::Eof => return Err(XlsxError::XmlEof("t")),
                         _ => (),
@@ -2584,8 +2587,8 @@ where
 }
 
 /// advance the cell name by the offset
-fn offset_cell_name(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(name.iter().map(|c| *c as u8).collect::<Vec<_>>().as_slice())?;
+fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+    let cell = get_row_column(name.to_vec().as_slice())?;
     coordinate_to_name((
         (cell.0 as i64 + offset.0) as u32,
         (cell.1 as i64 + offset.1) as u32,
@@ -2595,21 +2598,21 @@ fn offset_cell_name(name: &[char], offset: (i64, i64)) -> Result<Vec<u8>, XlsxEr
 /// advance all valid cell names in the string by the offset
 fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
     let mut res: Vec<u8> = Vec::new();
-    let mut cell: Vec<char> = Vec::new();
+    let mut cell: Vec<u8> = Vec::new();
     let mut is_cell_row = false;
     let mut in_quote = false;
-    for c in s.chars() {
-        if c == '"' {
+    for c in s.bytes() {
+        if c == b'"' {
             in_quote = !in_quote;
         }
         if in_quote {
-            res.push(c as u8);
+            res.push(c);
             continue;
         }
         if c.is_ascii_alphabetic() {
             if is_cell_row {
-                // two cell not possible stick togather in formula
-                res.extend(cell.iter().map(|c| *c as u8));
+                // two cell not possible stick together in formula
+                res.extend(cell.iter().copied());
                 cell.clear();
                 is_cell_row = false;
             }
@@ -2621,18 +2624,18 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
             if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
                 res.extend(cell_name);
             } else {
-                res.extend(cell.iter().map(|c| *c as u8));
+                res.extend(cell.iter().copied());
             }
             cell.clear();
             is_cell_row = false;
-            res.push(c as u8);
+            res.push(c);
         }
     }
     if !cell.is_empty() {
         if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
             res.extend(cell_name);
         } else {
-            res.extend(cell.iter().map(|c| *c as u8));
+            res.extend(cell.iter().copied());
         }
     }
     match String::from_utf8(res) {
@@ -2783,6 +2786,10 @@ mod tests {
             )
             .unwrap(),
             "A2 is a cell, B2 is another, also C108, but XFE123 is not and \"A3\" in quote wont change.".to_owned()
+        );
+        assert_eq!(
+            replace_cell_names("한글 A1 テスト", (0, 1)).unwrap(),
+            "한글 B1 テスト".to_owned()
         );
     }
 

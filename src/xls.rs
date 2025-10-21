@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
-use std::fmt::Write;
+use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
@@ -71,9 +71,12 @@ pub enum XlsError {
     Etpg(u8),
     /// No vba project
     NoVba,
-    /// Invalid OfficeArt Record
+
+    /// Invalid OfficeArt Record.
     #[cfg(feature = "picture")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
     Art(&'static str),
+
     /// Worksheet not found
     WorksheetNotFound(String),
     /// Invalid iFmt value
@@ -902,6 +905,9 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
     }
 }
 
+// Parse the Excel xls Shared String Table (SST). See [MS-XLS] 2.4.265.
+//
+// https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/b6231b92-d32e-4626-badd-c3310a672bab
 fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, XlsError> {
     if r.data.len() < 8 {
         return Err(XlsError::Len {
@@ -910,13 +916,15 @@ fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, 
             found: r.data.len(),
         });
     }
-    let len: usize = read_i32(&r.data[4..8]).try_into().unwrap();
-    let mut sst = Vec::with_capacity(len);
+    let mut sst = vec![];
+
+    // Skip cstTotal and cstUnique headers in SST record.
     r.data = &r.data[8..];
 
-    for _ in 0..len {
+    while !r.data.is_empty() || r.continue_record() {
         sst.push(read_rich_extended_string(r, encoding)?);
     }
+
     Ok(sst)
 }
 
@@ -968,7 +976,7 @@ fn read_rich_extended_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
-    if r.data.is_empty() && !r.continue_record() || r.data.len() < 3 {
+    if r.data.len() < 3 {
         return Err(XlsError::Len {
             typ: "rich extended string",
             expected: 3,
@@ -1071,6 +1079,29 @@ impl<'a> Record<'a> {
             self.data = next;
             len -= l;
         }
+        Ok(())
+    }
+}
+
+// Simple Debug impl to dump record data in hex format.
+impl fmt::Debug for Record<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "\nRecord = 0x{:04X}, Length = 0x{:04X}, {}",
+            self.typ,
+            self.data.len(),
+            self.data.len()
+        )?;
+
+        let mut iter = self.data.chunks(16);
+        for chunk in iter.by_ref() {
+            for byte in chunk {
+                write!(f, "{byte:02X} ")?;
+            }
+            writeln!(f)?;
+        }
+
         Ok(())
     }
 }
@@ -1512,7 +1543,7 @@ fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
     }
 }
 
-/// OfficeArtRecord [MS-ODRAW 1.3.1]
+// OfficeArtRecord [MS-ODRAW 1.3.1].
 #[cfg(feature = "picture")]
 struct ArtRecord<'a> {
     instance: u16,
@@ -1558,7 +1589,7 @@ impl<'a> Iterator for ArtRecordIter<'a> {
     }
 }
 
-/// Parsing pictures
+// Parsing pictures.
 #[cfg(feature = "picture")]
 fn parse_pictures(stream: &[u8]) -> Result<Vec<(String, Vec<u8>)>, XlsError> {
     let mut pics = Vec::new();
