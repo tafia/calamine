@@ -36,7 +36,7 @@ const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(tag = "_calamine_data_kind", content = "_calamine_data_value")
+    serde(tag = "_calamine_data_type", content = "_calamine_data_value")
 )]
 // #[cfg_attr(feature = "serde", serde(untagged))]
 pub enum Data {
