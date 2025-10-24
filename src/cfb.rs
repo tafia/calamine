@@ -293,11 +293,7 @@ impl Sectors {
         r: &mut R,
         len: usize,
     ) -> Result<Vec<u8>, CfbError> {
-        let mut chain = if len > 0 {
-            Vec::with_capacity(len)
-        } else {
-            Vec::new()
-        };
+        let mut chain = Vec::with_capacity(len);
         while sector_id != ENDOFCHAIN {
             chain.extend_from_slice(self.get(sector_id, r)?);
             sector_id = fats[sector_id as usize];
