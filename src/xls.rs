@@ -7,7 +7,6 @@ use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
-use std::marker::PhantomData;
 
 use log::debug;
 
@@ -165,7 +164,8 @@ pub struct Xls<RS> {
     sheets: BTreeMap<String, SheetData>,
     vba: Option<VbaProject>,
     metadata: Metadata,
-    marker: PhantomData<RS>,
+    cfb: Cfb,
+    reader: RS,
     options: XlsOptions,
     formats: Vec<CellFormat>,
     is_1904: bool,
@@ -210,7 +210,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xls = Xls {
             sheets: BTreeMap::new(),
             vba,
-            marker: PhantomData,
+            cfb,
+            reader,
             metadata: Metadata::default(),
             options,
             is_1904: false,
@@ -219,7 +220,7 @@ impl<RS: Read + Seek> Xls<RS> {
             pictures: None,
         };
 
-        xls.parse_workbook(reader, cfb)?;
+        xls.parse_workbook()?;
 
         debug!("xls parsed");
 
@@ -309,11 +310,12 @@ struct Xti {
 }
 
 impl<RS: Read + Seek> Xls<RS> {
-    fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
+    fn parse_workbook(&mut self) -> Result<(), XlsError> {
         // gets workbook and worksheets stream, or early exit
-        let stream = cfb
-            .get_stream("Workbook", &mut reader)
-            .or_else(|_| cfb.get_stream("Book", &mut reader))?;
+        let stream = self
+            .cfb
+            .get_stream("Workbook", &mut self.reader)
+            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))?;
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
