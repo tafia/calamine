@@ -173,6 +173,13 @@ pub struct Xls<RS> {
     pictures: Option<Vec<(String, Vec<u8>)>>,
 }
 
+fn cfb<RS: Seek + Read>(reader: &mut RS) -> Result<Cfb, XlsError> {
+    let offset_end = reader.seek(SeekFrom::End(0))? as usize;
+    reader.seek(SeekFrom::Start(0))?;
+    let cfb = Cfb::new(reader, offset_end)?;
+    Ok(cfb)
+}
+
 impl<RS: Read + Seek> Xls<RS> {
     /// Creates a new instance using `Options` to inform parsing.
     ///
@@ -190,11 +197,7 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # fn main() { assert!(run().is_err()); }
     /// ```
     pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
-        let mut cfb = {
-            let offset_end = reader.seek(SeekFrom::End(0))? as usize;
-            reader.seek(SeekFrom::Start(0))?;
-            Cfb::new(&mut reader, offset_end)?
-        };
+        let mut cfb = cfb(&mut reader)?;
 
         debug!("cfb loaded");
 
