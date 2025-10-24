@@ -335,7 +335,7 @@ fn read_dir_information(stream: &mut &[u8]) -> Result<XlsEncoding, VbaError> {
     *stream = &stream[20..];
 
     // PROJECT Codepage
-    let encoding = XlsEncoding::from_codepage(read_u16(&stream[6..8]))?;
+    let encoding = XlsEncoding::from_codepage(read_u16(&stream[6..8]));
     *stream = &stream[8..];
 
     // PROJECTNAME Record
