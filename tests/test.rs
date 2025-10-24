@@ -169,6 +169,7 @@ fn xls() {
             [Float(3.), String("c".to_string())]
         ]
     );
+    excel.vba_project();
 }
 
 // test ignored because the file is too large to be committed and tested
@@ -395,7 +396,7 @@ fn defined_names_xlsb() {
 
 #[test]
 fn defined_names_xls() {
-    let excel: Xls<_> = wb("issues.xls");
+    let mut excel: Xls<_> = wb("issues.xls");
     let mut defined_names = excel.defined_names().to_vec();
     defined_names.sort();
     assert_eq!(
@@ -406,6 +407,7 @@ fn defined_names_xls() {
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
         ]
     );
+    excel.vba_project();
 }
 
 #[test]
@@ -512,6 +514,7 @@ fn formula_xls() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
+    excel.vba_project();
 }
 
 #[test]
@@ -1639,7 +1642,7 @@ fn any_sheets_xlsb() {
 
 #[test]
 fn any_sheets_xls() {
-    let workbook: Xls<_> = wb("any_sheets.xls");
+    let mut workbook: Xls<_> = wb("any_sheets.xls");
 
     assert_eq!(
         workbook.sheets_metadata(),
@@ -1666,6 +1669,7 @@ fn any_sheets_xls() {
             },
         ]
     );
+    workbook.vba_project();
 }
 
 #[test]

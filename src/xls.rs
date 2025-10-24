@@ -257,6 +257,20 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     }
 
     fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
+        let mut cfb = match cfb(&mut self.reader) {
+            Ok(cfb) => cfb,
+            Err(e) => return Some(Err(e)),
+        };
+        // Reads vba once for all (better than reading all worksheets once for all)
+        let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
+            match VbaProject::from_cfb(&mut self.reader, &mut cfb) {
+                Ok(vba) => Some(vba),
+                Err(e) => return Some(Err(e.into())),
+            }
+        } else {
+            None
+        };
+        assert_eq!(self.vba.as_ref(), vba.as_ref());
         self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
     }
 
