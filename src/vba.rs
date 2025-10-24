@@ -94,7 +94,7 @@ impl VbaProject {
     }
 
     /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
-    pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
+    pub(crate) fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
         let stream = crate::cfb::decompress_stream(&stream)?;
