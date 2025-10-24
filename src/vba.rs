@@ -77,8 +77,7 @@ impl std::error::Error for VbaError {
 }
 
 /// A struct for managing VBA reading
-#[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VbaProject {
     references: Vec<Reference>,
     modules: BTreeMap<String, Vec<u8>>,

@@ -415,7 +415,7 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
     Ok(res)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XlsEncoding {
     encoding: &'static Encoding,
 }
