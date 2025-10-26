@@ -302,7 +302,7 @@ impl<'de> Deserialize<'de> for Data {
             where
                 A: serde::de::MapAccess<'de>,
             {
-                static KIND_FIELD_NAME: &str = "_calamine_data_kind";
+                static TYPE_FIELD_NAME: &str = "_calamine_data_type";
                 static VALUE_FIELD_NAME: &str = "_calamine_data_value";
 
                 #[derive(Deserialize, Debug)]
@@ -320,7 +320,7 @@ impl<'de> Deserialize<'de> for Data {
                     todo!("no fields");
                 };
 
-                if k1 == KIND_FIELD_NAME {
+                if k1 == TYPE_FIELD_NAME {
                     let DataKind::String(ref kind) = v1 else {
                         todo!("invalid identifier kind");
                     };
@@ -336,9 +336,9 @@ impl<'de> Deserialize<'de> for Data {
                     todo!("extra fields");
                 };
 
-                let (kind, data) = if k1 == KIND_FIELD_NAME && k2 == VALUE_FIELD_NAME {
+                let (kind, data) = if k1 == TYPE_FIELD_NAME && k2 == VALUE_FIELD_NAME {
                     (v1, v2)
-                } else if k1 == VALUE_FIELD_NAME && k2 == KIND_FIELD_NAME {
+                } else if k1 == VALUE_FIELD_NAME && k2 == TYPE_FIELD_NAME {
                     (v2, v1)
                 } else {
                     todo!("invalid fields");
