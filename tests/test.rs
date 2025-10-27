@@ -2,6 +2,7 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
+use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
@@ -173,7 +174,35 @@ fn xls() {
             [Float(3.), String("c".to_string())]
         ]
     );
-    excel.vba_project();
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\SysWOW64\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL"
+                    .into(),
+            },
+        ]
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        [
+            "Sheet1",
+            "Sheet2",
+            "Sheet3",
+            "Sheet4",
+            "ThisWorkbook",
+            "testVBA",
+        ]
+    );
 }
 
 // test ignored because the file is too large to be committed and tested
@@ -411,7 +440,35 @@ fn defined_names_xls() {
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
         ]
     );
-    excel.vba_project();
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\SysWOW64\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL"
+                    .into(),
+            },
+        ]
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        [
+            "Sheet1",
+            "Sheet2",
+            "Sheet3",
+            "Sheet4",
+            "ThisWorkbook",
+            "testVBA",
+        ],
+    );
 }
 
 #[test]
@@ -518,7 +575,35 @@ fn formula_xls() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
-    excel.vba_project();
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\SysWOW64\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL"
+                    .into(),
+            },
+        ]
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        [
+            "Sheet1",
+            "Sheet2",
+            "Sheet3",
+            "Sheet4",
+            "ThisWorkbook",
+            "testVBA",
+        ]
+    );
 }
 
 #[test]
@@ -1671,7 +1756,27 @@ fn any_sheets_xls() {
             },
         ]
     );
-    workbook.vba_project();
+    let vba = workbook.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\System32\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL".into(),
+            },
+        ],
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        ["Диаграмма4", "Лист1", "Лист2", "Лист3",],
+    );
 }
 
 #[test]
