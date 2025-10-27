@@ -375,7 +375,7 @@ fn defined_names_xlsx() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             ("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
             ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
@@ -390,7 +390,7 @@ fn defined_names_xlsb() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             ("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
             ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
@@ -405,7 +405,7 @@ fn defined_names_xls() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             ("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
             ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
@@ -421,7 +421,7 @@ fn defined_names_ods() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             (
                 "MyBrokenRange".to_string(),
                 "of:=[Sheet1.#REF!]".to_string(),
@@ -455,7 +455,7 @@ fn search_references() {
     let vba = excel.vba_project().unwrap().unwrap();
     let references = vba.get_references();
     let names = references.iter().map(|r| &*r.name).collect::<Vec<&str>>();
-    assert_eq!(names, vec!["stdole", "Office"]);
+    assert_eq!(names, ["stdole", "Office"]);
 }
 
 #[test]
@@ -1065,7 +1065,7 @@ fn merged_regions_xlsx() {
             .iter()
             .map(|(o1, o2, o3)| (o1.to_string(), o2.to_string(), *o3))
             .collect::<BTreeSet<(String, String, Dimensions)>>(),
-        vec![
+        [
             (
                 "Sheet1".to_string(),
                 "xl/worksheets/sheet1.xml".to_string(),
@@ -1151,7 +1151,7 @@ fn merged_regions_xlsx() {
             .iter()
             .map(|&(o1, o2, o3)| (o1.to_string(), o2.to_string(), *o3))
             .collect::<BTreeSet<(String, String, Dimensions)>>(),
-        vec![
+        [
             (
                 "Sheet1".to_string(),
                 "xl/worksheets/sheet1.xml".to_string(),
@@ -1207,7 +1207,7 @@ fn merged_regions_xlsx() {
             .iter()
             .map(|&(o1, o2, o3)| (o1.to_string(), o2.to_string(), *o3))
             .collect::<BTreeSet<(String, String, Dimensions)>>(),
-        vec![
+        [
             (
                 "Sheet2".to_string(),
                 "xl/worksheets/sheet2.xml".to_string(),
@@ -1351,7 +1351,7 @@ fn issue_305_merge_cells() {
 
     assert_eq!(
         merge_cells,
-        vec![
+        [
             Dimensions::new((0, 0), (0, 1)),
             Dimensions::new((1, 0), (3, 0)),
             Dimensions::new((1, 1), (3, 3))
@@ -1366,7 +1366,7 @@ fn issue_305_merge_cells_xls() {
 
     assert_eq!(
         merge_cells,
-        vec![
+        [
             Dimensions::new((0, 0), (0, 1)),
             Dimensions::new((1, 0), (3, 0)),
             Dimensions::new((1, 1), (3, 3))
