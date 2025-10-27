@@ -201,8 +201,8 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, OdsError>> {
-        None
+    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, OdsError> {
+        Ok(None)
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships

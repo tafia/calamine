@@ -245,16 +245,13 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
+    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, XlsError> {
         // Reads vba once for all (better than reading all worksheets once for all)
-        if self.cfb.has_directory("_VBA_PROJECT_CUR") {
-            match VbaProject::from_cfb(&mut self.reader, &mut self.cfb) {
-                Ok(vba) => Some(Ok(Cow::Owned(vba))),
-                Err(e) => Some(Err(e.into())),
-            }
-        } else {
-            None
+        if !self.cfb.has_directory("_VBA_PROJECT_CUR") {
+            return Ok(None);
         }
+        let vba = VbaProject::from_cfb(&mut self.reader, &mut self.cfb)?;
+        Ok(Some(Cow::Owned(vba)))
     }
 
     /// Parses Workbook stream, no need for the relationships variable

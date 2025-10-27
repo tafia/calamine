@@ -25,7 +25,7 @@ fuzz_target!(|data: &[u8]| {
            range.used_cells().count();
         }
     }
-    if let Some(Ok(mut vba)) = workbook.vba_project() {
+    if let Ok(Some(mut vba)) = workbook.vba_project() {
         let vba = vba.to_mut();
         for module_name in vba.get_module_names() {
             if vba.get_module(module_name).is_ok() {
