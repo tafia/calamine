@@ -1509,14 +1509,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin").ok()?;
+    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, XlsxError> {
+        let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
+            return Ok(None);
+        };
         let len = f.size() as usize;
-        Some(
-            VbaProject::new(&mut f, len)
-                .map(Cow::Owned)
-                .map_err(XlsxError::Vba),
-        )
+        let vba = VbaProject::new(&mut f, len).map_err(XlsxError::Vba)?;
+        Ok(Some(Cow::Owned(vba)))
     }
 
     fn metadata(&self) -> &Metadata {

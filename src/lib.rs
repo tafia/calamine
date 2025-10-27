@@ -31,7 +31,7 @@
 //! }
 //!
 //! // Check if the workbook has a vba project
-//! if let Some(Ok(mut vba)) = workbook.vba_project() {
+//! if let Ok(Some(mut vba)) = workbook.vba_project() {
 //!     let vba = vba.to_mut();
 //!     let module1 = vba.get_module("Module 1").unwrap();
 //!     println!("Module 1 code:");
@@ -284,7 +284,7 @@ where
     fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self;
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>>;
+    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, Self::Error>;
 
     /// Initialize
     fn metadata(&self) -> &Metadata;

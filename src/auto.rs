@@ -108,12 +108,12 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>> {
+    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, Self::Error> {
         match self {
-            Sheets::Xls(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xls)),
-            Sheets::Xlsx(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsx)),
-            Sheets::Xlsb(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsb)),
-            Sheets::Ods(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Ods)),
+            Sheets::Xls(ref mut e) => e.vba_project().map_err(Error::Xls),
+            Sheets::Xlsx(ref mut e) => e.vba_project().map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.vba_project().map_err(Error::Xlsb),
+            Sheets::Ods(ref mut e) => e.vba_project().map_err(Error::Ods),
         }
     }
 
