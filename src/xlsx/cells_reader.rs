@@ -64,7 +64,7 @@ where
                             if let Attribute {
                                 key: QName(b"ref"),
                                 value: rdim,
-                            } = a.map_err(XlsxError::XmlAttr)?
+                            } = a?
                             {
                                 dimensions = get_dimension(&rdim)?;
                                 continue 'xml;

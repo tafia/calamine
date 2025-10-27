@@ -312,7 +312,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             let mut id = Vec::new();
                             let mut format = String::new();
                             for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"numFmtId"),
                                         value: v,
@@ -384,7 +384,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     let mut path = String::new();
                     let mut visible = SheetVisible::Visible;
                     for a in e.attributes() {
-                        let a = a.map_err(XlsxError::XmlAttr)?;
+                        let a = a?;
                         match a {
                             Attribute {
                                 key: QName(b"name"),
@@ -506,7 +506,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     let mut id = Vec::new();
                     let mut target = String::new();
                     for a in e.attributes() {
-                        match a.map_err(XlsxError::XmlAttr)? {
+                        match a? {
                             Attribute {
                                 key: QName(b"Id"),
                                 value: v,
@@ -553,7 +553,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             let mut target = String::new();
                             let mut table_type = false;
                             for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"Id"),
                                         value: v,
@@ -604,7 +604,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"table" => {
                             for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"displayName"),
                                         value: v,
@@ -1510,7 +1510,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             return Ok(None);
         };
         let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len).map_err(XlsxError::Vba)?;
+        let vba = VbaProject::new(&mut f, len)?;
         Ok(Some(Cow::Owned(vba)))
     }
 
@@ -1865,7 +1865,7 @@ where
         match xml.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"mergeCell" => {
                 for attribute in event.attributes() {
-                    let attribute = attribute.map_err(XlsxError::XmlAttr)?;
+                    let attribute = attribute?;
 
                     if attribute.key == QName(b"ref") {
                         let dimensions = get_dimension(&attribute.value)?;

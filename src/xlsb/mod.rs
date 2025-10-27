@@ -91,7 +91,9 @@ pub enum XlsbError {
 from_err!(std::io::Error, XlsbError, Io);
 from_err!(zip::result::ZipError, XlsbError, Zip);
 from_err!(quick_xml::Error, XlsbError, Xml);
+from_err!(quick_xml::events::attributes::AttrError, XlsbError, XmlAttr);
 from_err!(quick_xml::encoding::EncodingError, XlsbError, Encoding);
+from_err!(crate::vba::VbaError, XlsbError, Vba);
 
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -180,7 +182,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                             let mut id = None;
                             let mut target = None;
                             for a in e.attributes() {
-                                match a.map_err(XlsbError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"Id"),
                                         value: v,
@@ -495,7 +497,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             return Ok(None);
         };
         let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len).map_err(XlsbError::Vba)?;
+        let vba = VbaProject::new(&mut f, len)?;
         Ok(Some(Cow::Owned(vba)))
     }
 
