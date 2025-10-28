@@ -158,6 +158,19 @@ fn xlsx() {
 }
 
 #[test]
+fn xlsx_handles_empty_shared_string_item() {
+    let mut excel: Xlsx<_> = wb("issue_si_empty_shared_string.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [
+            [String("c".to_string())],
+            [String("".to_string())]
+        ]
+    );
+}
+
+#[test]
 fn xls() {
     let mut excel: Xls<_> = wb("issues.xls");
     let range = excel.worksheet_range("issue2").unwrap();

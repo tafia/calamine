@@ -279,9 +279,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"si" => {
-                    if let Some(s) = read_string(&mut xml, e.name())? {
-                        self.strings.push(s);
-                    }
+                    let value = read_string(&mut xml, e.name())?;
+                    self.strings.push(value.unwrap_or_default());
                 }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sst" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sst")),
