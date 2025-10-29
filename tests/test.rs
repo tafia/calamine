@@ -2264,3 +2264,16 @@ fn test_xlsb_case_insensitive_part_name() {
 fn test_xlsx_backward_slash_part_name() {
     let _: Xlsx<_> = wb("issue_530.xlsx");
 }
+
+// Test for issue #573 where a shared string doesn't have a <t> sub-element.
+// This is unusual but valid according to the xlsx specification.
+#[test]
+fn test_xlsx_empty_shared_string() {
+    let mut excel: Xlsx<_> = wb("empty_shared_string.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    range_eq!(
+        range,
+        [[String("abc".to_string())], [String("".to_string())]]
+    );
+}

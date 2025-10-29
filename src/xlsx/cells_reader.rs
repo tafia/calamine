@@ -353,9 +353,14 @@ fn read_v<'s>(
     };
     match get_attribute(c_element.attributes(), QName(b"t"))? {
         Some(b"s") => {
-            // shared string
+            // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
-            Ok(DataRef::SharedString(&strings[idx]))
+            match strings.get(idx) {
+                Some(shared_string) => Ok(DataRef::SharedString(shared_string)),
+                None => Err(XlsxError::Unexpected(
+                    "Cell string index not found in shared strings table",
+                )),
+            }
         }
         Some(b"b") => {
             // boolean
