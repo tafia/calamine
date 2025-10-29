@@ -1807,6 +1807,12 @@ where
                 is_phonetic_text = true;
             }
             Ok(Event::End(ref e)) if e.name() == closing => {
+                if rich_buffer.is_none() {
+                    // An empty <s></s> element, without <t> or other
+                    // subelements, is treated as a valid empty string in Excel.
+                    rich_buffer = Some(String::new());
+                }
+
                 return Ok(rich_buffer);
             }
             Ok(Event::End(ref e)) if e.local_name().as_ref() == b"rPh" => {
