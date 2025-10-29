@@ -126,9 +126,9 @@ fn issue_9() {
 #[test]
 fn vba() {
     let mut excel: Xlsx<_> = wb("vba.xlsm");
-    let mut vba = excel.vba_project().unwrap().unwrap();
+    let vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
-        vba.to_mut().get_module("testVBA").unwrap(),
+        vba.get_module("testVBA").unwrap(),
         "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
          vba!\"\r\nEnd Sub\r\n"
     );
@@ -1651,9 +1651,9 @@ fn issue334_xls_values_string() {
 fn issue281_vba() {
     let mut excel: Xlsx<_> = wb("issue281.xlsm");
 
-    let mut vba = excel.vba_project().unwrap().unwrap();
+    let vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
-        vba.to_mut().get_module("testVBA").unwrap(),
+        vba.get_module("testVBA").unwrap(),
         "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
          vba!\"\r\nEnd Sub\r\n"
     );

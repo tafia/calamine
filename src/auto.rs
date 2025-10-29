@@ -10,7 +10,6 @@ use crate::{
     open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
     ReaderRef, Xls, Xlsb, Xlsx,
 };
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -106,7 +105,7 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, Self::Error> {
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, Self::Error> {
         match self {
             Sheets::Xls(ref mut e) => e.vba_project().map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.vba_project().map_err(Error::Xlsx),
