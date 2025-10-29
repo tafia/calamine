@@ -2,6 +2,7 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
+use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
@@ -121,9 +122,9 @@ fn issue_9() {
 #[test]
 fn vba() {
     let mut excel: Xlsx<_> = wb("vba.xlsm");
-    let mut vba = excel.vba_project().unwrap().unwrap();
+    let vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
-        vba.to_mut().get_module("testVBA").unwrap(),
+        vba.get_module("testVBA").unwrap(),
         "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
          vba!\"\r\nEnd Sub\r\n"
     );
@@ -167,6 +168,35 @@ fn xls() {
             [Float(1.), String("a".to_string())],
             [Float(2.), String("b".to_string())],
             [Float(3.), String("c".to_string())]
+        ]
+    );
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\SysWOW64\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL"
+                    .into(),
+            },
+        ]
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        [
+            "Sheet1",
+            "Sheet2",
+            "Sheet3",
+            "Sheet4",
+            "ThisWorkbook",
+            "testVBA",
         ]
     );
 }
@@ -370,7 +400,7 @@ fn defined_names_xlsx() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             ("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
             ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
@@ -385,7 +415,7 @@ fn defined_names_xlsb() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             ("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
             ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
@@ -395,16 +425,45 @@ fn defined_names_xlsb() {
 
 #[test]
 fn defined_names_xls() {
-    let excel: Xls<_> = wb("issues.xls");
+    let mut excel: Xls<_> = wb("issues.xls");
     let mut defined_names = excel.defined_names().to_vec();
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             ("MyBrokenRange".to_string(), "Sheet1!#REF!".to_string()),
             ("MyDataTypes".to_string(), "datatypes!$A$1:$A$6".to_string()),
             ("OneRange".to_string(), "Sheet1!$A$1".to_string()),
         ]
+    );
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\SysWOW64\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL"
+                    .into(),
+            },
+        ]
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        [
+            "Sheet1",
+            "Sheet2",
+            "Sheet3",
+            "Sheet4",
+            "ThisWorkbook",
+            "testVBA",
+        ],
     );
 }
 
@@ -415,7 +474,7 @@ fn defined_names_ods() {
     defined_names.sort();
     assert_eq!(
         defined_names,
-        vec![
+        [
             (
                 "MyBrokenRange".to_string(),
                 "of:=[Sheet1.#REF!]".to_string(),
@@ -449,7 +508,7 @@ fn search_references() {
     let vba = excel.vba_project().unwrap().unwrap();
     let references = vba.get_references();
     let names = references.iter().map(|r| &*r.name).collect::<Vec<&str>>();
-    assert_eq!(names, vec!["stdole", "Office"]);
+    assert_eq!(names, ["stdole", "Office"]);
 }
 
 #[test]
@@ -512,6 +571,35 @@ fn formula_xls() {
 
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     range_eq!(formula, [["B1+OneRange".to_string()]]);
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\SysWOW64\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL"
+                    .into(),
+            },
+        ]
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        [
+            "Sheet1",
+            "Sheet2",
+            "Sheet3",
+            "Sheet4",
+            "ThisWorkbook",
+            "testVBA",
+        ]
+    );
 }
 
 #[test]
@@ -1059,7 +1147,7 @@ fn merged_regions_xlsx() {
             .iter()
             .map(|(o1, o2, o3)| (o1.to_string(), o2.to_string(), *o3))
             .collect::<BTreeSet<(String, String, Dimensions)>>(),
-        vec![
+        [
             (
                 "Sheet1".to_string(),
                 "xl/worksheets/sheet1.xml".to_string(),
@@ -1145,7 +1233,7 @@ fn merged_regions_xlsx() {
             .iter()
             .map(|&(o1, o2, o3)| (o1.to_string(), o2.to_string(), *o3))
             .collect::<BTreeSet<(String, String, Dimensions)>>(),
-        vec![
+        [
             (
                 "Sheet1".to_string(),
                 "xl/worksheets/sheet1.xml".to_string(),
@@ -1201,7 +1289,7 @@ fn merged_regions_xlsx() {
             .iter()
             .map(|&(o1, o2, o3)| (o1.to_string(), o2.to_string(), *o3))
             .collect::<BTreeSet<(String, String, Dimensions)>>(),
-        vec![
+        [
             (
                 "Sheet2".to_string(),
                 "xl/worksheets/sheet2.xml".to_string(),
@@ -1345,7 +1433,7 @@ fn issue_305_merge_cells() {
 
     assert_eq!(
         merge_cells,
-        vec![
+        [
             Dimensions::new((0, 0), (0, 1)),
             Dimensions::new((1, 0), (3, 0)),
             Dimensions::new((1, 1), (3, 3))
@@ -1360,7 +1448,7 @@ fn issue_305_merge_cells_xls() {
 
     assert_eq!(
         merge_cells,
-        vec![
+        [
             Dimensions::new((0, 0), (0, 1)),
             Dimensions::new((1, 0), (3, 0)),
             Dimensions::new((1, 1), (3, 3))
@@ -1561,9 +1649,9 @@ fn issue334_xls_values_string() {
 fn issue281_vba() {
     let mut excel: Xlsx<_> = wb("issue281.xlsm");
 
-    let mut vba = excel.vba_project().unwrap().unwrap();
+    let vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
-        vba.to_mut().get_module("testVBA").unwrap(),
+        vba.get_module("testVBA").unwrap(),
         "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
          vba!\"\r\nEnd Sub\r\n"
     );
@@ -1639,7 +1727,7 @@ fn any_sheets_xlsb() {
 
 #[test]
 fn any_sheets_xls() {
-    let workbook: Xls<_> = wb("any_sheets.xls");
+    let mut workbook: Xls<_> = wb("any_sheets.xls");
 
     assert_eq!(
         workbook.sheets_metadata(),
@@ -1665,6 +1753,27 @@ fn any_sheets_xls() {
                 visible: SheetVisible::Visible
             },
         ]
+    );
+    let vba = workbook.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\Windows\\System32\\stdole2.tlb".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 16.0 Object Library".to_string(),
+                path: "C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL".into(),
+            },
+        ],
+    );
+    assert_eq!(
+        vba.get_module_names(),
+        ["Диаграмма4", "Лист1", "Лист2", "Лист3",],
     );
 }
 

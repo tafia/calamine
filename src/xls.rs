@@ -2,12 +2,10 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
-use std::marker::PhantomData;
 
 use log::debug;
 
@@ -163,14 +161,21 @@ struct SheetData {
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
     sheets: BTreeMap<String, SheetData>,
-    vba: Option<VbaProject>,
     metadata: Metadata,
-    marker: PhantomData<RS>,
+    cfb: Cfb,
+    reader: RS,
     options: XlsOptions,
     formats: Vec<CellFormat>,
     is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+}
+
+fn cfb<RS: Seek + Read>(reader: &mut RS) -> Result<Cfb, XlsError> {
+    let offset_end = reader.seek(SeekFrom::End(0))? as usize;
+    reader.seek(SeekFrom::Start(0))?;
+    let cfb = Cfb::new(reader, offset_end)?;
+    Ok(cfb)
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -190,27 +195,14 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # fn main() { assert!(run().is_err()); }
     /// ```
     pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
-        let mut cfb = {
-            let offset_end = reader.seek(SeekFrom::End(0))? as usize;
-            reader.seek(SeekFrom::Start(0))?;
-            Cfb::new(&mut reader, offset_end)?
-        };
+        let cfb = cfb(&mut reader)?;
 
         debug!("cfb loaded");
 
-        // Reads vba once for all (better than reading all worksheets once for all)
-        let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
-        } else {
-            None
-        };
-
-        debug!("vba ok");
-
         let mut xls = Xls {
             sheets: BTreeMap::new(),
-            vba,
-            marker: PhantomData,
+            cfb,
+            reader,
             metadata: Metadata::default(),
             options,
             is_1904: false,
@@ -219,7 +211,7 @@ impl<RS: Read + Seek> Xls<RS> {
             pictures: None,
         };
 
-        xls.parse_workbook(reader, cfb)?;
+        xls.parse_workbook()?;
 
         debug!("xls parsed");
 
@@ -252,8 +244,13 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
-        self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsError> {
+        // Reads vba once for all (better than reading all worksheets once for all)
+        if !self.cfb.has_directory("_VBA_PROJECT_CUR") {
+            return Ok(None);
+        }
+        let vba = VbaProject::from_cfb(&mut self.reader, &mut self.cfb)?;
+        Ok(Some(vba))
     }
 
     /// Parses Workbook stream, no need for the relationships variable
@@ -309,11 +306,12 @@ struct Xti {
 }
 
 impl<RS: Read + Seek> Xls<RS> {
-    fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
+    fn parse_workbook(&mut self) -> Result<(), XlsError> {
         // gets workbook and worksheets stream, or early exit
-        let stream = cfb
-            .get_stream("Workbook", &mut reader)
-            .or_else(|_| cfb.get_stream("Book", &mut reader))?;
+        let stream = self
+            .cfb
+            .get_stream("Workbook", &mut self.reader)
+            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))?;
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();

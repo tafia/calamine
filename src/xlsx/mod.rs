@@ -60,7 +60,7 @@ pub enum XlsxError {
     Xml(quick_xml::Error),
 
     /// A wrapper for a variety of [`quick_xml::events::attributes::AttrError`]
-    /// errors related to missing attributes in XML elements.
+    /// errors related to attributes in XML elements.
     XmlAttr(quick_xml::events::attributes::AttrError),
 
     /// A wrapper for a variety of [`std::string::ParseError`] errors when
@@ -135,10 +135,6 @@ pub enum XlsxError {
     /// A wrapper for a variety of [`quick_xml::encoding::EncodingError`]
     /// encoding errors.
     Encoding(quick_xml::encoding::EncodingError),
-
-    /// A wrapper for a variety of [`quick_xml::events::attributes::AttrError`]
-    /// errors related to XML attributes.
-    XmlAttribute(quick_xml::events::attributes::AttrError),
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -149,11 +145,7 @@ from_err!(std::string::ParseError, XlsxError, Parse);
 from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
 from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 from_err!(quick_xml::encoding::EncodingError, XlsxError, Encoding);
-from_err!(
-    quick_xml::events::attributes::AttrError,
-    XlsxError,
-    XmlAttribute
-);
+from_err!(quick_xml::events::attributes::AttrError, XlsxError, XmlAttr);
 
 impl std::fmt::Display for XlsxError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -196,7 +188,6 @@ impl std::fmt::Display for XlsxError {
             XlsxError::TableNotFound(n) => write!(f, "Table '{n}' not found"),
             XlsxError::NotAWorksheet(typ) => write!(f, "Expecting a worksheet, got {typ}"),
             XlsxError::Encoding(e) => write!(f, "XML encoding error: {e}"),
-            XlsxError::XmlAttribute(e) => write!(f, "XML attribute error: {e}"),
         }
     }
 }
@@ -212,7 +203,6 @@ impl std::error::Error for XlsxError {
             XlsxError::ParseInt(e) => Some(e),
             XlsxError::ParseFloat(e) => Some(e),
             XlsxError::Encoding(e) => Some(e),
-            XlsxError::XmlAttribute(e) => Some(e),
             _ => None,
         }
     }
@@ -312,7 +302,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             let mut id = Vec::new();
                             let mut format = String::new();
                             for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"numFmtId"),
                                         value: v,
@@ -384,7 +374,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     let mut path = String::new();
                     let mut visible = SheetVisible::Visible;
                     for a in e.attributes() {
-                        let a = a.map_err(XlsxError::XmlAttr)?;
+                        let a = a?;
                         match a {
                             Attribute {
                                 key: QName(b"name"),
@@ -510,7 +500,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     let mut id = Vec::new();
                     let mut target = String::new();
                     for a in e.attributes() {
-                        match a.map_err(XlsxError::XmlAttr)? {
+                        match a? {
                             Attribute {
                                 key: QName(b"Id"),
                                 value: v,
@@ -557,7 +547,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             let mut target = String::new();
                             let mut table_type = false;
                             for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"Id"),
                                         value: v,
@@ -608,7 +598,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"table" => {
                             for a in e.attributes() {
-                                match a.map_err(XlsxError::XmlAttr)? {
+                                match a? {
                                     Attribute {
                                         key: QName(b"displayName"),
                                         value: v,
@@ -1509,14 +1499,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsxError>> {
-        let mut f = self.zip.by_name("xl/vbaProject.bin").ok()?;
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsxError> {
+        let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
+            return Ok(None);
+        };
         let len = f.size() as usize;
-        Some(
-            VbaProject::new(&mut f, len)
-                .map(Cow::Owned)
-                .map_err(XlsxError::Vba),
-        )
+        let vba = VbaProject::new(&mut f, len)?;
+        Ok(Some(vba))
     }
 
     fn metadata(&self) -> &Metadata {
@@ -1864,7 +1853,7 @@ where
         match xml.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"mergeCell" => {
                 for attribute in event.attributes() {
-                    let attribute = attribute.map_err(XlsxError::XmlAttr)?;
+                    let attribute = attribute?;
 
                     if attribute.key == QName(b"ref") {
                         let dimensions = get_dimension(&attribute.value)?;

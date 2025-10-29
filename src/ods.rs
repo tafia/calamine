@@ -10,7 +10,6 @@
 ///
 /// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 ///
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
@@ -86,7 +85,7 @@ from_err!(zip::result::ZipError, OdsError, Zip);
 from_err!(quick_xml::Error, OdsError, Xml);
 from_err!(std::string::ParseError, OdsError, Parse);
 from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
-from_err!(quick_xml::events::attributes::AttrError, OdsError, Xml);
+from_err!(quick_xml::events::attributes::AttrError, OdsError, XmlAttr);
 from_err!(quick_xml::encoding::EncodingError, OdsError, Xml);
 
 impl std::fmt::Display for OdsError {
@@ -201,8 +200,8 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, OdsError>> {
-        None
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, OdsError> {
+        Ok(None)
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
@@ -564,7 +563,7 @@ where
             {
                 let mut repeats = 1;
                 for a in e.attributes() {
-                    let a = a.map_err(OdsError::XmlAttr)?;
+                    let a = a?;
                     if a.key == QName(b"table:number-columns-repeated") {
                         repeats = reader
                             .decoder()
@@ -624,7 +623,7 @@ where
     let mut val = Data::Empty;
     let mut formula = String::new();
     for a in atts {
-        let a = a.map_err(OdsError::XmlAttr)?;
+        let a = a?;
         match a.key {
             QName(b"office:value") if !is_value_set => {
                 let v = reader.decoder().decode(&a.value)?;
@@ -737,7 +736,7 @@ where
                 let mut name = String::new();
                 let mut formula = String::new();
                 for a in e.attributes() {
-                    let a = a.map_err(OdsError::XmlAttr)?;
+                    let a = a?;
                     match a.key {
                         QName(b"table:name") => {
                             name = a

@@ -96,17 +96,13 @@ fn analyze(file: &PathBuf) -> Result<(Option<usize>, usize), FileStatus> {
     let mut num_missing_vba_refs = None;
 
     // Check if the workbook has a VBA project and count missing references.
-    match workbook.vba_project() {
-        Some(Ok(vba)) => {
-            num_missing_vba_refs = Some(
-                vba.get_references()
-                    .iter()
-                    .filter(|r| r.is_missing())
-                    .count(),
-            );
-        }
-        Some(Err(e)) => return Err(FileStatus::VbaError(e)),
-        None => (),
+    if let Some(vba) = workbook.vba_project().map_err(FileStatus::VbaError)? {
+        num_missing_vba_refs = Some(
+            vba.get_references()
+                .iter()
+                .filter(|r| r.is_missing())
+                .count(),
+        );
     }
 
     // Iterate through all sheets and count cell errors.
