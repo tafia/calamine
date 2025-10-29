@@ -1499,13 +1499,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, XlsxError> {
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsxError> {
         let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
             return Ok(None);
         };
         let len = f.size() as usize;
         let vba = VbaProject::new(&mut f, len)?;
-        Ok(Some(Cow::Owned(vba)))
+        Ok(Some(vba))
     }
 
     fn metadata(&self) -> &Metadata {

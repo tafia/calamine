@@ -2,7 +2,6 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
@@ -245,13 +244,13 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, XlsError> {
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsError> {
         // Reads vba once for all (better than reading all worksheets once for all)
         if !self.cfb.has_directory("_VBA_PROJECT_CUR") {
             return Ok(None);
         }
         let vba = VbaProject::from_cfb(&mut self.reader, &mut self.cfb)?;
-        Ok(Some(Cow::Owned(vba)))
+        Ok(Some(vba))
     }
 
     /// Parses Workbook stream, no need for the relationships variable

@@ -10,7 +10,6 @@
 ///
 /// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 ///
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
@@ -201,7 +200,7 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Result<Option<Cow<'_, VbaProject>>, OdsError> {
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, OdsError> {
         Ok(None)
     }
 
