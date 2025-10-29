@@ -58,7 +58,7 @@ where
         'xml: loop {
             buf.clear();
             match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
-                Event::Start(ref e) => match e.local_name().as_ref() {
+                Event::Start(e) => match e.local_name().as_ref() {
                     b"dimension" => {
                         for a in e.attributes() {
                             if let Attribute {
@@ -111,20 +111,18 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(ref row_element))
-                    if row_element.local_name().as_ref() == b"row" =>
-                {
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
                     if let Some(range) = attribute {
                         let row = get_row(range)?;
                         self.row_index = row;
                     }
                 }
-                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
                     let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
                     let pos = if let Some(range) = attribute {
                         let (row, col) = get_row_column(range)?;
@@ -137,17 +135,17 @@ where
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
-                            Ok(Event::Start(ref e)) => {
+                            Ok(Event::Start(e)) => {
                                 value = read_value(
                                     self.strings,
                                     self.formats,
                                     self.is_1904,
                                     &mut self.xml,
-                                    e,
-                                    c_element,
+                                    &e,
+                                    &c_element,
                                 )?;
                             }
-                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -156,7 +154,7 @@ where
                     self.col_index += 1;
                     return Ok(Some(Cell::new(pos, value)));
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -170,20 +168,18 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(ref row_element))
-                    if row_element.local_name().as_ref() == b"row" =>
-                {
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
                     if let Some(range) = attribute {
                         let row = get_row(range)?;
                         self.row_index = row;
                     }
                 }
-                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
                     let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
                     let pos = if let Some(range) = attribute {
                         let (row, col) = get_row_column(range)?;
@@ -196,8 +192,8 @@ where
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
-                            Ok(Event::Start(ref e)) => {
-                                let formula = read_formula(&mut self.xml, e)?;
+                            Ok(Event::Start(e)) => {
+                                let formula = read_formula(&mut self.xml, &e)?;
                                 if let Some(f) = formula.borrow() {
                                     value = Some(f.clone());
                                 }
@@ -264,7 +260,7 @@ where
                                     }
                                 }
                             }
-                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -273,7 +269,7 @@ where
                     self.col_index += 1;
                     return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
