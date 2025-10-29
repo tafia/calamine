@@ -276,12 +276,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"si" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"si" => {
                     if let Some(s) = read_string(&mut xml, e.name())? {
                         self.strings.push(s);
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sst" => break,
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sst" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sst")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
@@ -303,10 +303,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"numFmts" => loop {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"numFmts" => loop {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"numFmt" => {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"numFmt" => {
                             let mut id = Vec::new();
                             let mut format = String::new();
                             for a in e.attributes() {
@@ -326,16 +326,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 number_formats.insert(id, format);
                             }
                         }
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"numFmts" => break,
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"numFmts" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("numFmts")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
                     }
                 },
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => loop {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"cellXfs" => loop {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"xf" => {
                             self.formats.push(
                                 e.attributes()
                                     .filter_map(|a| a.ok())
@@ -348,13 +348,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     }),
                             );
                         }
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
                     }
                 },
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"styleSheet" => break,
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"styleSheet" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("styleSheet")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
@@ -377,7 +377,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheet" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"sheet" => {
                     let mut name = String::new();
                     let mut path = String::new();
                     let mut visible = SheetVisible::Visible;
@@ -445,7 +445,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     });
                     self.sheets.push((name, path));
                 }
-                Ok(Event::Start(ref e)) if e.name().as_ref() == b"workbookPr" => {
+                Ok(Event::Start(e)) if e.name().as_ref() == b"workbookPr" => {
                     self.is_1904 = match e.try_get_attribute("date1904")? {
                         Some(c) => ["1", "true"].contains(
                             &c.decode_and_unescape_value(xml.decoder())
@@ -455,7 +455,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         None => false,
                     };
                 }
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"definedName" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"definedName" => {
                     if let Some(a) = e
                         .attributes()
                         .filter_map(std::result::Result::ok)
@@ -476,7 +476,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         defined_names.push((name, value));
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"workbook" => break,
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"workbook" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("workbook")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
@@ -500,7 +500,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                     let mut id = Vec::new();
                     let mut target = String::new();
                     for a in e.attributes() {
@@ -518,7 +518,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                     relationships.insert(id, target);
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"Relationships" => break,
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
@@ -546,7 +546,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 loop {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                             let mut id = Vec::new();
                             let mut target = String::new();
                             let mut table_type = false;
@@ -581,9 +581,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
                         }
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"Relationships" => {
-                            break
-                        }
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
@@ -600,7 +598,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 loop {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"table" => {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"table" => {
                             for a in e.attributes() {
                                 match a? {
                                     Attribute {
@@ -639,7 +637,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
                         }
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"tableColumn" => {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"tableColumn" => {
                             for a in e.attributes().flatten() {
                                 if let Attribute {
                                     key: QName(b"name"),
@@ -650,7 +648,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
                         }
-                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"table" => break,
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"table" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("Table")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
@@ -721,7 +719,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 loop {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.local_name() == QName(b"mergeCell").into() => {
+                        Ok(Event::Start(e)) if e.local_name() == QName(b"mergeCell").into() => {
                             if let Some(attr) = get_attribute(e.attributes(), QName(b"ref"))? {
                                 let dimension = get_dimension(attr)?;
                                 regions.push((
@@ -1790,16 +1788,16 @@ where
     loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"r" => {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
                 if rich_buffer.is_none() {
                     // use a buffer since richtext has multiples <r> and <t> for the same cell
                     rich_buffer = Some(String::new());
                 }
             }
-            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"rPh" => {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = true;
             }
-            Ok(Event::End(ref e)) if e.name() == closing => {
+            Ok(Event::End(e)) if e.name() == closing => {
                 if rich_buffer.is_none() {
                     // An empty <s></s> element, without <t> or other
                     // subelements, is treated as a valid empty string in Excel.
@@ -1808,10 +1806,10 @@ where
 
                 return Ok(rich_buffer);
             }
-            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"rPh" => {
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = false;
             }
-            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
                 val_buf.clear();
                 let mut value = String::new();
                 loop {
@@ -1823,7 +1821,7 @@ where
                         _ => (),
                     }
                 }
-                if let Some(ref mut s) = rich_buffer {
+                if let Some(s) = &mut rich_buffer {
                     s.push_str(&value);
                 } else {
                     // consume any remaining events up to expected closing tag
