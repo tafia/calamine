@@ -609,7 +609,7 @@ fn parse_sheet_metadata(
     r.data = &r.data[6..];
     let mut name = parse_short_string(r, encoding, biff)?;
     name.retain(|c| c != '\0');
-    Ok((pos, Sheet { name, visible, typ }))
+    Ok((pos, Sheet { name, typ, visible }))
 }
 
 fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
