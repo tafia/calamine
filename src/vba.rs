@@ -404,7 +404,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         loop {
             *stream = &stream[4..]; // reserved
             match stream.read_u16::<LittleEndian>() {
-                Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
+                Ok(0x0025 /* readonly */ | 0x0028 /* private */) => (),
                 Ok(0x002B) => break,
                 Ok(e) => return Err(VbaError::Unknown { typ: "record id", val: e }),
                 Err(e) => return Err(VbaError::Io(e)),
@@ -451,12 +451,12 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaE
 fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
     debug!("check record {id:x}");
     let record_id = r.read_u16::<LittleEndian>()?;
-    if record_id != id {
+    if record_id == id {
+        Ok(())
+    } else {
         Err(VbaError::InvalidRecordId {
             expected: id,
             found: record_id,
         })
-    } else {
-        Ok(())
     }
 }

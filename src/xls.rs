@@ -609,7 +609,7 @@ fn parse_sheet_metadata(
     r.data = &r.data[6..];
     let mut name = parse_short_string(r, encoding, biff)?;
     name.retain(|c| c != '\0');
-    Ok((pos, Sheet { name, visible, typ }))
+    Ok((pos, Sheet { name, typ, visible }))
 }
 
 fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
@@ -791,7 +791,7 @@ fn parse_short_string(
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
     let (mut high_byte, expected) = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
-        _ => (Some(false), 3),
+        Biff::Biff8 => (Some(false), 3),
     };
     if r.len() < expected {
         if 2 == r.len() && read_u16(r) == 0 {
@@ -1166,12 +1166,12 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
             f.push('$');
             push_column(read_u16(&rgce[7..9]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[3..5]) as u32 + 1));
+            write!(&mut f, "{}", read_u16(&rgce[3..5]) as u32 + 1).unwrap();
             f.push(':');
             f.push('$');
             push_column(read_u16(&rgce[9..11]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[5..7]) as u32 + 1));
+            write!(&mut f, "{}", read_u16(&rgce[5..7]) as u32 + 1).unwrap();
             (Some(ixti), f)
         }
         0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
