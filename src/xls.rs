@@ -791,7 +791,7 @@ fn parse_short_string(
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
     let (mut high_byte, expected) = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
-        _ => (Some(false), 3),
+        Biff::Biff8 => (Some(false), 3),
     };
     if r.len() < expected {
         if 2 == r.len() && read_u16(r) == 0 {
