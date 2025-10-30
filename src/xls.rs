@@ -1166,12 +1166,12 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
             f.push('$');
             push_column(read_u16(&rgce[7..9]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[3..5]) as u32 + 1));
+            write!(&mut f, "{}", read_u16(&rgce[3..5]) as u32 + 1).unwrap();
             f.push(':');
             f.push('$');
             push_column(read_u16(&rgce[9..11]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[5..7]) as u32 + 1));
+            write!(&mut f, "{}", read_u16(&rgce[5..7]) as u32 + 1).unwrap();
             (Some(ixti), f)
         }
         0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
