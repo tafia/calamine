@@ -36,10 +36,8 @@ where
 {
     let path = path.as_ref();
     Ok(match path.extension().and_then(|e| e.to_str()) {
-        Some("xls") | Some("xla") => Sheets::Xls(open_workbook(path).map_err(Error::Xls)?),
-        Some("xlsx") | Some("xlsm") | Some("xlam") => {
-            Sheets::Xlsx(open_workbook(path).map_err(Error::Xlsx)?)
-        }
+        Some("xls" | "xla") => Sheets::Xls(open_workbook(path).map_err(Error::Xls)?),
+        Some("xlsx" | "xlsm" | "xlam") => Sheets::Xlsx(open_workbook(path).map_err(Error::Xlsx)?),
         Some("xlsb") => Sheets::Xlsb(open_workbook(path).map_err(Error::Xlsb)?),
         Some("ods") => Sheets::Ods(open_workbook(path).map_err(Error::Ods)?),
         _ => {
