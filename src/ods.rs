@@ -480,9 +480,8 @@ fn get_range<T: Default + Clone + PartialEq>(
             }
         }
     }
-    let row_min = match row_min {
-        Some(min) => min,
-        _ => return Range::default(),
+    let Some(row_min) = row_min else {
+        return Range::default();
     };
 
     // rebuild cells into its smallest non empty area
