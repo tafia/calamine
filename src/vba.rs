@@ -451,12 +451,12 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaE
 fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
     debug!("check record {id:x}");
     let record_id = r.read_u16::<LittleEndian>()?;
-    if record_id != id {
+    if record_id == id {
+        Ok(())
+    } else {
         Err(VbaError::InvalidRecordId {
             expected: id,
             found: record_id,
         })
-    } else {
-        Ok(())
     }
 }
