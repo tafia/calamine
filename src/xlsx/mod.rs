@@ -410,11 +410,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
                             Attribute {
-                                key: QName(b"r:id"),
-                                value: v,
-                            }
-                            | Attribute {
-                                key: QName(b"relationships:id"),
+                                key: QName(b"r:id" | b"relationships:id"),
                                 value: v,
                             } => {
                                 let r = &relationships

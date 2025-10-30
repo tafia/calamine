@@ -404,7 +404,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         loop {
             *stream = &stream[4..]; // reserved
             match stream.read_u16::<LittleEndian>() {
-                Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
+                Ok(0x0025 /* readonly */ | 0x0028 /* private */) => (),
                 Ok(0x002B) => break,
                 Ok(e) => return Err(VbaError::Unknown { typ: "record id", val: e }),
                 Err(e) => return Err(VbaError::Io(e)),
