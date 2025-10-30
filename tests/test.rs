@@ -2264,3 +2264,25 @@ fn test_xlsb_case_insensitive_part_name() {
 fn test_xlsx_backward_slash_part_name() {
     let _: Xlsx<_> = wb("issue_530.xlsx");
 }
+
+#[test]
+fn test_high_byte_strings() {
+    // file contains as well as record types that do not seem to be present in the spec
+    let mut xls: Xls<_> = wb("high_byte_string.xls");
+    for (_name, ws) in xls.worksheets() {
+        for (row, _col, cell) in ws.used_cells() {
+            if row == 3 {
+                assert_eq!(
+                    cell.as_string().unwrap(),
+                    "Inside FERC's Gas Market Report monthly bidweek price file.  "
+                );
+            }
+        }
+    }
+    // FIXME: Libreoffice recognizes a REPT("O", I44) formula
+    let formulas = xls.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(
+        "Unrecognised formula for cell (43, 9): Unrecognized { typ: \"ptg\", val: 192 }",
+        formulas.get_value((43, 9)).unwrap()
+    );
+}
