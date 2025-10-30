@@ -339,15 +339,17 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                 if style_name.is_some() && e.name() == QName(b"style:table-properties") =>
             {
                 let visible = match e.try_get_attribute(b"table:display")? {
-                    Some(a) => match a
-                        .decode_and_unescape_value(reader.decoder())
-                        .map_err(OdsError::Xml)?
-                        .parse()
-                        .map_err(OdsError::ParseBool)?
-                    {
-                        true => SheetVisible::Visible,
-                        false => SheetVisible::Hidden,
-                    },
+                    Some(a) => {
+                        if a.decode_and_unescape_value(reader.decoder())
+                            .map_err(OdsError::Xml)?
+                            .parse()
+                            .map_err(OdsError::ParseBool)?
+                        {
+                            SheetVisible::Visible
+                        } else {
+                            SheetVisible::Hidden
+                        }
+                    }
                     None => SheetVisible::Visible,
                 };
                 styles.insert(style_name.clone(), visible);
