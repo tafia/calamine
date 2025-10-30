@@ -2201,6 +2201,15 @@ fn test_oom_allocation() {
     let ws = xls.worksheets();
     assert_eq!(ws.len(), 1);
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
+
+    let path = test_path("OOM_alloc3.xls");
+    assert!(
+        matches!(
+            open_workbook::<Xls<_>, _>(path),
+            Err(calamine::XlsError::Cfb(_))
+        ),
+        "Is expected to return XlsError::Cfb error"
+    );
 }
 
 // Test for issue #548. The SST table in the test file has an incorrect unique
