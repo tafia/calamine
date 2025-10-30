@@ -17,12 +17,16 @@ use std::sync::Once;
 
 static INIT: Once = Once::new();
 
+fn test_path(name: &str) -> std::string::String {
+    format!("tests/{name}")
+}
+
 /// Setup function that is only run once, even if called multiple times.
 fn wb<R: Reader<BufReader<File>>>(name: &str) -> R {
     INIT.call_once(|| {
         env_logger::init();
     });
-    let path = format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
+    let path = test_path(name);
     open_workbook(&path).expect(&path)
 }
 
@@ -551,16 +555,15 @@ fn issue_120() {
 
 #[test]
 fn issue_127() {
-    let root = env!("CARGO_MANIFEST_DIR");
-    let ordered_names: Vec<std::string::String> = [
+    let ordered_names: Vec<_> = [
         "Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8",
     ]
     .iter()
-    .map(|&s| s.to_owned())
+    .map(|&s| s.to_string())
     .collect();
 
     for ext in &["ods", "xls", "xlsx", "xlsb"] {
-        let p = format!("{root}/tests/issue127.{ext}");
+        let p = test_path(&format!("issue127.{ext}"));
         let workbook = open_workbook_auto(&p).expect(&p);
         assert_eq!(
             workbook.sheet_names(),
@@ -1380,9 +1383,8 @@ fn digest(data: &[u8]) -> [u8; 32] {
 #[test]
 #[cfg(feature = "picture")]
 fn pictures() -> Result<(), calamine::Error> {
-    let path = |name: &str| format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"));
-    let jpg_path = path("picture.jpg");
-    let png_path = path("picture.png");
+    let jpg_path = test_path("picture.jpg");
+    let png_path = test_path("picture.png");
 
     let xlsx_path = "picture.xlsx";
     let xlsb_path = "picture.xlsb";
@@ -1703,10 +1705,10 @@ fn any_sheets_ods() {
 
 #[test]
 fn issue_102() {
-    let path = format!("{}/tests/pass_protected.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let path = test_path("pass_protected.xlsx");
     assert!(
         matches!(
-            open_workbook::<Xlsx<_>, std::string::String>(path),
+            open_workbook::<Xlsx<_>, _>(path),
             Err(calamine::XlsxError::Password)
         ),
         "Is expected to return XlsxError::Password error"
@@ -1730,10 +1732,10 @@ fn issue_374() {
 
 #[test]
 fn issue_385() {
-    let path = format!("{}/tests/issue_385.xls", env!("CARGO_MANIFEST_DIR"));
+    let path = test_path("issue_385.xls");
     assert!(
         matches!(
-            open_workbook::<Xls<_>, std::string::String>(path),
+            open_workbook::<Xls<_>, _>(path),
             Err(calamine::XlsError::Password)
         ),
         "Is expected to return XlsError::Password error"
@@ -1742,10 +1744,10 @@ fn issue_385() {
 
 #[test]
 fn pass_protected_xlsb() {
-    let path = format!("{}/tests/pass_protected.xlsb", env!("CARGO_MANIFEST_DIR"));
+    let path = test_path("pass_protected.xlsb");
     assert!(
         matches!(
-            open_workbook::<Xlsb<_>, std::string::String>(path),
+            open_workbook::<Xlsb<_>, _>(path),
             Err(calamine::XlsbError::Password)
         ),
         "Is expected to return XlsbError::Password error"
@@ -1754,10 +1756,10 @@ fn pass_protected_xlsb() {
 
 #[test]
 fn pass_protected_ods() {
-    let path = format!("{}/tests/pass_protected.ods", env!("CARGO_MANIFEST_DIR"));
+    let path = test_path("pass_protected.ods");
     assert!(
         matches!(
-            open_workbook::<Ods<_>, std::string::String>(path),
+            open_workbook::<Ods<_>, _>(path),
             Err(calamine::OdsError::Password)
         ),
         "Is expected to return OdsError::Password error"
