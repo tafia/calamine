@@ -36,6 +36,12 @@ pub enum CfbError {
     SectorBeyondEof(u32),
 }
 
+impl From<std::io::Error> for CfbError {
+    fn from(e: std::io::Error) -> CfbError {
+        CfbError::Io(e)
+    }
+}
+
 impl std::fmt::Display for CfbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -179,7 +185,7 @@ enum SectorSize {
 impl Header {
     fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>), CfbError> {
         let mut buf = [0u8; 512];
-        f.read_exact(&mut buf).map_err(CfbError::Io)?;
+        f.read_exact(&mut buf)?;
 
         // check ole signature
         let signature = buf
@@ -197,7 +203,7 @@ impl Header {
                 // sector size is 4096 bytes, but header is 512 bytes,
                 // so the remaining sector bytes have to be read
                 let mut buf_end = [0u8; 4096 - 512];
-                f.read_exact(&mut buf_end).map_err(CfbError::Io)?;
+                f.read_exact(&mut buf_end)?;
                 SectorSize::Large
             }
             s => {
@@ -270,7 +276,7 @@ impl Sectors {
             self.data.resize(end, 0);
             // read_exact or stop if EOF
             while len < end {
-                let read = r.read(&mut self.data[len..end]).map_err(CfbError::Io)?;
+                let read = r.read(&mut self.data[len..end])?;
                 if read == 0 {
                     return Ok(&self.data[start..len]);
                 }
