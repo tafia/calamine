@@ -1951,24 +1951,26 @@ fn parse_cell_reference(name: &[u8]) -> Result<CellReference, XlsxError> {
 }
 
 // Format a cell reference (e.g., "$A$1", "A1", etc.).
-fn format_cell_reference(cell: &CellReference) -> Result<Vec<u8>, XlsxError> {
+fn format_cell_reference(cell: &CellReference, buf: &mut Vec<u8>) -> Result<(), XlsxError> {
+    if cell.col >= MAX_COLUMNS {
+        return Err(XlsxError::ColumnNumberOverflow);
+    }
     if cell.row >= MAX_ROWS {
         return Err(XlsxError::RowNumberOverflow);
     }
-    let mut buf = Vec::new();
     if cell.absolute_col {
         buf.push(b'$');
     }
-    buf.extend(column_number_to_name(cell.col)?);
+    column_number_to_name(cell.col, buf)?;
     if cell.absolute_row {
         buf.push(b'$');
     }
     buf.extend((cell.row + 1).to_string().into_bytes());
-    Ok(buf)
+    Ok(())
 }
 
 // Advance the cell name by the offset.
-fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+fn offset_cell_name(name: &[u8], offset: (i64, i64), buf: &mut Vec<u8>) -> Result<(), XlsxError> {
     let cell = parse_cell_reference(name)?;
 
     let new_row = if cell.absolute_row {
@@ -1982,21 +1984,26 @@ fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxErro
         (cell.col as i64 + offset.1) as u32
     };
 
-    format_cell_reference(&CellReference {
-        row: new_row,
-        col: new_col,
-        absolute_row: cell.absolute_row,
-        absolute_col: cell.absolute_col,
-    })
+    format_cell_reference(
+        &CellReference {
+            row: new_row,
+            col: new_col,
+            absolute_row: cell.absolute_row,
+            absolute_col: cell.absolute_col,
+        },
+        buf,
+    )
 }
 
 // Advance all valid cell names in the string by the offset.
 fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+    let bytes = s.as_bytes();
     let mut res: Vec<u8> = Vec::new();
-    let mut cell: Vec<u8> = Vec::new();
+    let mut cell_start = 0;
+    let mut cell_end = 0;
     let mut is_cell_row = false;
     let mut in_quote = false;
-    for c in s.bytes() {
+    for (i, &c) in bytes.iter().enumerate() {
         if c == b'"' {
             in_quote = !in_quote;
         }
@@ -2007,30 +2014,29 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         if c.is_ascii_alphabetic() || c == b'$' {
             if is_cell_row {
                 // two cell not possible stick together in formula
-                res.extend(cell.iter().copied());
-                cell.clear();
+                res.extend(&bytes[cell_start..cell_end]);
+                cell_start = i;
                 is_cell_row = false;
             }
-            cell.push(c);
+            cell_end = i + 1;
         } else if c.is_ascii_digit() {
             is_cell_row = true;
-            cell.push(c);
+            cell_end = i + 1;
         } else {
-            if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
-                res.extend(cell_name);
-            } else {
-                res.extend(cell.iter().copied());
+            let cell = &bytes[cell_start..cell_end];
+            if offset_cell_name(cell, offset, &mut res).is_err() {
+                res.extend(cell);
             }
-            cell.clear();
+            cell_start = i + 1;
+            cell_end = i + 1;
             is_cell_row = false;
             res.push(c);
         }
     }
-    if !cell.is_empty() {
-        if let Ok(cell_name) = offset_cell_name(cell.as_ref(), offset) {
-            res.extend(cell_name);
-        } else {
-            res.extend(cell.iter().copied());
+    if cell_start < cell_end {
+        let cell = &bytes[cell_start..cell_end];
+        if offset_cell_name(cell, offset, &mut res).is_err() {
+            res.extend(cell);
         }
     }
     match String::from_utf8(res) {
@@ -2041,19 +2047,19 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
 
 /// Convert the integer to Excelsheet column title.
 /// If the column number not in 1~16384, an Error is returned.
-pub(crate) fn column_number_to_name(num: u32) -> Result<Vec<u8>, XlsxError> {
+pub(crate) fn column_number_to_name(num: u32, buf: &mut Vec<u8>) -> Result<(), XlsxError> {
     if num >= MAX_COLUMNS {
         return Err(XlsxError::ColumnNumberOverflow);
     }
-    let mut col: Vec<u8> = Vec::new();
+    let start = buf.len();
     let mut num = num + 1;
     while num > 0 {
         let integer = ((num - 1) % 26 + 65) as u8;
-        col.push(integer);
+        buf.push(integer);
         num = (num - 1) / 26;
     }
-    col.reverse();
-    Ok(col)
+    buf[start..].reverse();
+    Ok(())
 }
 
 // Convert an Excel Open Packaging "Part" path like "xl/sharedStrings.xml" to
@@ -2141,11 +2147,17 @@ mod tests {
 
     #[test]
     fn test_column_number_to_name() {
-        assert_eq!(column_number_to_name(0).unwrap(), b"A");
-        assert_eq!(column_number_to_name(25).unwrap(), b"Z");
-        assert_eq!(column_number_to_name(26).unwrap(), b"AA");
-        assert_eq!(column_number_to_name(27).unwrap(), b"AB");
-        assert_eq!(column_number_to_name(MAX_COLUMNS - 1).unwrap(), b"XFD");
+        let check = |num, expected: &[u8]| {
+            let mut buf = Vec::new();
+            column_number_to_name(num, &mut buf).unwrap();
+            assert_eq!(buf, expected);
+        };
+
+        check(0, b"A");
+        check(25, b"Z");
+        check(26, b"AA");
+        check(27, b"AB");
+        check(MAX_COLUMNS - 1, b"XFD");
     }
 
     #[test]
@@ -2168,12 +2180,16 @@ mod tests {
     #[test]
     fn test_format_cell_reference() {
         let check = |row, col, abs_row, abs_col, expected: &[u8]| {
-            let buf = format_cell_reference(&CellReference {
-                row,
-                col,
-                absolute_row: abs_row,
-                absolute_col: abs_col,
-            })
+            let mut buf = Vec::new();
+            format_cell_reference(
+                &CellReference {
+                    row,
+                    col,
+                    absolute_row: abs_row,
+                    absolute_col: abs_col,
+                },
+                &mut buf,
+            )
             .unwrap();
             assert_eq!(buf, expected);
         };
@@ -2186,9 +2202,57 @@ mod tests {
     }
 
     #[test]
+    fn test_format_cell_reference_overflow() {
+        let check_col_err = |row, col, abs_row, abs_col| {
+            let mut buf = Vec::new();
+            assert!(matches!(
+                format_cell_reference(
+                    &CellReference {
+                        row,
+                        col,
+                        absolute_row: abs_row,
+                        absolute_col: abs_col,
+                    },
+                    &mut buf
+                ),
+                Err(XlsxError::ColumnNumberOverflow)
+            ));
+            assert!(buf.is_empty(), "buffer should not be modified on error");
+        };
+        let check_row_err = |row, col, abs_row, abs_col| {
+            let mut buf = Vec::new();
+            assert!(matches!(
+                format_cell_reference(
+                    &CellReference {
+                        row,
+                        col,
+                        absolute_row: abs_row,
+                        absolute_col: abs_col,
+                    },
+                    &mut buf
+                ),
+                Err(XlsxError::RowNumberOverflow)
+            ));
+            assert!(buf.is_empty(), "buffer should not be modified on error");
+        };
+
+        check_col_err(0, MAX_COLUMNS, false, false);
+        check_col_err(0, MAX_COLUMNS, false, true);
+        check_col_err(0, MAX_COLUMNS, true, false);
+        check_col_err(0, MAX_COLUMNS, true, true);
+
+        check_row_err(MAX_ROWS, 0, false, false);
+        check_row_err(MAX_ROWS, 0, true, false);
+        check_row_err(MAX_ROWS, 0, false, true);
+        check_row_err(MAX_ROWS, 0, true, true);
+    }
+
+    #[test]
     fn test_offset_cell_name() {
         let check = |input: &[u8], offset, expected: &[u8]| {
-            assert_eq!(offset_cell_name(input, offset).unwrap(), expected);
+            let mut buf = Vec::new();
+            offset_cell_name(input, offset, &mut buf).unwrap();
+            assert_eq!(buf, expected);
         };
 
         check(b"A1", (1, 1), b"B2");
@@ -2222,21 +2286,27 @@ mod tests {
     #[test]
     fn test_offset_cell_name_overflow() {
         let check_col_err = |input: &[u8], offset| {
+            let mut buf = Vec::new();
             assert!(matches!(
-                offset_cell_name(input, offset),
+                offset_cell_name(input, offset, &mut buf),
                 Err(XlsxError::ColumnNumberOverflow)
             ));
+            assert!(buf.is_empty(), "buffer should not be modified on error");
         };
         let check_row_err = |input: &[u8], offset| {
+            let mut buf = Vec::new();
             assert!(matches!(
-                offset_cell_name(input, offset),
+                offset_cell_name(input, offset, &mut buf),
                 Err(XlsxError::RowNumberOverflow)
             ));
+            assert!(buf.is_empty(), "buffer should not be modified on error");
         };
 
         // Original cell reference is out of bounds
         check_col_err(b"XFE1", (0, 0));
+        check_col_err(b"$XFE$1", (0, 0));
         check_row_err(b"A1048577", (0, 0));
+        check_row_err(b"$A$1048577", (0, 0));
 
         // Offset pushes valid cell out of bounds
         check_col_err(b"XFD1", (0, 1));
