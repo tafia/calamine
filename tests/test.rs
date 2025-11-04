@@ -2002,6 +2002,33 @@ fn issue_565_multi_axis_shared_formula() {
 }
 
 #[test]
+fn shared_formula_reversed() {
+    // One sheet has a shared formula created by dragging downwards, the other has one created
+    // by dragging upwards.
+    let mut excel: Xlsx<_> = wb("shared_formula_reversed.xlsx");
+
+    for sheet_name in &["Sheet1", "Sheet2"] {
+        let range = excel.worksheet_range(sheet_name).unwrap();
+        let formula = excel.worksheet_formula(sheet_name).unwrap();
+
+        let expected_values = [Float(1.), Float(2.), Float(3.), Float(4.), Float(5.)];
+
+        for (row_idx, expected_value) in expected_values.iter().enumerate() {
+            assert_eq!(range.get_value((row_idx as u32, 1)), Some(expected_value));
+        }
+
+        let expected_formulas = ["A1", "A2", "A3", "A4", "A5"];
+
+        for (row_idx, expected_formula) in expected_formulas.iter().enumerate() {
+            assert_eq!(
+                formula.get_value((row_idx as u32, 1)),
+                Some(&expected_formula.to_string())
+            );
+        }
+    }
+}
+
+#[test]
 fn issue_420_empty_s_attribute() {
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 
