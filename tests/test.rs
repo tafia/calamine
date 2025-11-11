@@ -2052,6 +2052,56 @@ fn issue_567_absolute_shared_formula() {
 }
 
 #[test]
+fn column_row_ranges() {
+    // Test column and row ranges in formulas (e.g., E:F, 5:6)
+    let mut excel: Xlsx<_> = wb("column_row_ranges.xlsx");
+
+    // Test column ranges (E:F, F:G, G:H)
+    let formula = excel.worksheet_formula("Column ranges").unwrap();
+
+    let expected_formulas = [
+        ["SUM(E:F)", "SUM(F:G)", "SUM(G:H)"],
+        ["SUM(E:F)", "SUM(F:G)", "SUM(G:H)"],
+        ["SUM(E:F)", "SUM(F:G)", "SUM(G:H)"],
+        ["SUM(E:F)", "SUM(F:G)", "SUM(G:H)"],
+        ["SUM(E:F)", "SUM(F:G)", "SUM(G:H)"],
+    ];
+
+    for (row_idx, row) in expected_formulas.iter().enumerate() {
+        for (col_idx, expected_formula) in row.iter().enumerate() {
+            assert_eq!(
+                formula.get_value((row_idx as u32, col_idx as u32)),
+                Some(&expected_formula.to_string()),
+                "Column ranges mismatch at ({}, {})",
+                row_idx,
+                col_idx
+            );
+        }
+    }
+
+    // Test row ranges (5:6, 6:7, 7:8)
+    let formula = excel.worksheet_formula("Row ranges").unwrap();
+
+    let expected_formulas = [
+        ["SUM(5:6)", "SUM(5:6)", "SUM(5:6)", "SUM(5:6)", "SUM(5:6)"],
+        ["SUM(6:7)", "SUM(6:7)", "SUM(6:7)", "SUM(6:7)", "SUM(6:7)"],
+        ["SUM(7:8)", "SUM(7:8)", "SUM(7:8)", "SUM(7:8)", "SUM(7:8)"],
+    ];
+
+    for (row_idx, row) in expected_formulas.iter().enumerate() {
+        for (col_idx, expected_formula) in row.iter().enumerate() {
+            assert_eq!(
+                formula.get_value((row_idx as u32, col_idx as u32)),
+                Some(&expected_formula.to_string()),
+                "Row ranges mismatch at ({}, {})",
+                row_idx,
+                col_idx
+            );
+        }
+    }
+}
+
+#[test]
 fn issue_420_empty_s_attribute() {
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 
