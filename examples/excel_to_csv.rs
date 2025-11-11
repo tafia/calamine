@@ -58,14 +58,14 @@ fn write_to_csv<W: Write>(output_file: &mut W, range: &Range<Data>) -> std::io::
 
     for rows in range.rows() {
         for (col_number, cell_data) in rows.iter().enumerate() {
-            match *cell_data {
+            match cell_data {
                 Data::Empty => Ok(()),
-                Data::Int(ref i) => write!(output_file, "{i}"),
-                Data::Bool(ref b) => write!(output_file, "{b}"),
-                Data::Error(ref e) => write!(output_file, "{e:?}"),
-                Data::Float(ref f) => write!(output_file, "{f}"),
-                Data::DateTime(ref d) => write!(output_file, "{}", d.as_f64()),
-                Data::String(ref s) | Data::DateTimeIso(ref s) | Data::DurationIso(ref s) => {
+                Data::Int(i) => write!(output_file, "{i}"),
+                Data::Bool(b) => write!(output_file, "{b}"),
+                Data::Error(e) => write!(output_file, "{e:?}"),
+                Data::Float(f) => write!(output_file, "{f}"),
+                Data::DateTime(d) => write!(output_file, "{}", d.as_f64()),
+                Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => {
                     write!(output_file, "{s}")
                 }
             }?;

@@ -88,16 +88,16 @@ where
 
     fn with_header_row(&mut self, header_row: HeaderRow) -> &mut Self {
         match self {
-            Sheets::Xls(ref mut e) => {
+            Sheets::Xls(e) => {
                 e.with_header_row(header_row);
             }
-            Sheets::Xlsx(ref mut e) => {
+            Sheets::Xlsx(e) => {
                 e.with_header_row(header_row);
             }
-            Sheets::Xlsb(ref mut e) => {
+            Sheets::Xlsb(e) => {
                 e.with_header_row(header_row);
             }
-            Sheets::Ods(ref mut e) => {
+            Sheets::Ods(e) => {
                 e.with_header_row(header_row);
             }
         }
@@ -107,59 +107,59 @@ where
     /// Gets `VbaProject`
     fn vba_project(&mut self) -> Result<Option<VbaProject>, Self::Error> {
         match self {
-            Sheets::Xls(ref mut e) => e.vba_project().map_err(Error::Xls),
-            Sheets::Xlsx(ref mut e) => e.vba_project().map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.vba_project().map_err(Error::Xlsb),
-            Sheets::Ods(ref mut e) => e.vba_project().map_err(Error::Ods),
+            Sheets::Xls(e) => e.vba_project().map_err(Error::Xls),
+            Sheets::Xlsx(e) => e.vba_project().map_err(Error::Xlsx),
+            Sheets::Xlsb(e) => e.vba_project().map_err(Error::Xlsb),
+            Sheets::Ods(e) => e.vba_project().map_err(Error::Ods),
         }
     }
 
     /// Initialize
     fn metadata(&self) -> &Metadata {
         match self {
-            Sheets::Xls(ref e) => e.metadata(),
-            Sheets::Xlsx(ref e) => e.metadata(),
-            Sheets::Xlsb(ref e) => e.metadata(),
-            Sheets::Ods(ref e) => e.metadata(),
+            Sheets::Xls(e) => e.metadata(),
+            Sheets::Xlsx(e) => e.metadata(),
+            Sheets::Xlsb(e) => e.metadata(),
+            Sheets::Ods(e) => e.metadata(),
         }
     }
 
     /// Read worksheet data in corresponding worksheet path
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, Self::Error> {
         match self {
-            Sheets::Xls(ref mut e) => e.worksheet_range(name).map_err(Error::Xls),
-            Sheets::Xlsx(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.worksheet_range(name).map_err(Error::Xlsb),
-            Sheets::Ods(ref mut e) => e.worksheet_range(name).map_err(Error::Ods),
+            Sheets::Xls(e) => e.worksheet_range(name).map_err(Error::Xls),
+            Sheets::Xlsx(e) => e.worksheet_range(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(e) => e.worksheet_range(name).map_err(Error::Xlsb),
+            Sheets::Ods(e) => e.worksheet_range(name).map_err(Error::Ods),
         }
     }
 
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, Self::Error> {
         match self {
-            Sheets::Xls(ref mut e) => e.worksheet_formula(name).map_err(Error::Xls),
-            Sheets::Xlsx(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.worksheet_formula(name).map_err(Error::Xlsb),
-            Sheets::Ods(ref mut e) => e.worksheet_formula(name).map_err(Error::Ods),
+            Sheets::Xls(e) => e.worksheet_formula(name).map_err(Error::Xls),
+            Sheets::Xlsx(e) => e.worksheet_formula(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(e) => e.worksheet_formula(name).map_err(Error::Xlsb),
+            Sheets::Ods(e) => e.worksheet_formula(name).map_err(Error::Ods),
         }
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
         match self {
-            Sheets::Xls(ref mut e) => e.worksheets(),
-            Sheets::Xlsx(ref mut e) => e.worksheets(),
-            Sheets::Xlsb(ref mut e) => e.worksheets(),
-            Sheets::Ods(ref mut e) => e.worksheets(),
+            Sheets::Xls(e) => e.worksheets(),
+            Sheets::Xlsx(e) => e.worksheets(),
+            Sheets::Xlsb(e) => e.worksheets(),
+            Sheets::Ods(e) => e.worksheets(),
         }
     }
 
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         match self {
-            Sheets::Xls(ref e) => e.pictures(),
-            Sheets::Xlsx(ref e) => e.pictures(),
-            Sheets::Xlsb(ref e) => e.pictures(),
-            Sheets::Ods(ref e) => e.pictures(),
+            Sheets::Xls(e) => e.pictures(),
+            Sheets::Xlsx(e) => e.pictures(),
+            Sheets::Xlsb(e) => e.pictures(),
+            Sheets::Ods(e) => e.pictures(),
         }
     }
 }
@@ -173,8 +173,8 @@ where
         name: &str,
     ) -> Result<Range<DataRef<'a>>, Self::Error> {
         match self {
-            Sheets::Xlsx(ref mut e) => e.worksheet_range_ref(name).map_err(Error::Xlsx),
-            Sheets::Xlsb(ref mut e) => e.worksheet_range_ref(name).map_err(Error::Xlsb),
+            Sheets::Xlsx(e) => e.worksheet_range_ref(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(e) => e.worksheet_range_ref(name).map_err(Error::Xlsb),
             Sheets::Xls(_) => unimplemented!(),
             Sheets::Ods(_) => unimplemented!(),
         }

@@ -178,7 +178,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
                 loop {
                     match xml.read_event_into(&mut buf) {
-                        Ok(Event::Start(ref e)) if e.name() == QName(b"Relationship") => {
+                        Ok(Event::Start(e)) if e.name() == QName(b"Relationship") => {
                             let mut id = None;
                             let mut target = None;
                             for a in e.attributes() {
