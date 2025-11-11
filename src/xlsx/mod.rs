@@ -147,7 +147,6 @@ from_err!(std::io::Error, XlsxError, Io);
 from_err!(zip::result::ZipError, XlsxError, Zip);
 from_err!(crate::vba::VbaError, XlsxError, Vba);
 from_err!(quick_xml::Error, XlsxError, Xml);
-from_err!(std::string::ParseError, XlsxError, Parse);
 from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
 from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 from_err!(quick_xml::encoding::EncodingError, XlsxError, Encoding);
