@@ -83,7 +83,6 @@ struct OdsOptions {
 from_err!(std::io::Error, OdsError, Io);
 from_err!(zip::result::ZipError, OdsError, Zip);
 from_err!(quick_xml::Error, OdsError, Xml);
-from_err!(std::string::ParseError, OdsError, Parse);
 from_err!(std::str::ParseBoolError, OdsError, ParseBool);
 from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
 from_err!(std::num::ParseIntError, OdsError, ParseInt);
