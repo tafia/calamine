@@ -2,12 +2,10 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
-use std::marker::PhantomData;
 
 use log::debug;
 
@@ -105,7 +103,7 @@ impl std::fmt::Display for XlsError {
                 typ,
             } => write!(
                 f,
-                "Invalid {typ} length, expected {expected} maximum, found {found}",
+                "Invalid {typ} length, expected at least {expected}, found {found}",
             ),
             XlsError::ContinueRecordTooShort => write!(
                 f,
@@ -163,14 +161,21 @@ struct SheetData {
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
     sheets: BTreeMap<String, SheetData>,
-    vba: Option<VbaProject>,
     metadata: Metadata,
-    marker: PhantomData<RS>,
+    cfb: Cfb,
+    reader: RS,
     options: XlsOptions,
     formats: Vec<CellFormat>,
     is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+}
+
+fn cfb<RS: Seek + Read>(reader: &mut RS) -> Result<Cfb, XlsError> {
+    let offset_end = reader.seek(SeekFrom::End(0))? as usize;
+    reader.seek(SeekFrom::Start(0))?;
+    let cfb = Cfb::new(reader, offset_end)?;
+    Ok(cfb)
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -190,27 +195,14 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # fn main() { assert!(run().is_err()); }
     /// ```
     pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
-        let mut cfb = {
-            let offset_end = reader.seek(SeekFrom::End(0))? as usize;
-            reader.seek(SeekFrom::Start(0))?;
-            Cfb::new(&mut reader, offset_end)?
-        };
+        let cfb = cfb(&mut reader)?;
 
         debug!("cfb loaded");
 
-        // Reads vba once for all (better than reading all worksheets once for all)
-        let vba = if cfb.has_directory("_VBA_PROJECT_CUR") {
-            Some(VbaProject::from_cfb(&mut reader, &mut cfb)?)
-        } else {
-            None
-        };
-
-        debug!("vba ok");
-
         let mut xls = Xls {
             sheets: BTreeMap::new(),
-            vba,
-            marker: PhantomData,
+            cfb,
+            reader,
             metadata: Metadata::default(),
             options,
             is_1904: false,
@@ -219,7 +211,7 @@ impl<RS: Read + Seek> Xls<RS> {
             pictures: None,
         };
 
-        xls.parse_workbook(reader, cfb)?;
+        xls.parse_workbook()?;
 
         debug!("xls parsed");
 
@@ -252,8 +244,13 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         self
     }
 
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, XlsError>> {
-        self.vba.as_ref().map(|vba| Ok(Cow::Borrowed(vba)))
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsError> {
+        // Reads vba once for all (better than reading all worksheets once for all)
+        if !self.cfb.has_directory("_VBA_PROJECT_CUR") {
+            return Ok(None);
+        }
+        let vba = VbaProject::from_cfb(&mut self.reader, &mut self.cfb)?;
+        Ok(Some(vba))
     }
 
     /// Parses Workbook stream, no need for the relationships variable
@@ -309,11 +306,12 @@ struct Xti {
 }
 
 impl<RS: Read + Seek> Xls<RS> {
-    fn parse_workbook(&mut self, mut reader: RS, mut cfb: Cfb) -> Result<(), XlsError> {
+    fn parse_workbook(&mut self) -> Result<(), XlsError> {
         // gets workbook and worksheets stream, or early exit
-        let stream = cfb
-            .get_stream("Workbook", &mut reader)
-            .or_else(|_| cfb.get_stream("Book", &mut reader))?;
+        let stream = self
+            .cfb
+            .get_stream("Workbook", &mut self.reader)
+            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))?;
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
@@ -397,9 +395,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x00EB => {
                         // MsoDrawingGroup
                         draw_group.extend(r.data);
-                        if let Some(cont) = r.cont {
-                            draw_group.extend(cont.iter().flat_map(|v| *v));
-                        }
+                        draw_group.extend(r.cont.iter().flat_map(|v| *v));
                     }
                     0x000A => break, // EOF,
                     _ => (),
@@ -611,7 +607,7 @@ fn parse_sheet_metadata(
     r.data = &r.data[6..];
     let mut name = parse_short_string(r, encoding, biff)?;
     name.retain(|c| c != '\0');
-    Ok((pos, Sheet { name, visible, typ }))
+    Ok((pos, Sheet { name, typ, visible }))
 }
 
 fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
@@ -793,7 +789,7 @@ fn parse_short_string(
 fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, XlsError> {
     let (mut high_byte, expected) = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => (None, 2),
-        _ => (Some(false), 3),
+        Biff::Biff8 => (Some(false), 3),
     };
     if r.len() < expected {
         if 2 == r.len() && read_u16(r) == 0 {
@@ -933,10 +929,9 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
     Ok(read_u16(&r.data[2..]))
 }
 
-/// Decode Format
+/// Decode Format [MS-XLS 2.4.126]
 ///
 /// See: <https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/300280fd-e4fe-4675-a924-4d383af48d3b>
-/// 2.4.126
 fn parse_format(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
@@ -959,13 +954,17 @@ fn parse_format(
     Ok((ifmt, detect_custom_number_format(&s)))
 }
 
-/// Decode `XLUnicodeRichExtendedString`.
+/// Decode `XLUnicodeRichExtendedString` [MS-XLS 2.5.293].
 ///
 /// See: <https://docs.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/173d9f51-e5d3-43da-8de2-be7f22e119b9>
 fn read_rich_extended_string(
     r: &mut Record<'_>,
     encoding: &XlsEncoding,
 ) -> Result<String, XlsError> {
+    if r.data.is_empty() {
+        // spec violation: at very least cch and flags should be present
+        return Ok(String::new());
+    }
     if r.data.len() < 3 {
         return Err(XlsError::Len {
             typ: "rich extended string",
@@ -1041,21 +1040,16 @@ fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s
 struct Record<'a> {
     typ: u16,
     data: &'a [u8],
-    cont: Option<Vec<&'a [u8]>>,
+    cont: Vec<&'a [u8]>,
 }
 
 impl<'a> Record<'a> {
     fn continue_record(&mut self) -> bool {
-        match self.cont {
-            None => false,
-            Some(ref mut v) => {
-                if v.is_empty() {
-                    false
-                } else {
-                    self.data = v.remove(0);
-                    true
-                }
-            }
+        if self.cont.is_empty() {
+            false
+        } else {
+            self.data = self.cont.remove(0);
+            true
         }
     }
 
@@ -1120,8 +1114,8 @@ impl<'a> Iterator for RecordIter<'a> {
         let d = &data[4..];
 
         // Append next record data if it is a Continue record
-        let cont = if next.len() > 4 && read_u16(next) == 0x003C {
-            let mut cont = Vec::new();
+        let mut cont = Vec::new();
+        if next.len() > 4 && read_u16(next) == 0x003C {
             while self.stream.len() > 4 && read_u16(self.stream) == 0x003C {
                 len = read_u16(&self.stream[2..]) as usize;
                 if self.stream.len() < len + 4 {
@@ -1131,10 +1125,7 @@ impl<'a> Iterator for RecordIter<'a> {
                 cont.push(&sp.0[4..]);
                 self.stream = sp.1;
             }
-            Some(cont)
-        } else {
-            None
-        };
+        }
 
         Some(Ok(Record {
             typ: t,
@@ -1173,12 +1164,12 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
             f.push('$');
             push_column(read_u16(&rgce[7..9]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[3..5]) as u32 + 1));
+            write!(&mut f, "{}", read_u16(&rgce[3..5]) as u32 + 1).unwrap();
             f.push(':');
             f.push('$');
             push_column(read_u16(&rgce[9..11]) as u32, &mut f);
             f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[5..7]) as u32 + 1));
+            write!(&mut f, "{}", read_u16(&rgce[5..7]) as u32 + 1).unwrap();
             (Some(ixti), f)
         }
         0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {

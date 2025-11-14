@@ -77,8 +77,7 @@ impl std::error::Error for VbaError {
 }
 
 /// A struct for managing VBA reading
-#[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VbaProject {
     references: Vec<Reference>,
     modules: BTreeMap<String, Vec<u8>>,
@@ -95,7 +94,7 @@ impl VbaProject {
     }
 
     /// Creates a new `VbaProject` out of a Compound File Binary and the corresponding reader
-    pub fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
+    pub(crate) fn from_cfb<R: Read>(r: &mut R, cfb: &mut Cfb) -> Result<VbaProject, VbaError> {
         // dir stream
         let stream = cfb.get_stream("dir", r)?;
         let stream = crate::cfb::decompress_stream(&stream)?;
@@ -149,8 +148,7 @@ impl VbaProject {
     ///
     /// # let path = format!("{}/tests/vba.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut xl: Xlsx<_> = open_workbook(path).expect("Cannot find excel file");
-    /// if let Some(Ok(mut vba)) = xl.vba_project() {
-    ///     let vba = vba.to_mut();
+    /// if let Ok(Some(vba)) = xl.vba_project() {
     ///     let modules = vba.get_module_names().into_iter()
     ///                      .map(|s| s.to_string()).collect::<Vec<_>>();
     ///     for m in modules {
@@ -404,7 +402,7 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
         loop {
             *stream = &stream[4..]; // reserved
             match stream.read_u16::<LittleEndian>() {
-                Ok(0x0025) /* readonly */ | Ok(0x0028) /* private */ => (),
+                Ok(0x0025 /* readonly */ | 0x0028 /* private */) => (),
                 Ok(0x002B) => break,
                 Ok(e) => return Err(VbaError::Unknown { typ: "record id", val: e }),
                 Err(e) => return Err(VbaError::Io(e)),
@@ -451,12 +449,12 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaE
 fn check_record(id: u16, r: &mut &[u8]) -> Result<(), VbaError> {
     debug!("check record {id:x}");
     let record_id = r.read_u16::<LittleEndian>()?;
-    if record_id != id {
+    if record_id == id {
+        Ok(())
+    } else {
         Err(VbaError::InvalidRecordId {
             expected: id,
             found: record_id,
         })
-    } else {
-        Ok(())
     }
 }

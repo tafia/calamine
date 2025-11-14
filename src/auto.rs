@@ -10,7 +10,6 @@ use crate::{
     open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
     ReaderRef, Xls, Xlsb, Xlsx,
 };
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -36,10 +35,8 @@ where
 {
     let path = path.as_ref();
     Ok(match path.extension().and_then(|e| e.to_str()) {
-        Some("xls") | Some("xla") => Sheets::Xls(open_workbook(path).map_err(Error::Xls)?),
-        Some("xlsx") | Some("xlsm") | Some("xlam") => {
-            Sheets::Xlsx(open_workbook(path).map_err(Error::Xlsx)?)
-        }
+        Some("xls" | "xla") => Sheets::Xls(open_workbook(path).map_err(Error::Xls)?),
+        Some("xlsx" | "xlsm" | "xlam") => Sheets::Xlsx(open_workbook(path).map_err(Error::Xlsx)?),
         Some("xlsb") => Sheets::Xlsb(open_workbook(path).map_err(Error::Xlsb)?),
         Some("ods") => Sheets::Ods(open_workbook(path).map_err(Error::Ods)?),
         _ => {
@@ -108,12 +105,12 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, Self::Error>> {
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, Self::Error> {
         match self {
-            Sheets::Xls(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xls)),
-            Sheets::Xlsx(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsx)),
-            Sheets::Xlsb(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Xlsb)),
-            Sheets::Ods(ref mut e) => e.vba_project().map(|vba| vba.map_err(Error::Ods)),
+            Sheets::Xls(ref mut e) => e.vba_project().map_err(Error::Xls),
+            Sheets::Xlsx(ref mut e) => e.vba_project().map_err(Error::Xlsx),
+            Sheets::Xlsb(ref mut e) => e.vba_project().map_err(Error::Xlsb),
+            Sheets::Ods(ref mut e) => e.vba_project().map_err(Error::Ods),
         }
     }
 

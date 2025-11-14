@@ -33,6 +33,13 @@ pub enum CfbError {
         found: u16,
     },
     CodePageNotFound(u16),
+    SectorBeyondEof(u32),
+}
+
+impl From<std::io::Error> for CfbError {
+    fn from(e: std::io::Error) -> CfbError {
+        CfbError::Io(e)
+    }
 }
 
 impl std::fmt::Display for CfbError {
@@ -48,6 +55,7 @@ impl std::fmt::Display for CfbError {
                 found,
             } => write!(f, "Invalid {name}, expecting {expected} found {found:X}"),
             CfbError::CodePageNotFound(e) => write!(f, "Codepage {e:X} not found"),
+            CfbError::SectorBeyondEof(i) => write!(f, "Sector {i} points past end of file"),
         }
     }
 }
@@ -78,7 +86,9 @@ impl Cfb {
     pub fn new<R: Read>(mut reader: &mut R, len: usize) -> Result<Cfb, CfbError> {
         // load header
         let (h, mut difat) = Header::from_reader(&mut reader)?;
-        let mut sectors = Sectors::new(h.sector_size, Vec::with_capacity(len));
+        let sector_size = h.sector_size as usize;
+        let maxid = len / sector_size;
+        let mut sectors = Sectors::new(sector_size, Vec::with_capacity(1024), maxid as u32);
 
         // load fat and dif sectors
         debug!("load difat {h:?}");
@@ -97,7 +107,7 @@ impl Cfb {
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * h.sector_size)?;
+        let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * sector_size)?;
         let dirs = dirs
             .chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
@@ -115,7 +125,7 @@ impl Cfb {
                 h.mini_fat_start,
                 &fats,
                 reader,
-                h.mini_fat_len * h.sector_size,
+                h.mini_fat_len * h.sector_size as usize,
             )?;
             let minifat = to_u32(&minifat).collect();
             (minifat, ministream)
@@ -126,7 +136,7 @@ impl Cfb {
             directories: dirs,
             sectors,
             fats,
-            mini_sectors: Sectors::new(64, ministream),
+            mini_sectors: Sectors::new(64, ministream, (maxid * 8) as u32),
             mini_fats,
         })
     }
@@ -157,7 +167,7 @@ impl Cfb {
 #[derive(Debug)]
 struct Header {
     version: u16,
-    sector_size: usize,
+    sector_size: SectorSize,
     dir_len: usize,
     dir_start: u32,
     fat_len: usize,
@@ -166,10 +176,16 @@ struct Header {
     difat_start: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SectorSize {
+    Small = 512,
+    Large = 4096,
+}
+
 impl Header {
     fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>), CfbError> {
         let mut buf = [0u8; 512];
-        f.read_exact(&mut buf).map_err(CfbError::Io)?;
+        f.read_exact(&mut buf)?;
 
         // check ole signature
         let signature = buf
@@ -182,13 +198,13 @@ impl Header {
         let version = read_u16(&buf[26..28]);
 
         let sector_size = match read_u16(&buf[30..32]) {
-            0x0009 => 512,
+            0x0009 => SectorSize::Small,
             0x000C => {
                 // sector size is 4096 bytes, but header is 512 bytes,
                 // so the remaining sector bytes have to be read
                 let mut buf_end = [0u8; 4096 - 512];
-                f.read_exact(&mut buf_end).map_err(CfbError::Io)?;
-                4096
+                f.read_exact(&mut buf_end)?;
+                SectorSize::Large
             }
             s => {
                 return Err(CfbError::Invalid {
@@ -241,14 +257,18 @@ impl Header {
 struct Sectors {
     data: Vec<u8>,
     size: usize,
+    maxid: u32,
 }
 
 impl Sectors {
-    fn new(size: usize, data: Vec<u8>) -> Sectors {
-        Sectors { data, size }
+    fn new(size: usize, data: Vec<u8>, maxid: u32) -> Sectors {
+        Sectors { data, size, maxid }
     }
 
     fn get<R: Read>(&mut self, id: u32, r: &mut R) -> Result<&[u8], CfbError> {
+        if self.maxid < id {
+            return Err(CfbError::SectorBeyondEof(id));
+        }
         let start = id as usize * self.size;
         let end = start + self.size;
         if end > self.data.len() {
@@ -256,7 +276,7 @@ impl Sectors {
             self.data.resize(end, 0);
             // read_exact or stop if EOF
             while len < end {
-                let read = r.read(&mut self.data[len..end]).map_err(CfbError::Io)?;
+                let read = r.read(&mut self.data[len..end])?;
                 if read == 0 {
                     return Ok(&self.data[start..len]);
                 }
@@ -273,11 +293,7 @@ impl Sectors {
         r: &mut R,
         len: usize,
     ) -> Result<Vec<u8>, CfbError> {
-        let mut chain = if len > 0 {
-            Vec::with_capacity(len)
-        } else {
-            Vec::new()
-        };
+        let mut chain = Vec::with_capacity(len);
         while sector_id != ENDOFCHAIN {
             chain.extend_from_slice(self.get(sector_id, r)?);
             sector_id = fats[sector_id as usize];
@@ -298,13 +314,13 @@ struct Directory {
 }
 
 impl Directory {
-    fn from_slice(buf: &[u8], sector_size: usize) -> Directory {
+    fn from_slice(buf: &[u8], sector_size: SectorSize) -> Directory {
         let mut name = UTF_16LE.decode(&buf[..64]).0.into_owned();
         if let Some(l) = name.as_bytes().iter().position(|b| *b == 0) {
             name.truncate(l);
         }
         let start = read_u32(&buf[116..120]);
-        let len: usize = if sector_size == 512 {
+        let len: usize = if sector_size == SectorSize::Small {
             read_u32(&buf[120..124]).try_into().unwrap()
         } else {
             read_u64(&buf[120..128]).try_into().unwrap()
@@ -415,7 +431,7 @@ pub fn decompress_stream(s: &[u8]) -> Result<Vec<u8>, CfbError> {
     Ok(res)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XlsEncoding {
     encoding: &'static Encoding,
 }
