@@ -278,9 +278,9 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         }
     }
 
-    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsError> {
+    fn worksheet_style<'a>(&'a mut self, _name: &str) -> Result<Range<&'a Style>, XlsError> {
         // TODO: Implement XLS style parsing
-        Ok(Range::default())
+        Ok(Range::empty())
     }
 
     fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, XlsError> {
@@ -620,7 +620,7 @@ fn parse_sheet_metadata(
     Ok((pos, Sheet { name, typ, visible }))
 }
 
-fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
+fn parse_number<'a>(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<'a, Data>, XlsError> {
     if r.len() < 14 {
         return Err(XlsError::Len {
             typ: "number",
@@ -636,7 +636,7 @@ fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<
     Ok(Cell::new((row, col), format_excel_f64(v, format, is_1904)))
 }
 
-fn parse_bool_err(r: &[u8]) -> Result<Cell<Data>, XlsError> {
+fn parse_bool_err<'a>(r: &[u8]) -> Result<Cell<'a, Data>, XlsError> {
     if r.len() < 8 {
         return Err(XlsError::Len {
             typ: "BoolErr",
@@ -674,7 +674,7 @@ fn parse_err(e: u8) -> Result<Data, XlsError> {
     }
 }
 
-fn parse_rk(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
+fn parse_rk<'a>(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<'a, Data>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "rk",
@@ -821,7 +821,7 @@ fn parse_string(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<String, 
     Ok(s)
 }
 
-fn parse_label(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<Cell<Data>, XlsError> {
+fn parse_label<'a>(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<Cell<'a, Data>, XlsError> {
     if r.len() < 6 {
         return Err(XlsError::Len {
             typ: "label",
@@ -838,7 +838,7 @@ fn parse_label(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<Cell<Data
     ))
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, XlsError> {
+fn parse_label_sst<'a>(r: &[u8], strings: &[String]) -> Result<Option<Cell<'a, Data>>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "label sst",

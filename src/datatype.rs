@@ -32,22 +32,22 @@ const EXCEL_1900_1904_DIFF: f64 = 1462.;
 const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
 /// A struct that combines cell value and style information
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct CellData {
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellData<'a> {
     /// The cell value
     pub value: Data,
     /// The cell style
-    pub style: Option<Style>,
+    pub style: Option<&'a Style>,
 }
 
-impl CellData {
+impl<'a> CellData<'a> {
     /// Create a new CellData with just a value
     pub fn new(value: Data) -> Self {
         Self { value, style: None }
     }
 
     /// Create a new CellData with value and style
-    pub fn with_style(value: Data, style: Style) -> Self {
+    pub fn with_style(value: Data, style: &'a Style) -> Self {
         Self {
             value,
             style: Some(style),
@@ -60,8 +60,8 @@ impl CellData {
     }
 
     /// Get the cell style
-    pub fn get_style(&self) -> Option<&Style> {
-        self.style.as_ref()
+    pub fn get_style(&self) -> Option<&'a Style> {
+        self.style
     }
 
     /// Check if the cell has style information
@@ -70,15 +70,24 @@ impl CellData {
     }
 }
 
-impl From<Data> for CellData {
+impl<'a> From<Data> for CellData<'a> {
     fn from(value: Data) -> Self {
         Self::new(value)
     }
 }
 
-impl From<CellData> for Data {
-    fn from(cell_data: CellData) -> Self {
+impl<'a> From<CellData<'a>> for Data {
+    fn from(cell_data: CellData<'a>) -> Self {
         cell_data.value
+    }
+}
+
+impl<'a> Default for CellData<'a> {
+    fn default() -> Self {
+        Self {
+            value: Data::default(),
+            style: None,
+        }
     }
 }
 
@@ -1117,7 +1126,7 @@ mod date_tests {
 
 /// An enum to represent all different data types that can appear as
 /// a value in a worksheet cell
-impl DataType for CellData {
+impl<'a> DataType for CellData<'a> {
     fn is_empty(&self) -> bool {
         self.value.is_empty()
     }

@@ -529,9 +529,9 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsbError> {
+    fn worksheet_style<'a>(&'a mut self, _name: &str) -> Result<Range<&'a Style>, XlsbError> {
         // TODO: Implement XLSB style parsing
-        Ok(Range::default())
+        Ok(Range::empty())
     }
 
     fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, XlsbError> {

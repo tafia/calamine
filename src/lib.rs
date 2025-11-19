@@ -302,7 +302,7 @@ where
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, Self::Error>;
+    fn worksheet_style<'a>(&'a mut self, name: &str) -> Result<Range<&'a Style>, Self::Error>;
 
     /// Read worksheet layout information (column widths and row heights)
     fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, Self::Error>;
@@ -436,8 +436,25 @@ impl CellType for Data {}
 impl<'a> CellType for DataRef<'a> {}
 impl CellType for String {}
 impl CellType for usize {} // for tests
-impl CellType for CellData {}
+impl<'a> CellType for CellData<'a> {}
 impl CellType for Style {}
+impl<'a> CellType for &'a Style {}
+
+// Implement Default for &'a Style using a static reference
+impl<'a> Default for &'a Style {
+    fn default() -> Self {
+        const DEFAULT_STYLE: Style = Style {
+            font: None,
+            fill: None,
+            borders: None,
+            alignment: None,
+            number_format: None,
+            protection: None,
+            style_id: None,
+        };
+        &DEFAULT_STYLE
+    }
+}
 
 // -----------------------------------------------------------------------
 // The `Cell` struct.
@@ -483,7 +500,7 @@ impl CellType for Style {}
 /// ```
 ///
 #[derive(Debug, Clone)]
-pub struct Cell<T: CellType> {
+pub struct Cell<'a, T: CellType> {
     // The position for the cell (row, column).
     pos: (u32, u32),
 
@@ -491,10 +508,10 @@ pub struct Cell<T: CellType> {
     val: T,
 
     // The style information for the cell.
-    style: Option<Style>,
+    style: Option<&'a Style>,
 }
 
-impl<T: CellType> Cell<T> {
+impl<'a, T: CellType> Cell<'a, T> {
     /// Creates a new `Cell` instance.
     ///
     /// # Parameters
@@ -516,7 +533,7 @@ impl<T: CellType> Cell<T> {
     /// assert_eq!(&Data::Int(42), cell.get_value());
     /// ```
     ///
-    pub fn new(position: (u32, u32), value: T) -> Cell<T> {
+    pub fn new(position: (u32, u32), value: T) -> Cell<'a, T> {
         Cell {
             pos: position,
             val: value,
@@ -542,13 +559,13 @@ impl<T: CellType> Cell<T> {
     /// use calamine::{Cell, Data, Style, Font, FontWeight};
     ///
     /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
-    /// let cell = Cell::with_style((1, 2), Data::Int(42), style);
+    /// let cell = Cell::with_style((1, 2), Data::Int(42), &style);
     ///
     /// assert_eq!(&Data::Int(42), cell.get_value());
     /// assert!(cell.get_style().is_some());
     /// ```
     ///
-    pub fn with_style(position: (u32, u32), value: T, style: Style) -> Cell<T> {
+    pub fn with_style(position: (u32, u32), value: T, style: &'a Style) -> Cell<'a, T> {
         Cell {
             pos: position,
             val: value,
@@ -602,13 +619,13 @@ impl<T: CellType> Cell<T> {
     /// use calamine::{Cell, Data, Style, Font, FontWeight};
     ///
     /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
-    /// let cell = Cell::with_style((1, 2), Data::Int(42), style);
+    /// let cell = Cell::with_style((1, 2), Data::Int(42), &style);
     ///
     /// assert!(cell.get_style().is_some());
     /// ```
     ///
-    pub fn get_style(&self) -> Option<&Style> {
-        self.style.as_ref()
+    pub fn get_style(&self) -> Option<&'a Style> {
+        self.style
     }
 
     /// Checks if the cell has any style information.
@@ -624,7 +641,7 @@ impl<T: CellType> Cell<T> {
     /// assert!(!cell.has_style());
     ///
     /// let style = Style::new().with_font(Font::new().with_weight(FontWeight::Bold));
-    /// let cell_with_style = Cell::with_style((1, 2), Data::Int(42), style);
+    /// let cell_with_style = Cell::with_style((1, 2), Data::Int(42), &style);
     /// assert!(cell_with_style.has_style());
     /// ```
     ///
@@ -938,7 +955,7 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range.used_cells().count(), 3);
     /// ```
     ///
-    pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
+    pub fn from_sparse<'a>(cells: Vec<Cell<'a, T>>) -> Range<T> {
         if cells.is_empty() {
             return Range::empty();
         }

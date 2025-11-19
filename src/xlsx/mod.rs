@@ -1694,12 +1694,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     /// - `name`: The name of the worksheet to get the styles for.
     ///
-    pub fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
+    pub fn worksheet_style<'a>(&'a mut self, name: &str) -> Result<Range<&'a Style>, XlsxError> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
                 warn!("'{typ}' not a worksheet");
-                return Ok(Range::default());
+                return Ok(Range::empty());
             }
             Err(e) => return Err(e),
         };
@@ -2054,12 +2054,12 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
+    fn worksheet_style<'a>(&'a mut self, name: &str) -> Result<Range<&'a Style>, XlsxError> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
                 warn!("'{typ}' not a worksheet");
-                return Ok(Range::default());
+                return Ok(Range::empty());
             }
             Err(e) => return Err(e),
         };

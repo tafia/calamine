@@ -113,7 +113,7 @@ where
         self.dimensions
     }
 
-    pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsxError> {
+    pub fn next_cell(&mut self) -> Result<Option<Cell<'a, DataRef<'a>>>, XlsxError> {
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
@@ -150,7 +150,7 @@ where
                     };
 
                     if style_id < self.styles.len() {
-                        style = Some(self.styles[style_id].clone());
+                        style = Some(&self.styles[style_id]);
                     }
 
                     loop {
@@ -190,7 +190,7 @@ where
         }
     }
 
-    pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsxError> {
+    pub fn next_formula(&mut self) -> Result<Option<Cell<'a, String>>, XlsxError> {
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
@@ -227,7 +227,7 @@ where
                     };
 
                     if style_id < self.styles.len() {
-                        style = Some(self.styles[style_id].clone());
+                        style = Some(&self.styles[style_id]);
                     }
 
                     loop {
@@ -328,7 +328,7 @@ where
         }
     }
 
-    pub fn next_style(&mut self) -> Result<Option<Cell<Style>>, XlsxError> {
+    pub fn next_style(&mut self) -> Result<Option<Cell<'a, &'a Style>>, XlsxError> {
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
@@ -356,20 +356,19 @@ where
                     };
 
                     // Extract style ID if present
-                    let style = if let Ok(Some(style_id_str)) =
+                    let style_id = if let Ok(Some(style_id_str)) =
                         get_attribute(c_element.attributes(), QName(b"s"))
                     {
-                        if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
-                            if style_id < self.styles.len() {
-                                self.styles[style_id].clone()
-                            } else {
-                                Style::new()
-                            }
-                        } else {
-                            Style::new()
-                        }
+                        atoi_simd::parse::<usize>(style_id_str).unwrap_or(0)
                     } else {
-                        Style::new()
+                        0
+                    };
+
+                    let style = if style_id < self.styles.len() {
+                        &self.styles[style_id]
+                    } else {
+                        // For out-of-bounds style IDs, use the default style at index 0
+                        &self.styles[0]
                     };
 
                     // Skip the cell content since we only care about the style

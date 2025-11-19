@@ -144,7 +144,7 @@ where
         }
     }
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, Self::Error> {
+    fn worksheet_style<'a>(&'a mut self, name: &str) -> Result<Range<&'a Style>, Self::Error> {
         match self {
             Sheets::Xls(ref mut e) => e.worksheet_style(name).map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.worksheet_style(name).map_err(Error::Xlsx),

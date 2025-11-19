@@ -84,7 +84,7 @@ where
         self.dimensions
     }
 
-    pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsbError> {
+    pub fn next_cell(&mut self) -> Result<Option<Cell<'a, DataRef<'a>>>, XlsbError> {
         // loop until end of sheet
         let value = loop {
             self.buf.clear();
@@ -161,7 +161,7 @@ where
         Ok(Some(Cell::new((self.row, col), value)))
     }
 
-    pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsbError> {
+    pub fn next_formula(&mut self) -> Result<Option<Cell<'a, String>>, XlsbError> {
         let value = loop {
             self.typ = self.iter.read_type()?;
             let _ = self.iter.fill_buffer(&mut self.buf)?;
