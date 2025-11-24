@@ -2302,3 +2302,65 @@ where
     let data = Data::deserialize(deserializer)?;
     Ok(data.as_datetime().ok_or_else(|| data.to_string()))
 }
+
+/// Helper function to identify pivot tables by name and worksheet.
+///
+/// # Returns
+///
+/// ```text
+/// Vec<(String, String)>
+///        │       │
+///        │       └─── Worksheet name
+///        │
+///        └──── Pivot Table name
+/// ```
+///
+/// # Note
+///
+/// Pivot table names are unique per worksheet, not per workbook.
+///
+/// # Examples
+///
+/// An example of retrieving pivot cache data for a Pivot Table named "PivotTable1"
+/// on worksheet "PivotSheet1".
+///
+/// ```
+/// use calamine::{open_workbook, Error, Xlsx};
+///
+/// fn main() -> Result<(), Error> {
+///
+///     // Open the workbook.
+///     use calamine::get_pivot_tables_by_name_and_sheet;
+/// let mut workbook: Xlsx<_> = open_workbook("tests/pivots.xlsx")?;
+///     // Must retrieve necessary metadata before reading Pivot Table data.
+///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+///
+///     // "PivotTable1" is found on both sheets: "PivotSheet1" & "PivotSheet3" so
+///     // we must include the sheet name in our filter ~ see note on uniqueness.
+///     let names_and_sheets = get_pivot_tables_by_name_and_sheet(&pivot_tables)
+///         .into_iter()
+///         .filter_map(|pt| {
+///             if pt.0.eq("PivotTable1") && pt.1.eq("PivotSheet1") {
+///                 Some(pt)
+///             } else {
+///                 None
+///             }
+///         })
+///         .collect::<Vec<_>>()
+///     ;
+///
+///     assert_eq!(names_and_sheets.len(), 1);
+///
+///     Ok(())
+///
+/// }
+/// ```
+///
+pub fn get_pivot_tables_by_name_and_sheet(
+    pivot_tables: &[crate::xlsx::pivot_cache::PivotTableRef],
+) -> Vec<(String, String)> {
+    pivot_tables
+        .iter()
+        .map(|v| (v.name().to_string(), v.sheet().to_string()))
+        .collect()
+}

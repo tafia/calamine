@@ -5,9 +5,9 @@
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx,
+    get_pivot_tables_by_name_and_sheet, open_workbook, open_workbook_auto, DataRef, DataType,
+    Dimensions, ExcelDateTime, ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet,
+    SheetType, SheetVisible, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -2553,21 +2553,31 @@ fn test_xlsx_empty_shared_string() {
 }
 
 #[test]
-#[cfg(feature = "pivot-cache")]
 fn test_pivot_table_meta_data() {
-    let wb: Xlsx<_> = wb("pivots.xlsx");
-    let mut results = wb.pivot_tables();
+    let mut wb: Xlsx<_> = wb("pivots.xlsx");
+    let pivot_tables = wb.read_pivot_table_metadata().unwrap();
+    let mut results = get_pivot_tables_by_name_and_sheet(&pivot_tables);
     results.sort();
     let expected = vec![
         ("PivotTable1".to_string(), "PivotSheet1".to_string()),
         ("PivotTable1".to_string(), "PivotSheet3".to_string()),
         ("PivotTable2".to_string(), "PivotSheet2".to_string()),
+        ("PivotTable5".to_string(), "PivotSheet4".to_string()),
+        ("PivotTable6".to_string(), "PivotSheet4".to_string()),
     ];
     assert_eq!(expected, results);
+    let separate_cache = pivot_tables
+        .iter()
+        .find(|pt| pt.name().eq("PivotTable5"))
+        .unwrap();
+    for pivot_table in pivot_tables.iter() {
+        if pivot_table.name().ne("PivotTable5") {
+            assert_ne!(pivot_table.definitions(), separate_cache.definitions())
+        }
+    }
 }
 
 #[test]
-#[cfg(feature = "pivot-cache")]
 fn test_pivot_cache_data_mapping() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let expected = vec![
@@ -2704,8 +2714,9 @@ fn test_pivot_cache_data_mapping() {
             String("blue".to_string()),
         ],
     ];
+    let pivot_tables = wb.read_pivot_table_metadata().unwrap();
     let mut results = wb
-        .pivot_table_data("PivotTable1", "PivotSheet1")
+        .pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")
         .unwrap()
         .unwrap();
     for expected_data in expected {
@@ -2714,16 +2725,16 @@ fn test_pivot_cache_data_mapping() {
 }
 
 #[test]
-#[cfg(feature = "pivot-cache")]
 fn test_pivot_table_cache_match() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
+    let pivot_tables = wb.read_pivot_table_metadata().unwrap();
     let results1 = wb
-        .pivot_table_data("PivotTable1", "PivotSheet1")
+        .pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")
         .unwrap()
         .unwrap()
         .collect::<Vec<_>>();
     let results2 = wb
-        .pivot_table_data("PivotTable2", "PivotSheet2")
+        .pivot_table_data(&pivot_tables, "PivotTable2", "PivotSheet2")
         .unwrap()
         .unwrap()
         .collect::<Vec<_>>();

@@ -24,7 +24,6 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
-#[cfg(feature = "pivot-cache")]
 use crate::xlsx::pivot_cache::*;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
@@ -234,8 +233,6 @@ impl FromStr for CellErrorType {
 }
 
 type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
-#[cfg(feature = "pivot-cache")]
-type PivotTables = Option<Vec<PivotTableRef>>;
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
@@ -247,9 +244,6 @@ pub struct Xlsx<RS> {
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
     tables: Tables,
-    #[cfg(feature = "pivot-cache")]
-    /// PivotTables: Names, Sheets, Address, CacheDefinitions, CacheRecords
-    pivot_tables: PivotTables,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
     /// 1904 datetime system
@@ -711,14 +705,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    #[cfg(feature = "pivot-cache")]
-    // Finds pivot tables from sheets, finds the metadata with their associated cache and sets the pivot_tables field.
-    fn read_pivot_table_metadata(&mut self) -> Result<(), XlsxError>
+    /// Provide metadata for all pivot tables.
+    ///
+    /// # Note
+    ///
+    /// This function is required before working with Pivot Table Data due to reliance on metadata in `PivotTableRef`.
+    pub fn read_pivot_table_metadata(&mut self) -> Result<Vec<PivotTableRef>, XlsxError>
     where
         RS: Read + Seek,
     {
         let mut pivot_table_references = vec![];
-        for (i, (sheet_name, sheet_path)) in self.sheets.iter().enumerate() {
+        for (sheet_name, sheet_path) in self.sheets.iter() {
             for pivot_path in
                 pivot_cache::find_pivot_table_paths_from_sheet(&mut self.zip, sheet_path)?.iter()
             {
@@ -737,15 +734,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     sheet_name.to_string(),
                     record_cache_path,
                     definition_cache_path,
-                    i,
                 ));
             }
         }
-        self.pivot_tables = Some(pivot_table_references);
-        Ok(())
+        Ok(pivot_table_references)
     }
 
-    #[cfg(feature = "pivot-cache")]
     /// Get the names of all pivot tables for a given worksheet.
     ///
     /// Worksheets that do not contain any pivot tables will return None. Worksheet names
@@ -768,9 +762,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     // Open the workbook.
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
-    ///     // Get the pivot table names in the workbook.
-    ///     let pivot_table_names = workbook.pivot_tables_by_sheet("PivotSheet1")?;
+    ///     // Must retrieve necessary metadata before reading Pivot Table data.
+    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
     ///
+    ///     // Get the pivot table names in the workbook.
+    ///     let pivot_table_names = workbook.pivot_tables_by_sheet(&pivot_tables, "PivotSheet1")?;
     ///
     ///     // Check the pivot table names (ordering not guaranteed).
     ///     assert_eq!(pivot_table_names, vec!["PivotTable1"]);
@@ -779,14 +775,15 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// }
     /// ```
     ///
-    pub fn pivot_tables_by_sheet(&self, sheet_name: &str) -> Result<Vec<&str>, XlsxError> {
+    pub fn pivot_tables_by_sheet<'a>(
+        &self,
+        pivot_tables: &'a [PivotTableRef],
+        sheet_name: &str,
+    ) -> Result<Vec<&'a str>, XlsxError> {
         if !self.sheet_names().contains(&sheet_name.to_string()) {
             Err(XlsxError::NotAWorksheet(sheet_name.to_string()))
         } else {
-            Ok(self
-                .pivot_tables
-                .as_ref()
-                .expect("pivot tables should have been loaded here")
+            Ok(pivot_tables
                 .iter()
                 .filter_map(|val| {
                     if val.sheet() == sheet_name {
@@ -795,18 +792,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         None
                     }
                 })
-                .collect::<Vec<_>>())
+                .collect::<Vec<&str>>())
         }
     }
 
-    #[cfg(feature = "pivot-cache")]
     /// Get an iterator over a pivot table's cached data.
     ///
     /// Invalid Pivot Table names will return None.
     ///
     /// # Examples
     ///
-    /// An example of retrieving pivot  data for a Pivot Table named PivotTable1.
+    /// An example of retrieving pivot data for a Pivot Table named PivotTable1.
     ///
     /// ```
     /// use calamine::{open_workbook, Error, Xlsx};
@@ -818,8 +814,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     // Open the workbook.
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
-    ///     // Get the Pivot Table data by referencing the pivot table name and the worksheet it resides.
-    ///     if let Some(pivot_table_data) = workbook.pivot_table_data("PivotTable1", "PivotSheet1") {
+    ///     // Must retrieve necessary metadata before reading Pivot Table data.
+    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///
+    ///    // Get the Pivot Table data by referencing the pivot table name and the worksheet it resides.
+    ///     if let Some(pivot_table_data) = workbook.pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1") {
     ///         for row in pivot_table_data? {
     ///             // Do something.
     ///         }
@@ -831,27 +830,30 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     pub fn pivot_table_data(
         &'_ mut self,
+        pivot_tables: &[PivotTableRef],
         pivot_table_name: &str,
         sheet_name: &str,
     ) -> Option<Result<PivotCacheIter<'_, RS>, XlsxError>> {
-        self.pivot_tables
-            .as_ref()
-            .and_then(|val| {
-                val.iter().find_map(|val| {
-                    if val.name() == pivot_table_name && val.sheet() == sheet_name {
-                        Some(val.cache_number())
-                    } else {
-                        None
-                    }
-                })
+        pivot_tables
+            .iter()
+            .enumerate()
+            .find_map(|(pos, val)| {
+                if val.name() == pivot_table_name && val.sheet() == sheet_name {
+                    Some(pos)
+                } else {
+                    None
+                }
             })
-            .map(|n| self.pivot_cache_iter(n))
+            .map(|n| self.pivot_cache_iter(pivot_tables, n))
     }
 
-    #[cfg(feature = "pivot-cache")]
-    fn pivot_cache_iter(&'_ mut self, n: usize) -> Result<PivotCacheIter<'_, RS>, XlsxError> {
-        let definitions = self.pivot_tables.as_ref().unwrap()[n].definitions();
-        let records = self.pivot_tables.as_ref().unwrap()[n].records();
+    fn pivot_cache_iter(
+        &'_ mut self,
+        pivot_tables: &[PivotTableRef],
+        pivot_cache_index: usize,
+    ) -> Result<PivotCacheIter<'_, RS>, XlsxError> {
+        let definitions = pivot_tables[pivot_cache_index].definitions();
+        let records = pivot_tables[pivot_cache_index].records();
 
         let mut fields: Vec<Vec<(Tag, Value)>> = vec![];
         let mut definition_map = std::collections::HashMap::new();
@@ -939,65 +941,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
         )
     }
 
-    #[cfg(feature = "pivot-cache")]
-    /// Get a list pivot tables and the worksheets they reside.
-    ///
-    /// # Returns
-    ///
-    /// ```text
-    /// Vec<(String, String)>
-    ///        │       │
-    ///        │       └─── Worksheet name
-    ///        │
-    ///        └──── Pivot Table name
-    /// ```
-    ///
-    /// # Note
-    ///
-    /// Pivot table names are unique per worksheet, not per workbook.
-    ///
-    /// # Examples
-    ///
-    /// An example of retrieving pivot cache data for a Pivot Table named "PivotTable1"
-    /// on worksheet "PivotSheet1".
-    ///
-    /// ```
-    /// use calamine::{open_workbook, Error, Xlsx};
-    ///
-    /// fn main() -> Result<(), Error> {
-    ///
-    ///     // Open the workbook.
-    ///     let mut workbook: Xlsx<_> = open_workbook("tests/pivots.xlsx")?;
-    ///
-    ///     // "PivotTable1" is found on both sheets: "PivotSheet1" & "PivotSheet3" so
-    ///     // we must include the sheet name in our filter ~ see note on uniqueness.
-    ///     let pivot_tables = {
-    ///         workbook.pivot_tables()
-    ///         .into_iter()
-    ///         .filter_map(|pt| {
-    ///             if pt.0.eq("PivotTable1") && pt.1.eq("PivotSheet1") {
-    ///                 Some(pt)
-    ///             } else {
-    ///                 None
-    ///             }
-    ///         })
-    ///         .collect::<Vec<_>>()
-    ///     };
-    ///
-    ///     assert_eq!(pivot_tables.len(), 1);
-    ///
-    ///     Ok(())
-    ///
-    /// }
-    ///
-    pub fn pivot_tables(&self) -> Vec<(String, String)> {
-        self.pivot_tables
-            .as_ref()
-            .expect("pivot tables should have been loaded by calling new on Reader Trait")
-            .iter()
-            .map(|v| (v.name().to_string(), v.sheet().to_string()))
-            .collect()
-    }
     // sheets must be added before this is called!!
     fn read_merged_regions(&mut self) -> Result<(), XlsxError> {
         let mut regions = Vec::new();
@@ -1773,8 +1716,6 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
-            #[cfg(feature = "pivot-cache")]
-            pivot_tables: None,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
             pictures: None,
@@ -1787,9 +1728,6 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         xlsx.read_workbook(&relationships)?;
         #[cfg(feature = "picture")]
         xlsx.read_pictures()?;
-        #[cfg(feature = "pivot-cache")]
-        xlsx.read_pivot_table_metadata()?;
-
         Ok(xlsx)
     }
 
@@ -2497,8 +2435,7 @@ pub(crate) fn path_to_zip_path<RS: Read + Seek>(zip: &ZipArchive<RS>, path: &str
     path.to_string()
 }
 
-#[cfg(feature = "pivot-cache")]
-mod pivot_cache {
+pub mod pivot_cache {
     use super::XlReader;
     use crate::{CellErrorType, Data, XlsxError};
     use quick_xml::events::attributes::Attribute;
@@ -2512,7 +2449,6 @@ mod pivot_cache {
     pub type Tag = Box<[u8]>;
     pub type Value = Option<Box<[u8]>>;
 
-    #[cfg(feature = "pivot-cache")]
     // Get the target location of the pivot table's pivot cache definitions.
     pub fn find_pivot_cache_definitions_from_pivot<RS>(
         zip: &mut zip::ZipArchive<RS>,
@@ -2579,7 +2515,7 @@ mod pivot_cache {
             Ok(paths[0].clone())
         }
     }
-    #[cfg(feature = "pivot-cache")]
+
     // Get the target location of the pivot cache record file.
     pub fn find_pivot_cache_records_from_pivot_cache_definition<RS>(
         zip: &mut zip::ZipArchive<RS>,
@@ -2643,7 +2579,7 @@ mod pivot_cache {
             Ok(paths[0].clone())
         }
     }
-    #[cfg(feature = "pivot-cache")]
+
     // Return a vec of pivot table paths (ie xl/pivotTables/pivot1.xml) for a given sheet name.
     pub fn find_pivot_table_paths_from_sheet<RS>(
         zip: &mut zip::ZipArchive<RS>,
@@ -2709,7 +2645,6 @@ mod pivot_cache {
         Ok(pivots_on_sheet)
     }
 
-    #[cfg(feature = "pivot-cache")]
     // Takes a pivot table path (ie xl/pivotTables/pivot1.xml) and returns the name.
     pub fn find_pivot_name_from_pivot_path<RS>(
         zip: &mut zip::ZipArchive<RS>,
@@ -2856,23 +2791,15 @@ mod pivot_cache {
         sheet: String,
         records: String,
         definitions: String,
-        cache_number: usize,
     }
 
     impl PivotTableRef {
-        pub fn new(
-            name: String,
-            sheet: String,
-            records: String,
-            definitions: String,
-            cache_number: usize,
-        ) -> Self {
+        pub fn new(name: String, sheet: String, records: String, definitions: String) -> Self {
             Self {
                 name,
                 sheet,
                 records,
                 definitions,
-                cache_number,
             }
         }
         pub fn name(&self) -> &str {
@@ -2886,9 +2813,6 @@ mod pivot_cache {
         }
         pub fn definitions(&self) -> &str {
             self.definitions.as_ref()
-        }
-        pub fn cache_number(&self) -> usize {
-            self.cache_number
         }
     }
 
@@ -3454,8 +3378,6 @@ mod tests {
             strings: vec![],
             sheets: vec![],
             tables: None,
-            #[cfg(feature = "pivot-cache")]
-            pivot_tables: None,
             formats: vec![],
             is_1904: false,
             metadata: Metadata::default(),
