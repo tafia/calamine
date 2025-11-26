@@ -2491,13 +2491,12 @@ pub mod pivot_cache {
                                 .rsplit_once('/')
                                 .expect("Must be a parent folder");
                             paths.push(format!("{parent}/{target}"));
-                        } else if target.is_empty() { // do nothing
-                        } else {
+                        } else if !target.is_empty() {
                             paths.push(target);
                         }
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"Relationships" => break,
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
@@ -2535,7 +2534,7 @@ pub mod pivot_cache {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                     let mut target = String::new();
                     let mut is_pivot_cache_record_type = false;
                     for a in e.attributes() {
@@ -2552,16 +2551,14 @@ pub mod pivot_cache {
                         }
                     }
                     if is_pivot_cache_record_type {
-                        if target.is_empty() {
-                        } else if target.starts_with("xl/pivotCache") {
-                            // do nothing
+                        if target.starts_with("xl/pivotCache") {
                             paths.push(target);
-                        } else {
+                        } else if !target.is_empty() {
                             paths.push(format!("xl/pivotCache/{target}"));
                         }
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"Relationships" => break,
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
@@ -2605,7 +2602,7 @@ pub mod pivot_cache {
             loop {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
-                    Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
+                    Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                         let mut target = String::new();
                         let mut is_pivot_table_type = false;
                         for a in e.attributes() {
@@ -2628,8 +2625,7 @@ pub mod pivot_cache {
                                     .rsplit_once('/')
                                     .expect("Must be a parent folder");
                                 pivots_on_sheet.push(format!("{parent}/{target}"));
-                            } else if target.is_empty() { // do nothing
-                            } else {
+                            } else if !target.is_empty() {
                                 pivots_on_sheet.push(target);
                             }
                         }
@@ -2662,7 +2658,7 @@ pub mod pivot_cache {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"pivotTableDefinition" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"pivotTableDefinition" => {
                     for a in e.attributes() {
                         if let Attribute {
                             key: QName(b"name"),
@@ -2673,7 +2669,7 @@ pub mod pivot_cache {
                         }
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"pivotTableDefinition" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"pivotTableDefinition" => {
                     break
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("pivotTableDefinition")),
