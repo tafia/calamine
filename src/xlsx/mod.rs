@@ -744,10 +744,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     /// Worksheets that do not contain any pivot tables will return None. Worksheet names
     ///
-    /// # Panics
-    ///
-    /// Panics if pivot_tables has not been populated upon creation initializing.
-    ///
     /// # Examples
     ///
     /// An example of getting all pivot tables for a provided sheet.
@@ -879,7 +875,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"cacheField" => {
-                        for ref a in e.attributes() {
+                        for a in e.attributes() {
                             if let Ok(Attribute {
                                 key: QName(b"name"),
                                 value,
@@ -2468,11 +2464,11 @@ pub mod pivot_cache {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"Relationship" => {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                     let mut target = String::new();
                     let mut is_pivot_cache_definitions_type = false;
                     for a in e.attributes() {
-                        match a.map_err(XlsxError::XmlAttr)? {
+                        match a? {
                             Attribute {
                                 key: QName(b"Target"),
                                 value: v,
@@ -2630,7 +2626,7 @@ pub mod pivot_cache {
                             }
                         }
                     }
-                    Ok(Event::End(ref e)) if e.local_name().as_ref() == b"Relationships" => break,
+                    Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                     Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
                     Err(e) => return Err(XlsxError::Xml(e)),
                     _ => (),
