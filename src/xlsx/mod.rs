@@ -2817,23 +2817,24 @@ fn get_pivot_cache_iter<'a, RS: Read + Seek + 'a>(
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"cacheField" => {
                     for a in e.attributes() {
-                        if let Ok(Attribute {
-                            key: QName(b"name"),
-                            value,
-                        }) = a
-                        {
-                            field_names.push(xml.decoder().decode(value.as_ref())?.to_string());
-                            fields.push(vec![]);
-                        }
-                        // The formula property of cacheField represents a calculated field / item.
-                        // This does not represent the underlying data and should be removed.
-                        else if let Ok(Attribute {
-                            key: QName(b"formula"),
-                            value: _value,
-                        }) = a
-                        {
-                            field_names.pop();
-                            fields.pop();
+                        match a? {
+                            Attribute {
+                                key: QName(b"name"),
+                                value,
+                            } => {
+                                field_names.push(xml.decoder().decode(value.as_ref())?.to_string());
+                                fields.push(vec![]);
+                            }
+                            Attribute {
+                                key: QName(b"formula"),
+                                value: _value,
+                            } => {
+                                field_names.pop();
+                                fields.pop();
+                            }
+                            _ => {
+                                // do nothing
+                            }
                         }
                     }
                 }
