@@ -5,9 +5,9 @@
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    get_pivot_tables_by_name_and_sheet, open_workbook, open_workbook_auto, DataRef, DataType,
-    Dimensions, ExcelDateTime, ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
+    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -2556,14 +2556,14 @@ fn test_xlsx_empty_shared_string() {
 fn test_pivot_table_meta_data() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let pivot_tables = wb.read_pivot_table_metadata().unwrap();
-    let mut results = get_pivot_tables_by_name_and_sheet(&pivot_tables);
+    let mut results = pivot_tables.get_pivot_tables_by_name_and_sheet();
     results.sort();
     let expected = vec![
-        ("PivotTable1".to_string(), "PivotSheet1".to_string()),
-        ("PivotTable1".to_string(), "PivotSheet3".to_string()),
-        ("PivotTable2".to_string(), "PivotSheet2".to_string()),
-        ("PivotTable5".to_string(), "PivotSheet4".to_string()),
-        ("PivotTable6".to_string(), "PivotSheet4".to_string()),
+        ("PivotSheet1".to_string(), "PivotTable1".to_string()),
+        ("PivotSheet2".to_string(), "PivotTable2".to_string()),
+        ("PivotSheet3".to_string(), "PivotTable1".to_string()),
+        ("PivotSheet4".to_string(), "PivotTable5".to_string()),
+        ("PivotSheet4".to_string(), "PivotTable6".to_string()),
     ];
     assert_eq!(expected, results);
     let separate_cache = pivot_tables
@@ -2717,7 +2717,6 @@ fn test_pivot_cache_data_mapping() {
     let pivot_tables = wb.read_pivot_table_metadata().unwrap();
     let mut results = wb
         .pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")
-        .unwrap()
         .unwrap();
     for expected_data in expected {
         assert_eq!(results.next(), Some(expected_data));
@@ -2731,11 +2730,9 @@ fn test_pivot_table_cache_match() {
     let results1 = wb
         .pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")
         .unwrap()
-        .unwrap()
         .collect::<Vec<_>>();
     let results2 = wb
         .pivot_table_data(&pivot_tables, "PivotTable2", "PivotSheet2")
-        .unwrap()
         .unwrap()
         .collect::<Vec<_>>();
     assert_eq!(results1, results2);
