@@ -1572,6 +1572,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         xlsx.read_workbook(&relationships)?;
         #[cfg(feature = "picture")]
         xlsx.read_pictures()?;
+
         Ok(xlsx)
     }
 
