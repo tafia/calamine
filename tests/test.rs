@@ -2559,21 +2559,27 @@ fn test_pivot_table_meta_data() {
     let mut results = pivot_tables.get_pivot_tables_by_name_and_sheet();
     results.sort();
     let expected = vec![
-        ("PivotSheet1".to_string(), "PivotTable1".to_string()),
-        ("PivotSheet2".to_string(), "PivotTable2".to_string()),
-        ("PivotSheet3".to_string(), "PivotTable1".to_string()),
-        ("PivotSheet4".to_string(), "PivotTable5".to_string()),
-        ("PivotSheet4".to_string(), "PivotTable6".to_string()),
+        ("PivotSheet1", "PivotTable1"),
+        ("PivotSheet2", "PivotTable2"),
+        ("PivotSheet3", "PivotTable1"),
+        ("PivotSheet4", "PivotTable5"),
+        ("PivotSheet4", "PivotTable6"),
     ];
     assert_eq!(expected, results);
-    let separate_cache = pivot_tables
-        .iter()
-        .find(|pt| pt.name().eq("PivotTable5"))
-        .unwrap();
-    for pivot_table in pivot_tables.iter() {
-        if pivot_table.name().ne("PivotTable5") {
-            assert_ne!(pivot_table.definitions(), separate_cache.definitions())
+
+    let pivot_table_data_pt5: Vec<Vec<Data>> = wb
+        .pivot_table_data(&pivot_tables, "PivotTable5", "PivotSheet4")
+        .unwrap()
+        .collect();
+    for (sheet_name, pt_name) in pivot_tables.get_pivot_tables_by_name_and_sheet() {
+        if pt_name.eq("PivotTable5") {
+            continue;
         }
+        let pivot_table_data_other: Vec<Vec<Data>> = wb
+            .pivot_table_data(&pivot_tables, pt_name, sheet_name)
+            .unwrap()
+            .collect();
+        assert_ne!(pivot_table_data_pt5, pivot_table_data_other);
     }
 }
 
