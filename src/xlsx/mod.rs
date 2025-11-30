@@ -2470,49 +2470,46 @@ where
     let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
     let rel_path = format!("{base_folder}/_rels{file_name}.rels");
 
-    // we need another mutable borrow of self.zip later so we enclose this borrow within braces
-    {
-        let mut xml = match xml_reader(zip, &rel_path) {
-            // Some sheets may not have relationships - okay for path to not exist.
-            None => return Ok(vec![]),
-            Some(x) => x?,
-        };
-        loop {
-            buf.clear();
-            match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                    let mut target = String::new();
-                    let mut is_pivot_table_type = false;
-                    for a in e.attributes() {
-                        match a.map_err(XlsxError::XmlAttr)? {
-                                Attribute {
-                                    key: QName(b"Target"),
-                                    value: v,
-                                } => target = xml.decoder().decode(&v)?.into_owned(),
-                                Attribute {
-                                    key: QName(b"Type"),
-                                    value: v,
-                                } => is_pivot_table_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"[..],
-                                _ => (),
-                            }
-                    }
-                    if is_pivot_table_type {
-                        if let Some(target) = target.strip_prefix("../") {
-                            // this is an incomplete implementation, but should be good enough for excel
-                            let (parent, _) = base_folder
-                                .rsplit_once('/')
-                                .expect("Must be a parent folder");
-                            pivots_on_sheet.push(format!("{parent}/{target}"));
-                        } else if !target.is_empty() {
-                            pivots_on_sheet.push(target);
+    let mut xml = match xml_reader(zip, &rel_path) {
+        // Some sheets may not have relationships - okay for path to not exist.
+        None => return Ok(vec![]),
+        Some(x) => x?,
+    };
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
+                let mut target = String::new();
+                let mut is_pivot_table_type = false;
+                for a in e.attributes() {
+                    match a.map_err(XlsxError::XmlAttr)? {
+                            Attribute {
+                                key: QName(b"Target"),
+                                value: v,
+                            } => target = xml.decoder().decode(&v)?.into_owned(),
+                            Attribute {
+                                key: QName(b"Type"),
+                                value: v,
+                            } => is_pivot_table_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"[..],
+                            _ => (),
                         }
+                }
+                if is_pivot_table_type {
+                    if let Some(target) = target.strip_prefix("../") {
+                        // this is an incomplete implementation, but should be good enough for excel
+                        let (parent, _) = base_folder
+                            .rsplit_once('/')
+                            .expect("Must be a parent folder");
+                        pivots_on_sheet.push(format!("{parent}/{target}"));
+                    } else if !target.is_empty() {
+                        pivots_on_sheet.push(target);
                     }
                 }
-                Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
-                Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
-                Err(e) => return Err(XlsxError::Xml(e)),
-                _ => (),
             }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
         }
     }
 
