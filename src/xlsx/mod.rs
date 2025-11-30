@@ -2852,16 +2852,18 @@ fn get_pivot_cache_iter<'a, RS: Read + Seek + 'a>(
                     field_names.pop();
                     fields.pop();
                 }
-                Ok(Event::Start(e)) if item_tag(&e).is_some() => {
-                    if let Some(field) = fields.last_mut() {
-                        field.push((item_tag(&e).unwrap(), item_value(&e)?));
-                    }
-                }
                 Ok(Event::Eof) => break,
-                Ok(_) => {}
                 Err(e) => {
                     panic!("{e}")
                 }
+                Ok(Event::Start(e)) => {
+                    if let Some(tag) = item_tag(&e) {
+                        if let Some(field) = fields.last_mut() {
+                            field.push((tag, item_value(&e)?));
+                        }
+                    }
+                }
+                Ok(_) => {}
             }
         }
 
@@ -2939,15 +2941,6 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
 
                     col_number += 1;
                 }
-                Ok(Event::Start(e)) if item_tag(&e).is_some() => {
-                    if let Ok(value) = item_value(&e) {
-                        row.push(parse_item(
-                            &(item_tag(&e).unwrap(), value),
-                            &self.reader.decoder(),
-                        ));
-                        col_number += 1;
-                    }
-                }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => return Some(row),
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"pivotCacheRecords" => {
                     return Some(
@@ -2958,10 +2951,18 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
                     )
                 }
                 Ok(Event::Eof) => return None,
-                Ok(_) => {}
                 Err(e) => {
                     panic!("{e}")
                 }
+                Ok(Event::Start(e)) => {
+                    if let Some(tag) = item_tag(&e) {
+                        if let Ok(value) = item_value(&e) {
+                            row.push(parse_item(&(tag, value), &self.reader.decoder()));
+                            col_number += 1;
+                        }
+                    }
+                }
+                Ok(_) => {}
             }
         }
     }
