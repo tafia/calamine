@@ -2568,7 +2568,7 @@ fn test_pivot_table_meta_data() {
     assert_eq!(expected, results);
 
     let pivot_table_data_pt5: Vec<Vec<Data>> = wb
-        .pivot_table_data(&pivot_tables, "PivotTable5", "PivotSheet4")
+        .pivot_table_data(&pivot_tables, "PivotSheet4", "PivotTable5")
         .unwrap()
         .collect();
     for (sheet_name, pt_name) in pivot_tables.get_pivot_tables_by_name_and_sheet() {
@@ -2576,7 +2576,7 @@ fn test_pivot_table_meta_data() {
             continue;
         }
         let pivot_table_data_other: Vec<Vec<Data>> = wb
-            .pivot_table_data(&pivot_tables, pt_name, sheet_name)
+            .pivot_table_data(&pivot_tables, sheet_name, pt_name)
             .unwrap()
             .collect();
         assert_ne!(pivot_table_data_pt5, pivot_table_data_other);
@@ -2722,7 +2722,7 @@ fn test_pivot_cache_data_mapping() {
     ];
     let pivot_tables = wb.read_pivot_table_metadata().unwrap();
     let mut results = wb
-        .pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")
+        .pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")
         .unwrap();
     for expected_data in expected {
         assert_eq!(results.next(), Some(expected_data));
@@ -2734,11 +2734,11 @@ fn test_pivot_table_cache_match() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let pivot_tables = wb.read_pivot_table_metadata().unwrap();
     let results1 = wb
-        .pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")
+        .pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")
         .unwrap()
         .collect::<Vec<_>>();
     let results2 = wb
-        .pivot_table_data(&pivot_tables, "PivotTable2", "PivotSheet2")
+        .pivot_table_data(&pivot_tables, "PivotSheet2", "PivotTable2")
         .unwrap()
         .collect::<Vec<_>>();
     assert_eq!(results1, results2);
