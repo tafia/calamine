@@ -2412,7 +2412,7 @@ where
                 let mut target = String::new();
                 let mut is_pivot_cache_record_type = false;
                 for a in e.attributes() {
-                    match a.map_err(XlsxError::XmlAttr)? {
+                    match a? {
                             Attribute {
                                 key: QName(b"Target"),
                                 value: v,
@@ -2481,7 +2481,7 @@ where
                 let mut target = String::new();
                 let mut is_pivot_table_type = false;
                 for a in e.attributes() {
-                    match a.map_err(XlsxError::XmlAttr)? {
+                    match a? {
                             Attribute {
                                 key: QName(b"Target"),
                                 value: v,
@@ -2537,7 +2537,7 @@ where
                     if let Attribute {
                         key: QName(b"name"),
                         value: v,
-                    } = a.map_err(XlsxError::XmlAttr)?
+                    } = a?
                     {
                         if name.is_some() {
                             return Err(XlsxError::Unexpected(
