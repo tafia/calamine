@@ -2337,7 +2337,7 @@ where
         None => return Err(XlsxError::FileNotFound(rel_path.to_owned())),
         Some(x) => x?,
     };
-    let mut paths = vec![];
+    let mut definitions_path = None;
     let mut buf = Vec::with_capacity(64);
     loop {
         buf.clear();
@@ -2358,16 +2358,22 @@ where
                             _ => (),
                         }
                 }
-                if is_pivot_cache_definitions_type {
-                    if let Some(target) = target.strip_prefix("../") {
-                        // this is an incomplete implementation, but should be good enough for excel
-                        let (parent, _) = base_folder
-                            .rsplit_once('/')
-                            .expect("Must be a parent folder");
-                        paths.push(format!("{parent}/{target}"));
-                    } else if !target.is_empty() {
-                        paths.push(target);
+                match (is_pivot_cache_definitions_type, definitions_path.is_some()) {
+                    (true, false) => {
+                        if let Some(target) = target.strip_prefix("../") {
+                            // this is an incomplete implementation, but should be good enough for excel
+                            let (parent, _) = base_folder
+                                .rsplit_once('/')
+                                .expect("Must be a parent folder");
+                            definitions_path.replace(format!("{parent}/{target}"));
+                        } else if !target.is_empty() {
+                            definitions_path.replace(target);
+                        }
                     }
+                    (true, true) => return Err(XlsxError::Unexpected(
+                        "multiple pivot cache definition relationships found for one pivot table",
+                    )),
+                    _ => {}
                 }
             }
             Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -2376,16 +2382,11 @@ where
             _ => (),
         }
     }
-    if paths.len() > 1 {
-        Err(XlsxError::Unexpected(
-            "many definition cache relationships found for one pivot table",
-        ))
-    } else if paths.is_empty() {
-        Err(XlsxError::Unexpected(
-            "no cache definition found for pivot table",
-        ))
-    } else {
-        Ok(paths[0].clone())
+    match definitions_path {
+        Some(path) => Ok(path),
+        None => Err(XlsxError::Unexpected(
+            "no pivot cache definition found for pivot table",
+        )),
     }
 }
 
@@ -2403,6 +2404,7 @@ where
         None => return Err(XlsxError::FileNotFound(rel_path.to_owned())),
         Some(x) => x?,
     };
+    let mut record_path = None;
     let mut buf = Vec::with_capacity(64);
     loop {
         buf.clear();
@@ -2423,12 +2425,20 @@ where
                             _ => (),
                         }
                 }
-                if is_pivot_cache_record_type {
-                    if target.starts_with("xl/pivotCache") {
-                        return Ok(target);
-                    } else if !target.is_empty() {
-                        return Ok(format!("xl/pivotCache/{target}"));
+                match (is_pivot_cache_record_type, record_path.is_some()) {
+                    (true, false) => {
+                        if target.starts_with("xl/pivotCache") {
+                            record_path.replace(target);
+                        } else if !target.is_empty() {
+                            record_path.replace(format!("xl/pivotCache/{target}"));
+                        }
                     }
+                    (true, true) => {
+                        return Err(XlsxError::Unexpected(
+                            "multiple pivot cache record relationships found for one pivot table",
+                        ))
+                    }
+                    _ => {}
                 }
             }
             Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -2437,9 +2447,12 @@ where
             _ => (),
         }
     }
-    Err(XlsxError::Unexpected(
-        "no cache definition found for pivot table",
-    ))
+    match record_path {
+        Some(path) => Ok(path),
+        None => Err(XlsxError::Unexpected(
+            "no pivot cache records found for pivot table",
+        )),
+    }
 }
 
 // Return a vec of pivot table paths (ie xl/pivotTables/pivot1.xml) for a given sheet name.
@@ -2519,7 +2532,7 @@ where
         Some(x) => x?,
     };
     let mut buf = Vec::with_capacity(64);
-    let mut name = String::new();
+    let mut name = None;
     loop {
         buf.clear();
         match xml.read_event_into(&mut buf) {
@@ -2530,7 +2543,13 @@ where
                         value: v,
                     } = a.map_err(XlsxError::XmlAttr)?
                     {
-                        name = xml.decoder().decode(&v)?.into_owned()
+                        if name.is_some() {
+                            return Err(XlsxError::Unexpected(
+                                "multiple name entries for one pivot table path",
+                            ));
+                        } else {
+                            name.replace(xml.decoder().decode(&v)?.into_owned());
+                        }
                     }
                 }
             }
@@ -2540,7 +2559,10 @@ where
             _ => (),
         }
     }
-    Ok(name)
+    match name {
+        Some(name) => Ok(name),
+        None => Err(XlsxError::Unexpected("no name for pivot table")),
+    }
 }
 
 /// Parse an item within a PivotCache Record into its appropriate [`Data`] type.
