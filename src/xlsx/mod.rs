@@ -2627,13 +2627,8 @@ fn bytes_to_f64(val: &[u8], decoder: &Decoder) -> Option<f64> {
     }
 }
 
+#[derive(Default)]
 pub struct PivotTables(Vec<PivotTableRef>);
-
-impl Default for PivotTables {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl PivotTables {
     fn new() -> Self {
