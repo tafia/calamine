@@ -751,7 +751,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     /// # Examples
     ///
-    /// An example of retrieving pivot data for a Pivot Table named PivotTable1.
+    /// An example of retrieving pivot data for a Pivot Table named PivotTable1 on sheet PivotSheet1.
     ///
     /// ```
     /// use calamine::{open_workbook, Error, Xlsx};
@@ -767,7 +767,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
     ///
     ///    // Get the Pivot Table data by referencing the pivot table name and the worksheet it resides.
-    ///     for row in workbook.pivot_table_data(&pivot_tables, "PivotTable1", "PivotSheet1")? {
+    ///     for row in workbook.pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")? {
     ///             // Do something.
     ///     }
     ///
@@ -778,10 +778,15 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn pivot_table_data(
         &'_ mut self,
         pivot_tables: &PivotTables,
-        pivot_table_name: &str,
         sheet_name: &str,
+        pivot_table_name: &str,
     ) -> Result<PivotCacheIter<'_, RS>, XlsxError> {
-        pivot_tables.find_pivot_table(self, sheet_name, pivot_table_name)
+        match pivot_tables.0.iter().find(|pivot_table| {
+            pivot_table.name() == pivot_table_name && pivot_table.sheet() == sheet_name
+        }) {
+            Some(pt_ref) => get_pivot_cache_iter(self, pt_ref),
+            None => Err(XlsxError::PivotTableNotFound(pivot_table_name.to_string())),
+        }
     }
 
     // sheets must be added before this is called!!
@@ -2637,20 +2642,6 @@ impl PivotTables {
 
     fn push(&mut self, pivot_table: PivotTableRef) {
         self.0.push(pivot_table);
-    }
-
-    fn find_pivot_table<'a, RS: Read + Seek + 'a>(
-        &self,
-        xl: &'a mut crate::Xlsx<RS>,
-        sheet_name: &str,
-        pivot_table_name: &str,
-    ) -> Result<PivotCacheIter<'a, RS>, XlsxError> {
-        match self.0.iter().find(|pivot_table| {
-            pivot_table.name() == pivot_table_name && pivot_table.sheet() == sheet_name
-        }) {
-            Some(pt_ref) => get_pivot_cache_iter(xl, pt_ref),
-            None => Err(XlsxError::PivotTableNotFound(pivot_table_name.to_string())),
-        }
     }
 
     /// Helper function to identify pivot tables by name and worksheet.
