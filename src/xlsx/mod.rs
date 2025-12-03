@@ -568,14 +568,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             }
                             if table_type {
                                 if target.starts_with("../") {
-                                    // this is an incomplete implementation, but should be good enough for excel
+                                    // Relative path.
                                     let new_index =
                                         base_folder.rfind('/').expect("Must be a parent folder");
                                     let full_path =
                                         format!("{}{}", &base_folder[..new_index], &target[2..]);
                                     table_locations.push(full_path);
-                                } else if target.is_empty() { // do nothing
-                                } else {
+                                } else if let Some(stripped) = target.strip_prefix('/') {
+                                    // Absolute path.
+                                    table_locations.push(stripped.to_string());
+                                } else if !target.is_empty() {
+                                    // Assume absolute path without leading slash.
                                     table_locations.push(target);
                                 }
                             }

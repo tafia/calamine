@@ -2551,3 +2551,14 @@ fn test_xlsx_empty_shared_string() {
         [[String("abc".to_string())], [String("".to_string())]]
     );
 }
+
+// Test for issue #587, an xlsx file where table references IDs are absolute
+// instead of relative, i.e., "/xl/tables/table1.xml" instead of the Excel
+// generated "../tables/table1.xml".
+#[test]
+fn test_xlsx_table_reference_ids() {
+    let mut workbook: Xlsx<_> = wb("table_with_absolute_paths.xlsx");
+    workbook.load_tables().unwrap();
+
+    assert!(!workbook.table_names().is_empty());
+}
