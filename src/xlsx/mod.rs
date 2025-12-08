@@ -625,10 +625,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                             xml.decoder().decode(&v)?.parse()?;
                                     }
                                     Attribute {
-                                        key: QName(b"insertRow"),
-                                        value: v,
-                                    } => table_meta.insert_row = *v != b"0"[..],
-                                    Attribute {
                                         key: QName(b"totalsRowCount"),
                                         value: v,
                                     } => {
@@ -663,9 +659,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 if table_meta.totals_row_count != 0 {
                     dims.end.0 -= table_meta.header_row_count;
                 }
-                if table_meta.insert_row {
-                    dims.end.0 -= 1;
-                }
+
                 new_tables.push((
                     table_meta.display_name,
                     sheet_name.clone(),
@@ -1433,7 +1427,6 @@ struct InnerTableMetadata {
     display_name: String,
     ref_cells: String,
     header_row_count: u32,
-    insert_row: bool,
     totals_row_count: u32,
 }
 
@@ -1443,7 +1436,6 @@ impl InnerTableMetadata {
             display_name: String::new(),
             ref_cells: String::new(),
             header_row_count: 1,
-            insert_row: false,
             totals_row_count: 0,
         }
     }

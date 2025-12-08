@@ -2562,3 +2562,15 @@ fn test_xlsx_table_reference_ids() {
 
     assert!(!workbook.table_names().is_empty());
 }
+
+// Test for issue #589, an xlsx file where the table element has the `insertRow`
+// attribute set.
+#[test]
+fn test_xlsx_table_insertrow_attribute() {
+    let mut workbook: Xlsx<_> = wb("table_with_insertrow_attribute.xlsx");
+    workbook.load_tables().unwrap();
+
+    let result = workbook.table_by_name("Table4");
+
+    assert!(result.is_ok(), "Expected table_by_name to succeed");
+}
