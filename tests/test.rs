@@ -2555,7 +2555,7 @@ fn test_xlsx_empty_shared_string() {
 #[test]
 fn test_pivot_table_meta_data() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
-    let pivot_tables = wb.read_pivot_table_metadata().unwrap();
+    let pivot_tables = wb.pivot_tables().unwrap();
     let mut results = pivot_tables.get_pivot_tables_by_name_and_sheet();
     results.sort();
     let expected = vec![
@@ -2720,7 +2720,7 @@ fn test_pivot_cache_data_mapping() {
             String("blue".to_string()),
         ],
     ];
-    let pivot_tables = wb.read_pivot_table_metadata().unwrap();
+    let pivot_tables = wb.pivot_tables().unwrap();
     let mut results = wb
         .pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")
         .unwrap();
@@ -2732,7 +2732,7 @@ fn test_pivot_cache_data_mapping() {
 #[test]
 fn test_pivot_table_cache_match() {
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
-    let pivot_tables = wb.read_pivot_table_metadata().unwrap();
+    let pivot_tables = wb.pivot_tables().unwrap();
     let results1 = wb
         .pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")
         .unwrap()

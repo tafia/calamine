@@ -714,12 +714,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    /// Provide metadata for all pivot tables.
+    /// Get all Pivot Tables in a workbook.
     ///
     /// # Note
     ///
     /// This function is required before working with Pivot Table Data due to reliance on metadata in `PivotTableRef`.
-    pub fn read_pivot_table_metadata(&mut self) -> Result<PivotTables, XlsxError>
+    pub fn pivot_tables(&mut self) -> Result<PivotTables, XlsxError>
     where
         RS: Read + Seek,
     {
@@ -764,7 +764,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Must retrieve necessary metadata before reading Pivot Table data.
-    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///     let pivot_tables = workbook.pivot_tables()?;
     ///
     ///    // Get the Pivot Table data by referencing the pivot table name and the worksheet it resides.
     ///     for row in workbook.pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")? {
@@ -2673,7 +2673,7 @@ impl PivotTables {
     ///     // Open the workbook.
     ///     let mut workbook: Xlsx<_> = open_workbook("tests/pivots.xlsx")?;
     ///     // Must retrieve necessary metadata before reading Pivot Table data.
-    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///     let pivot_tables = workbook.pivot_tables()?;
     ///
     ///     // "PivotTable1" is found on both sheets: "PivotSheet1" & "PivotSheet3" so
     ///     // we must include the sheet name in our filter ~ see note on uniqueness.
@@ -2718,7 +2718,7 @@ impl PivotTables {
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Must retrieve necessary metadata before reading Pivot Table data.
-    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///     let pivot_tables = workbook.pivot_tables()?;
     ///
     ///     // Get the pivot table names in the workbook for a given sheet.
     ///     let pivot_table_names = pivot_tables.pivot_tables_by_sheet("PivotSheet1");
