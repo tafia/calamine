@@ -2894,7 +2894,7 @@ impl<'a, RS: Read + Seek + 'a> PivotCacheIter<'a, RS> {
 //
 // https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.pivotcacherecord?view=openxml-3.0.1
 impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
-    type Item = Vec<Data>;
+    type Item = Result<Vec<Data>, XlsxError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut row = vec![];
@@ -2910,12 +2910,17 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
                             value,
                         }) = a
                         {
-                            let value_position = self
-                                .reader
-                                .decoder()
-                                .decode(value.as_ref())
-                                .map(|val| val.parse::<usize>().unwrap())
-                                .unwrap();
+                            let value_position = match self.reader.decoder().decode(value.as_ref())
+                            {
+                                Ok(val) => match val.parse::<usize>() {
+                                    Ok(val) => val,
+                                    Err(e) => {
+                                        return Some(Err(XlsxError::ParseInt(e)));
+                                    }
+                                },
+                                Err(e) => return Some(Err(XlsxError::Encoding(e))),
+                            };
+
                             let column_name = &self.field_names[col_number];
                             row.push(parse_item(
                                 &self.definitions[column_name][value_position],
@@ -2927,19 +2932,16 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
 
                     col_number += 1;
                 }
-                Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => return Some(row),
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => return Some(Ok(row)),
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"pivotCacheRecords" => {
-                    return Some(
-                        self.field_names
-                            .iter()
-                            .map(|fields| Data::String(fields.to_string()))
-                            .collect(),
-                    )
+                    return Some(Ok(self
+                        .field_names
+                        .iter()
+                        .map(|fields| Data::String(fields.to_string()))
+                        .collect()))
                 }
                 Ok(Event::Eof) => return None,
-                Err(e) => {
-                    panic!("{e}")
-                }
+                Err(e) => return Some(Err(XlsxError::Xml(e))),
                 Ok(Event::Start(e)) => {
                     if let Some(tag) = item_tag(&e) {
                         if let Ok(value) = item_value(&e) {

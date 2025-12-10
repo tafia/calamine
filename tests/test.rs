@@ -2570,6 +2570,7 @@ fn test_pivot_table_meta_data() {
     let pivot_table_data_pt5: Vec<Vec<Data>> = wb
         .pivot_table_data(&pivot_tables, "PivotSheet4", "PivotTable5")
         .unwrap()
+        .map(|val| val.unwrap())
         .collect();
     for (sheet_name, pt_name) in pivot_tables.get_pivot_tables_by_name_and_sheet() {
         if pt_name.eq("PivotTable5") {
@@ -2578,6 +2579,7 @@ fn test_pivot_table_meta_data() {
         let pivot_table_data_other: Vec<Vec<Data>> = wb
             .pivot_table_data(&pivot_tables, sheet_name, pt_name)
             .unwrap()
+            .map(|val| val.unwrap())
             .collect();
         assert_ne!(pivot_table_data_pt5, pivot_table_data_other);
     }
@@ -2725,7 +2727,7 @@ fn test_pivot_cache_data_mapping() {
         .pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")
         .unwrap();
     for expected_data in expected {
-        assert_eq!(results.next(), Some(expected_data));
+        assert_eq!(results.next().map(|m| m.unwrap()), Some(expected_data));
     }
 }
 
@@ -2736,10 +2738,12 @@ fn test_pivot_table_cache_match() {
     let results1 = wb
         .pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")
         .unwrap()
+        .map(|val| val.unwrap())
         .collect::<Vec<_>>();
     let results2 = wb
         .pivot_table_data(&pivot_tables, "PivotSheet2", "PivotTable2")
         .unwrap()
+        .map(|val| val.unwrap())
         .collect::<Vec<_>>();
     assert_eq!(results1, results2);
 }
