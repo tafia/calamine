@@ -714,12 +714,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    /// Provide metadata for all pivot tables.
+    /// Get all Pivot Tables in a workbook.
     ///
     /// # Note
     ///
     /// This function is required before working with Pivot Table Data due to reliance on metadata in `PivotTableRef`.
-    pub fn read_pivot_table_metadata(&mut self) -> Result<PivotTables, XlsxError>
+    pub fn pivot_tables(&mut self) -> Result<PivotTables, XlsxError>
     where
         RS: Read + Seek,
     {
@@ -764,7 +764,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Must retrieve necessary metadata before reading Pivot Table data.
-    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///     let pivot_tables = workbook.pivot_tables()?;
     ///
     ///    // Get the Pivot Table data by referencing the pivot table name and the worksheet it resides.
     ///     for row in workbook.pivot_table_data(&pivot_tables, "PivotSheet1", "PivotTable1")? {
@@ -2673,7 +2673,7 @@ impl PivotTables {
     ///     // Open the workbook.
     ///     let mut workbook: Xlsx<_> = open_workbook("tests/pivots.xlsx")?;
     ///     // Must retrieve necessary metadata before reading Pivot Table data.
-    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///     let pivot_tables = workbook.pivot_tables()?;
     ///
     ///     // "PivotTable1" is found on both sheets: "PivotSheet1" & "PivotSheet3" so
     ///     // we must include the sheet name in our filter ~ see note on uniqueness.
@@ -2718,7 +2718,7 @@ impl PivotTables {
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Must retrieve necessary metadata before reading Pivot Table data.
-    ///     let pivot_tables = workbook.read_pivot_table_metadata()?;
+    ///     let pivot_tables = workbook.pivot_tables()?;
     ///
     ///     // Get the pivot table names in the workbook for a given sheet.
     ///     let pivot_table_names = pivot_tables.pivot_tables_by_sheet("PivotSheet1");
@@ -2894,7 +2894,7 @@ impl<'a, RS: Read + Seek + 'a> PivotCacheIter<'a, RS> {
 //
 // https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.pivotcacherecord?view=openxml-3.0.1
 impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
-    type Item = Vec<Data>;
+    type Item = Result<Vec<Data>, XlsxError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut row = vec![];
@@ -2910,12 +2910,17 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
                             value,
                         }) = a
                         {
-                            let value_position = self
-                                .reader
-                                .decoder()
-                                .decode(value.as_ref())
-                                .map(|val| val.parse::<usize>().unwrap())
-                                .unwrap();
+                            let value_position = match self.reader.decoder().decode(value.as_ref())
+                            {
+                                Ok(val) => match val.parse::<usize>() {
+                                    Ok(val) => val,
+                                    Err(e) => {
+                                        return Some(Err(XlsxError::ParseInt(e)));
+                                    }
+                                },
+                                Err(e) => return Some(Err(XlsxError::Encoding(e))),
+                            };
+
                             let column_name = &self.field_names[col_number];
                             row.push(parse_item(
                                 &self.definitions[column_name][value_position],
@@ -2927,19 +2932,16 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
 
                     col_number += 1;
                 }
-                Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => return Some(row),
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => return Some(Ok(row)),
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"pivotCacheRecords" => {
-                    return Some(
-                        self.field_names
-                            .iter()
-                            .map(|fields| Data::String(fields.to_string()))
-                            .collect(),
-                    )
+                    return Some(Ok(self
+                        .field_names
+                        .iter()
+                        .map(|fields| Data::String(fields.to_string()))
+                        .collect()))
                 }
                 Ok(Event::Eof) => return None,
-                Err(e) => {
-                    panic!("{e}")
-                }
+                Err(e) => return Some(Err(XlsxError::Xml(e))),
                 Ok(Event::Start(e)) => {
                     if let Some(tag) = item_tag(&e) {
                         if let Ok(value) = item_value(&e) {
