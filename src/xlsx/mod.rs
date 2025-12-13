@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
-use std::string::String;
 
 use log::warn;
 use quick_xml::events::attributes::{AttrError, Attribute, Attributes};
