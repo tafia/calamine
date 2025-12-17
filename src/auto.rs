@@ -162,6 +162,16 @@ where
             Sheets::Ods(e) => e.pictures(),
         }
     }
+
+    #[cfg(feature = "picture")]
+    fn pictures_with_positions(&self) -> Option<Vec<crate::Picture>> {
+        match self {
+            Sheets::Xls(e) => e.pictures_with_positions(),
+            Sheets::Xlsx(e) => e.pictures_with_positions(),
+            Sheets::Xlsb(e) => e.pictures_with_positions(),
+            Sheets::Ods(e) => e.pictures_with_positions(),
+        }
+    }
 }
 
 impl<RS> ReaderRef<RS> for Sheets<RS>

@@ -1516,6 +1516,65 @@ fn pictures() -> Result<(), calamine::Error> {
     Ok(())
 }
 
+// cargo test --features picture pictures_with_positions_drawingml
+#[test]
+#[cfg(feature = "picture")]
+fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
+    use calamine::Reader;
+
+    // Test DrawingML format (picture.xlsx has twoCellAnchor elements)
+    let xlsx: Xlsx<_> = wb("picture.xlsx");
+    let pics = xlsx.pictures_with_positions().expect("Should have pictures");
+
+    // picture.xlsx has 2 images: one jpg on sheet1 and one png on sheet2
+    assert_eq!(pics.len(), 2, "Expected 2 pictures");
+
+    // First picture should be on Sheet1, anchored at col=0, row=0 (A1)
+    let pic1 = &pics[0];
+    assert_eq!(pic1.extension, "jpg");
+    assert_eq!(pic1.sheet_name, Some("Sheet1".to_string()));
+    assert_eq!(pic1.anchor_col, Some(0));
+    assert_eq!(pic1.anchor_row, Some(0));
+    assert_eq!(pic1.anchor_cell(), Some("A1".to_string()));
+    assert!(pic1.media_name.is_some());
+
+    // Second picture should be on Sheet2, anchored at col=0, row=0 (A1)
+    let pic2 = &pics[1];
+    assert_eq!(pic2.extension, "png");
+    assert_eq!(pic2.sheet_name, Some("Sheet2".to_string()));
+    assert_eq!(pic2.anchor_col, Some(0));
+    assert_eq!(pic2.anchor_row, Some(0));
+    assert_eq!(pic2.anchor_cell(), Some("A1".to_string()));
+    assert!(pic2.media_name.is_some());
+
+    Ok(())
+}
+
+// cargo test --features picture pictures_with_positions_richdata
+#[test]
+#[cfg(feature = "picture")]
+fn pictures_with_positions_richdata() -> Result<(), calamine::Error> {
+    use calamine::Reader;
+
+    // Test Rich Data format (Excel 365 cell images using xl/richData/)
+    let xlsx: Xlsx<_> = wb("picture_richdata.xlsx");
+    let pics = xlsx.pictures_with_positions().expect("Should have pictures");
+
+    // picture_richdata.xlsx has 1 cell image at B2
+    assert_eq!(pics.len(), 1, "Expected 1 picture");
+
+    let pic = &pics[0];
+    assert_eq!(pic.extension, "png");
+    assert!(pic.sheet_name.is_some(), "Should have sheet name");
+    assert!(pic.media_name.is_some(), "Should have media name");
+    // Image is at B2 (col=1, row=1, 0-indexed)
+    assert_eq!(pic.anchor_cell(), Some("B2".to_string()));
+    assert_eq!(pic.anchor_col, Some(1));
+    assert_eq!(pic.anchor_row, Some(1));
+
+    Ok(())
+}
+
 #[test]
 fn ods_merged_cells() {
     let mut ods: Ods<_> = wb("merged_cells.ods");

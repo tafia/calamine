@@ -24,6 +24,8 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
+#[cfg(feature = "picture")]
+use crate::Picture;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
     SheetType, SheetVisible, Table,
@@ -249,9 +251,12 @@ pub struct Xlsx<RS> {
     is_1904: bool,
     /// Metadata
     metadata: Metadata,
-    /// Pictures
+    /// Pictures (raw, without position info)
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+    /// Pictures with position information
+    #[cfg(feature = "picture")]
+    pictures_with_positions: Option<Vec<Picture>>,
     /// Merged Regions: Name, Sheet, Merged Dimensions
     merged_regions: Option<Vec<(String, String, Dimensions)>>,
     /// Reader options
@@ -701,6 +706,496 @@ impl<RS: Read + Seek> Xlsx<RS> {
         if !pics.is_empty() {
             self.pictures = Some(pics);
         }
+        Ok(())
+    }
+
+    // Read pictures with position information from DrawingML.
+    // sheets must be added before this is called!!
+    #[cfg(feature = "picture")]
+    fn read_pictures_with_positions(&mut self) -> Result<(), XlsxError> {
+        use std::collections::HashMap;
+
+        // Step 1: Build a map of media files (filename -> (extension, data))
+        let mut media_map: HashMap<String, (String, Vec<u8>)> = HashMap::new();
+        for i in 0..self.zip.len() {
+            let mut zfile = self.zip.by_index(i)?;
+            let zname = zfile.name().to_string();
+            if zname.starts_with("xl/media/") {
+                if let Some(filename) = zname.strip_prefix("xl/media/") {
+                    if let Some(ext) = filename.split('.').next_back() {
+                        if [
+                            "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
+                            "bmp", "wpg",
+                        ]
+                        .contains(&ext)
+                        {
+                            let mut buf: Vec<u8> = Vec::new();
+                            zfile.read_to_end(&mut buf)?;
+                            media_map.insert(filename.to_string(), (ext.to_string(), buf));
+                        }
+                    }
+                }
+            }
+        }
+
+        if media_map.is_empty() {
+            return Ok(());
+        }
+
+        let mut pictures = Vec::new();
+
+        // Step 2: For each sheet, find drawing relationships and parse drawings
+        for (sheet_name, sheet_path) in &self.sheets.clone() {
+            // Find the drawing relationship for this sheet
+            let last_folder_index = sheet_path.rfind('/').unwrap_or(0);
+            let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
+            let sheet_rels_path = format!("{base_folder}/_rels{file_name}.rels");
+
+            // Read sheet relationships to find drawing
+            let mut drawing_path: Option<String> = None;
+            {
+                let mut xml = match xml_reader(&mut self.zip, &sheet_rels_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(e) | Event::Empty(e))
+                            if e.local_name().as_ref() == b"Relationship" =>
+                        {
+                            let mut target = String::new();
+                            let mut is_drawing = false;
+                            for a in e.attributes() {
+                                match a? {
+                                    Attribute {
+                                        key: QName(b"Target"),
+                                        value: v,
+                                    } => target = xml.decoder().decode(&v)?.into_owned(),
+                                    Attribute {
+                                        key: QName(b"Type"),
+                                        value: v,
+                                    } => {
+                                        is_drawing = v.ends_with(b"/drawing");
+                                    }
+                                    _ => (),
+                                }
+                            }
+                            if is_drawing && !target.is_empty() {
+                                // Resolve relative path
+                                let resolved = if target.starts_with("../") {
+                                    format!("xl/{}", target.trim_start_matches("../"))
+                                } else if target.starts_with('/') {
+                                    target[1..].to_string()
+                                } else {
+                                    format!("{base_folder}/{target}")
+                                };
+                                drawing_path = Some(resolved);
+                                break;
+                            }
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+
+            let drawing_path = match drawing_path {
+                Some(p) => p,
+                None => continue,
+            };
+
+            // Read drawing relationships to map rId -> media filename
+            let drawing_rels_path = {
+                let last_slash = drawing_path.rfind('/').unwrap_or(0);
+                let (folder, filename) = drawing_path.split_at(last_slash);
+                format!("{folder}/_rels{filename}.rels")
+            };
+
+            let mut embed_to_media: HashMap<String, String> = HashMap::new();
+            {
+                let mut xml = match xml_reader(&mut self.zip, &drawing_rels_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(e) | Event::Empty(e))
+                            if e.local_name().as_ref() == b"Relationship" =>
+                        {
+                            let mut id = String::new();
+                            let mut target = String::new();
+                            for a in e.attributes() {
+                                match a? {
+                                    Attribute {
+                                        key: QName(b"Id"),
+                                        value: v,
+                                    } => id = xml.decoder().decode(&v)?.into_owned(),
+                                    Attribute {
+                                        key: QName(b"Target"),
+                                        value: v,
+                                    } => target = xml.decoder().decode(&v)?.into_owned(),
+                                    _ => (),
+                                }
+                            }
+                            if !id.is_empty() && !target.is_empty() {
+                                // Extract just the filename from the target path
+                                let media_name = target
+                                    .rsplit('/')
+                                    .next()
+                                    .unwrap_or(&target)
+                                    .to_string();
+                                embed_to_media.insert(id, media_name);
+                            }
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+
+            // Parse the drawing XML to extract anchors
+            {
+                let mut xml = match xml_reader(&mut self.zip, &drawing_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut buf = Vec::new();
+
+                // State for parsing anchors
+                let mut in_anchor = false;
+                let mut in_from = false;
+                let mut current_row: Option<u32> = None;
+                let mut current_col: Option<u32> = None;
+                let mut current_embed_id: Option<String> = None;
+
+                loop {
+                    buf.clear();
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(e)) => {
+                            let local_name = e.local_name();
+                            match local_name.as_ref() {
+                                b"twoCellAnchor" | b"oneCellAnchor" => {
+                                    in_anchor = true;
+                                    current_row = None;
+                                    current_col = None;
+                                    current_embed_id = None;
+                                }
+                                b"from" if in_anchor => {
+                                    in_from = true;
+                                }
+                                b"blip" if in_anchor => {
+                                    // Look for r:embed attribute
+                                    for a in e.attributes() {
+                                        if let Ok(attr) = a {
+                                            // Check for embed attribute (with or without namespace)
+                                            let key = attr.key.local_name();
+                                            if key.as_ref() == b"embed" {
+                                                if let Ok(val) =
+                                                    xml.decoder().decode(&attr.value)
+                                                {
+                                                    current_embed_id = Some(val.into_owned());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+                        Ok(Event::Empty(e)) => {
+                            let local_name = e.local_name();
+                            if local_name.as_ref() == b"blip" && in_anchor {
+                                for a in e.attributes() {
+                                    if let Ok(attr) = a {
+                                        let key = attr.key.local_name();
+                                        if key.as_ref() == b"embed" {
+                                            if let Ok(val) = xml.decoder().decode(&attr.value) {
+                                                current_embed_id = Some(val.into_owned());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Event::End(e)) => {
+                            let local_name = e.local_name();
+                            match local_name.as_ref() {
+                                b"twoCellAnchor" | b"oneCellAnchor" => {
+                                    // End of anchor - create Picture if we have embed ID
+                                    if let Some(embed_id) = current_embed_id.take() {
+                                        if let Some(media_name) = embed_to_media.get(&embed_id) {
+                                            if let Some((ext, data)) = media_map.get(media_name) {
+                                                pictures.push(Picture {
+                                                    extension: ext.clone(),
+                                                    data: data.clone(),
+                                                    sheet_name: Some(sheet_name.clone()),
+                                                    anchor_row: current_row,
+                                                    anchor_col: current_col,
+                                                    media_name: Some(media_name.clone()),
+                                                });
+                                            }
+                                        }
+                                    }
+                                    in_anchor = false;
+                                    current_row = None;
+                                    current_col = None;
+                                }
+                                b"from" => {
+                                    in_from = false;
+                                }
+                                _ => (),
+                            }
+                        }
+                        Ok(Event::Text(_)) if in_from && in_anchor => {
+                            // Text content is extracted in the second pass
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+
+            // Re-parse to get row/col values (need separate pass due to text content)
+            {
+                let mut xml = match xml_reader(&mut self.zip, &drawing_path) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut buf = Vec::new();
+
+                let mut in_anchor = false;
+                let mut in_from = false;
+                let mut in_row = false;
+                let mut in_col = false;
+                let mut anchor_index = 0usize;
+                let mut current_row: Option<u32> = None;
+                let mut current_col: Option<u32> = None;
+
+                // Find pictures for this sheet to update
+                let sheet_pic_start = pictures
+                    .iter()
+                    .position(|p| p.sheet_name.as_ref() == Some(sheet_name))
+                    .unwrap_or(pictures.len());
+
+                loop {
+                    buf.clear();
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(e)) => {
+                            let local_name = e.local_name();
+                            match local_name.as_ref() {
+                                b"twoCellAnchor" | b"oneCellAnchor" => {
+                                    in_anchor = true;
+                                    current_row = None;
+                                    current_col = None;
+                                }
+                                b"from" if in_anchor => in_from = true,
+                                b"row" if in_from => in_row = true,
+                                b"col" if in_from => in_col = true,
+                                _ => (),
+                            }
+                        }
+                        Ok(Event::Text(e)) => {
+                            if in_row {
+                                if let Ok(text) = xml.decoder().decode(&e) {
+                                    current_row = text.trim().parse().ok();
+                                }
+                            } else if in_col {
+                                if let Ok(text) = xml.decoder().decode(&e) {
+                                    current_col = text.trim().parse().ok();
+                                }
+                            }
+                        }
+                        Ok(Event::End(e)) => {
+                            let local_name = e.local_name();
+                            match local_name.as_ref() {
+                                b"twoCellAnchor" | b"oneCellAnchor" => {
+                                    // Update the picture at this index
+                                    let pic_idx = sheet_pic_start + anchor_index;
+                                    if pic_idx < pictures.len() {
+                                        pictures[pic_idx].anchor_row = current_row;
+                                        pictures[pic_idx].anchor_col = current_col;
+                                    }
+                                    anchor_index += 1;
+                                    in_anchor = false;
+                                }
+                                b"from" => in_from = false,
+                                b"row" => in_row = false,
+                                b"col" => in_col = false,
+                                _ => (),
+                            }
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        // If no pictures found via DrawingML, try Rich Data format (Excel 365 cell images)
+        if pictures.is_empty() {
+            self.read_rich_data_pictures(&media_map, &mut pictures)?;
+        }
+
+        if !pictures.is_empty() {
+            self.pictures_with_positions = Some(pictures);
+        }
+        Ok(())
+    }
+
+    /// Read pictures embedded via Rich Data (Excel 365 format for cell images)
+    /// This format stores images in xl/richData/ instead of xl/drawings/
+    #[cfg(feature = "picture")]
+    fn read_rich_data_pictures(
+        &mut self,
+        media_map: &std::collections::HashMap<String, (String, Vec<u8>)>,
+        pictures: &mut Vec<Picture>,
+    ) -> Result<(), XlsxError> {
+        use std::collections::HashMap;
+
+        // Step 1: Read richValueRel relationships to map rId -> media filename
+        let mut rid_to_media: HashMap<String, String> = HashMap::new();
+        {
+            let mut xml =
+                match xml_reader(&mut self.zip, "xl/richData/_rels/richValueRel.xml.rels") {
+                    None => return Ok(()),
+                    Some(x) => x?,
+                };
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e) | Event::Empty(e))
+                        if e.local_name().as_ref() == b"Relationship" =>
+                    {
+                        let mut id = String::new();
+                        let mut target = String::new();
+                        for a in e.attributes() {
+                            match a? {
+                                Attribute {
+                                    key: QName(b"Id"),
+                                    value: v,
+                                } => id = xml.decoder().decode(&v)?.into_owned(),
+                                Attribute {
+                                    key: QName(b"Target"),
+                                    value: v,
+                                } => target = xml.decoder().decode(&v)?.into_owned(),
+                                _ => (),
+                            }
+                        }
+                        if !id.is_empty() && !target.is_empty() {
+                            let media_name = target.rsplit('/').next().unwrap_or(&target).to_string();
+                            rid_to_media.insert(id, media_name);
+                        }
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+        }
+
+        if rid_to_media.is_empty() {
+            return Ok(());
+        }
+
+        // Step 2: Read richValueRel.xml to get rId order (index 0 = rId1, etc.)
+        let mut rid_order: Vec<String> = Vec::new();
+        {
+            let mut xml = match xml_reader(&mut self.zip, "xl/richData/richValueRel.xml") {
+                None => return Ok(()),
+                Some(x) => x?,
+            };
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e) | Event::Empty(e)) if e.local_name().as_ref() == b"rel" => {
+                        for a in e.attributes() {
+                            if let Ok(attr) = a {
+                                let key = attr.key.local_name();
+                                if key.as_ref() == b"id" {
+                                    if let Ok(val) = xml.decoder().decode(&attr.value) {
+                                        rid_order.push(val.into_owned());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+        }
+
+        // Step 3: For each sheet, find cells with vm (value metadata) attribute
+        // vm index maps to rid_order (vm="1" -> index 0 -> rid_order[0])
+        for (sheet_name, sheet_path) in &self.sheets.clone() {
+            let mut xml = match xml_reader(&mut self.zip, sheet_path) {
+                None => continue,
+                Some(x) => x?,
+            };
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e) | Event::Empty(e)) if e.local_name().as_ref() == b"c" => {
+                        let mut cell_ref: Option<String> = None;
+                        let mut vm_index: Option<usize> = None;
+
+                        for a in e.attributes() {
+                            match a? {
+                                Attribute {
+                                    key: QName(b"r"),
+                                    value: v,
+                                } => cell_ref = Some(xml.decoder().decode(&v)?.into_owned()),
+                                Attribute {
+                                    key: QName(b"vm"),
+                                    value: v,
+                                } => {
+                                    if let Ok(idx_str) = xml.decoder().decode(&v) {
+                                        // vm is 1-indexed, convert to 0-indexed
+                                        vm_index = idx_str.trim().parse::<usize>().ok().map(|i| i.saturating_sub(1));
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+
+                        // If we have both cell reference and vm index, we have a rich data image
+                        if let (Some(cell), Some(idx)) = (cell_ref, vm_index) {
+                            if let Some(rid) = rid_order.get(idx) {
+                                if let Some(media_name) = rid_to_media.get(rid) {
+                                    if let Some((ext, data)) = media_map.get(media_name) {
+                                        let (col, row) = parse_cell_ref(&cell);
+                                        pictures.push(Picture {
+                                            extension: ext.clone(),
+                                            data: data.clone(),
+                                            sheet_name: Some(sheet_name.clone()),
+                                            anchor_row: row,
+                                            anchor_col: col,
+                                            media_name: Some(media_name.clone()),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1482,6 +1977,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
             pictures: None,
+            #[cfg(feature = "picture")]
+            pictures_with_positions: None,
             merged_regions: None,
             options: XlsxOptions::default(),
         };
@@ -1491,6 +1988,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         xlsx.read_workbook(&relationships)?;
         #[cfg(feature = "picture")]
         xlsx.read_pictures()?;
+        #[cfg(feature = "picture")]
+        xlsx.read_pictures_with_positions()?;
 
         Ok(xlsx)
     }
@@ -1563,6 +2062,11 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures_with_positions(&self) -> Option<Vec<Picture>> {
+        self.pictures_with_positions.to_owned()
     }
 }
 
@@ -1715,6 +2219,16 @@ pub(crate) fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
     let (row, col) = get_row_and_optional_column(range)?;
     let col = col.ok_or(XlsxError::RangeWithoutColumnComponent)?;
     Ok((row, col))
+}
+
+/// Parse a cell reference like "A5" into (col, row) as Option<u32>
+/// Returns (None, None) if parsing fails
+#[cfg(feature = "picture")]
+fn parse_cell_ref(cell: &str) -> (Option<u32>, Option<u32>) {
+    match get_row_column(cell.as_bytes()) {
+        Ok((row, col)) => (Some(col), Some(row)),
+        Err(_) => (None, None),
+    }
 }
 
 /// Converts a text row name into its position (0 based index).
@@ -2679,6 +3193,8 @@ mod tests {
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
             pictures: None,
+            #[cfg(feature = "picture")]
+            pictures_with_positions: None,
             merged_regions: None,
             options: XlsxOptions::default(),
         };
