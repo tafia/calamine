@@ -13,6 +13,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
+use log::warn;
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
@@ -26,6 +27,15 @@ use crate::{Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
+
+/// Maximum number of rows allowed in an ODS file (matches XLSX limit).
+const MAX_ROWS: u32 = 1_048_576;
+
+/// Maximum number of columns allowed in an ODS file (matches XLSX limit).
+const MAX_COLUMNS: u32 = 16_384;
+
+/// Maximum number of cells to prevent memory exhaustion from malicious files.
+const MAX_CELLS: usize = 100_000_000;
 
 type OdsReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
@@ -71,6 +81,13 @@ pub enum OdsError {
     AttrError(quick_xml::events::attributes::AttrError),
     /// XML encoding error
     EncodingError(quick_xml::encoding::EncodingError),
+    /// File exceeds maximum cell count
+    CellLimitExceeded {
+        /// Number of cells requested
+        requested: usize,
+        /// Maximum allowed cells
+        max: usize,
+    },
 }
 
 /// Ods reader options
@@ -110,6 +127,9 @@ impl std::fmt::Display for OdsError {
             OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
             OdsError::AttrError(e) => write!(f, "XML attribute Error: {e}"),
             OdsError::EncodingError(e) => write!(f, "XML encoding Error: {e}"),
+            OdsError::CellLimitExceeded { requested, max } => {
+                write!(f, "Cell limit exceeded ({requested} cells requested, max {max})")
+            }
         }
     }
 }
@@ -399,14 +419,26 @@ where
     let mut buf = Vec::with_capacity(1024);
     let mut row_buf = Vec::with_capacity(1024);
     let mut cell_buf = Vec::with_capacity(1024);
+    let mut total_rows: usize = 0;
     cols.push(0);
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if e.name() == QName(b"table:table-row") => {
-                let row_repeats = match e.try_get_attribute(b"table:number-rows-repeated")? {
+                let row_repeats: usize = match e.try_get_attribute(b"table:number-rows-repeated")? {
                     Some(c) => c.decode_and_unescape_value(reader.decoder())?.parse()?,
                     None => 1,
                 };
+
+                // Cap row_repeats so total rows don't exceed MAX_ROWS
+                let remaining_rows = (MAX_ROWS as usize).saturating_sub(total_rows);
+                let capped_repeats = row_repeats.min(remaining_rows);
+                if capped_repeats < row_repeats {
+                    warn!(
+                        "ods row repeat count capped ({row_repeats} -> {capped_repeats}, max rows {MAX_ROWS})"
+                    );
+                }
+                total_rows = total_rows.saturating_add(capped_repeats);
+
                 read_row(
                     reader,
                     &mut row_buf,
@@ -415,7 +447,7 @@ where
                     &mut formulas,
                 )?;
                 cols.push(cells.len());
-                rows_repeats.push(row_repeats);
+                rows_repeats.push(capped_repeats);
             }
             Ok(Event::End(e)) if e.name() == QName(b"table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
@@ -424,8 +456,8 @@ where
         buf.clear();
     }
     Ok((
-        get_range(cells, &cols, &rows_repeats),
-        get_range(formulas, &cols, &rows_repeats),
+        get_range(cells, &cols, &rows_repeats)?,
+        get_range(formulas, &cols, &rows_repeats)?,
     ))
 }
 
@@ -437,7 +469,7 @@ fn get_range<T: Default + Clone + PartialEq>(
     mut cells: Vec<T>,
     cols: &[usize],
     rows_repeats: &[usize],
-) -> Range<T> {
+) -> Result<Range<T>, OdsError> {
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
@@ -466,16 +498,17 @@ fn get_range<T: Default + Clone + PartialEq>(
         }
     }
     let Some(row_min) = row_min else {
-        return Range::default();
+        return Ok(Range::default());
     };
 
     // rebuild cells into its smallest non empty area
-    let cells_len = (row_max + 1 - row_min) * (col_max + 1 - col_min);
+    let row_width = col_max + 1 - col_min;
+    let cells_len = (row_max + 1 - row_min) * row_width;
     {
-        let mut new_cells = Vec::with_capacity(cells_len);
+        let mut new_cells = Vec::with_capacity(cells_len.min(MAX_CELLS));
         let empty_cells = vec![T::default(); col_max + 1];
-        let mut empty_row_repeats = 0;
-        let mut consecutive_empty_rows = 0;
+        let mut empty_row_repeats = 0usize;
+        let mut consecutive_empty_rows = 0usize;
         for (w, row_repeats) in cols
             .windows(2)
             .skip(row_min)
@@ -486,15 +519,23 @@ fn get_range<T: Default + Clone + PartialEq>(
             let row_repeats = *row_repeats;
 
             if is_empty_row(row) {
-                empty_row_repeats += row_repeats;
+                empty_row_repeats = empty_row_repeats.saturating_add(row_repeats);
                 consecutive_empty_rows += 1;
                 continue;
             }
 
             if empty_row_repeats > 0 {
+                // Check if expanding empty rows would exceed MAX_CELLS
+                let cells_to_add = empty_row_repeats.saturating_mul(row_width);
+                if new_cells.len().saturating_add(cells_to_add) > MAX_CELLS {
+                    return Err(OdsError::CellLimitExceeded {
+                        requested: new_cells.len().saturating_add(cells_to_add),
+                        max: MAX_CELLS,
+                    });
+                }
                 row_max = row_max + empty_row_repeats - consecutive_empty_rows;
                 for _ in 0..empty_row_repeats {
-                    new_cells.extend_from_slice(&empty_cells);
+                    new_cells.extend_from_slice(&empty_cells[col_min..]);
                 }
                 empty_row_repeats = 0;
                 consecutive_empty_rows = 0;
@@ -502,6 +543,15 @@ fn get_range<T: Default + Clone + PartialEq>(
 
             if row_repeats > 1 {
                 row_max = row_max + row_repeats - 1;
+            }
+
+            // Check if expanding this row would exceed MAX_CELLS
+            let cells_to_add = row_repeats.saturating_mul(row_width);
+            if new_cells.len().saturating_add(cells_to_add) > MAX_CELLS {
+                return Err(OdsError::CellLimitExceeded {
+                    requested: new_cells.len().saturating_add(cells_to_add),
+                    max: MAX_CELLS,
+                });
             }
 
             for _ in 0..row_repeats {
@@ -523,11 +573,11 @@ fn get_range<T: Default + Clone + PartialEq>(
     }
     let row_min = row_min + first_empty_rows_repeated;
     let row_max = row_max + first_empty_rows_repeated;
-    Range {
+    Ok(Range {
         start: (row_min as u32, col_min as u32),
         end: (row_max as u32, col_max as u32),
         inner: cells,
-    }
+    })
 }
 
 fn read_row<RS>(
@@ -540,7 +590,8 @@ fn read_row<RS>(
 where
     RS: Read + Seek,
 {
-    let mut empty_col_repeats = 0;
+    let mut empty_col_repeats: usize = 0;
+    let row_start = cells.len();
     loop {
         row_buf.clear();
         match reader.read_event_into(row_buf) {
@@ -548,7 +599,7 @@ where
                 if e.name() == QName(b"table:table-cell")
                     || e.name() == QName(b"table:covered-table-cell") =>
             {
-                let mut repeats = 1;
+                let mut repeats: usize = 1;
                 for a in e.attributes() {
                     let a = a?;
                     if a.key == QName(b"table:number-columns-repeated") {
@@ -559,16 +610,36 @@ where
 
                 let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
 
-                for _ in 0..empty_col_repeats {
+                // Cap empty_col_repeats to not exceed MAX_COLUMNS
+                let current_cols = cells.len() - row_start;
+                let remaining = (MAX_COLUMNS as usize).saturating_sub(current_cols);
+                let capped_empty = empty_col_repeats.min(remaining);
+                if capped_empty < empty_col_repeats {
+                    warn!(
+                        "ods column repeat count capped ({empty_col_repeats} -> {capped_empty}, max columns {MAX_COLUMNS})"
+                    );
+                }
+
+                for _ in 0..capped_empty {
                     cells.push(Data::Empty);
                     formulas.push("".to_string());
                 }
                 empty_col_repeats = 0;
 
+                // Cap repeats to not exceed MAX_COLUMNS
+                let current_cols = cells.len() - row_start;
+                let remaining = (MAX_COLUMNS as usize).saturating_sub(current_cols);
+                let capped_repeats = repeats.min(remaining);
+                if capped_repeats < repeats {
+                    warn!(
+                        "ods column repeat count capped ({repeats} -> {capped_repeats}, max columns {MAX_COLUMNS})"
+                    );
+                }
+
                 if value.is_empty() && formula.is_empty() {
-                    empty_col_repeats = repeats;
+                    empty_col_repeats = capped_repeats;
                 } else {
-                    for _ in 0..repeats {
+                    for _ in 0..capped_repeats {
                         cells.push(value.clone());
                         formulas.push(formula.clone());
                     }
