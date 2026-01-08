@@ -128,7 +128,10 @@ impl std::fmt::Display for OdsError {
             OdsError::AttrError(e) => write!(f, "XML attribute Error: {e}"),
             OdsError::EncodingError(e) => write!(f, "XML encoding Error: {e}"),
             OdsError::CellLimitExceeded { requested, max } => {
-                write!(f, "Cell limit exceeded ({requested} cells requested, max {max})")
+                write!(
+                    f,
+                    "Cell limit exceeded ({requested} cells requested, max {max})"
+                )
             }
         }
     }
