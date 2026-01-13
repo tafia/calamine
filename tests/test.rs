@@ -2580,42 +2580,11 @@ fn test_xlsx_table_insertrow_attribute() {
 // that would otherwise cause memory exhaustion.
 #[test]
 fn test_ods_dos_protection() {
-    use std::io::Write;
-    use zip::write::SimpleFileOptions;
-    use zip::ZipWriter;
-
-    // Create a minimal ODS file with excessive row/column repeat values.
-    // A real attack would use values like 999999999999 to exhaust memory.
-    // The protection should cap these to MAX_ROWS/MAX_COLUMNS.
-    // Minimal ODS content with malicious repeat values (no whitespace between elements)
-    let content_xml = br#"<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:spreadsheet><table:table table:name="Sheet1"><table:table-row table:number-rows-repeated="999999999"><table:table-cell table:number-columns-repeated="999999999" office:value-type="string"><text:p>X</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>"#;
-
-    let mimetype = b"application/vnd.oasis.opendocument.spreadsheet";
-
-    let manifest_xml = br#"<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.spreadsheet"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>"#;
-
-    // Build the ODS (ZIP) file in memory
-    let mut buf = Vec::with_capacity(4096);
-    {
-        let mut zip = ZipWriter::new(Cursor::new(&mut buf));
-        let options = SimpleFileOptions::default();
-
-        // mimetype must be first and uncompressed
-        zip.start_file("mimetype", options).unwrap();
-        zip.write_all(mimetype).unwrap();
-
-        zip.start_file("META-INF/manifest.xml", options).unwrap();
-        zip.write_all(manifest_xml).unwrap();
-
-        zip.start_file("content.xml", options).unwrap();
-        zip.write_all(content_xml).unwrap();
-
-        zip.finish().unwrap();
-    }
-
-    // Parse the malicious file - this should NOT hang or exhaust memory
-    let cursor = Cursor::new(&buf);
-    let ods: Result<Ods<_>, _> = Reader::new(cursor);
+    // issue_594_dos.ods contains a malicious ODS file with excessive repeat values
+    // (999999999 rows x 999999999 columns). The parser should reject this with a
+    // cell limit error rather than hanging or exhausting memory.
+    let path = test_path("issue_594_dos.ods");
+    let ods: Result<Ods<_>, _> = open_workbook(&path);
 
     // The file should fail to parse because cell limit is exceeded
     let err = match ods {
@@ -2629,6 +2598,4 @@ fn test_ods_dos_protection() {
         err_msg.contains("Cell limit exceeded"),
         "Error should indicate cell limit exceeded: {err_msg}"
     );
-
-    // The fact that this test completes quickly (not hanging) proves DoS protection works
 }

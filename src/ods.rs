@@ -422,12 +422,12 @@ where
     let mut buf = Vec::with_capacity(1024);
     let mut row_buf = Vec::with_capacity(1024);
     let mut cell_buf = Vec::with_capacity(1024);
-    let mut total_rows: usize = 0;
+    let mut total_rows = 0;
     cols.push(0);
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if e.name() == QName(b"table:table-row") => {
-                let row_repeats: usize = match e.try_get_attribute(b"table:number-rows-repeated")? {
+                let row_repeats = match e.try_get_attribute(b"table:number-rows-repeated")? {
                     Some(c) => c.decode_and_unescape_value(reader.decoder())?.parse()?,
                     None => 1,
                 };
@@ -510,8 +510,8 @@ fn get_range<T: Default + Clone + PartialEq>(
     {
         let mut new_cells = Vec::with_capacity(cells_len.min(MAX_CELLS));
         let empty_cells = vec![T::default(); col_max + 1];
-        let mut empty_row_repeats = 0usize;
-        let mut consecutive_empty_rows = 0usize;
+        let mut empty_row_repeats = 0_usize;
+        let mut consecutive_empty_rows = 0_usize;
         for (w, row_repeats) in cols
             .windows(2)
             .skip(row_min)
@@ -593,7 +593,7 @@ fn read_row<RS>(
 where
     RS: Read + Seek,
 {
-    let mut empty_col_repeats: usize = 0;
+    let mut empty_col_repeats = 0;
     let row_start = cells.len();
     loop {
         row_buf.clear();
@@ -602,7 +602,7 @@ where
                 if e.name() == QName(b"table:table-cell")
                     || e.name() == QName(b"table:covered-table-cell") =>
             {
-                let mut repeats: usize = 1;
+                let mut repeats = 1;
                 for a in e.attributes() {
                     let a = a?;
                     if a.key == QName(b"table:number-columns-repeated") {
