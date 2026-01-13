@@ -2574,3 +2574,28 @@ fn test_xlsx_table_insertrow_attribute() {
 
     assert!(result.is_ok(), "Expected table_by_name to succeed");
 }
+
+// Test for issue #594: ODS DoS protection via repeat limits.
+// This test verifies that the ODS parser correctly caps malicious repeat values
+// that would otherwise cause memory exhaustion.
+#[test]
+fn test_ods_dos_protection() {
+    // issue_594_dos.ods contains a malicious ODS file with excessive repeat values
+    // (999999999 rows x 999999999 columns). The parser should reject this with a
+    // cell limit error rather than hanging or exhausting memory.
+    let path = test_path("issue_594_dos.ods");
+    let ods: Result<Ods<_>, _> = open_workbook(&path);
+
+    // The file should fail to parse because cell limit is exceeded
+    let err = match ods {
+        Ok(_) => panic!("Should return error for excessive cell count"),
+        Err(e) => e,
+    };
+
+    // Verify it's the right error type
+    let err_msg = format!("{err}");
+    assert!(
+        err_msg.contains("Cell limit exceeded"),
+        "Error should indicate cell limit exceeded: {err_msg}"
+    );
+}
