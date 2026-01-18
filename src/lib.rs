@@ -160,6 +160,53 @@ pub struct Dimensions {
     pub end: (u32, u32),
 }
 
+/// Picture with position information
+///
+/// This struct contains embedded picture data along with its position
+/// information within the spreadsheet.
+#[cfg(feature = "picture")]
+#[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
+#[derive(Debug, Clone)]
+pub struct Picture {
+    /// File extension (e.g., "png", "jpeg")
+    pub extension: String,
+    /// Raw image data
+    pub data: Vec<u8>,
+    /// Sheet name where the picture is anchored
+    pub sheet_name: Option<String>,
+    /// Row index (0-based) where picture is anchored
+    pub anchor_row: Option<u32>,
+    /// Column index (0-based) where picture is anchored
+    pub anchor_col: Option<u32>,
+    /// Original filename in the media folder (e.g., "image1.png")
+    pub media_name: Option<String>,
+}
+
+#[cfg(feature = "picture")]
+impl Picture {
+    /// Get the cell coordinate string (e.g., "A1") where the picture is anchored
+    pub fn anchor_cell(&self) -> Option<String> {
+        match (self.anchor_col, self.anchor_row) {
+            (Some(col), Some(row)) => Some(format!("{}{}", col_to_letter(col), row + 1)),
+            _ => None,
+        }
+    }
+}
+
+/// Convert a 0-based column index to Excel column letter(s)
+fn col_to_letter(col: u32) -> String {
+    let mut result = String::new();
+    let mut n = col;
+    loop {
+        result.insert(0, (b'A' + (n % 26) as u8) as char);
+        if n < 26 {
+            break;
+        }
+        n = n / 26 - 1;
+    }
+    result
+}
+
 #[allow(clippy::len_without_is_empty)]
 impl Dimensions {
     /// create dimensions info with start position and end position
@@ -371,6 +418,35 @@ where
     #[cfg(feature = "picture")]
     #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
+
+    /// Get pictures with position information
+    ///
+    /// Returns embedded pictures along with their anchor positions (sheet name, row, column).
+    /// This method parses DrawingML files to extract position information.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use calamine::{Reader, open_workbook, Xlsx};
+    ///
+    /// let mut workbook: Xlsx<_> = open_workbook("file.xlsx")?;
+    /// if let Some(pics) = workbook.pictures_with_positions() {
+    ///     for pic in pics {
+    ///         println!(
+    ///             "Image: {}.{}, Sheet: {:?}, Cell: {:?}",
+    ///             pic.media_name.as_deref().unwrap_or("unknown"),
+    ///             pic.extension,
+    ///             pic.sheet_name,
+    ///             pic.anchor_cell()
+    ///         );
+    ///     }
+    /// }
+    /// ```
+    #[cfg(feature = "picture")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
+    fn pictures_with_positions(&self) -> Option<Vec<Picture>> {
+        // Default implementation returns None for formats that don't support this
+        None
+    }
 }
 
 /// A trait to share spreadsheets reader functions across different `FileType`s
