@@ -97,20 +97,18 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(ref row_element))
-                    if row_element.local_name().as_ref() == b"row" =>
-                {
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
                     if let Some(range) = attribute {
                         let row = get_row(range)?;
                         self.row_index = row;
                     }
                 }
-                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
                     let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
                     let pos = if let Some(range) = attribute {
                         let (row, col) = get_row_column(range)?;
@@ -138,17 +136,17 @@ where
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
-                            Ok(Event::Start(ref e)) => {
+                            Ok(Event::Start(e)) => {
                                 value = read_value(
                                     self.strings,
                                     self.formats,
                                     self.is_1904,
                                     &mut self.xml,
-                                    e,
-                                    c_element,
+                                    &e,
+                                    &c_element,
                                 )?;
                             }
-                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -162,7 +160,7 @@ where
                         return Ok(Some(Cell::new(pos, value)));
                     }
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -176,20 +174,18 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(ref row_element))
-                    if row_element.local_name().as_ref() == b"row" =>
-                {
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
                     if let Some(range) = attribute {
                         let row = get_row(range)?;
                         self.row_index = row;
                     }
                 }
-                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
                     let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
                     let pos = if let Some(range) = attribute {
                         let (row, col) = get_row_column(range)?;
@@ -217,8 +213,8 @@ where
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
-                            Ok(Event::Start(ref e)) => {
-                                let formula = read_formula(&mut self.xml, e)?;
+                            Ok(Event::Start(e)) => {
+                                let formula = read_formula(&mut self.xml, &e)?;
                                 if let Some(f) = formula.borrow() {
                                     value = Some(f.clone());
                                 }
@@ -229,7 +225,7 @@ where
                                     let mut offset_map: HashMap<(u32, u32), (i64, i64)> =
                                         HashMap::new();
                                     // shared index
-                                    let _shared_index =
+                                    let shared_index =
                                         match get_attribute(e.attributes(), QName(b"si"))? {
                                             Some(res) => match atoi_simd::parse::<usize>(res) {
                                                 Ok(res) => res,
@@ -250,35 +246,27 @@ where
                                         Some(res) => {
                                             // original reference formula
                                             let reference = get_dimension(res)?;
-                                            if reference.start.0 != reference.end.0 {
-                                                for i in 0..=(reference.end.0 - reference.start.0) {
+
+                                            for row in reference.start.0..=reference.end.0 {
+                                                for column in reference.start.1..=reference.end.1 {
                                                     offset_map.insert(
-                                                        (reference.start.0 + i, reference.start.1),
+                                                        (row, column),
                                                         (
-                                                            (reference.start.0 as i64
-                                                                - pos.0 as i64
-                                                                + i as i64),
-                                                            0,
-                                                        ),
-                                                    );
-                                                }
-                                            } else if reference.start.1 != reference.end.1 {
-                                                for i in 0..=(reference.end.1 - reference.start.1) {
-                                                    offset_map.insert(
-                                                        (reference.start.0, reference.start.1 + i),
-                                                        (
-                                                            0,
-                                                            (reference.start.1 as i64
-                                                                - pos.1 as i64
-                                                                + i as i64),
+                                                            row as i64 - pos.0 as i64,
+                                                            column as i64 - pos.1 as i64,
                                                         ),
                                                     );
                                                 }
                                             }
-                                            self.formulas.push(Some((
-                                                value.clone().unwrap_or_default(),
-                                                offset_map,
-                                            )));
+
+                                            if let Some(f) = formula.borrow() {
+                                                if self.formulas.len() <= shared_index {
+                                                    self.formulas.resize(shared_index + 1, None);
+                                                }
+                                                self.formulas[shared_index] =
+                                                    Some((f.clone(), offset_map));
+                                            }
+                                            value = formula;
                                         }
                                         None => {
                                             self.formulas.push(Some((
@@ -291,7 +279,7 @@ where
                                     self.formulas.push(None);
                                 }
                             }
-                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -376,7 +364,7 @@ where
                     self.col_index += 1;
                     return Ok(Some(Cell::new(pos, style)));
                 }
-                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -444,9 +432,14 @@ fn read_v<'s>(
     };
     match get_attribute(c_element.attributes(), QName(b"t"))? {
         Some(b"s") => {
-            // shared string
+            // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
-            Ok(DataRef::SharedString(&strings[idx]))
+            match strings.get(idx) {
+                Some(shared_string) => Ok(DataRef::SharedString(shared_string)),
+                None => Err(XlsxError::Unexpected(
+                    "Cell string index not found in shared strings table",
+                )),
+            }
         }
         Some(b"b") => {
             // boolean

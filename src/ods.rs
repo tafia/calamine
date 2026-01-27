@@ -10,10 +10,10 @@
 ///
 /// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 ///
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
+use log::warn;
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
@@ -30,6 +30,15 @@ use crate::{
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
+
+/// Maximum number of rows allowed in an ODS file (matches XLSX limit).
+const MAX_ROWS: u32 = 1_048_576;
+
+/// Maximum number of columns allowed in an ODS file (matches XLSX limit).
+const MAX_COLUMNS: u32 = 16_384;
+
+/// Maximum number of cells to prevent memory exhaustion from malicious files.
+const MAX_CELLS: usize = 100_000_000;
 
 type OdsReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
@@ -75,6 +84,13 @@ pub enum OdsError {
     AttrError(quick_xml::events::attributes::AttrError),
     /// XML encoding error
     EncodingError(quick_xml::encoding::EncodingError),
+    /// File exceeds maximum cell count
+    CellLimitExceeded {
+        /// Number of cells requested
+        requested: usize,
+        /// Maximum allowed cells
+        max: usize,
+    },
 }
 
 /// Ods reader options
@@ -87,9 +103,10 @@ struct OdsOptions {
 from_err!(std::io::Error, OdsError, Io);
 from_err!(zip::result::ZipError, OdsError, Zip);
 from_err!(quick_xml::Error, OdsError, Xml);
-from_err!(std::string::ParseError, OdsError, Parse);
+from_err!(std::str::ParseBoolError, OdsError, ParseBool);
 from_err!(std::num::ParseFloatError, OdsError, ParseFloat);
-from_err!(quick_xml::events::attributes::AttrError, OdsError, Xml);
+from_err!(std::num::ParseIntError, OdsError, ParseInt);
+from_err!(quick_xml::events::attributes::AttrError, OdsError, XmlAttr);
 from_err!(quick_xml::encoding::EncodingError, OdsError, Xml);
 
 impl std::fmt::Display for OdsError {
@@ -113,6 +130,12 @@ impl std::fmt::Display for OdsError {
             OdsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
             OdsError::AttrError(e) => write!(f, "XML attribute Error: {e}"),
             OdsError::EncodingError(e) => write!(f, "XML encoding Error: {e}"),
+            OdsError::CellLimitExceeded { requested, max } => {
+                write!(
+                    f,
+                    "Cell limit exceeded ({requested} cells requested, max {max})"
+                )
+            }
         }
     }
 }
@@ -204,8 +227,8 @@ where
     }
 
     /// Gets `VbaProject`
-    fn vba_project(&mut self) -> Option<Result<Cow<'_, VbaProject>, OdsError>> {
-        None
+    fn vba_project(&mut self) -> Result<Option<VbaProject>, OdsError> {
+        Ok(None)
     }
 
     /// Read sheets from workbook.xml and get their corresponding path from relationships
@@ -292,12 +315,10 @@ fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Re
     let mut inner = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == QName(b"manifest:file-entry") => {
+            Ok(Event::Start(e)) if e.name() == QName(b"manifest:file-entry") => {
                 loop {
                     match reader.read_event_into(&mut inner) {
-                        Ok(Event::Start(ref e))
-                            if e.name() == QName(b"manifest:encryption-data") =>
-                        {
+                        Ok(Event::Start(e)) if e.name() == QName(b"manifest:encryption-data") => {
                             return Err(OdsError::Password)
                         }
                         Ok(Event::Eof) => break,
@@ -340,51 +361,44 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut style_name: Option<String> = None;
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == QName(b"style:style") => {
+            Ok(Event::Start(e)) if e.name() == QName(b"style:style") => {
                 style_name = e
                     .try_get_attribute(b"style:name")?
                     .map(|a| a.decode_and_unescape_value(reader.decoder()))
-                    .transpose()
-                    .map_err(OdsError::Xml)?
+                    .transpose()?
                     .map(|x| x.to_string());
             }
-            Ok(Event::Start(ref e))
+            Ok(Event::Start(e))
                 if style_name.is_some() && e.name() == QName(b"style:table-properties") =>
             {
                 let visible = match e.try_get_attribute(b"table:display")? {
-                    Some(a) => match a
-                        .decode_and_unescape_value(reader.decoder())
-                        .map_err(OdsError::Xml)?
-                        .parse()
-                        .map_err(OdsError::ParseBool)?
-                    {
-                        true => SheetVisible::Visible,
-                        false => SheetVisible::Hidden,
-                    },
+                    Some(a) => {
+                        if a.decode_and_unescape_value(reader.decoder())?.parse()? {
+                            SheetVisible::Visible
+                        } else {
+                            SheetVisible::Hidden
+                        }
+                    }
                     None => SheetVisible::Visible,
                 };
                 styles.insert(style_name.clone(), visible);
             }
-            Ok(Event::Start(ref e)) if e.name() == QName(b"table:table") => {
+            Ok(Event::Start(e)) if e.name() == QName(b"table:table") => {
                 let visible = styles
                     .get(
                         &e.try_get_attribute(b"table:style-name")?
                             .map(|a| a.decode_and_unescape_value(reader.decoder()))
-                            .transpose()
-                            .map_err(OdsError::Xml)?
+                            .transpose()?
                             .map(|x| x.to_string()),
                     )
                     .cloned()
                     .unwrap_or(SheetVisible::Visible);
-                if let Some(ref a) = e
+                if let Some(a) = e
                     .attributes()
                     .filter_map(|a| a.ok())
                     .find(|a| a.key == QName(b"table:name"))
                 {
-                    let name = a
-                        .decode_and_unescape_value(reader.decoder())
-                        .map_err(OdsError::Xml)?
-                        .to_string();
+                    let name = a.decode_and_unescape_value(reader.decoder())?.to_string();
                     let (range, formulas) = read_table(&mut reader)?;
                     sheets_metadata.push(Sheet {
                         name: name.clone(),
@@ -394,7 +408,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     sheets.insert(name, (range, formulas));
                 }
             }
-            Ok(Event::Start(ref e)) if e.name() == QName(b"table:named-expressions") => {
+            Ok(Event::Start(e)) if e.name() == QName(b"table:named-expressions") => {
                 defined_names = read_named_expressions(&mut reader)?;
             }
             Ok(Event::Eof) => break,
@@ -421,18 +435,26 @@ where
     let mut buf = Vec::with_capacity(1024);
     let mut row_buf = Vec::with_capacity(1024);
     let mut cell_buf = Vec::with_capacity(1024);
+    let mut total_rows = 0;
     cols.push(0);
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name() == QName(b"table:table-row") => {
+            Ok(Event::Start(e)) if e.name() == QName(b"table:table-row") => {
                 let row_repeats = match e.try_get_attribute(b"table:number-rows-repeated")? {
-                    Some(c) => c
-                        .decode_and_unescape_value(reader.decoder())
-                        .map_err(OdsError::Xml)?
-                        .parse()
-                        .map_err(OdsError::ParseInt)?,
+                    Some(c) => c.decode_and_unescape_value(reader.decoder())?.parse()?,
                     None => 1,
                 };
+
+                // Cap row_repeats so total rows don't exceed MAX_ROWS
+                let remaining_rows = (MAX_ROWS as usize).saturating_sub(total_rows);
+                let capped_repeats = row_repeats.min(remaining_rows);
+                if capped_repeats < row_repeats {
+                    warn!(
+                        "ods row repeat count capped ({row_repeats} -> {capped_repeats}, max rows {MAX_ROWS})"
+                    );
+                }
+                total_rows = total_rows.saturating_add(capped_repeats);
+
                 read_row(
                     reader,
                     &mut row_buf,
@@ -441,17 +463,17 @@ where
                     &mut formulas,
                 )?;
                 cols.push(cells.len());
-                rows_repeats.push(row_repeats);
+                rows_repeats.push(capped_repeats);
             }
-            Ok(Event::End(ref e)) if e.name() == QName(b"table:table") => break,
+            Ok(Event::End(e)) if e.name() == QName(b"table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
         }
         buf.clear();
     }
     Ok((
-        get_range(cells, &cols, &rows_repeats),
-        get_range(formulas, &cols, &rows_repeats),
+        get_range(cells, &cols, &rows_repeats)?,
+        get_range(formulas, &cols, &rows_repeats)?,
     ))
 }
 
@@ -463,7 +485,7 @@ fn get_range<T: Default + Clone + PartialEq>(
     mut cells: Vec<T>,
     cols: &[usize],
     rows_repeats: &[usize],
-) -> Range<T> {
+) -> Result<Range<T>, OdsError> {
     // find smallest area with non empty Cells
     let mut row_min = None;
     let mut row_max = 0;
@@ -491,18 +513,18 @@ fn get_range<T: Default + Clone + PartialEq>(
             }
         }
     }
-    let row_min = match row_min {
-        Some(min) => min,
-        _ => return Range::default(),
+    let Some(row_min) = row_min else {
+        return Ok(Range::default());
     };
 
     // rebuild cells into its smallest non empty area
-    let cells_len = (row_max + 1 - row_min) * (col_max + 1 - col_min);
+    let row_width = col_max + 1 - col_min;
+    let cells_len = (row_max + 1 - row_min) * row_width;
     {
-        let mut new_cells = Vec::with_capacity(cells_len);
+        let mut new_cells = Vec::with_capacity(cells_len.min(MAX_CELLS));
         let empty_cells = vec![T::default(); col_max + 1];
-        let mut empty_row_repeats = 0;
-        let mut consecutive_empty_rows = 0;
+        let mut empty_row_repeats = 0_usize;
+        let mut consecutive_empty_rows = 0_usize;
         for (w, row_repeats) in cols
             .windows(2)
             .skip(row_min)
@@ -513,15 +535,23 @@ fn get_range<T: Default + Clone + PartialEq>(
             let row_repeats = *row_repeats;
 
             if is_empty_row(row) {
-                empty_row_repeats += row_repeats;
+                empty_row_repeats = empty_row_repeats.saturating_add(row_repeats);
                 consecutive_empty_rows += 1;
                 continue;
             }
 
             if empty_row_repeats > 0 {
+                // Check if expanding empty rows would exceed MAX_CELLS
+                let cells_to_add = empty_row_repeats.saturating_mul(row_width);
+                if new_cells.len().saturating_add(cells_to_add) > MAX_CELLS {
+                    return Err(OdsError::CellLimitExceeded {
+                        requested: new_cells.len().saturating_add(cells_to_add),
+                        max: MAX_CELLS,
+                    });
+                }
                 row_max = row_max + empty_row_repeats - consecutive_empty_rows;
                 for _ in 0..empty_row_repeats {
-                    new_cells.extend_from_slice(&empty_cells);
+                    new_cells.extend_from_slice(&empty_cells[col_min..]);
                 }
                 empty_row_repeats = 0;
                 consecutive_empty_rows = 0;
@@ -529,6 +559,15 @@ fn get_range<T: Default + Clone + PartialEq>(
 
             if row_repeats > 1 {
                 row_max = row_max + row_repeats - 1;
+            }
+
+            // Check if expanding this row would exceed MAX_CELLS
+            let cells_to_add = row_repeats.saturating_mul(row_width);
+            if new_cells.len().saturating_add(cells_to_add) > MAX_CELLS {
+                return Err(OdsError::CellLimitExceeded {
+                    requested: new_cells.len().saturating_add(cells_to_add),
+                    max: MAX_CELLS,
+                });
             }
 
             for _ in 0..row_repeats {
@@ -550,11 +589,11 @@ fn get_range<T: Default + Clone + PartialEq>(
     }
     let row_min = row_min + first_empty_rows_repeated;
     let row_max = row_max + first_empty_rows_repeated;
-    Range {
+    Ok(Range {
         start: (row_min as u32, col_min as u32),
         end: (row_max as u32, col_max as u32),
         inner: cells,
-    }
+    })
 }
 
 fn read_row<RS>(
@@ -568,38 +607,55 @@ where
     RS: Read + Seek,
 {
     let mut empty_col_repeats = 0;
+    let row_start = cells.len();
     loop {
         row_buf.clear();
         match reader.read_event_into(row_buf) {
-            Ok(Event::Start(ref e))
+            Ok(Event::Start(e))
                 if e.name() == QName(b"table:table-cell")
                     || e.name() == QName(b"table:covered-table-cell") =>
             {
                 let mut repeats = 1;
                 for a in e.attributes() {
-                    let a = a.map_err(OdsError::XmlAttr)?;
+                    let a = a?;
                     if a.key == QName(b"table:number-columns-repeated") {
-                        repeats = reader
-                            .decoder()
-                            .decode(&a.value)?
-                            .parse()
-                            .map_err(OdsError::ParseInt)?;
+                        repeats = reader.decoder().decode(&a.value)?.parse()?;
                         break;
                     }
                 }
 
                 let (value, formula, is_closed) = get_datatype(reader, e.attributes(), cell_buf)?;
 
-                for _ in 0..empty_col_repeats {
+                // Cap empty_col_repeats to not exceed MAX_COLUMNS
+                let current_cols = cells.len() - row_start;
+                let remaining = (MAX_COLUMNS as usize).saturating_sub(current_cols);
+                let capped_empty = empty_col_repeats.min(remaining);
+                if capped_empty < empty_col_repeats {
+                    warn!(
+                        "ods column repeat count capped ({empty_col_repeats} -> {capped_empty}, max columns {MAX_COLUMNS})"
+                    );
+                }
+
+                for _ in 0..capped_empty {
                     cells.push(Data::Empty);
                     formulas.push("".to_string());
                 }
                 empty_col_repeats = 0;
 
+                // Cap repeats to not exceed MAX_COLUMNS
+                let current_cols = cells.len() - row_start;
+                let remaining = (MAX_COLUMNS as usize).saturating_sub(current_cols);
+                let capped_repeats = repeats.min(remaining);
+                if capped_repeats < repeats {
+                    warn!(
+                        "ods column repeat count capped ({repeats} -> {capped_repeats}, max columns {MAX_COLUMNS})"
+                    );
+                }
+
                 if value.is_empty() && formula.is_empty() {
-                    empty_col_repeats = repeats;
+                    empty_col_repeats = capped_repeats;
                 } else {
-                    for _ in 0..repeats {
+                    for _ in 0..capped_repeats {
                         cells.push(value.clone());
                         formulas.push(formula.clone());
                     }
@@ -608,7 +664,7 @@ where
                     reader.read_to_end_into(e.name(), cell_buf)?;
                 }
             }
-            Ok(Event::End(ref e)) if e.name() == QName(b"table:table-row") => break,
+            Ok(Event::End(e)) if e.name() == QName(b"table:table-row") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {
@@ -637,20 +693,17 @@ where
     let mut val = Data::Empty;
     let mut formula = String::new();
     for a in atts {
-        let a = a.map_err(OdsError::XmlAttr)?;
+        let a = a?;
         match a.key {
             QName(b"office:value") if !is_value_set => {
                 let v = reader.decoder().decode(&a.value)?;
-                val = Data::Float(v.parse().map_err(OdsError::ParseFloat)?);
+                val = Data::Float(v.parse()?);
                 is_value_set = true;
             }
             QName(b"office:string-value" | b"office:date-value" | b"office:time-value")
                 if !is_value_set =>
             {
-                let attr = a
-                    .decode_and_unescape_value(reader.decoder())
-                    .map_err(OdsError::Xml)?
-                    .to_string();
+                let attr = a.decode_and_unescape_value(reader.decoder())?.to_string();
                 val = match a.key {
                     QName(b"office:date-value") => Data::DateTimeIso(attr),
                     QName(b"office:time-value") => Data::DurationIso(attr),
@@ -665,10 +718,7 @@ where
             }
             QName(b"office:value-type") if !is_value_set => is_string = &*a.value == b"string",
             QName(b"table:formula") => {
-                formula = a
-                    .decode_and_unescape_value(reader.decoder())
-                    .map_err(OdsError::Xml)?
-                    .to_string();
+                formula = a.decode_and_unescape_value(reader.decoder())?.to_string();
             }
             _ => (),
         }
@@ -687,35 +737,31 @@ where
                 Ok(Event::GeneralRef(e)) => {
                     unescape_entity_to_buffer(&e, &mut s)?;
                 }
-                Ok(Event::End(ref e))
+                Ok(Event::End(e))
                     if e.name() == QName(b"table:table-cell")
                         || e.name() == QName(b"table:covered-table-cell") =>
                 {
                     return Ok((Data::String(s), formula, true));
                 }
-                Ok(Event::Start(ref e)) if e.name() == QName(b"office:annotation") => loop {
+                Ok(Event::Start(e)) if e.name() == QName(b"office:annotation") => loop {
                     match reader.read_event_into(buf) {
-                        Ok(Event::End(ref e)) if e.name() == QName(b"office:annotation") => {
+                        Ok(Event::End(e)) if e.name() == QName(b"office:annotation") => {
                             break;
                         }
                         Err(e) => return Err(OdsError::Xml(e)),
                         _ => (),
                     }
                 },
-                Ok(Event::Start(ref e)) if e.name() == QName(b"text:p") => {
+                Ok(Event::Start(e)) if e.name() == QName(b"text:p") => {
                     if first_paragraph {
                         first_paragraph = false;
                     } else {
                         s.push('\n');
                     }
                 }
-                Ok(Event::Start(ref e)) if e.name() == QName(b"text:s") => {
+                Ok(Event::Start(e)) if e.name() == QName(b"text:s") => {
                     let count = match e.try_get_attribute("text:c")? {
-                        Some(c) => c
-                            .decode_and_unescape_value(reader.decoder())
-                            .map_err(OdsError::Xml)?
-                            .parse()
-                            .map_err(OdsError::ParseInt)?,
+                        Some(c) => c.decode_and_unescape_value(reader.decoder())?.parse()?,
                         None => 1,
                     };
                     for _ in 0..count {
@@ -743,36 +789,30 @@ where
     loop {
         buf.clear();
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e))
+            Ok(Event::Start(e))
                 if e.name() == QName(b"table:named-range")
                     || e.name() == QName(b"table:named-expression") =>
             {
                 let mut name = String::new();
                 let mut formula = String::new();
                 for a in e.attributes() {
-                    let a = a.map_err(OdsError::XmlAttr)?;
+                    let a = a?;
                     match a.key {
                         QName(b"table:name") => {
-                            name = a
-                                .decode_and_unescape_value(reader.decoder())
-                                .map_err(OdsError::Xml)?
-                                .to_string();
+                            name = a.decode_and_unescape_value(reader.decoder())?.to_string();
                         }
                         QName(b"table:cell-range-address" | b"table:expression") => {
-                            formula = a
-                                .decode_and_unescape_value(reader.decoder())
-                                .map_err(OdsError::Xml)?
-                                .to_string();
+                            formula = a.decode_and_unescape_value(reader.decoder())?.to_string();
                         }
                         _ => (),
                     }
                 }
                 defined_names.push((name, formula));
             }
-            Ok(Event::End(ref e))
+            Ok(Event::End(e))
                 if e.name() == QName(b"table:named-range")
                     || e.name() == QName(b"table:named-expression") => {}
-            Ok(Event::End(ref e)) if e.name() == QName(b"table:named-expressions") => break,
+            Ok(Event::End(e)) if e.name() == QName(b"table:named-expressions") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {

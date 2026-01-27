@@ -231,45 +231,45 @@ impl DataType for Data {
 
 impl PartialEq<&str> for Data {
     fn eq(&self, other: &&str) -> bool {
-        matches!(*self, Data::String(ref s) if s == other)
+        matches!(self, Data::String(s) if s == other)
     }
 }
 
 impl PartialEq<str> for Data {
     fn eq(&self, other: &str) -> bool {
-        matches!(*self, Data::String(ref s) if s == other)
+        matches!(self, Data::String(s) if s == other)
     }
 }
 
 impl PartialEq<f64> for Data {
     fn eq(&self, other: &f64) -> bool {
-        matches!(*self, Data::Float(ref s) if *s == *other)
+        matches!(self, Data::Float(s) if *s == *other)
     }
 }
 
 impl PartialEq<bool> for Data {
     fn eq(&self, other: &bool) -> bool {
-        matches!(*self, Data::Bool(ref s) if *s == *other)
+        matches!(self, Data::Bool(s) if *s == *other)
     }
 }
 
 impl PartialEq<i64> for Data {
     fn eq(&self, other: &i64) -> bool {
-        matches!(*self, Data::Int(ref s) if *s == *other)
+        matches!(self, Data::Int(s) if *s == *other)
     }
 }
 
 impl fmt::Display for Data {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        match *self {
-            Data::Int(ref e) => write!(f, "{e}"),
-            Data::Float(ref e) => write!(f, "{e}"),
-            Data::String(ref e) => write!(f, "{e}"),
-            Data::Bool(ref e) => write!(f, "{e}"),
-            Data::DateTime(ref e) => write!(f, "{e}"),
-            Data::DateTimeIso(ref e) => write!(f, "{e}"),
-            Data::DurationIso(ref e) => write!(f, "{e}"),
-            Data::Error(ref e) => write!(f, "{e}"),
+        match self {
+            Data::Int(e) => write!(f, "{e}"),
+            Data::Float(e) => write!(f, "{e}"),
+            Data::String(e) => write!(f, "{e}"),
+            Data::Bool(e) => write!(f, "{e}"),
+            Data::DateTime(e) => write!(f, "{e}"),
+            Data::DateTimeIso(e) => write!(f, "{e}"),
+            Data::DurationIso(e) => write!(f, "{e}"),
+            Data::Error(e) => write!(f, "{e}"),
             Data::Empty => Ok(()),
         }
     }
@@ -545,31 +545,31 @@ impl DataType for DataRef<'_> {
 
 impl PartialEq<&str> for DataRef<'_> {
     fn eq(&self, other: &&str) -> bool {
-        matches!(*self, DataRef::String(ref s) if s == other)
+        matches!(self, DataRef::String(s) if s == other)
     }
 }
 
 impl PartialEq<str> for DataRef<'_> {
     fn eq(&self, other: &str) -> bool {
-        matches!(*self, DataRef::String(ref s) if s == other)
+        matches!(self, DataRef::String(s) if s == other)
     }
 }
 
 impl PartialEq<f64> for DataRef<'_> {
     fn eq(&self, other: &f64) -> bool {
-        matches!(*self, DataRef::Float(ref s) if *s == *other)
+        matches!(self, DataRef::Float(s) if *s == *other)
     }
 }
 
 impl PartialEq<bool> for DataRef<'_> {
     fn eq(&self, other: &bool) -> bool {
-        matches!(*self, DataRef::Bool(ref s) if *s == *other)
+        matches!(self, DataRef::Bool(s) if *s == *other)
     }
 }
 
 impl PartialEq<i64> for DataRef<'_> {
     fn eq(&self, other: &i64) -> bool {
-        matches!(*self, DataRef::Int(ref s) if *s == *other)
+        matches!(self, DataRef::Int(s) if *s == *other)
     }
 }
 

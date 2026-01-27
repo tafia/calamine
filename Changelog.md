@@ -5,13 +5,40 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.32.0] - 2025-XX-XX (Draft for next release)
+## [0.33.0] - 2025-XX-XX (Draft for next release)
 
 ### Added
 
 ### Changed
 
 ### Fixed
+
+
+## [0.32.0] - 2025-11-20
+
+### Changed
+
+- Refactored VBA reading functions to be on-demand for better performance.
+
+- Simplified `vba_project()` function return type from `Option<Result<T>>` to
+  `Result<Option<T>>` for more idiomatic error handling. This is a breaking
+  change.
+
+### Fixed
+
+- Fixed out-of-memory vulnerabilities in XLS file parsing by bounding
+  allocations.
+
+- Fixed and extended support for XLSX shared formulas with handling of ranges,
+  absolute references, and column/row ranges in XLSX files.
+
+- Fixed XLSX issue with missing shared string sub-elements. Also improved error
+  messages for shared string parsing issues.
+
+- Fixed acceptance of XLS `XLUnicodeRichExtendedString` records without reserved
+  tags.
+
+- Fixed various edge cases in XLS handling that could lead to parsing errors.
 
 
 ## [0.31.0] - 2025-09-27
