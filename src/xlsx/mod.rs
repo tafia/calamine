@@ -23,7 +23,7 @@ use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
-use crate::style::{ColumnWidth, RowHeight, WorksheetLayout};
+use crate::style::{ColumnWidth, RowHeight, StyleRange, WorksheetLayout};
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
 use crate::{
@@ -1712,6 +1712,55 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
         }
         Ok(Range::from_sparse(cells))
+    }
+
+    /// Get worksheet styles using RLE compression.
+    ///
+    /// This is more memory-efficient than [`worksheet_style()`](Self::worksheet_style)
+    /// for large worksheets where many cells share the same style.
+    ///
+    /// Returns a [`StyleRange`] which uses run-length encoding to compress
+    /// consecutive cells with the same style.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the styles for.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let styles = xlsx.worksheet_style_rle("Sheet1")?;
+    /// println!("Unique styles: {}", styles.unique_style_count());
+    /// println!("Compression ratio: {:.1}x", styles.compression_ratio());
+    /// for (row, col, style) in styles.cells() {
+    ///     // process style
+    /// }
+    /// ```
+    pub fn worksheet_style_rle(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                warn!("'{typ}' not a worksheet");
+                return Ok(StyleRange::empty());
+            }
+            Err(e) => return Err(e),
+        };
+
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+
+        // Use zero-copy path: collect (row, col, style_id) without cloning styles
+        while let Some((row, col, style_id)) = cell_reader.next_style_id()? {
+            cells.push((row, col, style_id));
+        }
+
+        // Get the palette from the cell_reader (clone once, not per cell)
+        let palette = cell_reader.styles().to_vec();
+
+        Ok(StyleRange::from_style_ids(cells, palette))
     }
 
     /// Get the layout for a worksheet.

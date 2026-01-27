@@ -2960,3 +2960,50 @@ fn test_ods_dos_protection() {
         "Error should indicate cell limit exceeded: {err_msg}"
     );
 }
+
+#[test]
+fn test_style_range_rle() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Test RLE-compressed style range
+    let rle_styles = xlsx.worksheet_style_rle("Sheet 1").unwrap();
+
+    // Verify we can get stats
+    let unique_count = rle_styles.unique_style_count();
+    let run_count = rle_styles.run_count();
+
+    println!("RLE Stats for styles.xlsx:");
+    println!("  Unique styles: {}", unique_count);
+    println!("  Run count: {}", run_count);
+    println!("  Compression ratio: {:.1}x", rle_styles.compression_ratio());
+
+    // Should have some unique styles
+    assert!(unique_count > 0, "Should have unique styles");
+
+    // Verify we can iterate and access styles
+    let mut cell_count = 0;
+    for (row, col, style) in rle_styles.cells() {
+        cell_count += 1;
+        // Verify position is within bounds
+        assert!(row < rle_styles.height());
+        assert!(col < rle_styles.width());
+        // Style access should work
+        let _ = style.get_font();
+    }
+
+    // Compare with regular style range
+    let regular_styles = xlsx.worksheet_style("Sheet 1").unwrap();
+    let regular_count = regular_styles.cells().count();
+
+    println!("  Regular cell count: {}", regular_count);
+    println!("  RLE iteration count: {}", cell_count);
+
+    // Both should iterate the same number of cells
+    assert_eq!(cell_count, regular_count, "RLE and regular should have same cell count");
+
+    // Verify random access works
+    if let Some(style) = rle_styles.get((0, 0)) {
+        // Should be able to access first cell's style
+        let _ = style.get_font();
+    }
+}

@@ -901,6 +901,350 @@ impl Style {
     }
 }
 
+/// A run of consecutive cells with the same style (row-major order)
+#[derive(Debug, Clone)]
+struct StyleRun {
+    /// Index into the palette (0 = no style/default)
+    style_id: u16,
+    /// Number of consecutive cells with this style
+    count: u32,
+}
+
+/// RLE-compressed style storage for a worksheet range.
+///
+/// Instead of storing one Style per cell (which wastes memory when many cells
+/// share the same style), this stores:
+/// - A palette of unique styles
+/// - Runs of consecutive cells (row-major) that share the same style
+///
+/// This dramatically reduces memory usage and clone overhead for large worksheets.
+#[derive(Debug, Clone, Default)]
+pub struct StyleRange {
+    start: (u32, u32),
+    end: (u32, u32),
+    /// Palette of unique styles. Index 0 is reserved for "no style" (empty).
+    palette: Vec<Style>,
+    /// RLE-encoded runs in row-major order
+    runs: Vec<StyleRun>,
+    /// Total cell count (for validation)
+    total_cells: u64,
+}
+
+impl StyleRange {
+    /// Create an empty StyleRange
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Create a StyleRange from style IDs and a palette (zero-copy).
+    ///
+    /// This is more efficient than `from_sparse` as it avoids cloning styles.
+    ///
+    /// - `cells`: Vec of (row, col, style_id) where style_id indexes into palette
+    /// - `palette`: The shared palette of unique styles (taken ownership)
+    pub fn from_style_ids(cells: Vec<(u32, u32, usize)>, palette: Vec<Style>) -> Self {
+        if cells.is_empty() {
+            return Self::empty();
+        }
+
+        // Find bounds
+        let mut row_start = u32::MAX;
+        let mut row_end = 0;
+        let mut col_start = u32::MAX;
+        let mut col_end = 0;
+        for (r, c, _) in &cells {
+            row_start = row_start.min(*r);
+            row_end = row_end.max(*r);
+            col_start = col_start.min(*c);
+            col_end = col_end.max(*c);
+        }
+
+        let width = (col_end - col_start + 1) as usize;
+        let height = (row_end - row_start + 1) as usize;
+        let total_cells = (width * height) as u64;
+
+        // Create dense style ID array (temporary)
+        let mut style_ids = vec![0u16; width * height];
+
+        for (r, c, style_id) in cells {
+            let row = (r - row_start) as usize;
+            let col = (c - col_start) as usize;
+            let idx = row * width + col;
+            // style_id is already an index, just need to fit in u16
+            style_ids[idx] = style_id.min(u16::MAX as usize) as u16;
+        }
+
+        // Compress into RLE runs
+        let mut runs = Vec::new();
+        if !style_ids.is_empty() {
+            let mut current_style = style_ids[0];
+            let mut count = 1u32;
+
+            for &style_id in &style_ids[1..] {
+                if style_id == current_style {
+                    count += 1;
+                } else {
+                    runs.push(StyleRun {
+                        style_id: current_style,
+                        count,
+                    });
+                    current_style = style_id;
+                    count = 1;
+                }
+            }
+            runs.push(StyleRun {
+                style_id: current_style,
+                count,
+            });
+        }
+
+        runs.shrink_to_fit();
+
+        StyleRange {
+            start: (row_start, col_start),
+            end: (row_end, col_end),
+            palette,
+            runs,
+            total_cells,
+        }
+    }
+
+    /// Create a StyleRange from sparse cell data
+    ///
+    /// Takes cells with positions and styles, compresses into RLE format.
+    pub fn from_sparse(cells: Vec<(u32, u32, Style)>) -> Self {
+        if cells.is_empty() {
+            return Self::empty();
+        }
+
+        // Find bounds
+        let mut row_start = u32::MAX;
+        let mut row_end = 0;
+        let mut col_start = u32::MAX;
+        let mut col_end = 0;
+        for (r, c, _) in &cells {
+            row_start = row_start.min(*r);
+            row_end = row_end.max(*r);
+            col_start = col_start.min(*c);
+            col_end = col_end.max(*c);
+        }
+
+        let width = (col_end - col_start + 1) as usize;
+        let height = (row_end - row_start + 1) as usize;
+        let total_cells = (width * height) as u64;
+
+        // Build palette and map styles to IDs
+        // Use style_id from Excel if available, otherwise assign sequential IDs
+        let mut palette: Vec<Style> = vec![Style::default()]; // Index 0 = empty/default
+        let mut style_to_id: std::collections::HashMap<u32, u16> = std::collections::HashMap::new();
+
+        // Create dense style ID array (temporary)
+        let mut style_ids = vec![0u16; width * height];
+
+        for (r, c, style) in cells {
+            let row = (r - row_start) as usize;
+            let col = (c - col_start) as usize;
+            let idx = row * width + col;
+
+            if style.is_empty() {
+                continue; // Leave as 0
+            }
+
+            // Use Excel's style_id if available for deduplication
+            // This groups cells with the same formatting together
+            let excel_style_id = style.style_id.unwrap_or_else(|| {
+                // Fallback: use palette length as unique ID (no dedup for these)
+                palette.len() as u32
+            });
+
+            let style_id = if let Some(&id) = style_to_id.get(&excel_style_id) {
+                id
+            } else {
+                let id = palette.len() as u16;
+                palette.push(style);
+                style_to_id.insert(excel_style_id, id);
+                id
+            };
+
+            style_ids[idx] = style_id;
+        }
+
+        // Compress into RLE runs
+        let mut runs = Vec::new();
+        if !style_ids.is_empty() {
+            let mut current_style = style_ids[0];
+            let mut count = 1u32;
+
+            for &style_id in &style_ids[1..] {
+                if style_id == current_style {
+                    count += 1;
+                } else {
+                    runs.push(StyleRun {
+                        style_id: current_style,
+                        count,
+                    });
+                    current_style = style_id;
+                    count = 1;
+                }
+            }
+            // Push final run
+            runs.push(StyleRun {
+                style_id: current_style,
+                count,
+            });
+        }
+
+        runs.shrink_to_fit();
+        palette.shrink_to_fit();
+
+        StyleRange {
+            start: (row_start, col_start),
+            end: (row_end, col_end),
+            palette,
+            runs,
+            total_cells,
+        }
+    }
+
+    /// Get the start position of the range
+    pub fn start(&self) -> Option<(u32, u32)> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.start)
+        }
+    }
+
+    /// Get the end position of the range
+    pub fn end(&self) -> Option<(u32, u32)> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.end)
+        }
+    }
+
+    /// Check if the range is empty
+    pub fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+
+    /// Get width of the range
+    pub fn width(&self) -> usize {
+        if self.is_empty() {
+            0
+        } else {
+            (self.end.1 - self.start.1 + 1) as usize
+        }
+    }
+
+    /// Get height of the range
+    pub fn height(&self) -> usize {
+        if self.is_empty() {
+            0
+        } else {
+            (self.end.0 - self.start.0 + 1) as usize
+        }
+    }
+
+    /// Get style at a position (relative to range start)
+    ///
+    /// Returns None if position is out of bounds, or reference to style.
+    pub fn get(&self, pos: (usize, usize)) -> Option<&Style> {
+        let width = self.width();
+        let height = self.height();
+
+        if pos.0 >= height || pos.1 >= width {
+            return None;
+        }
+
+        let linear_idx = pos.0 * width + pos.1;
+        let style_id = self.style_id_at(linear_idx)?;
+        self.palette.get(style_id as usize)
+    }
+
+    /// Get style ID at a linear index using binary search on runs
+    fn style_id_at(&self, linear_idx: usize) -> Option<u16> {
+        let mut offset = 0usize;
+        for run in &self.runs {
+            let run_end = offset + run.count as usize;
+            if linear_idx < run_end {
+                return Some(run.style_id);
+            }
+            offset = run_end;
+        }
+        None
+    }
+
+    /// Iterate over all cells with their positions and styles
+    pub fn cells(&self) -> StyleRangeCells<'_> {
+        StyleRangeCells {
+            range: self,
+            run_idx: 0,
+            run_offset: 0,
+            linear_idx: 0,
+        }
+    }
+
+    /// Get number of unique styles (excluding empty)
+    pub fn unique_style_count(&self) -> usize {
+        self.palette.len().saturating_sub(1)
+    }
+
+    /// Get number of RLE runs (for diagnostics)
+    pub fn run_count(&self) -> usize {
+        self.runs.len()
+    }
+
+    /// Get compression ratio (cells / runs)
+    pub fn compression_ratio(&self) -> f64 {
+        if self.runs.is_empty() {
+            0.0
+        } else {
+            self.total_cells as f64 / self.runs.len() as f64
+        }
+    }
+}
+
+/// Iterator over cells in a StyleRange
+pub struct StyleRangeCells<'a> {
+    range: &'a StyleRange,
+    run_idx: usize,
+    run_offset: u32,
+    linear_idx: u64,
+}
+
+impl<'a> Iterator for StyleRangeCells<'a> {
+    type Item = (usize, usize, &'a Style);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.run_idx >= self.range.runs.len() {
+            return None;
+        }
+
+        let width = self.range.width();
+        if width == 0 {
+            return None;
+        }
+
+        let row = (self.linear_idx / width as u64) as usize;
+        let col = (self.linear_idx % width as u64) as usize;
+
+        let run = &self.range.runs[self.run_idx];
+        let style = self.range.palette.get(run.style_id as usize)?;
+
+        self.linear_idx += 1;
+        self.run_offset += 1;
+
+        if self.run_offset >= run.count {
+            self.run_idx += 1;
+            self.run_offset = 0;
+        }
+
+        Some((row, col, style))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

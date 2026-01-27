@@ -111,7 +111,7 @@ pub use crate::ods::{Ods, OdsError};
 pub use crate::style::{
     Alignment, Border, BorderStyle, Borders, Color, ColumnWidth, Fill, FillPattern, Font,
     FontStyle, FontWeight, HorizontalAlignment, NumberFormat, Protection, RowHeight, Style,
-    TextRotation, UnderlineStyle, VerticalAlignment, WorksheetLayout,
+    StyleRange, TextRotation, UnderlineStyle, VerticalAlignment, WorksheetLayout,
 };
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};

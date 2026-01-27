@@ -6,11 +6,32 @@
 //!
 //! Uses styles_1M.xlsx (1M styled cells) for realistic performance measurement.
 //!
-//! Generate the test file first:
-//! `cargo run --example generate_styles_1M`
+//! ## Setup
 //!
-//! Run benchmarks:
-//! `cargo bench --bench style`
+//! Generate the test file first:
+//! ```bash
+//! cargo run --example generate_styles_1M
+//! ```
+//!
+//! ## Run benchmarks
+//!
+//! ```bash
+//! cargo bench --bench style
+//! ```
+//!
+//! ## Profiling (identify bottlenecks)
+//!
+//! Install samply (cross-platform, works on macOS and Linux):
+//! ```bash
+//! cargo install samply
+//! ```
+//!
+//! Profile a specific benchmark:
+//! ```bash
+//! samply record cargo bench --bench style -- "style/worksheet_style" --profile-time 5
+//! ```
+//!
+//! This opens Firefox Profiler with an interactive flamegraph showing where time is spent.
 
 use calamine::{open_workbook, Reader, Xlsx};
 use criterion::{criterion_group, criterion_main, Criterion, SamplingMode};
@@ -114,6 +135,32 @@ fn bench_style_parsing(c: &mut Criterion) {
                     count += 1;
                 }
                 if style.get_number_format().is_some() {
+                    count += 1;
+                }
+            }
+            black_box(count)
+        })
+    });
+
+    // RLE-compressed style parsing (deduplicates styles, compresses consecutive runs)
+    group.bench_function("worksheet_style_rle", |b| {
+        b.iter(|| {
+            let mut excel: Xlsx<BufReader<File>> =
+                open_workbook(LARGE_FILE).expect("cannot open file");
+            let styles = excel.worksheet_style_rle("Sheet 1").unwrap();
+            black_box((styles.unique_style_count(), styles.run_count()))
+        })
+    });
+
+    // RLE iterate all cells
+    group.bench_function("rle_iterate_all", |b| {
+        b.iter(|| {
+            let mut excel: Xlsx<BufReader<File>> =
+                open_workbook(LARGE_FILE).expect("cannot open file");
+            let styles = excel.worksheet_style_rle("Sheet 1").unwrap();
+            let mut count = 0usize;
+            for (_, _, style) in styles.cells() {
+                if style.get_font().is_some() {
                     count += 1;
                 }
             }

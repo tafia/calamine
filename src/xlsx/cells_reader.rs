@@ -148,7 +148,9 @@ where
                     };
 
                     if style_id < self.styles.len() {
-                        style = Some(self.styles[style_id].clone());
+                        let mut s = self.styles[style_id].clone();
+                        s.style_id = Some(style_id as u32);
+                        style = Some(s);
                     }
 
                     loop {
@@ -225,7 +227,9 @@ where
                     };
 
                     if style_id < self.styles.len() {
-                        style = Some(self.styles[style_id].clone());
+                        let mut s = self.styles[style_id].clone();
+                        s.style_id = Some(style_id as u32);
+                        style = Some(s);
                     }
 
                     loop {
@@ -293,7 +297,10 @@ where
                                             {
                                                 if let Some(offset) = offset_map.get(&pos) {
                                                     if let Ok(offset_formula) =
-                                                        super::replace_cell_names(base_formula, *offset)
+                                                        super::replace_cell_names(
+                                                            base_formula,
+                                                            *offset,
+                                                        )
                                                     {
                                                         value = Some(offset_formula);
                                                     }
@@ -364,7 +371,9 @@ where
                     {
                         if let Ok(style_id) = atoi_simd::parse::<usize>(style_id_str) {
                             if style_id < self.styles.len() {
-                                self.styles[style_id].clone()
+                                let mut s = self.styles[style_id].clone();
+                                s.style_id = Some(style_id as u32);
+                                s
                             } else {
                                 Style::new()
                             }
@@ -396,6 +405,79 @@ where
                 _ => (),
             }
         }
+    }
+
+    /// Iterate over cells, returning just position and style_id (no clone).
+    ///
+    /// Returns `(row, col, style_id)` where `style_id` is an index into the styles palette.
+    /// This is more efficient than `next_style()` when building compressed style storage.
+    pub fn next_style_id(&mut self) -> Result<Option<(u32, u32, usize)>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(ref row_element))
+                    if row_element.local_name().as_ref() == b"row" =>
+                {
+                    if let Some(row_index) = get_attribute(row_element.attributes(), QName(b"r"))? {
+                        self.row_index = atoi_simd::parse::<u32>(row_index)
+                            .unwrap_or(1)
+                            .saturating_sub(1);
+                    }
+                }
+                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
+                    let pos = if let Some(range) = attribute {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+
+                    // Extract style ID if present (no clone needed!)
+                    let style_id = if let Ok(Some(style_id_str)) =
+                        get_attribute(c_element.attributes(), QName(b"s"))
+                    {
+                        atoi_simd::parse::<usize>(style_id_str).unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                    // Skip the cell content since we only care about the style ID
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+
+                    // Only return cells with actual styles
+                    if style_id > 0 && style_id < self.styles.len() {
+                        return Ok(Some((pos.0, pos.1, style_id)));
+                    }
+                    // Continue to next cell if no style
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+    }
+
+    /// Get the styles palette (reference to avoid clones)
+    pub fn styles(&self) -> &[Style] {
+        self.styles
     }
 }
 
