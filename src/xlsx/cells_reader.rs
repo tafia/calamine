@@ -58,31 +58,49 @@ where
             end: (0, 0),
         };
         let mut buf = Vec::with_capacity(1024);
+        let mut sheet_type: Option<String> = None;
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"dimension" => {
-                    let attribute = get_attribute(e.attributes(), QName(b"ref"))?;
-                    if let Some(range) = attribute {
-                        dimensions = get_dimension(range)?;
+                Ok(Event::Start(ref e)) => {
+                    match e.local_name().as_ref() {
+                        b"dimension" => {
+                            let attribute = get_attribute(e.attributes(), QName(b"ref"))?;
+                            if let Some(range) = attribute {
+                                dimensions = get_dimension(range)?;
+                            }
+                        }
+                        b"sheetData" => {
+                            return Ok(Self {
+                                xml,
+                                strings,
+                                formats,
+                                styles,
+                                is_1904,
+                                dimensions,
+                                row_index: 0,
+                                col_index: 0,
+                                buf: Vec::with_capacity(1024),
+                                cell_buf: Vec::with_capacity(1024),
+                                formulas: Vec::with_capacity(1024),
+                            });
+                        }
+                        typ => {
+                            // Track the type of element we found (for non-worksheet detection)
+                            if sheet_type.is_none() {
+                                sheet_type = xml.decoder().decode(typ).ok().map(|s| s.to_string());
+                            }
+                        }
                     }
                 }
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
-                    return Ok(Self {
-                        xml,
-                        strings,
-                        formats,
-                        styles,
-                        is_1904,
-                        dimensions,
-                        row_index: 0,
-                        col_index: 0,
-                        buf: Vec::with_capacity(1024),
-                        cell_buf: Vec::with_capacity(1024),
-                        formulas: Vec::with_capacity(1024),
-                    });
+                Ok(Event::Eof) => {
+                    // If we reached EOF without finding sheetData, check if this is a non-worksheet
+                    if let Some(typ) = sheet_type {
+                        return Err(XlsxError::NotAWorksheet(typ));
+                    } else {
+                        return Err(XlsxError::XmlEof("sheetData"));
+                    }
                 }
-                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
             }
@@ -269,14 +287,20 @@ where
                                             value = formula;
                                         }
                                         None => {
-                                            self.formulas.push(Some((
-                                                value.clone().unwrap_or_default(),
-                                                HashMap::new(),
-                                            )));
+                                            // This cell uses an existing shared formula - look it up and apply offset
+                                            if let Some(Some((base_formula, offset_map))) =
+                                                self.formulas.get(shared_index)
+                                            {
+                                                if let Some(offset) = offset_map.get(&pos) {
+                                                    if let Ok(offset_formula) =
+                                                        super::replace_cell_names(base_formula, *offset)
+                                                    {
+                                                        value = Some(offset_formula);
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-                                } else {
-                                    self.formulas.push(None);
                                 }
                             }
                             Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
