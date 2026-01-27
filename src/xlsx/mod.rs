@@ -540,15 +540,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             self.styles.push(style);
 
                             // Also add format for backward compatibility
-                            self.formats.push(
-                                num_fmt_id_bytes
-                                    .map_or(CellFormat::Other, |id_bytes| {
-                                        match number_formats.get(&id_bytes) {
-                                            Some(fmt) => detect_custom_number_format(fmt),
-                                            None => builtin_format_by_id(&id_bytes),
-                                        }
-                                    }),
-                            );
+                            self.formats.push(num_fmt_id_bytes.map_or(
+                                CellFormat::Other,
+                                |id_bytes| match number_formats.get(&id_bytes) {
+                                    Some(fmt) => detect_custom_number_format(fmt),
+                                    None => builtin_format_by_id(&id_bytes),
+                                },
+                            ));
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
@@ -1645,7 +1643,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Get the cells reader for the first worksheet.
-    ///     let reader = workbook.worksheet_cells_reader("Sheet1")?;
+    ///     let mut reader = workbook.worksheet_cells_reader("Sheet1")?;
     ///
     ///     // Iterate over the cells in the worksheet.
     ///     while let Some(cell) = reader.next_cell()? {
