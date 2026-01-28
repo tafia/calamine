@@ -2,6 +2,7 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// Represents a color in ARGB format
@@ -51,11 +52,6 @@ impl Color {
             | (self.blue as u32)
     }
 
-    /// Check if the color is transparent
-    pub fn is_transparent(&self) -> bool {
-        self.alpha == 0
-    }
-
     /// Check if the color is black
     pub fn is_black(&self) -> bool {
         self.red == 0 && self.green == 0 && self.blue == 0
@@ -74,8 +70,7 @@ impl fmt::Display for Color {
 }
 
 /// Border style enumeration
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum BorderStyle {
     /// No border
     #[default]
@@ -103,7 +98,6 @@ pub enum BorderStyle {
     /// Slant dash dot border
     SlantDashDot,
 }
-
 
 /// Border side
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -169,8 +163,7 @@ impl Borders {
 }
 
 /// Font weight
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FontWeight {
     /// Normal weight
     #[default]
@@ -179,10 +172,8 @@ pub enum FontWeight {
     Bold,
 }
 
-
 /// Font style
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FontStyle {
     /// Normal style
     #[default]
@@ -191,10 +182,8 @@ pub enum FontStyle {
     Italic,
 }
 
-
 /// Underline style
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum UnderlineStyle {
     /// No underline
     #[default]
@@ -208,7 +197,6 @@ pub enum UnderlineStyle {
     /// Double accounting underline
     DoubleAccounting,
 }
-
 
 /// Font properties
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -307,8 +295,7 @@ impl Font {
 }
 
 /// Horizontal alignment
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum HorizontalAlignment {
     /// Left alignment
     Left,
@@ -327,10 +314,8 @@ pub enum HorizontalAlignment {
     General,
 }
 
-
 /// Vertical alignment
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum VerticalAlignment {
     /// Top alignment
     Top,
@@ -345,10 +330,8 @@ pub enum VerticalAlignment {
     Distributed,
 }
 
-
 /// Text rotation in degrees
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextRotation {
     /// No rotation
     #[default]
@@ -358,7 +341,6 @@ pub enum TextRotation {
     /// Stacked text
     Stacked,
 }
-
 
 /// Cell alignment properties
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -421,8 +403,7 @@ impl Alignment {
 }
 
 /// Fill pattern type
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FillPattern {
     /// No fill
     #[default]
@@ -464,7 +445,6 @@ pub enum FillPattern {
     /// Light trellis pattern
     LightTrellis,
 }
-
 
 /// Fill properties
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -697,10 +677,10 @@ impl RowHeight {
 /// Worksheet layout information
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WorksheetLayout {
-    /// Column widths
-    pub column_widths: Vec<ColumnWidth>,
-    /// Row heights
-    pub row_heights: Vec<RowHeight>,
+    /// Column widths (keyed by column index)
+    pub column_widths: BTreeMap<u32, ColumnWidth>,
+    /// Row heights (keyed by row index)
+    pub row_heights: BTreeMap<u32, RowHeight>,
     /// Default column width
     pub default_column_width: Option<f64>,
     /// Default row height
@@ -715,13 +695,13 @@ impl WorksheetLayout {
 
     /// Add a column width
     pub fn add_column_width(mut self, column_width: ColumnWidth) -> Self {
-        self.column_widths.push(column_width);
+        self.column_widths.insert(column_width.column, column_width);
         self
     }
 
     /// Add a row height
     pub fn add_row_height(mut self, row_height: RowHeight) -> Self {
-        self.row_heights.push(row_height);
+        self.row_heights.insert(row_height.row, row_height);
         self
     }
 
@@ -737,30 +717,46 @@ impl WorksheetLayout {
         self
     }
 
-    /// Get column width for a specific column
+    /// Get column width for a specific column (O(log n) lookup)
     pub fn get_column_width(&self, column: u32) -> Option<&ColumnWidth> {
-        self.column_widths.iter().find(|cw| cw.column == column)
+        self.column_widths.get(&column)
     }
 
-    /// Get row height for a specific row
+    /// Get row height for a specific row (O(log n) lookup)
     pub fn get_row_height(&self, row: u32) -> Option<&RowHeight> {
-        self.row_heights.iter().find(|rh| rh.row == row)
+        self.row_heights.get(&row)
     }
 
-    /// Get effective column width (custom or default)
+    /// Get effective column width (custom or default).
+    ///
+    /// Returns the column width in Excel's character-based units. If no custom
+    /// width is set, returns the worksheet's default column width, or 8.43 if
+    /// no default is specified.
+    ///
+    /// **Note:** Excel column widths are stored in character units relative to
+    /// the workbook's default font, not pixels. Converting to pixels requires
+    /// font metrics and is font-dependent. The value 8.43 is Excel's standard
+    /// default for Calibri 11pt.
     pub fn get_effective_column_width(&self, column: u32) -> f64 {
         self.get_column_width(column)
             .map(|cw| cw.width)
             .or(self.default_column_width)
-            .unwrap_or(8.43) // Excel default column width
+            .unwrap_or(8.43)
     }
 
-    /// Get effective row height (custom or default)
+    /// Get effective row height (custom or default).
+    ///
+    /// Returns the row height in points. If no custom height is set, returns
+    /// the worksheet's default row height, or 15.0 if no default is specified.
+    ///
+    /// **Note:** Row heights in Excel are stored in points (1/72 inch), but
+    /// the actual displayed height may vary slightly depending on the default
+    /// font. The value 15.0 is Excel's standard default for Calibri 11pt.
     pub fn get_effective_row_height(&self, row: u32) -> f64 {
         self.get_row_height(row)
             .map(|rh| rh.height)
             .or(self.default_row_height)
-            .unwrap_or(15.0) // Excel default row height
+            .unwrap_or(15.0)
     }
 
     /// Check if layout has any custom dimensions
