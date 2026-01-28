@@ -20,7 +20,7 @@ use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible, Style, WorksheetLayout,
+    SheetVisible, StyleRange, WorksheetLayout,
 };
 
 #[derive(Debug)]
@@ -278,9 +278,9 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         }
     }
 
-    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsError> {
+    fn worksheet_style(&mut self, _name: &str) -> Result<StyleRange, XlsError> {
         // TODO: Implement XLS style parsing
-        Ok(Range::default())
+        Ok(StyleRange::empty())
     }
 
     fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, XlsError> {

@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Display custom column widths
         if !layout.column_widths.is_empty() {
             println!("\nCustom column widths:");
-            for col_width in &layout.column_widths {
+            for (_, col_width) in &layout.column_widths {
                 println!(
                     "  Column {}: {} characters (custom: {}, hidden: {}, best_fit: {})",
                     col_width.column,
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Display custom row heights
         if !layout.row_heights.is_empty() {
             println!("\nCustom row heights:");
-            for row_height in &layout.row_heights {
+            for (_, row_height) in &layout.row_heights {
                 println!(
                     "  Row {}: {} points (custom: {}, hidden: {})",
                     row_height.row, row_height.height, row_height.custom_height, row_height.hidden

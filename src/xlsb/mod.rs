@@ -26,7 +26,7 @@ use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usi
 use crate::vba::VbaProject;
 use crate::{
     Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Style, WorksheetLayout,
+    StyleRange, WorksheetLayout,
 };
 
 /// A Xlsb specific error
@@ -529,9 +529,9 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, XlsbError> {
+    fn worksheet_style(&mut self, _name: &str) -> Result<StyleRange, XlsbError> {
         // TODO: Implement XLSB style parsing
-        Ok(Range::default())
+        Ok(StyleRange::empty())
     }
 
     fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, XlsbError> {

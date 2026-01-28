@@ -2628,17 +2628,18 @@ fn test_worksheet_style_iter() {
 
     // Verify that we can iterate through styles without panicking
     let mut style_count = 0;
-    for (row, styles) in styles.rows().enumerate() {
-        for (col, style) in styles.iter().enumerate() {
-            style_count += 1;
-            // Basic validation that we can access style properties
-            if row == 0 && col == 0 {
-                // A1 should be bold
-                assert!(style.get_font().unwrap().is_bold());
-            }
+    let mut found_a1 = false;
+    for (row, col, style) in styles.cells() {
+        style_count += 1;
+        // Basic validation that we can access style properties
+        if row == 0 && col == 0 {
+            // A1 should be bold
+            assert!(style.get_font().unwrap().is_bold());
+            found_a1 = true;
         }
     }
     assert!(style_count > 0, "Should have found at least one style");
+    assert!(found_a1, "Should have found A1");
 }
 
 #[test]
@@ -2965,44 +2966,37 @@ fn test_ods_dos_protection() {
 fn test_style_range_rle() {
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
 
-    // Test RLE-compressed style range
-    let rle_styles = xlsx.worksheet_style_rle("Sheet 1").unwrap();
+    // Test RLE-compressed style range (worksheet_style now returns StyleRange)
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
     // Verify we can get stats
-    let unique_count = rle_styles.unique_style_count();
-    let run_count = rle_styles.run_count();
+    let unique_count = styles.unique_style_count();
+    let run_count = styles.run_count();
 
     println!("RLE Stats for styles.xlsx:");
     println!("  Unique styles: {}", unique_count);
     println!("  Run count: {}", run_count);
-    println!("  Compression ratio: {:.1}x", rle_styles.compression_ratio());
+    println!("  Compression ratio: {:.1}x", styles.compression_ratio());
 
     // Should have some unique styles
     assert!(unique_count > 0, "Should have unique styles");
 
     // Verify we can iterate and access styles
     let mut cell_count = 0;
-    for (row, col, style) in rle_styles.cells() {
+    for (row, col, style) in styles.cells() {
         cell_count += 1;
         // Verify position is within bounds
-        assert!(row < rle_styles.height());
-        assert!(col < rle_styles.width());
+        assert!(row < styles.height());
+        assert!(col < styles.width());
         // Style access should work
         let _ = style.get_font();
     }
 
-    // Compare with regular style range
-    let regular_styles = xlsx.worksheet_style("Sheet 1").unwrap();
-    let regular_count = regular_styles.cells().count();
-
-    println!("  Regular cell count: {}", regular_count);
-    println!("  RLE iteration count: {}", cell_count);
-
-    // Both should iterate the same number of cells
-    assert_eq!(cell_count, regular_count, "RLE and regular should have same cell count");
+    println!("  Cell count: {}", cell_count);
+    assert!(cell_count > 0, "Should have cells with styles");
 
     // Verify random access works
-    if let Some(style) = rle_styles.get((0, 0)) {
+    if let Some(style) = styles.get((0, 0)) {
         // Should be able to access first cell's style
         let _ = style.get_font();
     }

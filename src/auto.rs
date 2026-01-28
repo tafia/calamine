@@ -8,7 +8,7 @@ use crate::errors::Error;
 use crate::vba::VbaProject;
 use crate::{
     open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
-    ReaderRef, Style, WorksheetLayout, Xls, Xlsb, Xlsx,
+    ReaderRef, StyleRange, WorksheetLayout, Xls, Xlsb, Xlsx,
 };
 use std::fs::File;
 use std::io::BufReader;
@@ -144,7 +144,7 @@ where
         }
     }
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, Self::Error> {
+    fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, Self::Error> {
         match self {
             Sheets::Xls(ref mut e) => e.worksheet_style(name).map_err(Error::Xls),
             Sheets::Xlsx(ref mut e) => e.worksheet_style(name).map_err(Error::Xlsx),

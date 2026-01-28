@@ -24,7 +24,7 @@ use zip::result::ZipError;
 use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
 use crate::{
-    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, Style,
+    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, StyleRange,
     WorksheetLayout,
 };
 use std::marker::PhantomData;
@@ -273,9 +273,9 @@ where
             .map(|r| r.1.to_owned())
     }
 
-    fn worksheet_style(&mut self, _name: &str) -> Result<Range<Style>, OdsError> {
+    fn worksheet_style(&mut self, _name: &str) -> Result<StyleRange, OdsError> {
         // TODO: Implement ODS style parsing
-        Ok(Range::default())
+        Ok(StyleRange::empty())
     }
 
     fn worksheet_layout(&mut self, _name: &str) -> Result<WorksheetLayout, OdsError> {

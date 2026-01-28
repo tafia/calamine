@@ -1685,42 +1685,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     /// Get the styles for a worksheet.
     ///
-    /// This function returns a [`Range<Style>`] for the specified worksheet.
-    /// The range contains the styles for the cells in the worksheet.
+    /// Get worksheet styles as an RLE-compressed [`StyleRange`].
     ///
-    /// # Parameters
-    ///
-    /// - `name`: The name of the worksheet to get the styles for.
-    ///
-    pub fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
-        let mut cell_reader = match self.worksheet_cells_reader(name) {
-            Ok(reader) => reader,
-            Err(XlsxError::NotAWorksheet(typ)) => {
-                warn!("'{typ}' not a worksheet");
-                return Ok(Range::default());
-            }
-            Err(e) => return Err(e),
-        };
-        let len = cell_reader.dimensions().len();
-        let mut cells = Vec::new();
-        if len < 100_000 {
-            cells.reserve(len as usize);
-        }
-        while let Some(cell) = cell_reader.next_style()? {
-            if !cell.val.is_empty() {
-                cells.push(cell);
-            }
-        }
-        Ok(Range::from_sparse(cells))
-    }
-
-    /// Get worksheet styles using RLE compression.
-    ///
-    /// This is more memory-efficient than [`worksheet_style()`](Self::worksheet_style)
-    /// for large worksheets where many cells share the same style.
-    ///
-    /// Returns a [`StyleRange`] which uses run-length encoding to compress
-    /// consecutive cells with the same style.
+    /// This function returns styles for all cells with explicit formatting,
+    /// stored in run-length encoded format for memory efficiency.
     ///
     /// # Parameters
     ///
@@ -1729,14 +1697,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// # Example
     ///
     /// ```ignore
-    /// let styles = xlsx.worksheet_style_rle("Sheet1")?;
+    /// let styles = xlsx.worksheet_style("Sheet1")?;
     /// println!("Unique styles: {}", styles.unique_style_count());
     /// println!("Compression ratio: {:.1}x", styles.compression_ratio());
     /// for (row, col, style) in styles.cells() {
     ///     // process style
     /// }
     /// ```
-    pub fn worksheet_style_rle(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+    pub fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
         let mut cell_reader = match self.worksheet_cells_reader(name) {
             Ok(reader) => reader,
             Err(XlsxError::NotAWorksheet(typ)) => {
@@ -2099,26 +2067,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, XlsxError> {
-        let mut cell_reader = match self.worksheet_cells_reader(name) {
-            Ok(reader) => reader,
-            Err(XlsxError::NotAWorksheet(typ)) => {
-                warn!("'{typ}' not a worksheet");
-                return Ok(Range::default());
-            }
-            Err(e) => return Err(e),
-        };
-        let len = cell_reader.dimensions().len();
-        let mut cells = Vec::new();
-        if len < 100_000 {
-            cells.reserve(len as usize);
-        }
-        while let Some(cell) = cell_reader.next_style()? {
-            if !cell.val.is_empty() {
-                cells.push(cell);
-            }
-        }
-        Ok(Range::from_sparse(cells))
+    fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+        Xlsx::worksheet_style(self, name)
     }
 
     fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {

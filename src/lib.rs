@@ -302,7 +302,12 @@ where
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 
-    fn worksheet_style(&mut self, name: &str) -> Result<Range<Style>, Self::Error>;
+    /// Read worksheet styles as an RLE-compressed StyleRange.
+    ///
+    /// Returns a [`StyleRange`] containing styles for all cells with explicit
+    /// formatting. The styles are stored in run-length encoded format for
+    /// memory efficiency.
+    fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, Self::Error>;
 
     /// Read worksheet layout information (column widths and row heights)
     fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, Self::Error>;

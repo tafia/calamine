@@ -142,32 +142,6 @@ fn bench_style_parsing(c: &mut Criterion) {
         })
     });
 
-    // RLE-compressed style parsing (deduplicates styles, compresses consecutive runs)
-    group.bench_function("worksheet_style_rle", |b| {
-        b.iter(|| {
-            let mut excel: Xlsx<BufReader<File>> =
-                open_workbook(LARGE_FILE).expect("cannot open file");
-            let styles = excel.worksheet_style_rle("Sheet 1").unwrap();
-            black_box((styles.unique_style_count(), styles.run_count()))
-        })
-    });
-
-    // RLE iterate all cells
-    group.bench_function("rle_iterate_all", |b| {
-        b.iter(|| {
-            let mut excel: Xlsx<BufReader<File>> =
-                open_workbook(LARGE_FILE).expect("cannot open file");
-            let styles = excel.worksheet_style_rle("Sheet 1").unwrap();
-            let mut count = 0usize;
-            for (_, _, style) in styles.cells() {
-                if style.get_font().is_some() {
-                    count += 1;
-                }
-            }
-            black_box(count)
-        })
-    });
-
     group.finish();
 }
 
