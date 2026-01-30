@@ -110,8 +110,8 @@ pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
 pub use crate::style::{
     Alignment, Border, BorderStyle, Borders, Color, ColumnWidth, Fill, FillPattern, Font,
-    FontStyle, FontWeight, HorizontalAlignment, NumberFormat, Protection, RowHeight, Style,
-    StyleRange, TextRotation, UnderlineStyle, VerticalAlignment, WorksheetLayout,
+    FontStyle, FontWeight, HorizontalAlignment, NumberFormat, Protection, RichText, RowHeight,
+    Style, StyleRange, TextRotation, TextRun, UnderlineStyle, VerticalAlignment, WorksheetLayout,
 };
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};

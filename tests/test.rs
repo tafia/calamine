@@ -3,7 +3,9 @@
 // Copyright 2016-2025, Johann Tuffe.
 
 use calamine::vba::Reference;
-use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
+use calamine::Data::{
+    Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, RichText, String,
+};
 use calamine::{
     open_workbook, open_workbook_auto, BorderStyle, Color, DataRef, DataType, Dimensions,
     ExcelDateTime, ExcelDateTimeType, HeaderRow, HorizontalAlignment, Ods, Range, Reader,
@@ -41,6 +43,38 @@ macro_rules! range_eq {
         for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
             for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
                 assert_eq!(cl, cr, "Mismatch at position ({}, {})", i, j);
+            }
+        }
+    };
+}
+
+/// Helper to compare text content regardless of whether it's String or RichText
+fn text_eq(data: &Data, expected: &str) -> bool {
+    match data {
+        Data::String(s) => s == expected,
+        Data::RichText(rt) => rt.plain_text() == expected,
+        _ => false,
+    }
+}
+
+/// Macro for comparing ranges where cells may be String or RichText
+macro_rules! range_text_eq {
+    ($range:expr, $right:expr) => {
+        assert_eq!(
+            $range.get_size(),
+            ($right.len(), $right[0].len()),
+            "Size mismatch"
+        );
+        for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
+            for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
+                assert!(
+                    text_eq(cl, cr),
+                    "Text mismatch at position ({}, {}): got {:?}, expected {:?}",
+                    i,
+                    j,
+                    cl.as_string(),
+                    cr
+                );
             }
         }
     };
@@ -112,14 +146,11 @@ fn error_file() {
 fn issue_9() {
     let mut excel: Xlsx<_> = wb("issue9.xlsx");
     let range = excel.worksheet_range("Feuil1").unwrap();
-    range_eq!(
+    // Some cells in this file have rich text formatting (bold, underline)
+    // so we compare text content rather than exact Data type
+    range_text_eq!(
         range,
-        [
-            [String("test1".to_string())],
-            [String("test2 other".to_string())],
-            [String("test3 aaa".to_string())],
-            [String("test4".to_string())]
-        ]
+        [["test1"], ["test2 other"], ["test3 aaa"], ["test4"]]
     );
 }
 

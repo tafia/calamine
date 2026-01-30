@@ -637,6 +637,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     {
         match self.data_type {
             Data::String(v) => visitor.visit_str(v),
+            Data::RichText(v) => visitor.visit_str(&v.plain_text()),
             Data::Float(v) => visitor.visit_f64(*v),
             Data::Bool(v) => visitor.visit_bool(*v),
             Data::Int(v) => visitor.visit_i64(*v),
@@ -657,6 +658,7 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
     {
         match self.data_type {
             Data::String(v) => visitor.visit_str(v),
+            Data::RichText(v) => visitor.visit_str(&v.plain_text()),
             Data::Empty => visitor.visit_str(""),
             Data::Float(v) => visitor.visit_str(&v.to_string()),
             Data::Int(v) => visitor.visit_str(&v.to_string()),
@@ -711,6 +713,14 @@ impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
                 "FALSE" | "false" | "False" => visitor.visit_bool(false),
                 d => Err(DeError::Custom(format!("Expecting bool, got '{d}'"))),
             },
+            Data::RichText(v) => {
+                let text = v.plain_text();
+                match text.as_str() {
+                    "TRUE" | "true" | "True" => visitor.visit_bool(true),
+                    "FALSE" | "false" | "False" => visitor.visit_bool(false),
+                    d => Err(DeError::Custom(format!("Expecting bool, got '{d}'"))),
+                }
+            }
             Data::Empty => visitor.visit_bool(false),
             Data::Float(v) => visitor.visit_bool(*v != 0.),
             Data::Int(v) => visitor.visit_bool(*v != 0),

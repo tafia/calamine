@@ -23,7 +23,10 @@ use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
-use crate::style::{ColumnWidth, RowHeight, StyleRange, WorksheetLayout};
+use crate::style::{
+    ColumnWidth, Font, FontStyle, FontWeight, RichText, RowHeight, StyleRange, TextRun,
+    UnderlineStyle, WorksheetLayout,
+};
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
 use crate::vba::VbaProject;
 use crate::{
@@ -239,8 +242,8 @@ type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 /// Xlsx, Xlsm, Xlam
 pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
-    /// Shared strings
-    strings: Vec<String>,
+    /// Shared strings (can be plain strings or rich text)
+    strings: Vec<Data>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
@@ -280,8 +283,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"si" => {
-                    if let Some(s) = read_string(&mut xml, e.name())? {
-                        self.strings.push(s);
+                    if let Some(data) = read_rich_string(&mut xml, e.name())? {
+                        self.strings.push(data);
                     }
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"sst" => break,
@@ -2555,6 +2558,340 @@ where
     }
 }
 
+/// Result of parsing run properties - includes both the font and whether there's "rich" formatting
+struct RunPropertiesResult {
+    font: Font,
+    /// Whether the font has "rich" formatting (bold, italic, underline, strikethrough, color)
+    /// that would make this text run distinct from plain text
+    has_rich_formatting: bool,
+}
+
+/// Parse run properties (rPr) to extract font formatting for rich text
+fn parse_run_properties<RS>(
+    xml: &mut XlReader<'_, RS>,
+    closing: QName,
+) -> Result<Option<RunPropertiesResult>, XlsxError>
+where
+    RS: Read + Seek,
+{
+    let mut font = Font::new();
+    let mut has_any_props = false;
+    let mut has_rich_formatting = false;
+    let mut buf = Vec::with_capacity(256);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e) | Event::Empty(e)) => {
+                match e.local_name().as_ref() {
+                    b"b" => {
+                        // Bold - check for val attribute
+                        let mut is_bold = true;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                is_bold = val != "0" && val != "false";
+                            }
+                        }
+                        if is_bold {
+                            font = font.with_weight(FontWeight::Bold);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"i" => {
+                        // Italic - check for val attribute
+                        let mut is_italic = true;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                is_italic = val != "0" && val != "false";
+                            }
+                        }
+                        if is_italic {
+                            font = font.with_style(FontStyle::Italic);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"u" => {
+                        // Underline
+                        let mut underline = UnderlineStyle::Single;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                underline = match val.as_ref() {
+                                    "double" => UnderlineStyle::Double,
+                                    "singleAccounting" => UnderlineStyle::SingleAccounting,
+                                    "doubleAccounting" => UnderlineStyle::DoubleAccounting,
+                                    "none" => UnderlineStyle::None,
+                                    _ => UnderlineStyle::Single,
+                                };
+                            }
+                        }
+                        if underline != UnderlineStyle::None {
+                            font = font.with_underline(underline);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"strike" => {
+                        // Strikethrough
+                        let mut is_strike = true;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                is_strike = val != "0" && val != "false";
+                            }
+                        }
+                        if is_strike {
+                            font = font.with_strikethrough(true);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"sz" => {
+                        // Font size - captured but doesn't count as "rich" formatting
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                if let Ok(size) =
+                                    String::from_utf8_lossy(&attr.value).parse::<f64>()
+                                {
+                                    font = font.with_size(size);
+                                    has_any_props = true;
+                                }
+                            }
+                        }
+                    }
+                    b"color" => {
+                        // Font color - counts as rich formatting
+                        if let Some(color) = parse_run_color(&e)? {
+                            font = font.with_color(color);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"rFont" => {
+                        // Font name - captured but doesn't count as "rich" formatting
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                font = font
+                                    .with_name(String::from_utf8_lossy(&attr.value).to_string());
+                                has_any_props = true;
+                            }
+                        }
+                    }
+                    b"family" => {
+                        // Font family - captured but doesn't count as "rich" formatting
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                font = font
+                                    .with_family(String::from_utf8_lossy(&attr.value).to_string());
+                                has_any_props = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) if e.name() == closing => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("rPr")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    Ok(if has_any_props {
+        Some(RunPropertiesResult {
+            font,
+            has_rich_formatting,
+        })
+    } else {
+        None
+    })
+}
+
+/// Parse color from a run properties color element
+fn parse_run_color(
+    e: &quick_xml::events::BytesStart<'_>,
+) -> Result<Option<crate::Color>, XlsxError> {
+    use crate::Color;
+
+    for attr in e.attributes().flatten() {
+        match attr.key.as_ref() {
+            b"rgb" => {
+                let rgb_str = attr.value.as_ref();
+                if rgb_str.len() == 6 {
+                    let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
+                    let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
+                    let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
+                    return Ok(Some(Color::rgb(r, g, b)));
+                } else if rgb_str.len() == 8 {
+                    let a = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid alpha color value"))?;
+                    let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
+                    let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
+                    let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[6..8]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
+                    return Ok(Some(Color::new(a, r, g, b)));
+                }
+            }
+            b"theme" => {
+                // Theme colors - using a simplified palette
+                let theme_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(theme) = theme_str.parse::<u8>() {
+                    let color = match theme {
+                        0 => Color::rgb(255, 255, 255), // Light 1
+                        1 => Color::rgb(0, 0, 0),       // Dark 1
+                        2 => Color::rgb(68, 84, 106),   // Light 2
+                        3 => Color::rgb(31, 73, 125),   // Dark 2
+                        4 => Color::rgb(79, 129, 189),  // Accent 1
+                        5 => Color::rgb(192, 80, 77),   // Accent 2
+                        6 => Color::rgb(155, 187, 89),  // Accent 3
+                        7 => Color::rgb(128, 100, 162), // Accent 4
+                        8 => Color::rgb(75, 172, 198),  // Accent 5
+                        9 => Color::rgb(247, 150, 70),  // Accent 6
+                        _ => Color::rgb(0, 0, 0),
+                    };
+                    return Ok(Some(color));
+                }
+            }
+            b"indexed" => {
+                // Indexed colors
+                let idx_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(idx) = idx_str.parse::<u8>() {
+                    let color = match idx {
+                        1 => Color::rgb(0, 0, 0),
+                        2 => Color::rgb(255, 255, 255),
+                        3 => Color::rgb(255, 0, 0),
+                        4 => Color::rgb(0, 255, 0),
+                        5 => Color::rgb(0, 0, 255),
+                        6 => Color::rgb(255, 255, 0),
+                        7 => Color::rgb(255, 0, 255),
+                        8 => Color::rgb(0, 255, 255),
+                        _ => Color::rgb(0, 0, 0),
+                    };
+                    return Ok(Some(color));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// Read a string from shared strings, preserving rich text formatting if present.
+/// Returns Data::String for plain text or Data::RichText for formatted text.
+fn read_rich_string<RS>(
+    xml: &mut XlReader<'_, RS>,
+    closing: QName,
+) -> Result<Option<Data>, XlsxError>
+where
+    RS: Read + Seek,
+{
+    let mut buf = Vec::with_capacity(1024);
+    let mut val_buf = Vec::with_capacity(1024);
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut current_props: Option<RunPropertiesResult> = None;
+    let mut is_rich_text = false;
+    let mut is_phonetic_text = false;
+    let mut plain_text: Option<String> = None;
+    let mut has_any_rich_formatting = false;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
+                // Start of a rich text run
+                is_rich_text = true;
+                current_props = None;
+            }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => {
+                // End of a rich text run
+                current_props = None;
+            }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPr" => {
+                // Run properties (formatting)
+                current_props = parse_run_properties(xml, e.name())?;
+                if let Some(ref props) = current_props {
+                    if props.has_rich_formatting {
+                        has_any_rich_formatting = true;
+                    }
+                }
+            }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPh" => {
+                is_phonetic_text = true;
+            }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"rPh" => {
+                is_phonetic_text = false;
+            }
+            Ok(Event::End(e)) if e.name() == closing => {
+                // End of string item
+                if is_rich_text && !runs.is_empty() {
+                    // Only return RichText if there's actual rich formatting (bold, italic, etc.)
+                    if has_any_rich_formatting {
+                        return Ok(Some(Data::RichText(RichText::from_runs(runs))));
+                    } else {
+                        // All runs are plain text or only have non-rich style info, concatenate them
+                        let text: String = runs.iter().map(|r| r.text.as_str()).collect();
+                        return Ok(Some(Data::String(text)));
+                    }
+                } else if let Some(text) = plain_text {
+                    return Ok(Some(Data::String(text)));
+                } else if is_rich_text {
+                    // Rich text with no runs means empty string
+                    return Ok(Some(Data::String(String::new())));
+                } else {
+                    // Empty element
+                    return Ok(Some(Data::String(String::new())));
+                }
+            }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
+                // Text content
+                val_buf.clear();
+                let mut value = String::new();
+                loop {
+                    match xml.read_event_into(&mut val_buf)? {
+                        Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
+                        Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
+                        Event::End(end) if end.name() == e.name() => break,
+                        Event::Eof => return Err(XlsxError::XmlEof("t")),
+                        _ => (),
+                    }
+                }
+
+                if is_rich_text {
+                    // Add as a run with optional formatting
+                    // Only include font if there's rich formatting (bold, italic, etc.)
+                    let font = current_props
+                        .take()
+                        .filter(|p| p.has_rich_formatting)
+                        .map(|p| p.font);
+                    runs.push(TextRun { text: value, font });
+                } else {
+                    // Plain text (not in a run)
+                    if let Some(ref mut pt) = plain_text {
+                        pt.push_str(&value);
+                    } else {
+                        plain_text = Some(value);
+                    }
+                    // Consume remaining and return
+                    xml.read_to_end_into(closing, &mut val_buf)?;
+                    return Ok(plain_text.map(Data::String));
+                }
+            }
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+}
+
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
     let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
     reader.seek(std::io::SeekFrom::Start(0))?;
@@ -3427,8 +3764,8 @@ mod tests {
 
         assert!(xlsx.read_shared_strings().is_ok());
         assert_eq!(3, xlsx.strings.len());
-        assert_eq!("String 1", &xlsx.strings[0]);
-        assert_eq!("String 2", &xlsx.strings[1]);
-        assert_eq!("String 3", &xlsx.strings[2]);
+        assert_eq!(Data::String("String 1".to_string()), xlsx.strings[0]);
+        assert_eq!(Data::String("String 2".to_string()), xlsx.strings[1]);
+        assert_eq!(Data::String("String 3".to_string()), xlsx.strings[2]);
     }
 }

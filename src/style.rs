@@ -294,6 +294,104 @@ impl Font {
     }
 }
 
+/// A run of text with its own formatting within a rich text cell
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextRun {
+    /// The text content of this run
+    pub text: String,
+    /// Font properties for this run (None means inherit cell default)
+    pub font: Option<Font>,
+}
+
+impl TextRun {
+    /// Create a new text run with just text (no formatting)
+    pub fn new(text: String) -> Self {
+        Self { text, font: None }
+    }
+
+    /// Create a new text run with text and font
+    pub fn with_font(text: String, font: Font) -> Self {
+        Self {
+            text,
+            font: Some(font),
+        }
+    }
+
+    /// Check if this run has any formatting
+    pub fn has_formatting(&self) -> bool {
+        self.font.is_some()
+    }
+}
+
+/// Rich text content with multiple formatted runs
+///
+/// Rich text allows different parts of a cell's text to have different
+/// formatting (bold, italic, colors, etc.). This is common in spreadsheets
+/// where users want to emphasize certain words within a cell.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RichText {
+    /// The text runs in order
+    pub runs: Vec<TextRun>,
+}
+
+impl RichText {
+    /// Create a new empty rich text
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create rich text from a vector of runs
+    pub fn from_runs(runs: Vec<TextRun>) -> Self {
+        Self { runs }
+    }
+
+    /// Add a text run
+    pub fn push(&mut self, run: TextRun) {
+        self.runs.push(run);
+    }
+
+    /// Add a plain text run (no formatting)
+    pub fn push_text(&mut self, text: String) {
+        self.runs.push(TextRun::new(text));
+    }
+
+    /// Add a formatted text run
+    pub fn push_formatted(&mut self, text: String, font: Font) {
+        self.runs.push(TextRun::with_font(text, font));
+    }
+
+    /// Get the plain text content (all runs concatenated)
+    pub fn plain_text(&self) -> String {
+        self.runs.iter().map(|r| r.text.as_str()).collect()
+    }
+
+    /// Check if the rich text is empty
+    pub fn is_empty(&self) -> bool {
+        self.runs.is_empty() || self.runs.iter().all(|r| r.text.is_empty())
+    }
+
+    /// Get the number of runs
+    pub fn len(&self) -> usize {
+        self.runs.len()
+    }
+
+    /// Check if any run has formatting
+    pub fn has_formatting(&self) -> bool {
+        self.runs.iter().any(|r| r.has_formatting())
+    }
+
+    /// Iterate over the runs
+    pub fn iter(&self) -> impl Iterator<Item = &TextRun> {
+        self.runs.iter()
+    }
+}
+
+impl std::fmt::Display for RichText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.plain_text())
+    }
+}
+
 /// Horizontal alignment
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum HorizontalAlignment {

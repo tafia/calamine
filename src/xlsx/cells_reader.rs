@@ -19,7 +19,7 @@ use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::unescape_entity_to_buffer,
-    Cell, Style, XlsxError,
+    Cell, Data, Style, XlsxError,
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
@@ -30,7 +30,7 @@ where
     RS: Read + Seek,
 {
     xml: XlReader<'a, RS>,
-    strings: &'a [String],
+    strings: &'a [Data],
     formats: &'a [CellFormat],
     styles: &'a [Style],
     is_1904: bool,
@@ -48,7 +48,7 @@ where
 {
     pub fn new(
         mut xml: XlReader<'a, RS>,
-        strings: &'a [String],
+        strings: &'a [Data],
         formats: &'a [CellFormat],
         styles: &'a [Style],
         is_1904: bool,
@@ -482,7 +482,7 @@ where
 }
 
 fn read_value<'s, RS>(
-    strings: &'s [String],
+    strings: &'s [Data],
     formats: &[CellFormat],
     is_1904: bool,
     xml: &mut XlReader<'_, RS>,
@@ -524,7 +524,7 @@ where
 /// read the contents of a <v> cell
 fn read_v<'s>(
     v: String,
-    strings: &'s [String],
+    strings: &'s [Data],
     formats: &[CellFormat],
     c_element: &BytesStart<'_>,
     is_1904: bool,
@@ -541,7 +541,11 @@ fn read_v<'s>(
             // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
             match strings.get(idx) {
-                Some(shared_string) => Ok(DataRef::SharedString(shared_string)),
+                Some(Data::String(s)) => Ok(DataRef::SharedString(s)),
+                Some(Data::RichText(rt)) => Ok(DataRef::SharedRichText(rt)),
+                Some(_) => Err(XlsxError::Unexpected(
+                    "Unexpected data type in shared strings table",
+                )),
                 None => Err(XlsxError::Unexpected(
                     "Cell string index not found in shared strings table",
                 )),
