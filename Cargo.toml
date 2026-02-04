@@ -16,12 +16,12 @@ rust-version = "1.83" # For quick-xml + encoding_rs.
 [dependencies]
 log = "0.4"
 serde = "1.0"
-codepage = "0.1.1"
-atoi_simd = "0.16"
+codepage = "0.1"
+atoi_simd = "0.17"
 byteorder = "1.5"
 encoding_rs = "0.8"
 fast-float2 = "0.2"
-zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
+zip = { version = "7.0", default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.38", features = ["encoding"] }
 
 # Optional dependencies.
@@ -29,10 +29,10 @@ chrono = { version = "0.4", features = ["serde"], optional = true, default-featu
 
 [dev-dependencies]
 glob = "0.3"
-sha2 = "0.10.8"
+sha2 = "0.10"
 env_logger = "0.11"
 serde_derive = "1.0"
-rstest = { version = "0.21.0", default-features = false }
+rstest = { version = "0.26", default-features = false }
 
 [features]
 default = []
