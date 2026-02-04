@@ -5,13 +5,61 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.33.0] - 2025-XX-XX (Draft for next release)
+## [0.33.0] - 2026-02-04
 
 ### Added
 
+- Added support for reading data from Pivot Tables, which involves reading data
+  from the internal Pivot Cache. [PR #559].
+
+  [PR #559]: https://github.com/tafia/calamine/pull/559
+
 ### Changed
 
+- Update dependencies for release 0.33.0:
+
+  - `zip`: 4.2.0 -> 7.0.
+  - `atoi_simd`: 0.16 -> 0.17
+
 ### Fixed
+
+- Fixed potential memory exhaustion issue in ODS files that could be triggered
+  via repeated empty rows/columns.
+
+  The fix adds limits to prevent memory exhaustion from malicious ODS files that
+  declare billions of repeated cells via `table:number-rows-repeated` and
+  `table:number-columns`-repeated attributes.
+
+  The change adds the following protection layers:
+
+  - Add cap for columns per row at `MAX_COLUMNS` (16,384).
+  - Add cap for total row repeats at `MAX_ROWS` (1,048,576).
+  - Add cap for total cells at `MAX_CELLS` (100 million) in `get_range()`.
+
+  These limits match XLSX's existing row/column limits and prevent a 7KB
+  malicious file from attempting to allocate memory for 17+ billion cells.
+
+  When MAX_CELLS is exceeded, return `OdsError::CellLimitExceeded` instead
+  of silently returning an empty range. This ensures callers are properly
+  informed of truncation rather than receiving silent data loss.
+
+  [Issue #594], [PR #596].
+
+  [Issue #594]: https://github.com/tafia/calamine/issues/594
+  [PR #596]: https://github.com/tafia/calamine/pull/596
+
+- Fixed an issue where XLSX files with tables that had the internal `insertRow`
+  attribute set returned a `Dimensions` object where the end row was less than
+  the start row. This caused an assert/panic when trying to create a `Range`
+  object to return the table range. [Issue #589].
+
+  [Issue #589]: https://github.com/tafia/calamine/issues/589
+
+- Fixed an issue with XLSX files where worksheet tables used the unusual, but
+  valid, absolute reference system like `"/xl/tables/table1.xml"` instead of the
+  common Excel generated relative system `"../tables/table1.xml"`. [Issue #587].
+
+  [Issue #587]: https://github.com/tafia/calamine/issues/587
 
 
 ## [0.32.0] - 2025-11-20
