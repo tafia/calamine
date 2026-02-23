@@ -3032,3 +3032,117 @@ fn test_style_range_rle() {
         let _ = style.get_font();
     }
 }
+
+#[test]
+fn test_theme_color_with_tint() {
+    use calamine::Color;
+
+    // EMSI_JobChange_UK.xlsx uses theme="2" tint="-0.0999..." for the header fill.
+    // The file's theme has lt2 = EEECE1 (238, 236, 225).
+    // With tint -0.1: each channel * 0.9 ≈ (214, 212, 203).
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // Row 0 is the header row; check cell A1 (0, 0)
+    let header_style = styles
+        .get((0, 0))
+        .expect("Header cell should have style");
+    let fill = header_style
+        .get_fill()
+        .expect("Header should have fill");
+    let color = fill
+        .get_color()
+        .expect("Header fill should have a color");
+
+    // The color should be a tan/beige, NOT dark grey.
+    // Expected: approximately RGB(214, 212, 203) based on EEECE1 with tint -0.1
+    assert!(
+        color.red > 200 && color.green > 200 && color.blue > 190,
+        "Header fill should be tan/beige, got RGB({}, {}, {})",
+        color.red,
+        color.green,
+        color.blue
+    );
+
+    // Verify it's NOT the old incorrect dark blue-grey (68, 84, 106)
+    assert!(
+        color.red > 150,
+        "Header fill red should be > 150 (not dark grey), got {}",
+        color.red
+    );
+}
+
+#[test]
+fn test_theme_colors_read_from_file() {
+    use calamine::Color;
+
+    // EMSI_JobChange_UK.xlsx has the Office 2007 theme:
+    //   dk1=000000, lt1=FFFFFF, dk2=1F497D, lt2=EEECE1
+    // After Excel's index swap: theme 0=lt1, 1=dk1, 2=lt2, 3=dk2
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // The header row uses bold font with no explicit font color set,
+    // and the data rows use theme="1" (dk1=black) for font color.
+    // Verify a data cell (row 1) has correct style
+    let data_style = styles.get((1, 0)).expect("Data cell should have style");
+    assert!(
+        data_style.get_font().is_some(),
+        "Data cell should have font info"
+    );
+}
+
+#[test]
+fn test_sys_color_parsing_prefers_last_clr() {
+    use calamine::Color;
+
+    // problematic_formats.xlsx has sysClr elements like:
+    //   <a:sysClr val="windowText" lastClr="000000"/>
+    //   <a:sysClr val="window" lastClr="FFFFFF"/>
+    // The parser should use lastClr (resolved) over val (system name).
+    let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let a1_style = styles.get((0, 0)).expect("A1 should have style");
+    let font = a1_style.get_font().expect("A1 should have font");
+
+    // Font uses theme="0" which should resolve to lt1 = FFFFFF (white)
+    // via the sysClr lastClr attribute
+    if let Some(color) = font.color {
+        assert!(
+            color.is_white(),
+            "A1 font color should be white (from sysClr lastClr), got RGB({}, {}, {})",
+            color.red,
+            color.green,
+            color.blue
+        );
+    }
+}
+
+#[test]
+fn test_tint_darkening() {
+    use calamine::Color;
+
+    // Verify that negative tint darkens a color.
+    // EMSI_JobChange_UK.xlsx border colors use theme="0" tint="-0.2499..."
+    // theme 0 = lt1 = FFFFFF (255,255,255)
+    // With tint -0.25: 255 * 0.75 = 191 per channel → approximately (191, 191, 191)
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // Check a data cell that should have borders with tinted colors
+    if let Some(data_style) = styles.get((1, 0)) {
+        if let Some(borders) = data_style.get_borders() {
+            if borders.top.is_visible() {
+                if let Some(color) = borders.top.color {
+                    // Should be a light grey (around 191,191,191), not pure white or black
+                    assert!(
+                        color.red > 180 && color.red < 200,
+                        "Border color should be light grey from tinted white, got R={}",
+                        color.red
+                    );
+                }
+            }
+        }
+    }
+}

@@ -13,31 +13,167 @@ use crate::style::*;
 use crate::utils::unescape_entity_to_buffer;
 use crate::XlsxError;
 
-/// Get theme color from Excel's theme color palette
-/// Based on Office Open XML standard theme colors
-fn get_theme_color(theme: u8) -> Color {
-    match theme {
-        0 => Color::rgb(255, 255, 255), // Light 1 (White)
-        1 => Color::rgb(0, 0, 0),       // Dark 1 (Black)
-        2 => Color::rgb(68, 84, 106),   // Light 2 (Light Gray)
-        3 => Color::rgb(31, 73, 125),   // Dark 2 (Dark Blue)
-        4 => Color::rgb(79, 129, 189),  // Accent 1 (Blue)
-        5 => Color::rgb(192, 80, 77),   // Accent 2 (Red)
-        6 => Color::rgb(155, 187, 89),  // Accent 3 (Green)
-        7 => Color::rgb(128, 100, 162), // Accent 4 (Purple)
-        8 => Color::rgb(75, 172, 198),  // Accent 5 (Cyan)
-        9 => Color::rgb(247, 150, 70),  // Accent 6 (Orange)
-        10 => Color::rgb(99, 99, 99),   // Hyperlink (Blue)
-        11 => Color::rgb(128, 0, 128),  // Followed Hyperlink (Purple)
-        _ => Color::rgb(0, 0, 0),       // Default to black for unknown theme colors
+/// Default Office 2007 theme colors, indexed by Excel's theme attribute value.
+///
+/// Excel swaps the first four entries relative to the clrScheme XML order:
+///   theme="0" -> lt1, theme="1" -> dk1, theme="2" -> lt2, theme="3" -> dk2
+pub fn default_theme_colors() -> Vec<Color> {
+    vec![
+        Color::rgb(255, 255, 255), // 0: lt1 (White)
+        Color::rgb(0, 0, 0),       // 1: dk1 (Black)
+        Color::rgb(238, 236, 225), // 2: lt2 (EEECE1)
+        Color::rgb(31, 73, 125),   // 3: dk2 (1F497D)
+        Color::rgb(79, 129, 189),  // 4: accent1
+        Color::rgb(192, 80, 77),   // 5: accent2
+        Color::rgb(155, 187, 89),  // 6: accent3
+        Color::rgb(128, 100, 162), // 7: accent4
+        Color::rgb(75, 172, 198),  // 8: accent5
+        Color::rgb(247, 150, 70),  // 9: accent6
+        Color::rgb(0, 0, 255),     // 10: hlink
+        Color::rgb(128, 0, 128),   // 11: folHlink
+    ]
+}
+
+/// Get theme color using the workbook's palette when available.
+fn get_theme_color(theme: u8, theme_colors: &[Color]) -> Color {
+    theme_colors
+        .get(theme as usize)
+        .copied()
+        .unwrap_or_else(|| Color::rgb(0, 0, 0))
+}
+
+/// Apply tint to a color per the OOXML spec (Section 18.8.19).
+///
+/// Negative tint darkens:  result = channel * (1 + tint)
+/// Positive tint lightens: result = channel + (255 - channel) * tint
+fn apply_tint(color: Color, tint: f64) -> Color {
+    let apply_channel = |c: u8| -> u8 {
+        let val = if tint < 0.0 {
+            c as f64 * (1.0 + tint)
+        } else {
+            c as f64 + (255.0 - c as f64) * tint
+        };
+        val.round().clamp(0.0, 255.0) as u8
+    };
+    Color::new(
+        color.alpha,
+        apply_channel(color.red),
+        apply_channel(color.green),
+        apply_channel(color.blue),
+    )
+}
+
+/// Resolve theme colors from `xl/theme/theme1.xml`.
+///
+/// Reads the clrScheme element which lists colors in order:
+///   dk1, lt1, dk2, lt2, accent1..accent6, hlink, folHlink
+///
+/// Excel swaps the first four when mapping to theme indices, so:
+///   theme="0" -> lt1, theme="1" -> dk1, theme="2" -> lt2, theme="3" -> dk2
+pub fn read_theme_colors<RS: BufRead>(xml: &mut Reader<RS>) -> Vec<Color> {
+    let mut xml_order: Vec<Color> = Vec::new();
+    let mut buf = Vec::new();
+    let mut in_clr_scheme = false;
+    let clr_elements: &[&[u8]] = &[
+        b"dk1", b"lt1", b"dk2", b"lt2", b"accent1", b"accent2", b"accent3", b"accent4",
+        b"accent5", b"accent6", b"hlink", b"folHlink",
+    ];
+    let mut current_element: Option<Vec<u8>> = None;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                let local = e.local_name();
+                if local.as_ref() == b"clrScheme" {
+                    in_clr_scheme = true;
+                } else if in_clr_scheme {
+                    if clr_elements.iter().any(|&el| local.as_ref() == el) {
+                        current_element = Some(local.as_ref().to_vec());
+                    } else if current_element.is_some() {
+                        if let Some(color) = parse_theme_srgb_or_sys(e.attributes()) {
+                            xml_order.push(color);
+                            current_element = None;
+                        }
+                    }
+                }
+            }
+            Ok(Event::Empty(ref e)) if in_clr_scheme && current_element.is_some() => {
+                if let Some(color) = parse_theme_srgb_or_sys(e.attributes()) {
+                    xml_order.push(color);
+                    current_element = None;
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let local = e.local_name();
+                if local.as_ref() == b"clrScheme" {
+                    break;
+                }
+                if current_element
+                    .as_ref()
+                    .is_some_and(|el| el == local.as_ref())
+                {
+                    current_element = None;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
     }
+
+    if xml_order.len() >= 4 {
+        // Apply Excel's swap: indices 0/1 and 2/3
+        xml_order.swap(0, 1);
+        xml_order.swap(2, 3);
+        xml_order
+    } else {
+        default_theme_colors()
+    }
+}
+
+/// Parse an srgbClr or sysClr element's attributes into a Color.
+///
+/// For srgbClr: reads the `val` attribute (a 6-char hex string like "1F497D").
+/// For sysClr: prefers `lastClr` (resolved color) over `val` (system name like "window").
+fn parse_theme_srgb_or_sys(
+    attributes: quick_xml::events::attributes::Attributes,
+) -> Option<Color> {
+    let mut color: Option<Color> = None;
+
+    for attr in attributes.flatten() {
+        match attr.key.as_ref() {
+            b"lastClr" => {
+                if let Some(c) = parse_hex_attr(attr.value.as_ref()) {
+                    return Some(c);
+                }
+            }
+            b"val" => {
+                if color.is_none() {
+                    color = parse_hex_attr(attr.value.as_ref());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    color
+}
+
+fn parse_hex_attr(val: &[u8]) -> Option<Color> {
+    if val.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&String::from_utf8_lossy(&val[0..2]), 16).ok()?;
+    let g = u8::from_str_radix(&String::from_utf8_lossy(&val[2..4]), 16).ok()?;
+    let b = u8::from_str_radix(&String::from_utf8_lossy(&val[4..6]), 16).ok()?;
+    Some(Color::rgb(r, g, b))
 }
 
 /// Get indexed color from Excel's official color index palette
 /// Based on: https://learn.microsoft.com/en-us/office/vba/api/excel.colorindex
 fn get_indexed_color(index: u8) -> Color {
     match index {
-        // Row 1: Basic colors
         1 => Color::rgb(0, 0, 0),       // Black
         2 => Color::rgb(255, 255, 255), // White
         3 => Color::rgb(255, 0, 0),     // Red
@@ -46,8 +182,6 @@ fn get_indexed_color(index: u8) -> Color {
         6 => Color::rgb(255, 255, 0),   // Yellow
         7 => Color::rgb(255, 0, 255),   // Magenta
         8 => Color::rgb(0, 255, 255),   // Cyan
-
-        // Row 2: Dark variants
         9 => Color::rgb(128, 0, 0),      // Dark Red
         10 => Color::rgb(0, 128, 0),     // Dark Green
         11 => Color::rgb(0, 0, 128),     // Dark Blue
@@ -56,8 +190,6 @@ fn get_indexed_color(index: u8) -> Color {
         14 => Color::rgb(0, 128, 128),   // Dark Cyan
         15 => Color::rgb(192, 192, 192), // Light Gray
         16 => Color::rgb(128, 128, 128), // Gray
-
-        // Row 3: Light blue variants
         17 => Color::rgb(153, 153, 255), // Light Blue
         18 => Color::rgb(153, 51, 102),  // Dark Pink
         19 => Color::rgb(255, 255, 204), // Light Yellow
@@ -66,8 +198,6 @@ fn get_indexed_color(index: u8) -> Color {
         22 => Color::rgb(255, 128, 128), // Light Red
         23 => Color::rgb(0, 102, 204),   // Medium Blue
         24 => Color::rgb(204, 204, 255), // Light Purple
-
-        // Row 4: More variants
         25 => Color::rgb(0, 0, 128),   // Navy
         26 => Color::rgb(255, 0, 255), // Fuchsia
         27 => Color::rgb(255, 255, 0), // Yellow
@@ -76,8 +206,6 @@ fn get_indexed_color(index: u8) -> Color {
         30 => Color::rgb(128, 0, 0),   // Maroon
         31 => Color::rgb(0, 128, 128), // Teal
         32 => Color::rgb(0, 0, 255),   // Blue
-
-        // Row 5: Sky blue variants
         33 => Color::rgb(0, 204, 255),   // Sky Blue
         34 => Color::rgb(204, 255, 255), // Light Turquoise
         35 => Color::rgb(204, 255, 204), // Light Green
@@ -86,8 +214,6 @@ fn get_indexed_color(index: u8) -> Color {
         38 => Color::rgb(255, 153, 204), // Pink
         39 => Color::rgb(204, 153, 255), // Lavender
         40 => Color::rgb(255, 204, 153), // Tan
-
-        // Row 6: Bright variants
         41 => Color::rgb(51, 102, 255),  // Bright Blue
         42 => Color::rgb(51, 204, 204),  // Aqua
         43 => Color::rgb(153, 204, 0),   // Lime
@@ -96,8 +222,6 @@ fn get_indexed_color(index: u8) -> Color {
         46 => Color::rgb(255, 102, 0),   // Orange Red
         47 => Color::rgb(102, 102, 153), // Blue Gray
         48 => Color::rgb(150, 150, 150), // Gray 40%
-
-        // Row 7: Dark variants
         49 => Color::rgb(0, 51, 102),   // Dark Teal
         50 => Color::rgb(51, 153, 102), // Sea Green
         51 => Color::rgb(0, 51, 0),     // Dark Green
@@ -106,34 +230,35 @@ fn get_indexed_color(index: u8) -> Color {
         54 => Color::rgb(153, 51, 102), // Plum
         55 => Color::rgb(51, 51, 153),  // Indigo
         56 => Color::rgb(51, 51, 51),   // Gray 80%
-
-        // Special auto/system colors
         0 => Color::rgb(0, 0, 0),        // Auto (Black)
         64 => Color::rgb(192, 192, 192), // System window background
         65 => Color::rgb(0, 0, 0),       // System auto color
-
-        // Default fallback
         _ => Color::rgb(0, 0, 0), // Black for unknown indices
     }
 }
 
-/// Parse color from XML attributes
-fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
+/// Parse color from XML attributes, resolving theme/indexed references and
+/// applying the tint modifier when present.
+fn parse_color(
+    attributes: &[Attribute],
+    theme_colors: &[Color],
+) -> Result<Option<Color>, XlsxError> {
+    let mut color: Option<Color> = None;
+    let mut tint: Option<f64> = None;
+
     for attr in attributes {
         match attr.key.as_ref() {
             b"rgb" => {
-                let rgb_str = attr.value.as_ref();
+                let rgb_str: &[u8] = attr.value.as_ref();
                 if rgb_str.len() == 6 {
-                    // RGB format (6 characters)
                     let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
                     let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
                     let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
-                    return Ok(Some(Color::rgb(r, g, b)));
+                    color = Some(Color::rgb(r, g, b));
                 } else if rgb_str.len() == 8 {
-                    // ARGB format (8 characters)
                     let a = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid alpha color value"))?;
                     let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
@@ -142,25 +267,33 @@ fn parse_color(attributes: &[Attribute]) -> Result<Option<Color>, XlsxError> {
                         .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
                     let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[6..8]), 16)
                         .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
-                    return Ok(Some(Color::new(a, r, g, b)));
+                    color = Some(Color::new(a, r, g, b));
                 }
             }
             b"theme" => {
                 let theme_str = String::from_utf8_lossy(&attr.value);
                 if let Ok(theme_value) = theme_str.parse::<u8>() {
-                    return Ok(Some(get_theme_color(theme_value)));
+                    color = Some(get_theme_color(theme_value, theme_colors));
                 }
             }
             b"indexed" => {
                 let indexed_str = String::from_utf8_lossy(&attr.value);
                 if let Ok(indexed_value) = indexed_str.parse::<u8>() {
-                    return Ok(Some(get_indexed_color(indexed_value)));
+                    color = Some(get_indexed_color(indexed_value));
                 }
+            }
+            b"tint" => {
+                let tint_str = String::from_utf8_lossy(&attr.value);
+                tint = tint_str.parse::<f64>().ok();
             }
             _ => {}
         }
     }
-    Ok(None)
+
+    Ok(color.map(|c| match tint {
+        Some(t) if t != 0.0 => apply_tint(c, t),
+        _ => c,
+    }))
 }
 
 /// Parse font weight from string
@@ -169,7 +302,6 @@ fn parse_font_weight(s: &str) -> FontWeight {
         "bold" | "700" => FontWeight::Bold,
         "normal" | "400" => FontWeight::Normal,
         _ => {
-            // Try to parse as numeric weight
             if let Ok(weight) = s.parse::<u16>() {
                 if weight >= 600 {
                     FontWeight::Bold
@@ -183,16 +315,13 @@ fn parse_font_weight(s: &str) -> FontWeight {
     }
 }
 
-/// Parse font style from string
 fn parse_font_style(s: &str) -> FontStyle {
     match s {
         "italic" | "oblique" => FontStyle::Italic,
-        "normal" => FontStyle::Normal,
         _ => FontStyle::Normal,
     }
 }
 
-/// Parse underline style from string
 fn parse_underline_style(s: &str) -> UnderlineStyle {
     match s {
         "single" => UnderlineStyle::Single,
@@ -203,7 +332,6 @@ fn parse_underline_style(s: &str) -> UnderlineStyle {
     }
 }
 
-/// Parse horizontal alignment from string
 fn parse_horizontal_alignment(s: &str) -> HorizontalAlignment {
     match s {
         "left" => HorizontalAlignment::Left,
@@ -216,7 +344,6 @@ fn parse_horizontal_alignment(s: &str) -> HorizontalAlignment {
     }
 }
 
-/// Parse vertical alignment from string
 fn parse_vertical_alignment(s: &str) -> VerticalAlignment {
     match s {
         "top" => VerticalAlignment::Top,
@@ -228,7 +355,6 @@ fn parse_vertical_alignment(s: &str) -> VerticalAlignment {
     }
 }
 
-/// Parse fill pattern from string
 fn parse_fill_pattern(s: &str) -> FillPattern {
     match s {
         "solid" => FillPattern::Solid,
@@ -253,7 +379,6 @@ fn parse_fill_pattern(s: &str) -> FillPattern {
     }
 }
 
-/// Parse border style from string
 fn parse_border_style(s: &str) -> BorderStyle {
     match s {
         "thin" => BorderStyle::Thin,
@@ -275,20 +400,9 @@ fn parse_border_style(s: &str) -> BorderStyle {
 pub fn parse_font<RS: BufRead>(
     xml: &mut Reader<RS>,
     _start_elem: &BytesStart,
+    theme_colors: &[Color],
 ) -> Result<Font, XlsxError> {
     let mut font = Font::new();
-
-    // Font elements can have attributes like outline, shadow, etc.
-    // TODO(ddimaria): Add specific font attribute parsing here if needed
-
-    // // Parse attributes from the opening font element
-    // for attr in start_elem.attributes() {
-    //     let attr = attr?;
-    //     match attr.key.as_ref() {
-    //         _ => {}
-    //     }
-    // }
-
     let mut buf = Vec::new();
 
     loop {
@@ -296,7 +410,6 @@ pub fn parse_font<RS: BufRead>(
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
                 b"name" => {
-                    // Check if name is in val attribute first
                     let mut name = None;
                     for attr in e.attributes() {
                         let attr = attr?;
@@ -305,11 +418,9 @@ pub fn parse_font<RS: BufRead>(
                             break;
                         }
                     }
-                    // If not in attribute, try reading as text content
                     if name.is_none() {
                         name = read_string(xml, QName(b"name"))?;
                     } else {
-                        // Skip to end of element
                         xml.read_to_end_into(e.name(), &mut Vec::new())?;
                     }
                     if let Some(n) = name {
@@ -317,7 +428,6 @@ pub fn parse_font<RS: BufRead>(
                     }
                 }
                 b"sz" => {
-                    // Check if size is in val attribute first
                     let mut size_str = None;
                     for attr in e.attributes() {
                         let attr = attr?;
@@ -326,11 +436,9 @@ pub fn parse_font<RS: BufRead>(
                             break;
                         }
                     }
-                    // If not in attribute, try reading as text content
                     if size_str.is_none() {
                         size_str = read_string(xml, QName(b"sz"))?;
                     } else {
-                        // Skip to end of element
                         xml.read_to_end_into(e.name(), &mut Vec::new())?;
                     }
                     if let Some(s) = size_str {
@@ -340,8 +448,7 @@ pub fn parse_font<RS: BufRead>(
                     }
                 }
                 b"b" => {
-                    // Check if the element has a 'val' attribute
-                    let mut weight = FontWeight::Bold; // Default to bold
+                    let mut weight = FontWeight::Bold;
                     for attr in e.attributes() {
                         let attr = attr?;
                         if attr.key.as_ref() == b"val" {
@@ -353,8 +460,7 @@ pub fn parse_font<RS: BufRead>(
                     font = font.with_weight(weight);
                 }
                 b"i" => {
-                    // Check if the element has a 'val' attribute
-                    let mut style = FontStyle::Italic; // Default to italic
+                    let mut style = FontStyle::Italic;
                     for attr in e.attributes() {
                         let attr = attr?;
                         if attr.key.as_ref() == b"val" {
@@ -366,8 +472,7 @@ pub fn parse_font<RS: BufRead>(
                     font = font.with_style(style);
                 }
                 b"u" => {
-                    // Check if the element has a 'val' attribute
-                    let mut underline_style = UnderlineStyle::Single; // Default to single underline
+                    let mut underline_style = UnderlineStyle::Single;
                     for attr in e.attributes() {
                         let attr = attr?;
                         if attr.key.as_ref() == b"val" {
@@ -382,9 +487,10 @@ pub fn parse_font<RS: BufRead>(
                     font = font.with_strikethrough(true);
                 }
                 b"color" => {
-                    if let Some(color) =
-                        parse_color(&e.attributes().collect::<Result<Vec<_>, _>>()?)?
-                    {
+                    if let Some(color) = parse_color(
+                        &e.attributes().collect::<Result<Vec<_>, _>>()?,
+                        theme_colors,
+                    )? {
                         font = font.with_color(color);
                     }
                 }
@@ -409,21 +515,9 @@ pub fn parse_font<RS: BufRead>(
 pub fn parse_fill<RS: BufRead>(
     xml: &mut Reader<RS>,
     _start_elem: &BytesStart,
+    theme_colors: &[Color],
 ) -> Result<Fill, XlsxError> {
     let mut fill = Fill::new();
-
-    // Fill elements can have attributes like type, etc.
-    // TODO(ddimaria): Add specific fill attribute parsing here if needed
-
-    // // Parse attributes from the opening fill element
-    // for attr in start_elem.attributes() {
-    //     let attr = attr?;
-    //     match attr.key.as_ref() {
-    //         //
-    //         _ => {}
-    //     }
-    // }
-
     let mut buf = Vec::new();
 
     loop {
@@ -440,16 +534,18 @@ pub fn parse_fill<RS: BufRead>(
                     }
                 }
                 b"fgColor" => {
-                    if let Some(color) =
-                        parse_color(&e.attributes().collect::<Result<Vec<_>, _>>()?)?
-                    {
+                    if let Some(color) = parse_color(
+                        &e.attributes().collect::<Result<Vec<_>, _>>()?,
+                        theme_colors,
+                    )? {
                         fill = fill.with_foreground_color(color);
                     }
                 }
                 b"bgColor" => {
-                    if let Some(color) =
-                        parse_color(&e.attributes().collect::<Result<Vec<_>, _>>()?)?
-                    {
+                    if let Some(color) = parse_color(
+                        &e.attributes().collect::<Result<Vec<_>, _>>()?,
+                        theme_colors,
+                    )? {
                         fill = fill.with_background_color(color);
                     }
                 }
@@ -469,20 +565,9 @@ pub fn parse_fill<RS: BufRead>(
 pub fn parse_border<RS: BufRead>(
     xml: &mut Reader<RS>,
     _start_elem: &BytesStart,
+    theme_colors: &[Color],
 ) -> Result<Borders, XlsxError> {
     let mut borders = Borders::new();
-
-    // Border elements can have attributes like diagonalUp, diagonalDown, etc.
-    // TODO(ddimaria): Add specific border attribute parsing here if needed
-
-    // Parse attributes from the opening border element
-    // for attr in start_elem.attributes() {
-    //     let attr = attr?;
-    //     match attr.key.as_ref() {
-    //         _ => {}
-    //     }
-    // }
-
     let mut buf = Vec::new();
 
     loop {
@@ -494,7 +579,6 @@ pub fn parse_border<RS: BufRead>(
                         let mut style = BorderStyle::None;
                         let mut color = None;
 
-                        // Parse attributes for style
                         for attr in e.attributes() {
                             let attr = attr?;
                             if attr.key.as_ref() == b"style" {
@@ -503,14 +587,13 @@ pub fn parse_border<RS: BufRead>(
                             }
                         }
 
-                        // Check for color attributes directly on the border element (fallback)
-                        if let Some(border_color) =
-                            parse_color(&e.attributes().collect::<Result<Vec<_>, _>>()?)?
-                        {
+                        if let Some(border_color) = parse_color(
+                            &e.attributes().collect::<Result<Vec<_>, _>>()?,
+                            theme_colors,
+                        )? {
                             color = Some(border_color);
                         }
 
-                        // Parse nested elements (primarily for color)
                         let mut inner_buf = Vec::new();
                         loop {
                             inner_buf.clear();
@@ -518,18 +601,24 @@ pub fn parse_border<RS: BufRead>(
                                 Ok(Event::Start(ref inner_e)) => {
                                     if inner_e.local_name().as_ref() == b"color" {
                                         if let Some(border_color) = parse_color(
-                                            &inner_e.attributes().collect::<Result<Vec<_>, _>>()?,
+                                            &inner_e
+                                                .attributes()
+                                                .collect::<Result<Vec<_>, _>>()?,
+                                            theme_colors,
                                         )? {
                                             color = Some(border_color);
                                         }
                                     }
                                 }
                                 Ok(Event::End(ref inner_e))
-                                    if inner_e.local_name().as_ref() == e.local_name().as_ref() =>
+                                    if inner_e.local_name().as_ref()
+                                        == e.local_name().as_ref() =>
                                 {
                                     break
                                 }
-                                Ok(Event::Eof) => return Err(XlsxError::XmlEof("border side")),
+                                Ok(Event::Eof) => {
+                                    return Err(XlsxError::XmlEof("border side"))
+                                }
                                 Err(e) => return Err(XlsxError::Xml(e)),
                                 _ => {}
                             }
@@ -547,7 +636,6 @@ pub fn parse_border<RS: BufRead>(
                             b"top" => borders.top = border,
                             b"bottom" => borders.bottom = border,
                             b"diagonal" => {
-                                // Check if it's diagonal down or up
                                 for attr in e.attributes() {
                                     let attr = attr?;
                                     if attr.key.as_ref() == b"diagonalDown" {
@@ -648,6 +736,7 @@ pub fn parse_protection<RS: BufRead>(
 
     Ok(protection)
 }
+
 /// Read string content from XML element
 fn read_string<RS: BufRead>(
     xml: &mut Reader<RS>,

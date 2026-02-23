@@ -24,7 +24,7 @@ use zip::result::ZipError;
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::style::{
-    ColumnWidth, Font, FontStyle, FontWeight, RichText, RowHeight, StyleRange, TextRun,
+    Color, ColumnWidth, Font, FontStyle, FontWeight, RichText, RowHeight, StyleRange, TextRun,
     UnderlineStyle, WorksheetLayout,
 };
 use crate::utils::{unescape_entity_to_buffer, unescape_xml};
@@ -296,7 +296,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    fn read_theme_colors(&mut self) -> Vec<Color> {
+        match xml_reader(&mut self.zip, "xl/theme/theme1.xml") {
+            Some(Ok(mut xml)) => style_parser::read_theme_colors(&mut xml),
+            _ => style_parser::default_theme_colors(),
+        }
+    }
+
     fn read_styles(&mut self) -> Result<(), XlsxError> {
+        let theme_colors = self.read_theme_colors();
+
         let mut xml = match xml_reader(&mut self.zip, "xl/styles.xml") {
             None => return Ok(()),
             Some(x) => x?,
@@ -368,7 +377,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"font" => {
-                            let font = style_parser::parse_font(&mut xml, e)?;
+                            let font = style_parser::parse_font(&mut xml, e, &theme_colors)?;
                             fonts.push(font);
                         }
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fonts" => break,
@@ -381,7 +390,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fill" => {
-                            let fill = style_parser::parse_fill(&mut xml, e)?;
+                            let fill = style_parser::parse_fill(&mut xml, e, &theme_colors)?;
                             fills.push(fill);
                         }
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fills" => break,
@@ -394,7 +403,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"border" => {
-                            let border = style_parser::parse_border(&mut xml, e)?;
+                            let border = style_parser::parse_border(&mut xml, e, &theme_colors)?;
                             borders.push(border);
                         }
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"borders" => break,
