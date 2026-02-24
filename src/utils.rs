@@ -5,8 +5,11 @@
 //! Internal module providing handy function
 
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::io::{Read, Seek};
 
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
+use zip::read::ZipArchive;
 
 const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _x00HH_.
 
@@ -158,6 +161,22 @@ pub(crate) fn unescape_xml(original: &str) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(original)
     }
+}
+
+/// Build a lookup cache mapping lowercased normalized paths to original ZIP entry names.
+pub fn build_zip_path_cache<RS: Read + Seek>(zip: &ZipArchive<RS>) -> HashMap<String, String> {
+    let mut cache = HashMap::with_capacity(zip.len());
+    for zip_path in zip.file_names() {
+        let normalized = zip_path.replace('\\', "/").to_ascii_lowercase();
+        cache.insert(normalized, zip_path.to_string());
+    }
+    cache
+}
+
+/// Look up a path in the cache, falling back to the path itself.
+pub fn cached_zip_path<'a>(cache: &'a HashMap<String, String>, path: &'a str) -> &'a str {
+    let key = path.to_ascii_lowercase();
+    cache.get(&key).map(|s| s.as_str()).unwrap_or(path)
 }
 
 pub const FTAB_LEN: usize = 485;

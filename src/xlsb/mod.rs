@@ -7,7 +7,7 @@ mod cells_reader;
 pub use cells_reader::XlsbCellsReader;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufReader, Read, Seek};
 
 use log::debug;
@@ -22,7 +22,10 @@ use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
-use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
+use crate::utils::{
+    build_zip_path_cache, cached_zip_path, push_column, read_f64, read_i32, read_u16, read_u32,
+    read_usize,
+};
 use crate::vba::VbaProject;
 use crate::{
     Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
@@ -160,6 +163,7 @@ pub struct Xlsb<RS> {
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
     options: XlsbOptions,
+    zip_path_cache: HashMap<String, String>,
 }
 
 impl<RS: Read + Seek> Xlsb<RS> {
@@ -222,10 +226,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.50 Styles
     fn read_styles(&mut self) -> Result<(), XlsbError> {
-        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/styles.bin") {
-            Ok(iter) => iter,
-            Err(_) => return Ok(()), // it is fine if path does not exists
-        };
+        let mut iter =
+            match RecordIter::from_zip(&mut self.zip, "xl/styles.bin", &self.zip_path_cache) {
+                Ok(iter) => iter,
+                Err(_) => return Ok(()), // it is fine if path does not exists
+            };
         let mut buf = Vec::with_capacity(1024);
         let mut number_formats = BTreeMap::new();
 
@@ -277,10 +282,12 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.45
     fn read_shared_strings(&mut self) -> Result<(), XlsbError> {
-        let mut iter = match RecordIter::from_zip(&mut self.zip, "xl/sharedStrings.bin") {
-            Ok(iter) => iter,
-            Err(_) => return Ok(()), // it is fine if path does not exists
-        };
+        let mut iter =
+            match RecordIter::from_zip(&mut self.zip, "xl/sharedStrings.bin", &self.zip_path_cache)
+            {
+                Ok(iter) => iter,
+                Err(_) => return Ok(()), // it is fine if path does not exists
+            };
         let mut buf = Vec::with_capacity(1024);
 
         let _ = iter.next_skip_blocks(0x009F, &[], &mut buf)?; // BrtBeginSst
@@ -305,7 +312,8 @@ impl<RS: Read + Seek> Xlsb<RS> {
         &mut self,
         relationships: &BTreeMap<Vec<u8>, String>,
     ) -> Result<(), XlsbError> {
-        let mut iter = RecordIter::from_zip(&mut self.zip, "xl/workbook.bin")?;
+        let mut iter =
+            RecordIter::from_zip(&mut self.zip, "xl/workbook.bin", &self.zip_path_cache)?;
         let mut buf = Vec::with_capacity(1024);
 
         loop {
@@ -419,7 +427,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
             Some((_, path)) => path.clone(),
             None => return Err(XlsbError::WorksheetNotFound(name.into())),
         };
-        let iter = RecordIter::from_zip(&mut self.zip, &path)?;
+        let iter = RecordIter::from_zip(&mut self.zip, &path, &self.zip_path_cache)?;
         XlsbCellsReader::new(
             iter,
             &self.formats,
@@ -465,8 +473,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     fn new(mut reader: RS) -> Result<Self, XlsbError> {
         check_for_password_protected(&mut reader)?;
 
+        let zip = ZipArchive::new(reader)?;
+        let zip_path_cache = build_zip_path_cache(&zip);
         let mut xlsb = Xlsb {
-            zip: ZipArchive::new(reader)?,
+            zip,
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
@@ -476,6 +486,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             #[cfg(feature = "picture")]
             pictures: None,
             options: XlsbOptions::default(),
+            zip_path_cache,
         };
         xlsb.read_shared_strings()?;
         xlsb.read_styles()?;
@@ -626,10 +637,14 @@ impl<'a, RS> RecordIter<'a, RS>
 where
     RS: Read + Seek,
 {
-    fn from_zip(zip: &'a mut ZipArchive<RS>, path: &str) -> Result<RecordIter<'a, RS>, XlsbError> {
-        let zip_path = crate::xlsx::path_to_zip_path(zip, path);
+    fn from_zip(
+        zip: &'a mut ZipArchive<RS>,
+        path: &str,
+        cache: &HashMap<String, String>,
+    ) -> Result<RecordIter<'a, RS>, XlsbError> {
+        let zip_path = cached_zip_path(cache, path);
 
-        match zip.by_name(&zip_path) {
+        match zip.by_name(zip_path) {
             Ok(f) => Ok(RecordIter {
                 r: BufReader::new(f),
                 b: [0],
@@ -666,7 +681,7 @@ where
             len += ((b & 0x7F) as usize) << (7 * i);
         }
         if buf.len() < len {
-            *buf = vec![0; len];
+            buf.resize(len, 0);
         }
 
         self.r.read_exact(&mut buf[..len])?;
