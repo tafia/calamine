@@ -6,9 +6,8 @@
 
 mod cells_reader;
 
+use hashbrown::HashMap;
 use std::borrow::Cow;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
@@ -331,7 +330,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
 
-        let mut number_formats = BTreeMap::new();
+        let mut number_formats = HashMap::new();
 
         let mut buf = Vec::with_capacity(1024);
         let mut inner_buf = Vec::with_capacity(1024);
@@ -398,10 +397,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_workbook(
-        &mut self,
-        relationships: &BTreeMap<Vec<u8>, String>,
-    ) -> Result<(), XlsxError> {
+    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml", &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
@@ -521,7 +517,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsxError> {
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
         let mut xml = match xml_reader(
             &mut self.zip,
             "xl/_rels/workbook.xml.rels",
@@ -534,7 +530,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
             Some(x) => x?,
         };
-        let mut relationships = BTreeMap::new();
+        let mut relationships = HashMap::new();
         let mut buf = Vec::with_capacity(64);
         loop {
             buf.clear();
@@ -1897,21 +1893,9 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
     Ok((row, col.checked_sub(1)))
 }
 
-/// Attempts to read either a simple or richtext string
-pub(crate) fn read_string<RS>(
-    xml: &mut XlReader<'_, RS>,
-    closing: QName,
-) -> Result<Option<String>, XlsxError>
-where
-    RS: Read + Seek,
-{
-    let mut buf = Vec::with_capacity(1024);
-    let mut val_buf = Vec::with_capacity(1024);
-    read_string_with_bufs(xml, closing, &mut buf, &mut val_buf)
-}
-
-/// Like `read_string` but reuses caller-provided buffers to avoid per-call allocations.
-fn read_string_with_bufs<RS>(
+/// Attempts to read either a simple or richtext string, reusing caller-provided
+/// buffers to avoid per-call allocations.
+pub(crate) fn read_string_with_bufs<RS>(
     xml: &mut XlReader<'_, RS>,
     closing: QName,
     buf: &mut Vec<u8>,
@@ -2828,7 +2812,7 @@ fn get_pivot_cache_iter<'a, RS: Read + Seek + 'a>(
     let records = pivot_table.records();
 
     let mut fields: Vec<Vec<(Tag, Value)>> = vec![];
-    let mut definition_map = std::collections::HashMap::new();
+    let mut definition_map = HashMap::new();
     let mut field_names = vec![];
 
     // Converting into an iterator requires first reading a pivotCacheDefinitions.xml file

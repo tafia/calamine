@@ -10,9 +10,10 @@
 ///
 /// [ODF 1.2]: http://docs.oasis-open.org/office/v1.2/OpenDocument-v1.2.pdf
 ///
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Seek};
 
+use hashbrown::HashMap;
 use log::warn;
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;

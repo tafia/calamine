@@ -2,12 +2,12 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-//! Internal module providing handy function
+//! Internal module providing handy functions
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::io::{Read, Seek};
 
+use hashbrown::HashMap;
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
 use zip::read::ZipArchive;
 
@@ -26,8 +26,8 @@ macro_rules! from_err {
 /// Converts a &[u8] into an iterator of `u32`s
 pub fn to_u32(s: &[u8]) -> impl ExactSizeIterator<Item = u32> + '_ {
     assert_eq!(s.len() % 4, 0);
-    s.chunks(4)
-        .map(|data| u32::from_le_bytes(data.try_into().unwrap()))
+    s.chunks_exact(4)
+        .map(|data| u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
 }
 
 #[inline]
