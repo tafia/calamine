@@ -7,7 +7,7 @@ use quick_xml::{
     name::QName,
 };
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, Cow},
     collections::HashMap,
     io::{Read, Seek},
 };
@@ -123,8 +123,33 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                    let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
-                    let pos = if let Some(range) = attribute {
+                    // Extract all needed attributes in one pass (avoids calling
+                    // `get_attribute` multiple times as each re-iterates).
+                    let mut pos_attr = None;
+                    let mut style_attr = None;
+                    let mut type_attr = None;
+                    for a in c_element.attributes() {
+                        let a = a.map_err(XlsxError::XmlAttr)?;
+                        match a.key {
+                            QName(b"r") => {
+                                if let Cow::Borrowed(v) = a.value {
+                                    pos_attr = Some(v);
+                                }
+                            }
+                            QName(b"s") => {
+                                if let Cow::Borrowed(v) = a.value {
+                                    style_attr = Some(v);
+                                }
+                            }
+                            QName(b"t") => {
+                                if let Cow::Borrowed(v) = a.value {
+                                    type_attr = Some(v);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
                         (row, col)
@@ -142,7 +167,8 @@ where
                                     self.is_1904,
                                     &mut self.xml,
                                     &e,
-                                    &c_element,
+                                    style_attr,
+                                    type_attr,
                                 )?;
                             }
                             Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
@@ -280,13 +306,16 @@ where
     }
 }
 
+/// Reads a cell value using pre-extracted `s` and `t` attributes
+/// (avoids repeating attribute iteration on the `<c>` element).
 fn read_value<'s, RS>(
     strings: &'s [String],
     formats: &[CellFormat],
     is_1904: bool,
     xml: &mut XlReader<'_, RS>,
     e: &BytesStart<'_>,
-    c_element: &BytesStart<'_>,
+    style_attr: Option<&[u8]>,
+    type_attr: Option<&[u8]>,
 ) -> Result<DataRef<'s>, XlsxError>
 where
     RS: Read + Seek,
@@ -310,7 +339,7 @@ where
                     _ => (),
                 }
             }
-            read_v(v, strings, formats, c_element, is_1904)?
+            read_v(v, strings, formats, style_attr, type_attr, is_1904)?
         }
         b"f" => {
             xml.read_to_end_into(e.name(), &mut Vec::new())?;
@@ -320,22 +349,23 @@ where
     })
 }
 
-/// read the contents of a <v> cell
+/// Read the contents of a `<v>` cell using pre-extracted `s` and `t` attributes.
 fn read_v<'s>(
     v: String,
     strings: &'s [String],
     formats: &[CellFormat],
-    c_element: &BytesStart<'_>,
+    style_attr: Option<&[u8]>,
+    type_attr: Option<&[u8]>,
     is_1904: bool,
 ) -> Result<DataRef<'s>, XlsxError> {
-    let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
-        Ok(Some(style)) => {
+    let cell_format = match style_attr {
+        Some(style) => {
             let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
             formats.get(id)
         }
         _ => Some(&CellFormat::Other),
     };
-    match get_attribute(c_element.attributes(), QName(b"t"))? {
+    match type_attr {
         Some(b"s") => {
             // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
