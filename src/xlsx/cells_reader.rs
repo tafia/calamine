@@ -397,15 +397,15 @@ fn read_v<'s>(
             if v.is_empty() {
                 Ok(DataRef::Empty)
             } else {
-                v.parse()
+                fast_float2::parse::<f64, _>(v.as_bytes())
                     .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
-                    .map_err(XlsxError::ParseFloat)
+                    .map_err(|_| XlsxError::ParseFloat(v.parse::<f64>().unwrap_err()))
             }
         }
         None => {
             // If type is not known, we try to parse as Float for utility, but fall back to
             // String if this fails.
-            v.parse()
+            fast_float2::parse::<f64, _>(v.as_bytes())
                 .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
                 .or(Ok(DataRef::String(v)))
         }
