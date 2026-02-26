@@ -79,6 +79,8 @@
 #[macro_use]
 mod utils;
 
+#[macro_use]
+mod attrs;
 mod auto;
 mod cfb;
 mod datatype;
