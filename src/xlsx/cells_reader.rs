@@ -367,6 +367,9 @@ fn read_v<'s>(
     };
     match type_attr {
         Some(b"s") => {
+            if v.is_empty() {
+               return Ok(DataRef::Empty);
+            }
             // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
             match strings.get(idx) {
