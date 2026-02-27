@@ -5,9 +5,9 @@
 //! Internal module providing handy functions
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{Read, Seek};
 
-use hashbrown::HashMap;
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
 use zip::read::ZipArchive;
 

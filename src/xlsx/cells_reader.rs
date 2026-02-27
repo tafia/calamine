@@ -2,13 +2,13 @@
 //
 // Copyright 2016-2025, Johann Tuffe.
 
-use hashbrown::HashMap;
 use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,
 };
 use std::{
     borrow::{Borrow, Cow},
+    collections::HashMap,
     io::{Read, Seek},
 };
 
@@ -24,6 +24,13 @@ use crate::{
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
+
+/// Workbook-level context used when reading cell values.
+struct WorkbookContext<'a> {
+    strings: &'a [String],
+    formats: &'a [CellFormat],
+    is_1904: bool,
+}
 
 /// Reusable scratch buffers for cell value parsing (avoid per-cell allocations).
 struct ValueBufs {
@@ -171,10 +178,13 @@ where
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
                             Ok(Event::Start(e)) => {
+                                let ctx = WorkbookContext {
+                                    strings: self.strings,
+                                    formats: self.formats,
+                                    is_1904: self.is_1904,
+                                };
                                 value = read_value(
-                                    self.strings,
-                                    self.formats,
-                                    self.is_1904,
+                                    &ctx,
                                     &mut self.xml,
                                     &e,
                                     style_attr,
@@ -320,9 +330,7 @@ where
 /// Reads a cell value using pre-extracted `s` and `t` attributes
 /// (avoids repeating attribute iteration on the `<c>` element).
 fn read_value<'s, RS>(
-    strings: &'s [String],
-    formats: &[CellFormat],
-    is_1904: bool,
+    ctx: &WorkbookContext<'s>,
     xml: &mut XlReader<'_, RS>,
     e: &BytesStart<'_>,
     style_attr: Option<&[u8]>,
@@ -351,14 +359,7 @@ where
                     _ => (),
                 }
             }
-            read_v(
-                &mut bufs.value,
-                strings,
-                formats,
-                style_attr,
-                type_attr,
-                is_1904,
-            )?
+            read_v(ctx, &mut bufs.value, style_attr, type_attr)?
         }
         b"f" => {
             bufs.xml.clear();
@@ -372,17 +373,15 @@ where
 /// Read the contents of a `<v>` cell using pre-extracted `s` and `t` attributes.
 /// Takes `v` by mutable reference to allow for buffer reuse across cells.
 fn read_v<'s>(
+    ctx: &WorkbookContext<'s>,
     v: &mut String,
-    strings: &'s [String],
-    formats: &[CellFormat],
     style_attr: Option<&[u8]>,
     type_attr: Option<&[u8]>,
-    is_1904: bool,
 ) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match style_attr {
         Some(style) => {
             let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
-            formats.get(id)
+            ctx.formats.get(id)
         }
         _ => Some(&CellFormat::Other),
     };
@@ -393,7 +392,7 @@ fn read_v<'s>(
             }
             // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
-            match strings.get(idx) {
+            match ctx.strings.get(idx) {
                 Some(shared_string) => Ok(DataRef::SharedString(shared_string)),
                 None => Err(XlsxError::Unexpected(
                     "Cell string index not found in shared strings table",
@@ -422,7 +421,7 @@ fn read_v<'s>(
                 Ok(DataRef::Empty)
             } else {
                 fast_float2::parse::<f64, _>(v.as_bytes())
-                    .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
+                    .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
                     .map_err(|_| XlsxError::ParseFloat(v.parse::<f64>().unwrap_err()))
             }
         }
@@ -430,7 +429,7 @@ fn read_v<'s>(
             // If type is not known, we try to parse as Float for utility, but fall back to
             // String if this fails.
             fast_float2::parse::<f64, _>(v.as_bytes())
-                .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
+                .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
                 .or(Ok(DataRef::String(std::mem::take(v))))
         }
         Some(b"is") => {

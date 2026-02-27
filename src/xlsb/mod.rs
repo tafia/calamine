@@ -6,8 +6,8 @@ mod cells_reader;
 
 pub use cells_reader::XlsbCellsReader;
 
-use hashbrown::HashMap;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek};
 
 use log::debug;

@@ -6,8 +6,8 @@
 
 mod cells_reader;
 
-use hashbrown::HashMap;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
@@ -1898,8 +1898,8 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 pub(crate) fn read_string_with_bufs<RS>(
     xml: &mut XlReader<'_, RS>,
     closing: QName,
-    buf: &mut Vec<u8>,
-    val_buf: &mut Vec<u8>,
+    xml_buf: &mut Vec<u8>,
+    text_buf: &mut Vec<u8>,
 ) -> Result<Option<String>, XlsxError>
 where
     RS: Read + Seek,
@@ -1907,8 +1907,8 @@ where
     let mut rich_buffer: Option<String> = None;
     let mut is_phonetic_text = false;
     loop {
-        buf.clear();
-        match xml.read_event_into(buf) {
+        xml_buf.clear();
+        match xml.read_event_into(xml_buf) {
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
                 if rich_buffer.is_none() {
                     // use a buffer since richtext has multiples <r> and <t> for the same cell
@@ -1930,10 +1930,10 @@ where
                 is_phonetic_text = false;
             }
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
-                val_buf.clear();
+                text_buf.clear();
                 let mut value = String::new();
                 loop {
-                    match xml.read_event_into(val_buf)? {
+                    match xml.read_event_into(text_buf)? {
                         Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
                         Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                         Event::End(end) if end.name() == e.name() => break,
@@ -1945,7 +1945,7 @@ where
                     s.push_str(&value);
                 } else {
                     // consume any remaining events up to expected closing tag
-                    xml.read_to_end_into(closing, val_buf)?;
+                    xml.read_to_end_into(closing, text_buf)?;
                     return Ok(Some(value));
                 }
             }
