@@ -294,12 +294,20 @@ impl Sectors {
         len: usize,
     ) -> Result<Vec<u8>, CfbError> {
         let mut chain = Vec::with_capacity(len);
+        let read_entire_block = len == 0;
         while sector_id != ENDOFCHAIN {
-            chain.extend_from_slice(self.get(sector_id, r)?);
+            let sector = self.get(sector_id, r)?;
+            if read_entire_block {
+                chain.extend_from_slice(sector);
+            } else {
+                let remaining = len - chain.len();
+                let to_copy = sector.len().min(remaining);
+                chain.extend_from_slice(&sector[..to_copy]);
+                if chain.len() >= len {
+                    break;
+                }
+            }
             sector_id = fats[sector_id as usize];
-        }
-        if len > 0 {
-            chain.truncate(len);
         }
         Ok(chain)
     }
