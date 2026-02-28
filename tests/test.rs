@@ -2552,6 +2552,30 @@ fn test_xlsx_empty_shared_string() {
     );
 }
 
+// Test for issue #607 where a shared string in a cell doesn't have a <v> index.
+#[test]
+fn test_xlsx_empty_shared_string_value() {
+    let mut excel: Xlsx<_> = wb("empty_shared_string_value.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    range_eq!(
+        range,
+        [
+            [
+                String("Name".to_string()),
+                String("City".to_string()),
+                String("Status".to_string())
+            ],
+            [
+                String("Alice".to_string()),
+                Empty,
+                String("Active".to_string())
+            ],
+            [Empty, String("Berlin".to_string()), Empty,]
+        ]
+    );
+}
+
 // Test for issue #587, an xlsx file where table references IDs are absolute
 // instead of relative, i.e., "/xl/tables/table1.xml" instead of the Excel
 // generated "../tables/table1.xml".
