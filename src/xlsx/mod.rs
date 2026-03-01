@@ -7,7 +7,6 @@
 mod cells_reader;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
@@ -331,7 +330,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
 
-        let mut number_formats = BTreeMap::new();
+        let mut number_formats = HashMap::new();
 
         let mut buf = Vec::with_capacity(1024);
         let mut inner_buf = Vec::with_capacity(1024);
@@ -398,10 +397,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_workbook(
-        &mut self,
-        relationships: &BTreeMap<Vec<u8>, String>,
-    ) -> Result<(), XlsxError> {
+    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml", &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
@@ -521,7 +517,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsxError> {
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
         let mut xml = match xml_reader(
             &mut self.zip,
             "xl/_rels/workbook.xml.rels",
@@ -534,7 +530,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
             Some(x) => x?,
         };
-        let mut relationships = BTreeMap::new();
+        let mut relationships = HashMap::new();
         let mut buf = Vec::with_capacity(64);
         loop {
             buf.clear();
@@ -1897,25 +1893,13 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
     Ok((row, col.checked_sub(1)))
 }
 
-/// Attempts to read either a simple or richtext string
-pub(crate) fn read_string<RS>(
+/// Attempts to read either a simple or richtext string, reusing caller-provided
+/// buffers to avoid per-call allocations.
+pub(crate) fn read_string_with_bufs<RS>(
     xml: &mut XlReader<'_, RS>,
     closing: QName,
-) -> Result<Option<String>, XlsxError>
-where
-    RS: Read + Seek,
-{
-    let mut buf = Vec::with_capacity(1024);
-    let mut val_buf = Vec::with_capacity(1024);
-    read_string_with_bufs(xml, closing, &mut buf, &mut val_buf)
-}
-
-/// Like `read_string` but reuses caller-provided buffers to avoid per-call allocations.
-fn read_string_with_bufs<RS>(
-    xml: &mut XlReader<'_, RS>,
-    closing: QName,
-    buf: &mut Vec<u8>,
-    val_buf: &mut Vec<u8>,
+    xml_buf: &mut Vec<u8>,
+    text_buf: &mut Vec<u8>,
 ) -> Result<Option<String>, XlsxError>
 where
     RS: Read + Seek,
@@ -1923,8 +1907,8 @@ where
     let mut rich_buffer: Option<String> = None;
     let mut is_phonetic_text = false;
     loop {
-        buf.clear();
-        match xml.read_event_into(buf) {
+        xml_buf.clear();
+        match xml.read_event_into(xml_buf) {
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
                 if rich_buffer.is_none() {
                     // use a buffer since richtext has multiples <r> and <t> for the same cell
@@ -1946,10 +1930,10 @@ where
                 is_phonetic_text = false;
             }
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
-                val_buf.clear();
+                text_buf.clear();
                 let mut value = String::new();
                 loop {
-                    match xml.read_event_into(val_buf)? {
+                    match xml.read_event_into(text_buf)? {
                         Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
                         Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                         Event::End(end) if end.name() == e.name() => break,
@@ -1961,7 +1945,7 @@ where
                     s.push_str(&value);
                 } else {
                     // consume any remaining events up to expected closing tag
-                    xml.read_to_end_into(closing, val_buf)?;
+                    xml.read_to_end_into(closing, text_buf)?;
                     return Ok(Some(value));
                 }
             }
@@ -2828,7 +2812,7 @@ fn get_pivot_cache_iter<'a, RS: Read + Seek + 'a>(
     let records = pivot_table.records();
 
     let mut fields: Vec<Vec<(Tag, Value)>> = vec![];
-    let mut definition_map = std::collections::HashMap::new();
+    let mut definition_map = HashMap::new();
     let mut field_names = vec![];
 
     // Converting into an iterator requires first reading a pivotCacheDefinitions.xml file
