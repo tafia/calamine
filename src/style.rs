@@ -1064,8 +1064,9 @@ impl StyleRange {
             let row = (r - row_start) as usize;
             let col = (c - col_start) as usize;
             let idx = row * width + col;
-            // style_id is already an index, just need to fit in u16
-            style_ids[idx] = style_id.min(u16::MAX as usize) as u16;
+            if let Some(slot) = style_ids.get_mut(idx) {
+                *slot = style_id.min(u16::MAX as usize) as u16;
+            }
         }
 
         // Compress into RLE runs
@@ -1160,7 +1161,9 @@ impl StyleRange {
                 id
             };
 
-            style_ids[idx] = style_id;
+            if let Some(slot) = style_ids.get_mut(idx) {
+                *slot = style_id;
+            }
         }
 
         // Compress into RLE runs

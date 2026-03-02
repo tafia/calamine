@@ -1932,14 +1932,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         b"min" => {
                                             if let Ok(min_str) = xml.decoder().decode(&attr.value) {
                                                 if let Ok(min_col) = min_str.parse::<u32>() {
-                                                    col_min = Some(min_col - 1);
+                                                    col_min = Some(min_col.saturating_sub(1));
                                                 }
                                             }
                                         }
                                         b"max" => {
                                             if let Ok(max_str) = xml.decoder().decode(&attr.value) {
                                                 if let Ok(max_col) = max_str.parse::<u32>() {
-                                                    col_max = Some(max_col - 1);
+                                                    col_max = Some(max_col.saturating_sub(1));
                                                 }
                                             }
                                         }
@@ -2004,7 +2004,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         b"r" => {
                                             if let Ok(row_str) = xml.decoder().decode(&attr.value) {
                                                 if let Ok(r) = row_str.parse::<u32>() {
-                                                    row_num = Some(r - 1);
+                                                    row_num = Some(r.saturating_sub(1));
                                                 }
                                             }
                                         }
