@@ -32,7 +32,7 @@ const EXCEL_1900_1904_DIFF: f64 = 1462.;
 #[cfg(feature = "chrono")]
 const MS_MULTIPLIER: f64 = 24f64 * 60f64 * 60f64 * 1e+3f64;
 
-/// A struct that combines cell value and style information
+/// A struct that combines cell value and style information.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CellData {
     /// The cell value
@@ -42,12 +42,12 @@ pub struct CellData {
 }
 
 impl CellData {
-    /// Create a new CellData with just a value
+    /// Create a new CellData with just a value.
     pub fn new(value: Data) -> Self {
         Self { value, style: None }
     }
 
-    /// Create a new CellData with value and style
+    /// Create a new CellData with value and style.
     pub fn with_style(value: Data, style: Style) -> Self {
         Self {
             value,
@@ -55,17 +55,17 @@ impl CellData {
         }
     }
 
-    /// Get the cell value
+    /// Get the cell value.
     pub fn get_value(&self) -> &Data {
         &self.value
     }
 
-    /// Get the cell style
+    /// Get the cell style.
     pub fn get_style(&self) -> Option<&Style> {
         self.style.as_ref()
     }
 
-    /// Check if the cell has style information
+    /// Check if the cell has style information.
     pub fn has_style(&self) -> bool {
         self.style.is_some()
     }
@@ -84,7 +84,7 @@ impl From<CellData> for Data {
 }
 
 /// An enum to represent all different data types that can appear as
-/// a value in a worksheet cell
+/// a value in a worksheet cell.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum Data {
     /// Signed integer
@@ -93,15 +93,15 @@ pub enum Data {
     Float(f64),
     /// String
     String(String),
-    /// Rich text with multiple formatted runs
+    /// Rich text with multiple formatted runs.
     RichText(RichText),
     /// Boolean
     Bool(bool),
     /// Date or Time
     DateTime(ExcelDateTime),
-    /// Date, Time or Date/Time in ISO 8601
+    /// Date, Time or Date/Time in ISO 8601.
     DateTimeIso(String),
-    /// Duration in ISO 8601
+    /// Duration in ISO 8601.
     DurationIso(String),
     /// Error
     Error(CellErrorType),
@@ -111,7 +111,7 @@ pub enum Data {
 }
 
 /// An enum to represent all different data types that can appear as
-/// a value in a worksheet cell
+/// a value in a worksheet cell.
 impl DataType for Data {
     fn is_empty(&self) -> bool {
         *self == Data::Empty
@@ -405,7 +405,7 @@ where
 }
 
 /// An enum to represent all different data types that can appear as
-/// a value in a worksheet cell
+/// a value in a worksheet cell.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum DataRef<'a> {
     /// Signed integer
@@ -422,9 +422,9 @@ pub enum DataRef<'a> {
     Bool(bool),
     /// Date or Time
     DateTime(ExcelDateTime),
-    /// Date, Time or Date/Time in ISO 8601
+    /// Date, Time or Date/Time in ISO 8601.
     DateTimeIso(String),
-    /// Duration in ISO 8601
+    /// Duration in ISO 8601.
     DurationIso(String),
     /// Error
     Error(CellErrorType),
@@ -609,18 +609,18 @@ impl PartialEq<i64> for DataRef<'_> {
 }
 
 /// A trait to represent all different data types that can appear as
-/// a value in a worksheet cell
+/// a value in a worksheet cell.
 pub trait DataType {
-    /// Assess if datatype is empty
+    /// Assess if datatype is empty.
     fn is_empty(&self) -> bool;
 
-    /// Assess if datatype is a int
+    /// Assess if datatype is a int.
     fn is_int(&self) -> bool;
 
-    /// Assess if datatype is a float
+    /// Assess if datatype is a float.
     fn is_float(&self) -> bool;
 
-    /// Assess if datatype is a bool
+    /// Assess if datatype is a bool.
     fn is_bool(&self) -> bool;
 
     /// Assess if datatype is a string (includes rich text)
@@ -632,52 +632,52 @@ pub trait DataType {
     /// Assess if datatype is a `CellErrorType`
     fn is_error(&self) -> bool;
 
-    /// Assess if datatype is an ISO8601 duration
+    /// Assess if datatype is an ISO8601 duration.
     fn is_duration_iso(&self) -> bool;
 
-    /// Assess if datatype is a datetime
+    /// Assess if datatype is a datetime.
     fn is_datetime(&self) -> bool;
 
-    /// Assess if datatype is an ISO8601 datetime
+    /// Assess if datatype is an ISO8601 datetime.
     fn is_datetime_iso(&self) -> bool;
 
-    /// Try getting int value
+    /// Try getting int value.
     fn get_int(&self) -> Option<i64>;
 
-    /// Try getting float value
+    /// Try getting float value.
     fn get_float(&self) -> Option<f64>;
 
-    /// Try getting bool value
+    /// Try getting bool value.
     fn get_bool(&self) -> Option<bool>;
 
     /// Try getting string value (plain string only, not rich text)
     fn get_string(&self) -> Option<&str>;
 
-    /// Try getting rich text value
+    /// Try getting rich text value.
     fn get_rich_text(&self) -> Option<&RichText>;
 
-    /// Try getting datetime value
+    /// Try getting datetime value.
     fn get_datetime(&self) -> Option<ExcelDateTime>;
 
-    /// Try getting datetime ISO8601 value
+    /// Try getting datetime ISO8601 value.
     fn get_datetime_iso(&self) -> Option<&str>;
 
-    /// Try getting duration ISO8601 value
+    /// Try getting duration ISO8601 value.
     fn get_duration_iso(&self) -> Option<&str>;
 
-    /// Try getting Error value
+    /// Try getting Error value.
     fn get_error(&self) -> Option<&CellErrorType>;
 
     /// Try converting data type into a string (includes rich text as plain text)
     fn as_string(&self) -> Option<String>;
 
-    /// Try converting data type into an int
+    /// Try converting data type into an int.
     fn as_i64(&self) -> Option<i64>;
 
-    /// Try converting data type into a float
+    /// Try converting data type into a float.
     fn as_f64(&self) -> Option<f64>;
 
-    /// Try converting data type into a date
+    /// Try converting data type into a date.
     #[cfg(feature = "chrono")]
     #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn as_date(&self) -> Option<chrono::NaiveDate> {
@@ -692,7 +692,7 @@ pub trait DataType {
         }
     }
 
-    /// Try converting data type into a time
+    /// Try converting data type into a time.
     #[cfg(feature = "chrono")]
     #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn as_time(&self) -> Option<chrono::NaiveTime> {
@@ -710,7 +710,7 @@ pub trait DataType {
         }
     }
 
-    /// Try converting data type into a duration
+    /// Try converting data type into a duration.
     #[cfg(feature = "chrono")]
     #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
     fn as_duration(&self) -> Option<chrono::Duration> {
@@ -816,28 +816,28 @@ impl ExcelDateTime {
         matches!(self.datetime_type, ExcelDateTimeType::DateTime)
     }
 
-    /// Converting data type into a float
+    /// Converting data type into a float.
     pub fn as_f64(&self) -> f64 {
         self.value
     }
 
     /// Convert an Excel serial datetime to standard date components.
     ///
-    /// Datetimes in Excel are serial dates with days counted from an epoch
-    /// (usually 1900-01-01) and where the time is a percentage/decimal of the
-    /// milliseconds in the day. Both the date and time are stored in the same
+    /// Datetimes in Excel are serial dates with days counted from an epoch.
+    /// (usually 1900-01-01) and where the time is a percentage/decimal of the.
+    /// milliseconds in the day. Both the date and time are stored in the same.
     /// f64 value. For example, 2025/10/13 12:00:00 is stored as 45943.5.
     ///
-    /// This function returns a tuple of (year, month, day, hour, minutes,
-    /// seconds, milliseconds). It works for serial dates in both the 1900 and
+    /// This function returns a tuple of (year, month, day, hour, minutes,.
+    /// seconds, milliseconds). It works for serial dates in both the 1900 and.
     /// 1904 epochs.
     ///
-    /// This function always returns a date, even if the serial value is outside
-    /// of Excel's range of `0.0 <= datetime < 10000.0`. It also returns, as
-    /// Excel does, the invalid date 1900/02/29 due to the [Excel 1900 leap year
+    /// This function always returns a date, even if the serial value is outside.
+    /// of Excel's range of `0.0 <= datetime < 10000.0`. It also returns, as.
+    /// Excel does, the invalid date 1900/02/29 due to the [Excel 1900 leap year.
     /// bug](https://en.wikipedia.org/wiki/Leap_year_problem#Occurrences).
     ///
-    /// Excel only supports millisecond precision and it also doesn't use or
+    /// Excel only supports millisecond precision and it also doesn't use or.
     /// encode timezone information in any way.
     ///
     /// # Examples
@@ -852,10 +852,10 @@ impl ExcelDateTime {
     /// let excel_datetime = ExcelDateTime::new(
     ///     45943.541,
     ///     ExcelDateTimeType::DateTime,
-    ///     false, // Using 1900 epoch (not 1904).
+    ///     false, // Using 1900 epoch (not 1904)
     /// );
     ///
-    /// // Convert to standard date/time components.
+    /// // Convert to standard date/time components
     /// let (year, month, day, hour, min, sec, milli) = excel_datetime.to_ymd_hms_milli();
     ///
     /// assert_eq!(year, 2025);
@@ -1164,7 +1164,7 @@ mod date_tests {
 }
 
 /// An enum to represent all different data types that can appear as
-/// a value in a worksheet cell
+/// a value in a worksheet cell.
 impl DataType for CellData {
     fn is_empty(&self) -> bool {
         self.value.is_empty()

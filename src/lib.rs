@@ -309,7 +309,7 @@ where
     /// memory efficiency.
     fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, Self::Error>;
 
-    /// Read worksheet layout information (column widths and row heights)
+    /// Read worksheet layout information (column widths and row heights).
     fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, Self::Error>;
 
     /// Get all sheet names of this workbook, in workbook order

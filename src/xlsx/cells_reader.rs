@@ -24,7 +24,7 @@ use crate::{
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
 
-/// An xlsx Cell Iterator
+/// An xlsx Cell Iterator.
 pub struct XlsxCellReader<'a, RS>
 where
     RS: Read + Seek,
@@ -161,14 +161,9 @@ where
                     let mut value = DataRef::Empty;
                     let mut style = None;
 
-                    // Extract style ID if present, default to 0 if not present
-                    let style_id = if let Ok(Some(style_id_str)) =
-                        get_attribute(c_element.attributes(), QName(b"s"))
-                    {
-                        atoi_simd::parse::<usize>(style_id_str).unwrap_or(0)
-                    } else {
-                        0 // Default to style ID 0 when not present
-                    };
+                    let style_id = style_attr
+                        .and_then(|s| atoi_simd::parse::<usize>(s).ok())
+                        .unwrap_or(0);
 
                     if style_id < self.styles.len() {
                         let mut s = self.styles[style_id].clone();
@@ -241,13 +236,15 @@ where
                     let mut value = None;
                     let mut style = None;
 
-                    // Extract style ID if present, default to 0 if not present
-                    let style_id = if let Ok(Some(style_id_str)) =
-                        get_attribute(c_element.attributes(), QName(b"s"))
-                    {
-                        atoi_simd::parse::<usize>(style_id_str).unwrap_or(0)
-                    } else {
-                        0 // Default to style ID 0 when not present
+                    let style_id = {
+                        let mut sid = 0usize;
+                        for a in c_element.attributes().flatten() {
+                            if a.key == QName(b"s") {
+                                sid = atoi_simd::parse::<usize>(&a.value).unwrap_or(0);
+                                break;
+                            }
+                        }
+                        sid
                     };
 
                     if style_id < self.styles.len() {
@@ -506,7 +503,7 @@ where
     }
 }
 
-/// Reads a cell value using pre-extracted `s` and `t` attributes
+/// Reads a cell value using pre-extracted `s` and `t` attributes.
 /// (avoids repeating attribute iteration on the `<c>` element).
 fn read_value<'s, RS>(
     strings: &'s [Data],

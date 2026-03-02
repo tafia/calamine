@@ -449,6 +449,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
                             let mut style = Style::new();
+                            let mut fmt_id_bytes_for_format: Option<Vec<u8>> = None;
 
                             for a in e.attributes() {
                                 let a = a.map_err(XlsxError::XmlAttr)?;
@@ -484,10 +485,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         if let Ok(num_fmt_id) =
                                             xml.decoder().decode(&a.value)?.parse::<u32>()
                                         {
-                                            let mut fmt_id_bytes = Vec::new();
-                                            fmt_id_bytes.extend_from_slice(&a.value);
+                                            let id_bytes: &[u8] = &a.value;
+                                            fmt_id_bytes_for_format =
+                                                Some(id_bytes.to_vec());
                                             let format_code = match number_formats
-                                                .get(&fmt_id_bytes)
+                                                .get(id_bytes)
                                             {
                                                 Some(fmt) => fmt.clone(),
                                                 None => {
@@ -539,28 +541,41 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
 
+                            // Resolve the CellFormat from the numFmtId we already
+                            // parsed above, before the nested loop overwrites buffers.
+                            let cell_format = fmt_id_bytes_for_format
+                                .as_ref()
+                                .map(|id_bytes| {
+                                    match number_formats.get(id_bytes.as_slice()) {
+                                        Some(fmt) => detect_custom_number_format(fmt),
+                                        None => builtin_format_by_id(id_bytes),
+                                    }
+                                })
+                                .unwrap_or(CellFormat::Other);
+
                             let mut nested_buf = Vec::with_capacity(512);
                             loop {
                                 nested_buf.clear();
                                 match xml.read_event_into(&mut nested_buf) {
-                                    Ok(Event::Start(ref nested_e)) => match nested_e
-                                        .local_name()
-                                        .as_ref()
-                                    {
-                                        b"alignment" => {
-                                            let alignment =
-                                                style_parser::parse_alignment(&mut xml, nested_e)?;
-                                            style = style.with_alignment(alignment);
+                                    Ok(Event::Start(ref nested_e) | Event::Empty(ref nested_e)) => {
+                                        match nested_e.local_name().as_ref() {
+                                            b"alignment" => {
+                                                let alignment =
+                                                    style_parser::parse_alignment(
+                                                        &mut xml, nested_e,
+                                                    )?;
+                                                style = style.with_alignment(alignment);
+                                            }
+                                            b"protection" => {
+                                                let protection =
+                                                    style_parser::parse_protection(
+                                                        &mut xml, nested_e,
+                                                    )?;
+                                                style = style.with_protection(protection);
+                                            }
+                                            _ => {}
                                         }
-                                        b"protection" => {
-                                            let protection =
-                                                style_parser::parse_protection(&mut xml, nested_e)?;
-                                            style = style.with_protection(protection);
-                                        }
-                                        _ => {
-                                            xml.read_to_end_into(nested_e.name(), &mut Vec::new())?;
-                                        }
-                                    },
+                                    }
                                     Ok(Event::End(ref end_e))
                                         if end_e.local_name().as_ref() == b"xf" =>
                                     {
@@ -573,17 +588,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             }
 
                             self.styles.push(style);
-                            self.formats.push(
-                                e.attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|a| a.key == QName(b"numFmtId"))
-                                    .map_or(CellFormat::Other, |a| {
-                                        match number_formats.get(&*a.value) {
-                                            Some(fmt) => detect_custom_number_format(fmt),
-                                            None => builtin_format_by_id(&a.value),
-                                        }
-                                    }),
-                            );
+                            self.formats.push(cell_format);
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
@@ -1883,8 +1888,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetFormatPr" => {
-                    // Parse default column width and row height
+                Ok(Event::Start(ref e) | Event::Empty(ref e))
+                    if e.local_name().as_ref() == b"sheetFormatPr" =>
+                {
                     for attr in e.attributes() {
                         let attr = attr.map_err(XlsxError::XmlAttr)?;
                         match attr.key.as_ref() {
@@ -1907,14 +1913,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                 }
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cols" => {
-                    // Parse column definitions
                     loop {
                         buf.clear();
                         match xml.read_event_into(&mut buf) {
-                            Ok(Event::Start(ref col_e))
+                            Ok(Event::Start(ref col_e) | Event::Empty(ref col_e))
                                 if col_e.local_name().as_ref() == b"col" =>
                             {
-                                let mut col_info = None;
+                                let mut col_min = None;
+                                let mut col_max = None;
                                 let mut width = 0.0;
                                 let mut custom_width = false;
                                 let mut hidden = false;
@@ -1926,8 +1932,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         b"min" => {
                                             if let Ok(min_str) = xml.decoder().decode(&attr.value) {
                                                 if let Ok(min_col) = min_str.parse::<u32>() {
-                                                    col_info = Some(min_col - 1);
-                                                    // Convert to 0-based
+                                                    col_min = Some(min_col - 1);
+                                                }
+                                            }
+                                        }
+                                        b"max" => {
+                                            if let Ok(max_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(max_col) = max_str.parse::<u32>() {
+                                                    col_max = Some(max_col - 1);
                                                 }
                                             }
                                         }
@@ -1952,12 +1964,15 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     }
                                 }
 
-                                if let Some(col) = col_info {
-                                    let column_width = ColumnWidth::new(col, width)
-                                        .with_custom_width(custom_width)
-                                        .with_hidden(hidden)
-                                        .with_best_fit(best_fit);
-                                    layout = layout.add_column_width(column_width);
+                                if let Some(min_col) = col_min {
+                                    let max_col = col_max.unwrap_or(min_col);
+                                    for col in min_col..=max_col {
+                                        let column_width = ColumnWidth::new(col, width)
+                                            .with_custom_width(custom_width)
+                                            .with_hidden(hidden)
+                                            .with_best_fit(best_fit);
+                                        layout = layout.add_column_width(column_width);
+                                    }
                                 }
                             }
                             Ok(Event::End(ref end_e)) if end_e.local_name().as_ref() == b"cols" => {
@@ -1970,7 +1985,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     }
                 }
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
-                    // Parse row definitions
                     loop {
                         buf.clear();
                         match xml.read_event_into(&mut buf) {
@@ -1990,7 +2004,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         b"r" => {
                                             if let Ok(row_str) = xml.decoder().decode(&attr.value) {
                                                 if let Ok(r) = row_str.parse::<u32>() {
-                                                    row_num = Some(r - 1); // Convert to 0-based
+                                                    row_num = Some(r - 1);
                                                 }
                                             }
                                         }
@@ -2019,7 +2033,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     }
                                 }
 
-                                // Only add row height if it's custom or has special properties
                                 if let Some(row) = row_num {
                                     if custom_height
                                         || hidden
@@ -2036,7 +2049,6 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     }
                                 }
 
-                                // Skip to the end of this row element
                                 xml.read_to_end_into(row_e.name(), &mut Vec::new())?;
                             }
                             Ok(Event::End(ref end_e))
@@ -2049,7 +2061,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             _ => {}
                         }
                     }
-                    break; // We're done after processing sheetData
+                    break;
                 }
                 Ok(Event::Eof) => break,
                 Err(e) => return Err(XlsxError::Xml(e)),
@@ -2202,196 +2214,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
-        let (_, path) = self
-            .sheets
-            .iter()
-            .find(|&(n, _)| n == name)
-            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
-
-        let mut xml = xml_reader(&mut self.zip, path, &self.zip_path_cache)
-            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
-
-        let mut layout = WorksheetLayout::new();
-        let mut buf = Vec::with_capacity(1024);
-
-        loop {
-            buf.clear();
-            match xml.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetFormatPr" => {
-                    // Parse default column width and row height
-                    for attr in e.attributes() {
-                        let attr = attr.map_err(XlsxError::XmlAttr)?;
-                        match attr.key.as_ref() {
-                            b"defaultColWidth" => {
-                                if let Ok(width_str) = xml.decoder().decode(&attr.value) {
-                                    if let Ok(width) = width_str.parse::<f64>() {
-                                        layout = layout.with_default_column_width(width);
-                                    }
-                                }
-                            }
-                            b"defaultRowHeight" => {
-                                if let Ok(height_str) = xml.decoder().decode(&attr.value) {
-                                    if let Ok(height) = height_str.parse::<f64>() {
-                                        layout = layout.with_default_row_height(height);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cols" => {
-                    // Parse column definitions
-                    loop {
-                        buf.clear();
-                        match xml.read_event_into(&mut buf) {
-                            Ok(Event::Start(ref col_e))
-                                if col_e.local_name().as_ref() == b"col" =>
-                            {
-                                let mut col_info = None;
-                                let mut width = 0.0;
-                                let mut custom_width = false;
-                                let mut hidden = false;
-                                let mut best_fit = false;
-
-                                for attr in col_e.attributes() {
-                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
-                                    match attr.key.as_ref() {
-                                        b"min" => {
-                                            if let Ok(min_str) = xml.decoder().decode(&attr.value) {
-                                                if let Ok(min_col) = min_str.parse::<u32>() {
-                                                    col_info = Some(min_col - 1);
-                                                    // Convert to 0-based
-                                                }
-                                            }
-                                        }
-                                        b"width" => {
-                                            if let Ok(width_str) = xml.decoder().decode(&attr.value)
-                                            {
-                                                if let Ok(w) = width_str.parse::<f64>() {
-                                                    width = w;
-                                                }
-                                            }
-                                        }
-                                        b"customWidth" => {
-                                            custom_width = &*attr.value != b"0";
-                                        }
-                                        b"hidden" => {
-                                            hidden = &*attr.value != b"0";
-                                        }
-                                        b"bestFit" => {
-                                            best_fit = &*attr.value != b"0";
-                                        }
-                                        _ => {}
-                                    }
-                                }
-
-                                if let Some(col) = col_info {
-                                    let column_width = ColumnWidth::new(col, width)
-                                        .with_custom_width(custom_width)
-                                        .with_hidden(hidden)
-                                        .with_best_fit(best_fit);
-                                    layout = layout.add_column_width(column_width);
-                                }
-                            }
-                            Ok(Event::End(ref end_e)) if end_e.local_name().as_ref() == b"cols" => {
-                                break;
-                            }
-                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("cols")),
-                            Err(e) => return Err(XlsxError::Xml(e)),
-                            _ => {}
-                        }
-                    }
-                }
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
-                    // Parse row definitions
-                    loop {
-                        buf.clear();
-                        match xml.read_event_into(&mut buf) {
-                            Ok(Event::Start(ref row_e))
-                                if row_e.local_name().as_ref() == b"row" =>
-                            {
-                                let mut row_num = None;
-                                let mut height = 0.0;
-                                let mut custom_height = false;
-                                let mut hidden = false;
-                                let mut thick_top = false;
-                                let mut thick_bottom = false;
-
-                                for attr in row_e.attributes() {
-                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
-                                    match attr.key.as_ref() {
-                                        b"r" => {
-                                            if let Ok(row_str) = xml.decoder().decode(&attr.value) {
-                                                if let Ok(r) = row_str.parse::<u32>() {
-                                                    row_num = Some(r - 1); // Convert to 0-based
-                                                }
-                                            }
-                                        }
-                                        b"ht" => {
-                                            if let Ok(height_str) =
-                                                xml.decoder().decode(&attr.value)
-                                            {
-                                                if let Ok(h) = height_str.parse::<f64>() {
-                                                    height = h;
-                                                }
-                                            }
-                                        }
-                                        b"customHeight" => {
-                                            custom_height = &*attr.value != b"0";
-                                        }
-                                        b"hidden" => {
-                                            hidden = &*attr.value != b"0";
-                                        }
-                                        b"thickTop" => {
-                                            thick_top = &*attr.value != b"0";
-                                        }
-                                        b"thickBot" => {
-                                            thick_bottom = &*attr.value != b"0";
-                                        }
-                                        _ => {}
-                                    }
-                                }
-
-                                // Only add row height if it's custom or has special properties
-                                if let Some(row) = row_num {
-                                    if custom_height
-                                        || hidden
-                                        || thick_top
-                                        || thick_bottom
-                                        || height > 0.0
-                                    {
-                                        let row_height = RowHeight::new(row, height)
-                                            .with_custom_height(custom_height)
-                                            .with_hidden(hidden)
-                                            .with_thick_top(thick_top)
-                                            .with_thick_bottom(thick_bottom);
-                                        layout = layout.add_row_height(row_height);
-                                    }
-                                }
-
-                                // Skip to the end of this row element
-                                xml.read_to_end_into(row_e.name(), &mut Vec::new())?;
-                            }
-                            Ok(Event::End(ref end_e))
-                                if end_e.local_name().as_ref() == b"sheetData" =>
-                            {
-                                break;
-                            }
-                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
-                            Err(e) => return Err(XlsxError::Xml(e)),
-                            _ => {}
-                        }
-                    }
-                    break; // We're done after processing sheetData
-                }
-                Ok(Event::Eof) => break,
-                Err(e) => return Err(XlsxError::Xml(e)),
-                _ => {}
-            }
-        }
-
-        Ok(layout)
+        Xlsx::worksheet_layout(self, name)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
@@ -3293,11 +3116,15 @@ fn coordinate_to_name(coord: (u32, u32)) -> Result<Vec<u8>, XlsxError> {
 
 /// Advance the cell name by the offset.
 pub fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
-    let cell = get_row_column(name.to_vec().as_slice())?;
-    coordinate_to_name((
-        (cell.0 as i64 + offset.0) as u32,
-        (cell.1 as i64 + offset.1) as u32,
-    ))
+    let cell = get_row_column(name)?;
+    let new_row = cell.0 as i64 + offset.0;
+    let new_col = cell.1 as i64 + offset.1;
+    if new_row < 0 || new_col < 0 {
+        return Err(XlsxError::Unexpected(
+            "Cell offset produces negative row or column",
+        ));
+    }
+    coordinate_to_name((new_row as u32, new_col as u32))
 }
 
 fn offset_range(range: &[u8], offset: (i64, i64), buf: &mut Vec<u8>) -> Result<(), XlsxError> {
@@ -4557,5 +4384,38 @@ mod tests {
         assert_eq!(Data::String("String 1".to_string()), xlsx.strings[0]);
         assert_eq!(Data::String("String 2".to_string()), xlsx.strings[1]);
         assert_eq!(Data::String("String 3".to_string()), xlsx.strings[2]);
+    }
+
+    #[test]
+    fn test_offset_cell_name_basic() {
+        assert_eq!(
+            offset_cell_name(b"A1", (1, 1)).unwrap(),
+            b"B2".to_vec()
+        );
+        assert_eq!(
+            offset_cell_name(b"C5", (0, 0)).unwrap(),
+            b"C5".to_vec()
+        );
+        assert_eq!(
+            offset_cell_name(b"B3", (2, 3)).unwrap(),
+            b"E5".to_vec()
+        );
+    }
+
+    #[test]
+    fn test_offset_cell_name_negative_offset_error() {
+        let result = offset_cell_name(b"A1", (-1, 0));
+        assert!(result.is_err(), "Negative row offset from A1 should error");
+
+        let result = offset_cell_name(b"A1", (0, -1));
+        assert!(result.is_err(), "Negative col offset from A1 should error");
+    }
+
+    #[test]
+    fn test_coordinate_to_name() {
+        assert_eq!(coordinate_to_name((0, 0)).unwrap(), b"A1".to_vec());
+        assert_eq!(coordinate_to_name((0, 25)).unwrap(), b"Z1".to_vec());
+        assert_eq!(coordinate_to_name((0, 26)).unwrap(), b"AA1".to_vec());
+        assert_eq!(coordinate_to_name((99, 2)).unwrap(), b"C100".to_vec());
     }
 }

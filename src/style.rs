@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-/// Represents a color in ARGB format
+/// Represents a color in ARGB format.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Color {
     /// Alpha channel (0-255)
@@ -19,7 +19,7 @@ pub struct Color {
 }
 
 impl Color {
-    /// Create a new color from ARGB values
+    /// Create a new color from ARGB values.
     pub fn new(alpha: u8, red: u8, green: u8, blue: u8) -> Self {
         Self {
             alpha,
@@ -29,12 +29,12 @@ impl Color {
         }
     }
 
-    /// Create a color from RGB values (alpha = 255)
+    /// Create a color from RGB values (alpha = 255).
     pub fn rgb(red: u8, green: u8, blue: u8) -> Self {
         Self::new(255, red, green, blue)
     }
 
-    /// Create a color from ARGB integer
+    /// Create a color from ARGB integer.
     pub fn from_argb(argb: u32) -> Self {
         Self {
             alpha: ((argb >> 24) & 0xFF) as u8,
@@ -44,7 +44,7 @@ impl Color {
         }
     }
 
-    /// Convert to ARGB integer
+    /// Convert to ARGB integer.
     pub fn to_argb(&self) -> u32 {
         ((self.alpha as u32) << 24)
             | ((self.red as u32) << 16)
@@ -52,12 +52,12 @@ impl Color {
             | (self.blue as u32)
     }
 
-    /// Check if the color is black
+    /// Check if the color is black.
     pub fn is_black(&self) -> bool {
         self.red == 0 && self.green == 0 && self.blue == 0
     }
 
-    /// Check if the color is white
+    /// Check if the color is white.
     pub fn is_white(&self) -> bool {
         self.red == 255 && self.green == 255 && self.blue == 255
     }
@@ -93,9 +93,9 @@ pub enum BorderStyle {
     MediumDashed,
     /// Dash dot border
     DashDot,
-    /// Dash dot dot border
+    /// Dash dot dot border.
     DashDotDot,
-    /// Slant dash dot border
+    /// Slant dash dot border.
     SlantDashDot,
 }
 
@@ -109,12 +109,12 @@ pub struct Border {
 }
 
 impl Border {
-    /// Create a new border with style
+    /// Create a new border with style.
     pub fn new(style: BorderStyle) -> Self {
         Self { style, color: None }
     }
 
-    /// Create a new border with style and color
+    /// Create a new border with style and color.
     pub fn with_color(style: BorderStyle, color: Color) -> Self {
         Self {
             style,
@@ -122,13 +122,13 @@ impl Border {
         }
     }
 
-    /// Check if border is visible
+    /// Check if border is visible.
     pub fn is_visible(&self) -> bool {
         self.style != BorderStyle::None
     }
 }
 
-/// All borders for a cell
+/// All borders for a cell.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Borders {
     /// Left border
@@ -146,12 +146,12 @@ pub struct Borders {
 }
 
 impl Borders {
-    /// Create new borders
+    /// Create new borders.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Check if any border is visible
+    /// Check if any border is visible.
     pub fn has_visible_borders(&self) -> bool {
         self.left.is_visible()
             || self.right.is_visible()
@@ -203,7 +203,7 @@ pub enum UnderlineStyle {
 pub struct Font {
     /// Font name
     pub name: Option<String>,
-    /// Font size in points
+    /// Font size in points.
     pub size: Option<f64>,
     /// Font weight
     pub weight: FontWeight,
@@ -220,96 +220,96 @@ pub struct Font {
 }
 
 impl Font {
-    /// Create a new font
+    /// Create a new font.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set font name
+    /// Set font name.
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
 
-    /// Set font size
+    /// Set font size.
     pub fn with_size(mut self, size: f64) -> Self {
         self.size = Some(size);
         self
     }
 
-    /// Set font weight
+    /// Set font weight.
     pub fn with_weight(mut self, weight: FontWeight) -> Self {
         self.weight = weight;
         self
     }
 
-    /// Set font style
+    /// Set font style.
     pub fn with_style(mut self, style: FontStyle) -> Self {
         self.style = style;
         self
     }
 
-    /// Set underline
+    /// Set underline.
     pub fn with_underline(mut self, underline: UnderlineStyle) -> Self {
         self.underline = underline;
         self
     }
 
-    /// Set strikethrough
+    /// Set strikethrough.
     pub fn with_strikethrough(mut self, strikethrough: bool) -> Self {
         self.strikethrough = strikethrough;
         self
     }
 
-    /// Set font color
+    /// Set font color.
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Set font family
+    /// Set font family.
     pub fn with_family(mut self, family: String) -> Self {
         self.family = Some(family);
         self
     }
 
-    /// Check if font is bold
+    /// Check if font is bold.
     pub fn is_bold(&self) -> bool {
         self.weight == FontWeight::Bold
     }
 
-    /// Check if font is italic
+    /// Check if font is italic.
     pub fn is_italic(&self) -> bool {
         self.style == FontStyle::Italic
     }
 
-    /// Check if font has underline
+    /// Check if font has underline.
     pub fn has_underline(&self) -> bool {
         self.underline != UnderlineStyle::None
     }
 
-    /// Check if font has strikethrough
+    /// Check if font has strikethrough.
     pub fn has_strikethrough(&self) -> bool {
         self.strikethrough
     }
 }
 
-/// A run of text with its own formatting within a rich text cell
+/// A run of text with its own formatting within a rich text cell.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextRun {
-    /// The text content of this run
+    /// The text content of this run.
     pub text: String,
     /// Font properties for this run (None means inherit cell default)
     pub font: Option<Font>,
 }
 
 impl TextRun {
-    /// Create a new text run with just text (no formatting)
+    /// Create a new text run with just text (no formatting).
     pub fn new(text: String) -> Self {
         Self { text, font: None }
     }
 
-    /// Create a new text run with text and font
+    /// Create a new text run with text and font.
     pub fn with_font(text: String, font: Font) -> Self {
         Self {
             text,
@@ -317,45 +317,45 @@ impl TextRun {
         }
     }
 
-    /// Check if this run has any formatting
+    /// Check if this run has any formatting.
     pub fn has_formatting(&self) -> bool {
         self.font.is_some()
     }
 }
 
-/// Rich text content with multiple formatted runs
+/// Rich text content with multiple formatted runs.
 ///
 /// Rich text allows different parts of a cell's text to have different
 /// formatting (bold, italic, colors, etc.). This is common in spreadsheets
 /// where users want to emphasize certain words within a cell.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RichText {
-    /// The text runs in order
+    /// The text runs in order.
     pub runs: Vec<TextRun>,
 }
 
 impl RichText {
-    /// Create a new empty rich text
+    /// Create a new empty rich text.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create rich text from a vector of runs
+    /// Create rich text from a vector of runs.
     pub fn from_runs(runs: Vec<TextRun>) -> Self {
         Self { runs }
     }
 
-    /// Add a text run
+    /// Add a text run.
     pub fn push(&mut self, run: TextRun) {
         self.runs.push(run);
     }
 
-    /// Add a plain text run (no formatting)
+    /// Add a plain text run (no formatting).
     pub fn push_text(&mut self, text: String) {
         self.runs.push(TextRun::new(text));
     }
 
-    /// Add a formatted text run
+    /// Add a formatted text run.
     pub fn push_formatted(&mut self, text: String, font: Font) {
         self.runs.push(TextRun::with_font(text, font));
     }
@@ -365,22 +365,22 @@ impl RichText {
         self.runs.iter().map(|r| r.text.as_str()).collect()
     }
 
-    /// Check if the rich text is empty
+    /// Check if the rich text is empty.
     pub fn is_empty(&self) -> bool {
         self.runs.is_empty() || self.runs.iter().all(|r| r.text.is_empty())
     }
 
-    /// Get the number of runs
+    /// Get the number of runs.
     pub fn len(&self) -> usize {
         self.runs.len()
     }
 
-    /// Check if any run has formatting
+    /// Check if any run has formatting.
     pub fn has_formatting(&self) -> bool {
         self.runs.iter().any(|r| r.has_formatting())
     }
 
-    /// Iterate over the runs
+    /// Iterate over the runs.
     pub fn iter(&self) -> impl Iterator<Item = &TextRun> {
         self.runs.iter()
     }
@@ -428,7 +428,7 @@ pub enum VerticalAlignment {
     Distributed,
 }
 
-/// Text rotation in degrees
+/// Text rotation in degrees.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextRotation {
     /// No rotation
@@ -458,42 +458,42 @@ pub struct Alignment {
 }
 
 impl Alignment {
-    /// Create new alignment
+    /// Create new alignment.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set horizontal alignment
+    /// Set horizontal alignment.
     pub fn with_horizontal(mut self, horizontal: HorizontalAlignment) -> Self {
         self.horizontal = horizontal;
         self
     }
 
-    /// Set vertical alignment
+    /// Set vertical alignment.
     pub fn with_vertical(mut self, vertical: VerticalAlignment) -> Self {
         self.vertical = vertical;
         self
     }
 
-    /// Set text rotation
+    /// Set text rotation.
     pub fn with_text_rotation(mut self, rotation: TextRotation) -> Self {
         self.text_rotation = rotation;
         self
     }
 
-    /// Set wrap text
+    /// Set wrap text.
     pub fn with_wrap_text(mut self, wrap: bool) -> Self {
         self.wrap_text = wrap;
         self
     }
 
-    /// Set indent level
+    /// Set indent level.
     pub fn with_indent(mut self, indent: u8) -> Self {
         self.indent = Some(indent);
         self
     }
 
-    /// Set shrink to fit
+    /// Set shrink to fit.
     pub fn with_shrink_to_fit(mut self, shrink: bool) -> Self {
         self.shrink_to_fit = shrink;
         self
@@ -556,12 +556,12 @@ pub struct Fill {
 }
 
 impl Fill {
-    /// Create new fill
+    /// Create new fill.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create solid fill with color
+    /// Create solid fill with color.
     pub fn solid(color: Color) -> Self {
         Self {
             pattern: FillPattern::Solid,
@@ -570,25 +570,25 @@ impl Fill {
         }
     }
 
-    /// Set pattern
+    /// Set pattern.
     pub fn with_pattern(mut self, pattern: FillPattern) -> Self {
         self.pattern = pattern;
         self
     }
 
-    /// Set foreground color
+    /// Set foreground color.
     pub fn with_foreground_color(mut self, color: Color) -> Self {
         self.foreground_color = Some(color);
         self
     }
 
-    /// Set background color
+    /// Set background color.
     pub fn with_background_color(mut self, color: Color) -> Self {
         self.background_color = Some(color);
         self
     }
 
-    /// Check if fill is visible
+    /// Check if fill is visible.
     pub fn is_visible(&self) -> bool {
         self.pattern != FillPattern::None
     }
@@ -609,7 +609,7 @@ pub struct NumberFormat {
 }
 
 impl NumberFormat {
-    /// Create new number format
+    /// Create new number format.
     pub fn new(format_code: String) -> Self {
         Self {
             format_code,
@@ -617,7 +617,7 @@ impl NumberFormat {
         }
     }
 
-    /// Create with format ID
+    /// Create with format ID.
     pub fn with_id(mut self, format_id: u32) -> Self {
         self.format_id = Some(format_id);
         self
@@ -643,18 +643,18 @@ pub struct Protection {
 }
 
 impl Protection {
-    /// Create new protection
+    /// Create new protection.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set locked
+    /// Set locked.
     pub fn with_locked(mut self, locked: bool) -> Self {
         self.locked = locked;
         self
     }
 
-    /// Set hidden
+    /// Set hidden.
     pub fn with_hidden(mut self, hidden: bool) -> Self {
         self.hidden = hidden;
         self
@@ -670,14 +670,14 @@ pub struct ColumnWidth {
     pub width: f64,
     /// Whether the width is custom (manually set)
     pub custom_width: bool,
-    /// Whether the column is hidden
+    /// Whether the column is hidden.
     pub hidden: bool,
     /// Best fit width
     pub best_fit: bool,
 }
 
 impl ColumnWidth {
-    /// Create a new column width
+    /// Create a new column width.
     pub fn new(column: u32, width: f64) -> Self {
         Self {
             column,
@@ -688,25 +688,25 @@ impl ColumnWidth {
         }
     }
 
-    /// Set custom width flag
+    /// Set custom width flag.
     pub fn with_custom_width(mut self, custom: bool) -> Self {
         self.custom_width = custom;
         self
     }
 
-    /// Set hidden flag
+    /// Set hidden flag.
     pub fn with_hidden(mut self, hidden: bool) -> Self {
         self.hidden = hidden;
         self
     }
 
-    /// Set best fit flag
+    /// Set best fit flag.
     pub fn with_best_fit(mut self, best_fit: bool) -> Self {
         self.best_fit = best_fit;
         self
     }
 
-    /// Check if column is visible
+    /// Check if column is visible.
     pub fn is_visible(&self) -> bool {
         !self.hidden
     }
@@ -721,7 +721,7 @@ pub struct RowHeight {
     pub height: f64,
     /// Whether the height is custom (manually set)
     pub custom_height: bool,
-    /// Whether the row is hidden
+    /// Whether the row is hidden.
     pub hidden: bool,
     /// Thick top border
     pub thick_top: bool,
@@ -730,7 +730,7 @@ pub struct RowHeight {
 }
 
 impl RowHeight {
-    /// Create a new row height
+    /// Create a new row height.
     pub fn new(row: u32, height: f64) -> Self {
         Self {
             row,
@@ -742,31 +742,31 @@ impl RowHeight {
         }
     }
 
-    /// Set custom height flag
+    /// Set custom height flag.
     pub fn with_custom_height(mut self, custom: bool) -> Self {
         self.custom_height = custom;
         self
     }
 
-    /// Set hidden flag
+    /// Set hidden flag.
     pub fn with_hidden(mut self, hidden: bool) -> Self {
         self.hidden = hidden;
         self
     }
 
-    /// Set thick top border
+    /// Set thick top border.
     pub fn with_thick_top(mut self, thick_top: bool) -> Self {
         self.thick_top = thick_top;
         self
     }
 
-    /// Set thick bottom border
+    /// Set thick bottom border.
     pub fn with_thick_bottom(mut self, thick_bottom: bool) -> Self {
         self.thick_bottom = thick_bottom;
         self
     }
 
-    /// Check if row is visible
+    /// Check if row is visible.
     pub fn is_visible(&self) -> bool {
         !self.hidden
     }
@@ -786,30 +786,30 @@ pub struct WorksheetLayout {
 }
 
 impl WorksheetLayout {
-    /// Create a new worksheet layout
+    /// Create a new worksheet layout.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add a column width
+    /// Add a column width.
     pub fn add_column_width(mut self, column_width: ColumnWidth) -> Self {
         self.column_widths.insert(column_width.column, column_width);
         self
     }
 
-    /// Add a row height
+    /// Add a row height.
     pub fn add_row_height(mut self, row_height: RowHeight) -> Self {
         self.row_heights.insert(row_height.row, row_height);
         self
     }
 
-    /// Set default column width
+    /// Set default column width.
     pub fn with_default_column_width(mut self, width: f64) -> Self {
         self.default_column_width = Some(width);
         self
     }
 
-    /// Set default row height
+    /// Set default row height.
     pub fn with_default_row_height(mut self, height: f64) -> Self {
         self.default_row_height = Some(height);
         self
@@ -827,13 +827,13 @@ impl WorksheetLayout {
 
     /// Get effective column width (custom or default).
     ///
-    /// Returns the column width in Excel's character-based units. If no custom
-    /// width is set, returns the worksheet's default column width, or 8.43 if
+    /// Returns the column width in Excel's character-based units. If no custom.
+    /// width is set, returns the worksheet's default column width, or 8.43 if.
     /// no default is specified.
     ///
-    /// **Note:** Excel column widths are stored in character units relative to
-    /// the workbook's default font, not pixels. Converting to pixels requires
-    /// font metrics and is font-dependent. The value 8.43 is Excel's standard
+    /// **Note:** Excel column widths are stored in character units relative to.
+    /// the workbook's default font, not pixels. Converting to pixels requires.
+    /// font metrics and is font-dependent. The value 8.43 is Excel's standard.
     /// default for Calibri 11pt.
     pub fn get_effective_column_width(&self, column: u32) -> f64 {
         self.get_column_width(column)
@@ -844,11 +844,11 @@ impl WorksheetLayout {
 
     /// Get effective row height (custom or default).
     ///
-    /// Returns the row height in points. If no custom height is set, returns
+    /// Returns the row height in points. If no custom height is set, returns.
     /// the worksheet's default row height, or 15.0 if no default is specified.
     ///
-    /// **Note:** Row heights in Excel are stored in points (1/72 inch), but
-    /// the actual displayed height may vary slightly depending on the default
+    /// **Note:** Row heights in Excel are stored in points (1/72 inch), but.
+    /// the actual displayed height may vary slightly depending on the default.
     /// font. The value 15.0 is Excel's standard default for Calibri 11pt.
     pub fn get_effective_row_height(&self, row: u32) -> f64 {
         self.get_row_height(row)
@@ -857,7 +857,7 @@ impl WorksheetLayout {
             .unwrap_or(15.0)
     }
 
-    /// Check if layout has any custom dimensions
+    /// Check if layout has any custom dimensions.
     pub fn has_custom_dimensions(&self) -> bool {
         !self.column_widths.is_empty()
             || !self.row_heights.is_empty()
@@ -886,84 +886,84 @@ pub struct Style {
 }
 
 impl Style {
-    /// Create new style
+    /// Create new style.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set font
+    /// Set font.
     pub fn with_font(mut self, font: Font) -> Self {
         self.font = Some(font);
         self
     }
 
-    /// Set fill
+    /// Set fill.
     pub fn with_fill(mut self, fill: Fill) -> Self {
         self.fill = Some(fill);
         self
     }
 
-    /// Set borders
+    /// Set borders.
     pub fn with_borders(mut self, borders: Borders) -> Self {
         self.borders = Some(borders);
         self
     }
 
-    /// Set alignment
+    /// Set alignment.
     pub fn with_alignment(mut self, alignment: Alignment) -> Self {
         self.alignment = Some(alignment);
         self
     }
 
-    /// Set number format
+    /// Set number format.
     pub fn with_number_format(mut self, number_format: NumberFormat) -> Self {
         self.number_format = Some(number_format);
         self
     }
 
-    /// Set protection
+    /// Set protection.
     pub fn with_protection(mut self, protection: Protection) -> Self {
         self.protection = Some(protection);
         self
     }
 
-    /// Set style ID
+    /// Set style ID.
     pub fn with_style_id(mut self, style_id: u32) -> Self {
         self.style_id = Some(style_id);
         self
     }
 
-    /// Get font
+    /// Get font.
     pub fn get_font(&self) -> Option<&Font> {
         self.font.as_ref()
     }
 
-    /// Get fill
+    /// Get fill.
     pub fn get_fill(&self) -> Option<&Fill> {
         self.fill.as_ref()
     }
 
-    /// Get borders
+    /// Get borders.
     pub fn get_borders(&self) -> Option<&Borders> {
         self.borders.as_ref()
     }
 
-    /// Get alignment
+    /// Get alignment.
     pub fn get_alignment(&self) -> Option<&Alignment> {
         self.alignment.as_ref()
     }
 
-    /// Get number format
+    /// Get number format.
     pub fn get_number_format(&self) -> Option<&NumberFormat> {
         self.number_format.as_ref()
     }
 
-    /// Get protection
+    /// Get protection.
     pub fn get_protection(&self) -> Option<&Protection> {
         self.protection.as_ref()
     }
 
-    /// Check if style is empty (no properties set)
+    /// Check if style is empty (no properties set).
     pub fn is_empty(&self) -> bool {
         self.font.is_none()
             && self.fill.is_none()
@@ -973,7 +973,7 @@ impl Style {
             && self.protection.is_none()
     }
 
-    /// Check if style has any visible properties
+    /// Check if style has any visible properties.
     pub fn has_visible_properties(&self) -> bool {
         (self
             .font
@@ -995,12 +995,12 @@ impl Style {
     }
 }
 
-/// A run of consecutive cells with the same style (row-major order)
+/// A run of consecutive cells with the same style (row-major order).
 #[derive(Debug, Clone)]
 struct StyleRun {
     /// Index into the palette (0 = no style/default)
     style_id: u16,
-    /// Number of consecutive cells with this style
+    /// Number of consecutive cells with this style.
     count: u32,
 }
 
@@ -1018,14 +1018,14 @@ pub struct StyleRange {
     end: (u32, u32),
     /// Palette of unique styles. Index 0 is reserved for "no style" (empty).
     palette: Vec<Style>,
-    /// RLE-encoded runs in row-major order
+    /// RLE-encoded runs in row-major order.
     runs: Vec<StyleRun>,
     /// Total cell count (for validation)
     total_cells: u64,
 }
 
 impl StyleRange {
-    /// Create an empty StyleRange
+    /// Create an empty StyleRange.
     pub fn empty() -> Self {
         Self::default()
     }
@@ -1103,7 +1103,7 @@ impl StyleRange {
         }
     }
 
-    /// Create a StyleRange from sparse cell data
+    /// Create a StyleRange from sparse cell data.
     ///
     /// Takes cells with positions and styles, compresses into RLE format.
     pub fn from_sparse(cells: Vec<(u32, u32, Style)>) -> Self {
@@ -1200,7 +1200,7 @@ impl StyleRange {
         }
     }
 
-    /// Get the start position of the range
+    /// Get the start position of the range.
     pub fn start(&self) -> Option<(u32, u32)> {
         if self.is_empty() {
             None
@@ -1209,7 +1209,7 @@ impl StyleRange {
         }
     }
 
-    /// Get the end position of the range
+    /// Get the end position of the range.
     pub fn end(&self) -> Option<(u32, u32)> {
         if self.is_empty() {
             None
@@ -1218,12 +1218,12 @@ impl StyleRange {
         }
     }
 
-    /// Check if the range is empty
+    /// Check if the range is empty.
     pub fn is_empty(&self) -> bool {
         self.runs.is_empty()
     }
 
-    /// Get width of the range
+    /// Get width of the range.
     pub fn width(&self) -> usize {
         if self.is_empty() {
             0
@@ -1232,7 +1232,7 @@ impl StyleRange {
         }
     }
 
-    /// Get height of the range
+    /// Get height of the range.
     pub fn height(&self) -> usize {
         if self.is_empty() {
             0
@@ -1257,7 +1257,7 @@ impl StyleRange {
         self.palette.get(style_id as usize)
     }
 
-    /// Get style ID at a linear index using binary search on runs
+    /// Get style ID at a linear index using binary search on runs.
     fn style_id_at(&self, linear_idx: usize) -> Option<u16> {
         let mut offset = 0usize;
         for run in &self.runs {
@@ -1270,7 +1270,7 @@ impl StyleRange {
         None
     }
 
-    /// Iterate over all cells with their positions and styles
+    /// Iterate over all cells with their positions and styles.
     pub fn cells(&self) -> StyleRangeCells<'_> {
         StyleRangeCells {
             range: self,
@@ -1280,7 +1280,7 @@ impl StyleRange {
         }
     }
 
-    /// Get number of unique styles (excluding empty)
+    /// Get number of unique styles (excluding empty).
     pub fn unique_style_count(&self) -> usize {
         self.palette.len().saturating_sub(1)
     }
@@ -1300,7 +1300,7 @@ impl StyleRange {
     }
 }
 
-/// Iterator over cells in a StyleRange
+/// Iterator over cells in a StyleRange.
 pub struct StyleRangeCells<'a> {
     range: &'a StyleRange,
     run_idx: usize,
