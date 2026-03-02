@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod cells_reader;
+mod style_parser;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -25,13 +26,17 @@ use zip::result::ZipError;
 
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
+use crate::style::{
+    Color, ColumnWidth, Font, FontStyle, FontWeight, RichText, RowHeight, StyleRange, TextRun,
+    UnderlineStyle, WorksheetLayout,
+};
 use crate::utils::{
     build_zip_path_cache, cached_zip_path, unescape_entity_to_buffer, unescape_xml,
 };
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    SheetType, SheetVisible, Style, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -248,14 +253,16 @@ type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 /// Xlsx, Xlsm, Xlam
 pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
-    /// Shared strings
-    strings: Vec<String>,
+    /// Shared strings (can be plain strings or rich text)
+    strings: Vec<Data>,
     /// Sheets paths
     sheets: Vec<(String, String)>,
     /// Tables: Name, Sheet, Columns, Data dimensions
     tables: Tables,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
+    /// Cell styles
+    pub styles: Vec<Style>,
     /// 1904 datetime system
     is_1904: bool,
     /// Metadata
@@ -304,16 +311,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
         }
 
-        let mut str_buf = Vec::with_capacity(1024);
-        let mut str_val_buf = Vec::with_capacity(1024);
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"si" => {
-                    if let Some(s) =
-                        read_string_with_bufs(&mut xml, e.name(), &mut str_buf, &mut str_val_buf)?
-                    {
-                        self.strings.push(s);
+                    if let Some(data) = read_rich_string(&mut xml, e.name())? {
+                        self.strings.push(data);
                     }
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"sst" => break,
@@ -325,13 +328,25 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    fn read_theme_colors(&mut self) -> Vec<Color> {
+        match xml_reader(&mut self.zip, "xl/theme/theme1.xml", &self.zip_path_cache) {
+            Some(Ok(mut xml)) => style_parser::read_theme_colors(&mut xml),
+            _ => style_parser::default_theme_colors(),
+        }
+    }
+
     fn read_styles(&mut self) -> Result<(), XlsxError> {
+        let theme_colors = self.read_theme_colors();
+
         let mut xml = match xml_reader(&mut self.zip, "xl/styles.xml", &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
         };
 
         let mut number_formats = BTreeMap::new();
+        let mut fonts = Vec::new();
+        let mut fills = Vec::new();
+        let mut borders = Vec::new();
 
         let mut buf = Vec::with_capacity(1024);
         let mut inner_buf = Vec::with_capacity(1024);
@@ -345,15 +360,38 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             let mut id = Vec::new();
                             let mut format = String::new();
                             for a in e.attributes() {
-                                match a? {
+                                let a = a?;
+                                match a {
                                     Attribute {
                                         key: QName(b"numFmtId"),
                                         value: v,
                                     } => id.extend_from_slice(&v),
                                     Attribute {
                                         key: QName(b"formatCode"),
-                                        value: v,
-                                    } => format = xml.decoder().decode(&v)?.into_owned(),
+                                        ..
+                                    } => {
+                                        let format_code = a
+                                            .decode_and_unescape_value(xml.decoder())?
+                                            .into_owned();
+                                        // Excel format codes use backslashes to escape special characters
+                                        // Remove escape backslashes (backslash followed by any character becomes just the character)
+                                        let mut unescaped = String::new();
+                                        let mut chars = format_code.chars().peekable();
+                                        while let Some(ch) = chars.next() {
+                                            if ch == '\\' {
+                                                // If there's a next character, use it without the backslash
+                                                if let Some(next_ch) = chars.next() {
+                                                    unescaped.push(next_ch);
+                                                } else {
+                                                    // Trailing backslash, keep it
+                                                    unescaped.push(ch);
+                                                }
+                                            } else {
+                                                unescaped.push(ch);
+                                            }
+                                        }
+                                        format = unescaped;
+                                    }
                                     _ => (),
                                 }
                             }
@@ -367,21 +405,190 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         _ => (),
                     }
                 },
-                Ok(Event::Start(e)) if e.local_name().as_ref() == b"cellXfs" => loop {
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fonts" => loop {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
-                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"xf" => {
-                            self.formats.push(
-                                e.attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|a| a.key == QName(b"numFmtId"))
-                                    .map_or(CellFormat::Other, |a| {
-                                        match number_formats.get(&*a.value) {
-                                            Some(fmt) => detect_custom_number_format(fmt),
-                                            None => builtin_format_by_id(&a.value),
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"font" => {
+                            let font = style_parser::parse_font(&mut xml, e, &theme_colors)?;
+                            fonts.push(font);
+                        }
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fonts" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("fonts")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fills" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fill" => {
+                            let fill = style_parser::parse_fill(&mut xml, e, &theme_colors)?;
+                            fills.push(fill);
+                        }
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fills" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("fills")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"borders" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"border" => {
+                            let border = style_parser::parse_border(&mut xml, e, &theme_colors)?;
+                            borders.push(border);
+                        }
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"borders" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("borders")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
+                            let mut style = Style::new();
+                            let mut fmt_id_bytes_for_format: Option<Vec<u8>> = None;
+
+                            for a in e.attributes() {
+                                let a = a.map_err(XlsxError::XmlAttr)?;
+                                match a.key.as_ref() {
+                                    b"fontId" => {
+                                        if let Ok(font_id) =
+                                            xml.decoder().decode(&a.value)?.parse::<usize>()
+                                        {
+                                            if let Some(font) = fonts.get(font_id) {
+                                                style = style.with_font(font.clone());
+                                            }
                                         }
-                                    }),
-                            );
+                                    }
+                                    b"fillId" => {
+                                        if let Ok(fill_id) =
+                                            xml.decoder().decode(&a.value)?.parse::<usize>()
+                                        {
+                                            if let Some(fill) = fills.get(fill_id) {
+                                                style = style.with_fill(fill.clone());
+                                            }
+                                        }
+                                    }
+                                    b"borderId" => {
+                                        if let Ok(border_id) =
+                                            xml.decoder().decode(&a.value)?.parse::<usize>()
+                                        {
+                                            if let Some(border) = borders.get(border_id) {
+                                                style = style.with_borders(border.clone());
+                                            }
+                                        }
+                                    }
+                                    b"numFmtId" => {
+                                        if let Ok(num_fmt_id) =
+                                            xml.decoder().decode(&a.value)?.parse::<u32>()
+                                        {
+                                            let id_bytes: &[u8] = &a.value;
+                                            fmt_id_bytes_for_format =
+                                                Some(id_bytes.to_vec());
+                                            let format_code = match number_formats
+                                                .get(id_bytes)
+                                            {
+                                                Some(fmt) => fmt.clone(),
+                                                None => {
+                                                    match num_fmt_id {
+                                                        0 => "General".to_string(),
+                                                        1 => "0".to_string(),
+                                                        2 => "0.00".to_string(),
+                                                        3 => "#,##0".to_string(),
+                                                        4 => "#,##0.00".to_string(),
+                                                        9 => "0%".to_string(),
+                                                        10 => "0.00%".to_string(),
+                                                        11 => "0.00E+00".to_string(),
+                                                        12 => "# ?/?".to_string(),
+                                                        13 => "# ??/??".to_string(),
+                                                        14 => "mm-dd-yy".to_string(),
+                                                        15 => "d-mmm-yy".to_string(),
+                                                        16 => "d-mmm".to_string(),
+                                                        17 => "mmm-yy".to_string(),
+                                                        18 => "h:mm AM/PM".to_string(),
+                                                        19 => "h:mm:ss AM/PM".to_string(),
+                                                        20 => "h:mm".to_string(),
+                                                        21 => "h:mm:ss".to_string(),
+                                                        22 => "m/d/yy h:mm".to_string(),
+                                                        37 => "#,##0 ;(#,##0)".to_string(),
+                                                        38 => "#,##0 ;[Red](#,##0)".to_string(),
+                                                        39 => "#,##0.00;(#,##0.00)".to_string(),
+                                                        40 => "#,##0.00;[Red](#,##0.00)".to_string(),
+                                                        41 => "_(* #,##0_);_(* (#,##0);_(* \"-\"_);_(@_)".to_string(),
+                                                        42 => "_($* #,##0_);_($* (#,##0);_($* \"-\"_);_(@_)".to_string(),
+                                                        43 => "_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)".to_string(),
+                                                        44 => "_($* #,##0.00_);_($* (#,##0.00);_($* \"-\"??_);_(@_)".to_string(),
+                                                        45 => "mm:ss".to_string(),
+                                                        46 => "[h]:mm:ss".to_string(),
+                                                        47 => "mmss.0".to_string(),
+                                                        48 => "##0.0E+0".to_string(),
+                                                        49 => "@".to_string(),
+                                                        _ => "General".to_string(),
+                                                    }
+                                                }
+                                            };
+
+                                            use crate::style::NumberFormat;
+                                            let number_format =
+                                                NumberFormat::new(format_code).with_id(num_fmt_id);
+                                            style = style.with_number_format(number_format);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            // Resolve the CellFormat from the numFmtId we already
+                            // parsed above, before the nested loop overwrites buffers.
+                            let cell_format = fmt_id_bytes_for_format
+                                .as_ref()
+                                .map(|id_bytes| {
+                                    match number_formats.get(id_bytes.as_slice()) {
+                                        Some(fmt) => detect_custom_number_format(fmt),
+                                        None => builtin_format_by_id(id_bytes),
+                                    }
+                                })
+                                .unwrap_or(CellFormat::Other);
+
+                            let mut nested_buf = Vec::with_capacity(512);
+                            loop {
+                                nested_buf.clear();
+                                match xml.read_event_into(&mut nested_buf) {
+                                    Ok(Event::Start(ref nested_e) | Event::Empty(ref nested_e)) => {
+                                        match nested_e.local_name().as_ref() {
+                                            b"alignment" => {
+                                                let alignment =
+                                                    style_parser::parse_alignment(
+                                                        &mut xml, nested_e,
+                                                    )?;
+                                                style = style.with_alignment(alignment);
+                                            }
+                                            b"protection" => {
+                                                let protection =
+                                                    style_parser::parse_protection(
+                                                        &mut xml, nested_e,
+                                                    )?;
+                                                style = style.with_protection(protection);
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    Ok(Event::End(ref end_e))
+                                        if end_e.local_name().as_ref() == b"xf" =>
+                                    {
+                                        break
+                                    }
+                                    Ok(Event::Eof) => return Err(XlsxError::XmlEof("xf")),
+                                    Err(e) => return Err(XlsxError::Xml(e)),
+                                    _ => {}
+                                }
+                            }
+
+                            self.styles.push(style);
+                            self.formats.push(cell_format);
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
@@ -1540,6 +1747,358 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         self.worksheet_merge_cells(&name)
     }
+
+    /// Get the cells reader for a worksheet.
+    ///
+    /// This function returns a [`XlsxCellReader`] for the specified worksheet.
+    /// The reader can be used to iterate over the cells in the worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the cells reader for.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::WorksheetNotFound`].
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the cells reader for a worksheet.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the cells reader for the first worksheet.
+    ///     let mut reader = workbook.worksheet_cells_reader("Sheet1")?;
+    ///
+    ///     // Iterate over the cells in the worksheet.
+    ///     while let Some(cell) = reader.next_cell()? {
+    ///         println!("{:?}", cell);
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Cell {
+    ///     row: 0,
+    ///     col: 0,
+    ///     val: "Hello, world!".to_string(),
+    ///     err: None,
+    ///     typ: DataType::String,
+    /// }
+    /// ```
+    pub fn worksheet_cells_reader<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+        let xml = xml_reader(&mut self.zip, path, &self.zip_path_cache)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
+        let is_1904 = self.is_1904;
+        let strings = &self.strings;
+        let formats = &self.formats;
+        let styles = &self.styles;
+        XlsxCellReader::new(xml, strings, formats, styles, is_1904)
+    }
+
+    /// Get the styles for a worksheet.
+    ///
+    /// Get worksheet styles as an RLE-compressed [`StyleRange`].
+    ///
+    /// This function returns styles for all cells with explicit formatting,
+    /// stored in run-length encoded format for memory efficiency.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the styles for.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let styles = xlsx.worksheet_style("Sheet1")?;
+    /// println!("Unique styles: {}", styles.unique_style_count());
+    /// println!("Compression ratio: {:.1}x", styles.compression_ratio());
+    /// for (row, col, style) in styles.cells() {
+    ///     // process style
+    /// }
+    /// ```
+    pub fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+        let mut cell_reader = match self.worksheet_cells_reader(name) {
+            Ok(reader) => reader,
+            Err(XlsxError::NotAWorksheet(typ)) => {
+                warn!("'{typ}' not a worksheet");
+                return Ok(StyleRange::empty());
+            }
+            Err(e) => return Err(e),
+        };
+
+        let len = cell_reader.dimensions().len();
+        let mut cells = Vec::new();
+        if len < 100_000 {
+            cells.reserve(len as usize);
+        }
+
+        // Use zero-copy path: collect (row, col, style_id) without cloning styles
+        while let Some((row, col, style_id)) = cell_reader.next_style_id()? {
+            cells.push((row, col, style_id));
+        }
+
+        // Get the palette from the cell_reader (clone once, not per cell)
+        let palette = cell_reader.styles().to_vec();
+
+        Ok(StyleRange::from_style_ids(cells, palette))
+    }
+
+    /// Get the layout for a worksheet.
+    ///
+    /// This function returns a [`WorksheetLayout`] for the specified worksheet.
+    /// The layout contains the column widths and row heights for the cells in the worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the layout for.
+    ///
+    pub fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+
+        let mut xml = xml_reader(&mut self.zip, path, &self.zip_path_cache)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
+
+        let mut layout = WorksheetLayout::new();
+        let mut buf = Vec::with_capacity(1024);
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e) | Event::Empty(ref e))
+                    if e.local_name().as_ref() == b"sheetFormatPr" =>
+                {
+                    for attr in e.attributes() {
+                        let attr = attr.map_err(XlsxError::XmlAttr)?;
+                        match attr.key.as_ref() {
+                            b"defaultColWidth" => {
+                                if let Ok(width_str) = xml.decoder().decode(&attr.value) {
+                                    if let Ok(width) = width_str.parse::<f64>() {
+                                        layout = layout.with_default_column_width(width);
+                                    }
+                                }
+                            }
+                            b"defaultRowHeight" => {
+                                if let Ok(height_str) = xml.decoder().decode(&attr.value) {
+                                    if let Ok(height) = height_str.parse::<f64>() {
+                                        layout = layout.with_default_row_height(height);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cols" => {
+                    loop {
+                        buf.clear();
+                        match xml.read_event_into(&mut buf) {
+                            Ok(Event::Start(ref col_e) | Event::Empty(ref col_e))
+                                if col_e.local_name().as_ref() == b"col" =>
+                            {
+                                let mut col_min = None;
+                                let mut col_max = None;
+                                let mut width = 0.0;
+                                let mut custom_width = false;
+                                let mut hidden = false;
+                                let mut best_fit = false;
+
+                                for attr in col_e.attributes() {
+                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                                    match attr.key.as_ref() {
+                                        b"min" => {
+                                            if let Ok(min_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(min_col) = min_str.parse::<u32>() {
+                                                    col_min = Some(min_col.saturating_sub(1));
+                                                }
+                                            }
+                                        }
+                                        b"max" => {
+                                            if let Ok(max_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(max_col) = max_str.parse::<u32>() {
+                                                    col_max = Some(max_col.saturating_sub(1));
+                                                }
+                                            }
+                                        }
+                                        b"width" => {
+                                            if let Ok(width_str) = xml.decoder().decode(&attr.value)
+                                            {
+                                                if let Ok(w) = width_str.parse::<f64>() {
+                                                    width = w;
+                                                }
+                                            }
+                                        }
+                                        b"customWidth" => {
+                                            custom_width = &*attr.value != b"0";
+                                        }
+                                        b"hidden" => {
+                                            hidden = &*attr.value != b"0";
+                                        }
+                                        b"bestFit" => {
+                                            best_fit = &*attr.value != b"0";
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if let Some(min_col) = col_min {
+                                    let max_col = col_max.unwrap_or(min_col);
+                                    for col in min_col..=max_col {
+                                        let column_width = ColumnWidth::new(col, width)
+                                            .with_custom_width(custom_width)
+                                            .with_hidden(hidden)
+                                            .with_best_fit(best_fit);
+                                        layout = layout.add_column_width(column_width);
+                                    }
+                                }
+                            }
+                            Ok(Event::End(ref end_e)) if end_e.local_name().as_ref() == b"cols" => {
+                                break;
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("cols")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    loop {
+                        buf.clear();
+                        match xml.read_event_into(&mut buf) {
+                            Ok(Event::Start(ref row_e))
+                                if row_e.local_name().as_ref() == b"row" =>
+                            {
+                                let mut row_num = None;
+                                let mut height = 0.0;
+                                let mut custom_height = false;
+                                let mut hidden = false;
+                                let mut thick_top = false;
+                                let mut thick_bottom = false;
+
+                                for attr in row_e.attributes() {
+                                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                                    match attr.key.as_ref() {
+                                        b"r" => {
+                                            if let Ok(row_str) = xml.decoder().decode(&attr.value) {
+                                                if let Ok(r) = row_str.parse::<u32>() {
+                                                    row_num = Some(r.saturating_sub(1));
+                                                }
+                                            }
+                                        }
+                                        b"ht" => {
+                                            if let Ok(height_str) =
+                                                xml.decoder().decode(&attr.value)
+                                            {
+                                                if let Ok(h) = height_str.parse::<f64>() {
+                                                    height = h;
+                                                }
+                                            }
+                                        }
+                                        b"customHeight" => {
+                                            custom_height = &*attr.value != b"0";
+                                        }
+                                        b"hidden" => {
+                                            hidden = &*attr.value != b"0";
+                                        }
+                                        b"thickTop" => {
+                                            thick_top = &*attr.value != b"0";
+                                        }
+                                        b"thickBot" => {
+                                            thick_bottom = &*attr.value != b"0";
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if let Some(row) = row_num {
+                                    if custom_height
+                                        || hidden
+                                        || thick_top
+                                        || thick_bottom
+                                        || height > 0.0
+                                    {
+                                        let row_height = RowHeight::new(row, height)
+                                            .with_custom_height(custom_height)
+                                            .with_hidden(hidden)
+                                            .with_thick_top(thick_top)
+                                            .with_thick_bottom(thick_bottom);
+                                        layout = layout.add_row_height(row_height);
+                                    }
+                                }
+
+                                xml.read_to_end_into(row_e.name(), &mut Vec::new())?;
+                            }
+                            Ok(Event::End(ref end_e))
+                                if end_e.local_name().as_ref() == b"sheetData" =>
+                            {
+                                break;
+                            }
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => {}
+                        }
+                    }
+                    break;
+                }
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => {}
+            }
+        }
+
+        Ok(layout)
+    }
+
+    /// Get all worksheets in the workbook.
+    ///
+    /// This function returns a vector of tuples, where each tuple contains the name of a worksheet and the range of cells in the worksheet.
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, where each tuple contains the name of a worksheet and the range of cells in the worksheet.
+    ///
+    pub fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
+        let names = self
+            .sheets
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect::<Vec<_>>();
+        names
+            .into_iter()
+            .filter_map(|n| {
+                let rge = self.worksheet_range(&n).ok()?;
+                Some((n, rge))
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        self.pictures.to_owned()
+    }
 }
 
 struct TableMetadata {
@@ -1567,26 +2126,6 @@ impl InnerTableMetadata {
     }
 }
 
-impl<RS: Read + Seek> Xlsx<RS> {
-    /// Get a reader over all used cells in the given worksheet cell reader
-    pub fn worksheet_cells_reader<'a>(
-        &'a mut self,
-        name: &str,
-    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
-        let (_, path) = self
-            .sheets
-            .iter()
-            .find(|&(n, _)| n == name)
-            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
-        let xml = xml_reader(&mut self.zip, path, &self.zip_path_cache)
-            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))??;
-        let is_1904 = self.is_1904;
-        let strings = &self.strings;
-        let formats = &self.formats;
-        XlsxCellReader::new(xml, strings, formats, is_1904)
-    }
-}
-
 impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     type Error = XlsxError;
 
@@ -1599,6 +2138,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             zip,
             strings: Vec::new(),
             formats: Vec::new(),
+            styles: Vec::new(),
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
@@ -1667,6 +2207,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             }
         }
         Ok(Range::from_sparse(cells))
+    }
+
+    fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+        Xlsx::worksheet_style(self, name)
+    }
+
+    fn worksheet_layout(&mut self, name: &str) -> Result<WorksheetLayout, XlsxError> {
+        Xlsx::worksheet_layout(self, name)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
@@ -1751,6 +2299,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
                                 cells.first().expect("cells should not be empty").pos.1,
                             ),
                             val: DataRef::Empty,
+                            style: None,
                         },
                     );
                 }
@@ -1972,6 +2521,340 @@ where
     }
 }
 
+/// Result of parsing run properties - includes both the font and whether there's "rich" formatting
+struct RunPropertiesResult {
+    font: Font,
+    /// Whether the font has "rich" formatting (bold, italic, underline, strikethrough, color)
+    /// that would make this text run distinct from plain text
+    has_rich_formatting: bool,
+}
+
+/// Parse run properties (rPr) to extract font formatting for rich text
+fn parse_run_properties<RS>(
+    xml: &mut XlReader<'_, RS>,
+    closing: QName,
+) -> Result<Option<RunPropertiesResult>, XlsxError>
+where
+    RS: Read + Seek,
+{
+    let mut font = Font::new();
+    let mut has_any_props = false;
+    let mut has_rich_formatting = false;
+    let mut buf = Vec::with_capacity(256);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e) | Event::Empty(e)) => {
+                match e.local_name().as_ref() {
+                    b"b" => {
+                        // Bold - check for val attribute
+                        let mut is_bold = true;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                is_bold = val != "0" && val != "false";
+                            }
+                        }
+                        if is_bold {
+                            font = font.with_weight(FontWeight::Bold);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"i" => {
+                        // Italic - check for val attribute
+                        let mut is_italic = true;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                is_italic = val != "0" && val != "false";
+                            }
+                        }
+                        if is_italic {
+                            font = font.with_style(FontStyle::Italic);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"u" => {
+                        // Underline
+                        let mut underline = UnderlineStyle::Single;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                underline = match val.as_ref() {
+                                    "double" => UnderlineStyle::Double,
+                                    "singleAccounting" => UnderlineStyle::SingleAccounting,
+                                    "doubleAccounting" => UnderlineStyle::DoubleAccounting,
+                                    "none" => UnderlineStyle::None,
+                                    _ => UnderlineStyle::Single,
+                                };
+                            }
+                        }
+                        if underline != UnderlineStyle::None {
+                            font = font.with_underline(underline);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"strike" => {
+                        // Strikethrough
+                        let mut is_strike = true;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                let val = String::from_utf8_lossy(&attr.value);
+                                is_strike = val != "0" && val != "false";
+                            }
+                        }
+                        if is_strike {
+                            font = font.with_strikethrough(true);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"sz" => {
+                        // Font size - captured but doesn't count as "rich" formatting
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                if let Ok(size) =
+                                    String::from_utf8_lossy(&attr.value).parse::<f64>()
+                                {
+                                    font = font.with_size(size);
+                                    has_any_props = true;
+                                }
+                            }
+                        }
+                    }
+                    b"color" => {
+                        // Font color - counts as rich formatting
+                        if let Some(color) = parse_run_color(&e)? {
+                            font = font.with_color(color);
+                            has_any_props = true;
+                            has_rich_formatting = true;
+                        }
+                    }
+                    b"rFont" => {
+                        // Font name - captured but doesn't count as "rich" formatting
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                font = font
+                                    .with_name(String::from_utf8_lossy(&attr.value).to_string());
+                                has_any_props = true;
+                            }
+                        }
+                    }
+                    b"family" => {
+                        // Font family - captured but doesn't count as "rich" formatting
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"val" {
+                                font = font
+                                    .with_family(String::from_utf8_lossy(&attr.value).to_string());
+                                has_any_props = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) if e.name() == closing => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("rPr")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    Ok(if has_any_props {
+        Some(RunPropertiesResult {
+            font,
+            has_rich_formatting,
+        })
+    } else {
+        None
+    })
+}
+
+/// Parse color from a run properties color element
+fn parse_run_color(
+    e: &quick_xml::events::BytesStart<'_>,
+) -> Result<Option<crate::Color>, XlsxError> {
+    use crate::Color;
+
+    for attr in e.attributes().flatten() {
+        match attr.key.as_ref() {
+            b"rgb" => {
+                let rgb_str: &[u8] = attr.value.as_ref();
+                if rgb_str.len() == 6 {
+                    let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
+                    let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
+                    let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
+                    return Ok(Some(Color::rgb(r, g, b)));
+                } else if rgb_str.len() == 8 {
+                    let a = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[0..2]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid alpha color value"))?;
+                    let r = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[2..4]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid red color value"))?;
+                    let g = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[4..6]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid green color value"))?;
+                    let b = u8::from_str_radix(&String::from_utf8_lossy(&rgb_str[6..8]), 16)
+                        .map_err(|_| XlsxError::Unexpected("Invalid blue color value"))?;
+                    return Ok(Some(Color::new(a, r, g, b)));
+                }
+            }
+            b"theme" => {
+                // Theme colors - using a simplified palette
+                let theme_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(theme) = theme_str.parse::<u8>() {
+                    let color = match theme {
+                        0 => Color::rgb(255, 255, 255), // Light 1
+                        1 => Color::rgb(0, 0, 0),       // Dark 1
+                        2 => Color::rgb(68, 84, 106),   // Light 2
+                        3 => Color::rgb(31, 73, 125),   // Dark 2
+                        4 => Color::rgb(79, 129, 189),  // Accent 1
+                        5 => Color::rgb(192, 80, 77),   // Accent 2
+                        6 => Color::rgb(155, 187, 89),  // Accent 3
+                        7 => Color::rgb(128, 100, 162), // Accent 4
+                        8 => Color::rgb(75, 172, 198),  // Accent 5
+                        9 => Color::rgb(247, 150, 70),  // Accent 6
+                        _ => Color::rgb(0, 0, 0),
+                    };
+                    return Ok(Some(color));
+                }
+            }
+            b"indexed" => {
+                // Indexed colors
+                let idx_str = String::from_utf8_lossy(&attr.value);
+                if let Ok(idx) = idx_str.parse::<u8>() {
+                    let color = match idx {
+                        1 => Color::rgb(0, 0, 0),
+                        2 => Color::rgb(255, 255, 255),
+                        3 => Color::rgb(255, 0, 0),
+                        4 => Color::rgb(0, 255, 0),
+                        5 => Color::rgb(0, 0, 255),
+                        6 => Color::rgb(255, 255, 0),
+                        7 => Color::rgb(255, 0, 255),
+                        8 => Color::rgb(0, 255, 255),
+                        _ => Color::rgb(0, 0, 0),
+                    };
+                    return Ok(Some(color));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// Read a string from shared strings, preserving rich text formatting if present.
+/// Returns Data::String for plain text or Data::RichText for formatted text.
+fn read_rich_string<RS>(
+    xml: &mut XlReader<'_, RS>,
+    closing: QName,
+) -> Result<Option<Data>, XlsxError>
+where
+    RS: Read + Seek,
+{
+    let mut buf = Vec::with_capacity(1024);
+    let mut val_buf = Vec::with_capacity(1024);
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut current_props: Option<RunPropertiesResult> = None;
+    let mut is_rich_text = false;
+    let mut is_phonetic_text = false;
+    let mut plain_text: Option<String> = None;
+    let mut has_any_rich_formatting = false;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
+                // Start of a rich text run
+                is_rich_text = true;
+                current_props = None;
+            }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"r" => {
+                // End of a rich text run
+                current_props = None;
+            }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPr" => {
+                // Run properties (formatting)
+                current_props = parse_run_properties(xml, e.name())?;
+                if let Some(ref props) = current_props {
+                    if props.has_rich_formatting {
+                        has_any_rich_formatting = true;
+                    }
+                }
+            }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPh" => {
+                is_phonetic_text = true;
+            }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"rPh" => {
+                is_phonetic_text = false;
+            }
+            Ok(Event::End(e)) if e.name() == closing => {
+                // End of string item
+                if is_rich_text && !runs.is_empty() {
+                    // Only return RichText if there's actual rich formatting (bold, italic, etc.)
+                    if has_any_rich_formatting {
+                        return Ok(Some(Data::RichText(RichText::from_runs(runs))));
+                    } else {
+                        // All runs are plain text or only have non-rich style info, concatenate them
+                        let text: String = runs.iter().map(|r| r.text.as_str()).collect();
+                        return Ok(Some(Data::String(text)));
+                    }
+                } else if let Some(text) = plain_text {
+                    return Ok(Some(Data::String(text)));
+                } else if is_rich_text {
+                    // Rich text with no runs means empty string
+                    return Ok(Some(Data::String(String::new())));
+                } else {
+                    // Empty element
+                    return Ok(Some(Data::String(String::new())));
+                }
+            }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
+                // Text content
+                val_buf.clear();
+                let mut value = String::new();
+                loop {
+                    match xml.read_event_into(&mut val_buf)? {
+                        Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
+                        Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
+                        Event::End(end) if end.name() == e.name() => break,
+                        Event::Eof => return Err(XlsxError::XmlEof("t")),
+                        _ => (),
+                    }
+                }
+
+                if is_rich_text {
+                    // Add as a run with optional formatting
+                    // Only include font if there's rich formatting (bold, italic, etc.)
+                    let font = current_props
+                        .take()
+                        .filter(|p| p.has_rich_formatting)
+                        .map(|p| p.font);
+                    runs.push(TextRun { text: value, font });
+                } else {
+                    // Plain text (not in a run)
+                    if let Some(ref mut pt) = plain_text {
+                        pt.push_str(&value);
+                    } else {
+                        plain_text = Some(value);
+                    }
+                    // Consume remaining and return
+                    xml.read_to_end_into(closing, &mut val_buf)?;
+                    return Ok(plain_text.map(Data::String));
+                }
+            }
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+}
+
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
     let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
     reader.seek(std::io::SeekFrom::Start(0))?;
@@ -2038,7 +2921,6 @@ enum Reference {
 }
 
 impl Reference {
-    // Create a cell reference with validation.
     fn cell(row: u32, col: u32, absolute_row: bool, absolute_col: bool) -> Result<Self, XlsxError> {
         let reference = Reference::Cell {
             row,
@@ -2050,21 +2932,18 @@ impl Reference {
         Ok(reference)
     }
 
-    // Create a column reference with validation.
     fn column(col: u32, absolute: bool) -> Result<Self, XlsxError> {
         let reference = Reference::Column { col, absolute };
         reference.validate()?;
         Ok(reference)
     }
 
-    // Create a row reference with validation.
     fn row(row: u32, absolute: bool) -> Result<Self, XlsxError> {
         let reference = Reference::Row { row, absolute };
         reference.validate()?;
         Ok(reference)
     }
 
-    // Parse a reference (e.g., "A1", "$A1", "A$1", "$A$1", "E", "$E", "5", "$5").
     fn parse(name: &[u8]) -> Result<Self, XlsxError> {
         let mut iter = name.iter().peekable();
         let mut col: u32 = 0;
@@ -2110,7 +2989,6 @@ impl Reference {
         }
     }
 
-    // Apply offset to create a new reference with validation.
     fn offset(self, offset: (i64, i64)) -> Result<Self, XlsxError> {
         let result = match self {
             Reference::Cell {
@@ -2167,7 +3045,6 @@ impl Reference {
         Ok(result)
     }
 
-    // Validate that row/column values are in bounds.
     fn validate(&self) -> Result<(), XlsxError> {
         match self {
             Reference::Cell { row, col, .. } => {
@@ -2194,7 +3071,6 @@ impl Reference {
         }
     }
 
-    // Format a reference to bytes.
     fn format(&self, buf: &mut Vec<u8>) -> Result<(), XlsxError> {
         match self {
             Reference::Cell {
@@ -2230,7 +3106,27 @@ impl Reference {
     }
 }
 
-// Advance a reference by the offset (e.g., "A1", "E:F", "5:6", "A1:B5").
+/// Convert a (row, col) coordinate to an Excel cell name like "A1".
+fn coordinate_to_name(coord: (u32, u32)) -> Result<Vec<u8>, XlsxError> {
+    let mut buf = Vec::new();
+    column_number_to_name(coord.1, &mut buf)?;
+    buf.extend((coord.0 + 1).to_string().into_bytes());
+    Ok(buf)
+}
+
+/// Advance the cell name by the offset.
+pub fn offset_cell_name(name: &[u8], offset: (i64, i64)) -> Result<Vec<u8>, XlsxError> {
+    let cell = get_row_column(name)?;
+    let new_row = cell.0 as i64 + offset.0;
+    let new_col = cell.1 as i64 + offset.1;
+    if new_row < 0 || new_col < 0 {
+        return Err(XlsxError::Unexpected(
+            "Cell offset produces negative row or column",
+        ));
+    }
+    coordinate_to_name((new_row as u32, new_col as u32))
+}
+
 fn offset_range(range: &[u8], offset: (i64, i64), buf: &mut Vec<u8>) -> Result<(), XlsxError> {
     let colon_pos = range.iter().position(|&b| b == b':');
 
@@ -2264,8 +3160,8 @@ fn offset_range(range: &[u8], offset: (i64, i64), buf: &mut Vec<u8>) -> Result<(
     }
 }
 
-// Advance all valid cell names in the string by the offset.
-fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+/// Replace all valid cell names in the string by the offset.
+pub fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
     let bytes = s.as_bytes();
     let mut res: Vec<u8> = Vec::new();
     let mut in_quote = false;
@@ -3473,6 +4369,7 @@ mod tests {
             sheets: vec![],
             tables: None,
             formats: vec![],
+            styles: Vec::new(),
             is_1904: false,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
@@ -3484,8 +4381,41 @@ mod tests {
 
         assert!(xlsx.read_shared_strings().is_ok());
         assert_eq!(3, xlsx.strings.len());
-        assert_eq!("String 1", &xlsx.strings[0]);
-        assert_eq!("String 2", &xlsx.strings[1]);
-        assert_eq!("String 3", &xlsx.strings[2]);
+        assert_eq!(Data::String("String 1".to_string()), xlsx.strings[0]);
+        assert_eq!(Data::String("String 2".to_string()), xlsx.strings[1]);
+        assert_eq!(Data::String("String 3".to_string()), xlsx.strings[2]);
+    }
+
+    #[test]
+    fn test_offset_cell_name_basic() {
+        assert_eq!(
+            offset_cell_name(b"A1", (1, 1)).unwrap(),
+            b"B2".to_vec()
+        );
+        assert_eq!(
+            offset_cell_name(b"C5", (0, 0)).unwrap(),
+            b"C5".to_vec()
+        );
+        assert_eq!(
+            offset_cell_name(b"B3", (2, 3)).unwrap(),
+            b"E5".to_vec()
+        );
+    }
+
+    #[test]
+    fn test_offset_cell_name_negative_offset_error() {
+        let result = offset_cell_name(b"A1", (-1, 0));
+        assert!(result.is_err(), "Negative row offset from A1 should error");
+
+        let result = offset_cell_name(b"A1", (0, -1));
+        assert!(result.is_err(), "Negative col offset from A1 should error");
+    }
+
+    #[test]
+    fn test_coordinate_to_name() {
+        assert_eq!(coordinate_to_name((0, 0)).unwrap(), b"A1".to_vec());
+        assert_eq!(coordinate_to_name((0, 25)).unwrap(), b"Z1".to_vec());
+        assert_eq!(coordinate_to_name((0, 26)).unwrap(), b"AA1".to_vec());
+        assert_eq!(coordinate_to_name((99, 2)).unwrap(), b"C100".to_vec());
     }
 }
