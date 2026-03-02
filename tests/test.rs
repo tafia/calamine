@@ -2821,7 +2821,9 @@ fn test_pivot_table_cache_match() {
 }
 
 #[test]
-fn vba_optional_records() {
+fn vba_optional_records_581() {
+    // parsing missing-but-optional records should succeed
+    // ref: https://github.com/tafia/calamine/issues/581
     let mut excel: Xls<_> = wb("optional_records.xls");
     let vba = excel.vba_project().unwrap().unwrap();
     let references = vba.get_references();
@@ -2847,4 +2849,16 @@ fn vba_optional_records() {
     );
     let module_names = vba.get_module_names();
     assert_eq!(module_names, vec!["Sheet15"]);
+}
+
+#[test]
+fn biff5_defined_names_and_empty_sheets_612() {
+    // covers a parsing error where biff8 byte layout was assumed
+    // ref: https://github.com/tafia/calamine/issues/612
+    let excel: Xls<_> = wb("misc_biff5_parsing.xls");
+    assert_eq!(excel.sheet_names().len(), 11);
+    assert_eq!(
+        excel.defined_names(),
+        [("test".to_string(), "Sheet10!$L$17".to_string())]
+    );
 }

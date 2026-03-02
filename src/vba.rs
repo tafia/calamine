@@ -442,7 +442,7 @@ fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaE
         let record = read_variable_record(r, 1)?;
         if log_enabled!(Level::Warn) && record.len() > 100_000 {
             warn!(
-                "record id {} as a suspicious huge length of {} (hex: {:x})",
+                "record id {} has a suspicious/huge length of {} (hex: {:x})",
                 id,
                 record.len(),
                 record.len() as u32
