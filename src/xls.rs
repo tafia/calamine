@@ -311,7 +311,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let stream = self
             .cfb
             .get_stream("Workbook", &mut self.reader)
-            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))?;
+            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))
+            .or_else(|_| self.cfb.get_stream("BOOK", &mut self.reader))?;
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
