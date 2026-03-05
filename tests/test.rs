@@ -2862,3 +2862,10 @@ fn biff5_defined_names_and_empty_sheets_612() {
         [("test".to_string(), "Sheet10!$L$17".to_string())]
     );
 }
+
+#[test]
+fn test_capitalized_book_stream() {
+    // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
+    // ref: https://github.com/tafia/calamine/issues/618
+    let _wb: Xls<_> = wb("capitalized_wbook_stream.xls");
+}
