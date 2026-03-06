@@ -328,81 +328,83 @@ impl<RS: Read + Seek> Xls<RS> {
             let wb = &stream;
             let records = RecordIter { stream: wb };
             for record in records {
+                // Record docs/specs -
+                // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/6fba0383-0d7a-4c7a-afe9-642ff70cbd36
                 let mut r = record?;
                 match r.typ {
-                    // 2.4.117 FilePass
+                    // FilePass (MS-XLS 2.4.117)
                     0x002F if read_u16(r.data) != 0 => return Err(XlsError::Password),
-                    // CodePage
+                    // CodePage (MS-XLS 2.4.52)
                     0x0042 => {
                         if self.options.force_codepage.is_none() {
                             encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
                         }
                     }
+                    // RRTabId (MS-XLS 2.4.241)
                     0x013D => {
                         let sheet_len = r.data.len() / 2;
                         sheet_names.reserve(sheet_len);
                         self.metadata.sheets.reserve(sheet_len);
                     }
-                    // Date1904
+                    // DateMode (MS-XLS 2.4.77)
                     0x0022 => {
                         if read_u16(r.data) == 1 {
                             self.is_1904 = true;
                         }
                     }
-                    // 2.4.126 FORMATTING
+                    // Format (MS-XLS 2.4.126)
                     0x041E => match parse_format(&mut r, &encoding, biff) {
                         Ok((idx, format)) => {
                             formats.insert(idx, format);
                         }
                         Err(e) => log::warn!("{e}"),
                     },
-                    // XFS
+                    // XF (MS-XLS 2.4.353)
                     0x00E0 => {
                         xfs.push(parse_xf(&r)?);
                     }
-                    // RRTabId
+                    // BoundSheet8 (MS-XLS 2.4.28)
                     0x0085 => {
                         let (pos, sheet) = parse_sheet_metadata(&mut r, &encoding, biff)?;
                         self.metadata.sheets.push(sheet.clone());
-                        sheet_names.push((pos, sheet.name)); // BoundSheet8
+                        sheet_names.push((pos, sheet.name));
                     }
-                    // BOF
+                    // BOF (MS-XLS 2.4.21)
                     0x0809 => {
                         let bof = parse_bof(&mut r)?;
                         biff = bof.biff;
                     }
-                    0x0018 => {
-                        // Lbl for defined_names
-                        let cch = r.data[3] as usize;
-                        let cce = read_u16(&r.data[4..]) as usize;
-                        let mut name = String::new();
-                        read_unicode_string_no_cch(&encoding, &r.data[14..], &cch, &mut name);
-                        let rgce = &r.data[r.data.len() - cce..];
-                        let formula = parse_defined_names(rgce)?;
-                        defined_names.push((name, formula));
-                    }
-                    0x0017 => {
-                        // ExternSheet
-                        let cxti = read_u16(r.data) as usize;
-                        xtis.extend(r.data[2..].chunks(6).take(cxti).map(|xti| Xti {
-                            _isup_book: read_u16(&xti[..2]),
-                            itab_first: read_i16(&xti[2..4]),
-                            _itab_last: read_i16(&xti[4..]),
-                        }));
-                    }
-                    0x00FC => strings = parse_sst(&mut r, &encoding)?, // SST
+                    // Lbl (MS-XLS 2.4.150)
+                    0x0018 => defined_names.push(parse_lbl(&r, &encoding, biff)?),
+                    // ExternSheet (MS-XLS 2.4.106)
+                    0x0017 => xtis.extend(parse_extern_sheet(&r, biff)),
+                    // SST (MS-XLS 2.4.265)
+                    0x00FC => strings = parse_sst(&mut r, &encoding)?,
                     #[cfg(feature = "picture")]
+                    // MsoDrawingGroup (MS-XLS 2.4.171)
                     0x00EB => {
-                        // MsoDrawingGroup
                         draw_group.extend(r.data);
                         draw_group.extend(r.cont.iter().flat_map(|v| *v));
                     }
-                    0x000A => break, // EOF,
+                    // EOF (MS-XLS 2.4.103)
+                    0x000A => break,
                     _ => (),
                 }
             }
         }
 
+        // Before BIFF8, formula tokens embed sheet indices directly (itabFirst),
+        // so create identity-mapped XTI entries to reuse the BIFF8 lookup code.
+        if matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5) && xtis.is_empty()
+        {
+            xtis = (0..sheet_names.len())
+                .map(|i| Xti {
+                    _isup_book: 0,
+                    itab_first: i as i16,
+                    _itab_last: i as i16,
+                })
+                .collect();
+        }
         self.formats = xfs
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
@@ -608,6 +610,47 @@ fn parse_sheet_metadata(
     let mut name = parse_short_string(r, encoding, biff)?;
     name.retain(|c| c != '\0');
     Ok((pos, Sheet { name, typ, visible }))
+}
+
+fn parse_lbl(
+    r: &Record<'_>,
+    encoding: &XlsEncoding,
+    biff: Biff,
+) -> Result<(String, (Option<usize>, String)), XlsError> {
+    let cch = r.data[3] as usize;
+    let cce = read_u16(&r.data[4..]) as usize;
+    let mut name = String::with_capacity(cch);
+    match biff {
+        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
+            // BIFF5 and earlier: plain byte string, no flags byte
+            encoding.decode_to(&r.data[14..], cch, &mut name, None);
+        }
+        Biff::Biff8 => read_unicode_string_no_cch(encoding, &r.data[14..], &cch, &mut name),
+    }
+    let rgce = &r.data[r.data.len() - cce..];
+    let formula = parse_defined_names(rgce, biff)?;
+    Ok((name, formula))
+}
+
+fn parse_extern_sheet(r: &Record<'_>, biff: Biff) -> Vec<Xti> {
+    match biff {
+        Biff::Biff8 => {
+            // Single record with cXTI count + array of 6-byte XTI structs
+            let cxti = read_u16(r.data) as usize;
+            r.data[2..]
+                .chunks_exact(6)
+                .take(cxti)
+                .map(|xti| Xti {
+                    _isup_book: read_u16(&xti[..2]),
+                    itab_first: read_i16(&xti[2..4]),
+                    _itab_last: read_i16(&xti[4..]),
+                })
+                .collect()
+        }
+        // BIFF5 and earlier: individual sheet name references; formula
+        // tokens embed sheet indices directly, so no XTI table needed.
+        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => Vec::new(),
+    }
 }
 
 fn parse_number(r: &[u8], formats: &[CellFormat], is_1904: bool) -> Result<Cell<Data>, XlsError> {
@@ -1136,10 +1179,17 @@ impl<'a> Iterator for RecordIter<'a> {
     }
 }
 
+/// Write an absolute cell reference (eg: `$B$3`) into `f`.
+fn write_absolute_cell_ref(f: &mut String, col: u32, row: u32) {
+    f.push('$');
+    push_column(col, f);
+    write!(f, "${}", row + 1).unwrap();
+}
+
 /// Formula parsing
 ///
 /// Does not implement ALL possibilities, only Area are parsed
-fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError> {
+fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String), XlsError> {
     if rgce.is_empty() {
         // TODO: do something better here ...
         return Ok((None, "empty rgce".to_string()));
@@ -1148,35 +1198,69 @@ fn parse_defined_names(rgce: &[u8]) -> Result<(Option<usize>, String), XlsError>
     let res = match ptg {
         0x3a | 0x5a | 0x7a => {
             // PtgRef3d
-            let ixti = read_u16(&rgce[1..3]) as usize;
-            let mut f = String::new();
+            let (sheet_idx, row, col) = match biff {
+                Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
+                    // ixals(2) + reserved(8) + itabFirst(2) + itabLast(2) + row(2) + col(1)
+                    (
+                        read_u16(&rgce[11..13]) as usize,
+                        read_u16(&rgce[15..17]) as u32 & 0x3FFF,
+                        rgce[17] as u32,
+                    )
+                }
+                Biff::Biff8 => {
+                    // ixti(2) + row(2) + col(2)
+                    (
+                        read_u16(&rgce[1..3]) as usize,
+                        read_u16(&rgce[3..5]) as u32,
+                        read_u16(&rgce[5..7]) as u32,
+                    )
+                }
+            };
             // TODO: check with relative columns
-            f.push('$');
-            push_column(read_u16(&rgce[5..7]) as u32, &mut f);
-            f.push('$');
-            f.push_str(&format!("{}", read_u16(&rgce[3..5]) as u32 + 1));
-            (Some(ixti), f)
+            let mut f = String::new();
+            write_absolute_cell_ref(&mut f, col, row);
+            (Some(sheet_idx), f)
         }
         0x3b | 0x5b | 0x7b => {
             // PtgArea3d
-            let ixti = read_u16(&rgce[1..3]) as usize;
-            let mut f = String::new();
+            let (sheet_idx, row_first, row_last, col_first, col_last) = match biff {
+                Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
+                    // ixals(2) + reserved(8) + itabFirst(2) + itabLast(2) + rowFirst(2) + rowLast(2) + colFirst(1) + colLast(1)
+                    (
+                        read_u16(&rgce[11..13]) as usize,
+                        read_u16(&rgce[15..17]) as u32 & 0x3FFF,
+                        read_u16(&rgce[17..19]) as u32 & 0x3FFF,
+                        rgce[19] as u32,
+                        rgce[20] as u32,
+                    )
+                }
+                Biff::Biff8 => {
+                    // ixti(2) + rowFirst(2) + rowLast(2) + colFirst(2) + colLast(2)
+                    (
+                        read_u16(&rgce[1..3]) as usize,
+                        read_u16(&rgce[3..5]) as u32,
+                        read_u16(&rgce[5..7]) as u32,
+                        read_u16(&rgce[7..9]) as u32,
+                        read_u16(&rgce[9..11]) as u32,
+                    )
+                }
+            };
             // TODO: check with relative columns
-            f.push('$');
-            push_column(read_u16(&rgce[7..9]) as u32, &mut f);
-            f.push('$');
-            write!(&mut f, "{}", read_u16(&rgce[3..5]) as u32 + 1).unwrap();
+            let mut f = String::new();
+            write_absolute_cell_ref(&mut f, col_first, row_first);
             f.push(':');
-            f.push('$');
-            push_column(read_u16(&rgce[9..11]) as u32, &mut f);
-            f.push('$');
-            write!(&mut f, "{}", read_u16(&rgce[5..7]) as u32 + 1).unwrap();
-            (Some(ixti), f)
+            write_absolute_cell_ref(&mut f, col_last, row_last);
+            (Some(sheet_idx), f)
         }
         0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
-            // PtgAreaErr3d or PtfRefErr3d
-            let ixti = read_u16(&rgce[1..3]) as usize;
-            (Some(ixti), "#REF!".to_string())
+            // PtgAreaErr3d or PtgRefErr3d
+            let sheet_idx = match biff {
+                Biff::Biff8 => read_u16(&rgce[1..3]) as usize,
+                Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
+                    read_u16(&rgce[11..13]) as usize
+                }
+            };
+            (Some(sheet_idx), "#REF!".to_string())
         }
         _ => (None, format!("Unsupported ptg: {ptg:x}")),
     };
