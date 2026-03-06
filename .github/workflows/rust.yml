@@ -44,7 +44,7 @@ jobs:
     - name: Clippy checks
       if: ${{ matrix.toolchain == 'stable' }}
       run: |
-        cargo clippy --lib --examples --tests -- -Dwarnings
+        cargo clippy --all-targets --all-features -- -Dwarnings
 
   wasm:
     runs-on: ubuntu-24.04
