@@ -7,7 +7,7 @@ mod cells_reader;
 pub use cells_reader::XlsbCellsReader;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek};
 
 use log::debug;
@@ -168,8 +168,8 @@ pub struct Xlsb<RS> {
 
 impl<RS: Read + Seek> Xlsb<RS> {
     /// MS-XLSB
-    fn read_relationships(&mut self) -> Result<BTreeMap<Vec<u8>, String>, XlsbError> {
-        let mut relationships = BTreeMap::new();
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
+        let mut relationships = HashMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
                 let mut xml = XmlReader::from_reader(BufReader::new(f));
@@ -232,7 +232,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 Err(_) => return Ok(()), // it is fine if path does not exists
             };
         let mut buf = Vec::with_capacity(1024);
-        let mut number_formats = BTreeMap::new();
+        let mut number_formats = HashMap::new();
 
         loop {
             match iter.read_type()? {
@@ -308,10 +308,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_workbook(
-        &mut self,
-        relationships: &BTreeMap<Vec<u8>, String>,
-    ) -> Result<(), XlsbError> {
+    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsbError> {
         let mut iter =
             RecordIter::from_zip(&mut self.zip, "xl/workbook.bin", &self.zip_path_cache)?;
         let mut buf = Vec::with_capacity(1024);
@@ -329,7 +326,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     if rel_len != 0xFFFF_FFFF {
                         let rel_len = rel_len as usize * 2;
                         let relid = &buf[12..12 + rel_len];
-                        // converts utf16le to utf8 for BTreeMap search
+                        // converts utf16le to utf8 for HashMap search
                         let relid = UTF_16LE.decode(relid).0;
                         let path = format!("xl/{}", relationships[relid.as_bytes()]);
                         // ST_SheetState
