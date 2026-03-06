@@ -2819,3 +2819,32 @@ fn test_pivot_table_cache_match() {
         .collect::<Vec<_>>();
     assert_eq!(results1, results2);
 }
+
+#[test]
+fn vba_optional_records() {
+    let mut excel: Xls<_> = wb("optional_records.xls");
+    let vba = excel.vba_project().unwrap().unwrap();
+    let references = vba.get_references();
+    assert_eq!(
+        references,
+        [
+            Reference {
+                name: "stdole".to_string(),
+                description: "OLE Automation".to_string(),
+                path: "C:\\WINNT\\System32\\StdOle2.Tlb".into(),
+            },
+            Reference {
+                name: "MSForms".to_string(),
+                description: "Microsoft Forms 2.0 Object Library".to_string(),
+                path: "C:\\WINNT\\System32\\MSForms.TWD".into(),
+            },
+            Reference {
+                name: "Office".to_string(),
+                description: "Microsoft Office 8.0 Object Library".to_string(),
+                path: "C:\\Program Files\\Microsoft Office\\Office\\MSO97.DLL".into(),
+            },
+        ]
+    );
+    let module_names = vba.get_module_names();
+    assert_eq!(module_names, vec!["Sheet15"]);
+}
