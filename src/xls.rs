@@ -763,10 +763,11 @@ fn parse_short_string(
     encoding: &XlsEncoding,
     biff: Biff,
 ) -> Result<String, XlsError> {
-    if r.data.len() < 2 {
+    let biff8 = matches!(biff, Biff::Biff8);
+    if r.data.is_empty() || r.data.len() < 2 && biff8 {
         return Err(XlsError::Len {
             typ: "short string",
-            expected: 2,
+            expected: if biff8 { 2 } else { 1 },
             found: r.data.len(),
         });
     }
@@ -775,7 +776,7 @@ fn parse_short_string(
     r.data = &r.data[1..];
     let mut high_byte = None;
 
-    if matches!(biff, Biff::Biff8) {
+    if biff8 {
         high_byte = Some(r.data[0] & 0x1 != 0);
         r.data = &r.data[1..];
     }
