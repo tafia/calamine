@@ -307,11 +307,19 @@ struct Xti {
 
 impl<RS: Read + Seek> Xls<RS> {
     fn parse_workbook(&mut self) -> Result<(), XlsError> {
+        use super::cfb::CfbError::StreamNotFound;
         // gets workbook and worksheets stream, or early exit
-        let stream = self
+        let stream = match self
             .cfb
             .get_stream("Workbook", &mut self.reader)
-            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))?;
+            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))
+            .or_else(|_| self.cfb.get_stream("WORKBOOK", &mut self.reader))
+            .or_else(|_| self.cfb.get_stream("BOOK", &mut self.reader))
+        {
+            Ok(s) => s,
+            Err(StreamNotFound(_)) => return Err(StreamNotFound("Workbook".to_string()).into()),
+            Err(e) => return Err(e.into()),
+        };
 
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
