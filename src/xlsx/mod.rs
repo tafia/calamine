@@ -1845,48 +1845,42 @@ pub(crate) fn get_row(range: &[u8]) -> Result<u32, XlsxError> {
     get_row_and_optional_column(range).map(|(row, _)| row)
 }
 
-/// Converts a text range name into its position (row, column) (0 based index).
-/// If the row component in the range is missing, an Error is returned.
-/// If the column component in the range is missing, an None is returned for the column.
+/// Converts a text-based range name into its `(row, column)` position (0-based index).
+/// If the column component of the range is missing, a None is returned (for the column).
+/// If the row component of the range is missing, an Error is returned.
 fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxError> {
-    let (mut row, mut col) = (0, 0);
-    let mut pow = 1;
-    let mut readrow = true;
-    for c in range.iter().rev() {
-        match *c {
+    let len = range.len();
+    let mut i = 0;
+
+    // Column: accumulate base-26 from letters
+    // (eg: A=1, B=2, ..., Z=26, AA=27, ..., AZ=52, ..., etc)
+    let mut col: u32 = 0;
+    let mut row: u32 = 0;
+    while i < len {
+        match range[i] {
+            c @ b'A'..=b'Z' => col = col * 26 + (c - b'A') as u32 + 1,
+            c @ b'a'..=b'z' => col = col * 26 + (c - b'a') as u32 + 1,
             c @ b'0'..=b'9' => {
-                if readrow {
-                    row += ((c - b'0') as u32) * pow;
-                    pow *= 10;
-                } else {
-                    return Err(XlsxError::NumericColumn(c));
-                }
+                // on first digit, capture it and transition to the row loop
+                row = (c - b'0') as u32;
+                i += 1;
+                break;
             }
-            c @ b'A'..=b'Z' => {
-                if readrow {
-                    if row == 0 {
-                        return Err(XlsxError::RangeWithoutRowComponent);
-                    }
-                    pow = 1;
-                    readrow = false;
-                }
-                col += ((c - b'A') as u32 + 1) * pow;
-                pow *= 26;
-            }
-            c @ b'a'..=b'z' => {
-                if readrow {
-                    if row == 0 {
-                        return Err(XlsxError::RangeWithoutRowComponent);
-                    }
-                    pow = 1;
-                    readrow = false;
-                }
-                col += ((c - b'a') as u32 + 1) * pow;
-                pow *= 26;
-            }
-            _ => return Err(XlsxError::Alphanumeric(*c)),
+            c => return Err(XlsxError::Alphanumeric(c)),
         }
+        i += 1;
     }
+
+    // Row: accumulate base-10 from remaining digits (1-based in source)
+    while i < len {
+        match range[i] {
+            c @ b'0'..=b'9' => row = row * 10 + (c - b'0') as u32,
+            c => return Err(XlsxError::Alphanumeric(c)),
+        }
+        i += 1;
+    }
+
+    // Convert from 1-based to 0-based (col=0 means no column found)
     let row = row
         .checked_sub(1)
         .ok_or(XlsxError::RangeWithoutRowComponent)?;
