@@ -684,7 +684,10 @@ where
         match a.key {
             QName(b"office:value") if !is_value_set => {
                 let v = reader.decoder().decode(&a.value)?;
-                val = Data::Float(v.parse()?);
+                val = Data::Float(
+                    fast_float2::parse(v.as_bytes())
+                        .map_err(|_| OdsError::ParseFloat(v.parse::<f64>().unwrap_err()))?,
+                );
                 is_value_set = true;
             }
             QName(b"office:string-value" | b"office:date-value" | b"office:time-value")

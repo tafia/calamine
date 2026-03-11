@@ -941,8 +941,14 @@ impl ExcelDateTime {
 
         // Get the time part of the Excel datetime.
         let time = excel_datetime.fract();
-        let milli = ((time * DAY_SECONDS).fract() * 1000.0).round() as u64;
-        let day_as_seconds = (time * DAY_SECONDS) as u64;
+        let mut milli = ((time * DAY_SECONDS).fract() * 1000.0).round() as u64;
+        let mut day_as_seconds = (time * DAY_SECONDS) as u64;
+
+        // Handle millisecond overflow due to rounding.
+        if milli == 1000 {
+            day_as_seconds += 1;
+            milli = 0;
+        }
 
         // Calculate the hours, minutes and seconds in the day.
         let hour = day_as_seconds / HOUR_SECONDS;
@@ -1097,6 +1103,7 @@ mod tests {
         #[allow(clippy::excessive_precision)]
         let test_data = vec![
             (0.0, (1899, 12, 31, 0, 0, 0, 0)),
+            (0.99998842592, (1899, 12, 31, 23, 59, 59, 0)),
             (30188.010650613425, (1982, 8, 25, 0, 15, 20, 213)),
             (60376.011670023145, (2065, 4, 19, 0, 16, 48, 290)),
             (90565.038488958337, (2147, 12, 15, 0, 55, 25, 446)),

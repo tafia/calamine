@@ -107,7 +107,8 @@ impl Cfb {
 
         // get the list of directory sectors
         debug!("load directories");
-        let dirs = sectors.get_chain(h.dir_start, &fats, reader, h.dir_len * sector_size)?;
+        // we want to read the full chain, so pass no size restriction
+        let dirs = sectors.get_chain(h.dir_start, &fats, reader, usize::MAX)?;
         let dirs = dirs
             .chunks(128)
             .map(|c| Directory::from_slice(c, h.sector_size))
@@ -168,7 +169,6 @@ impl Cfb {
 struct Header {
     version: u16,
     sector_size: SectorSize,
-    dir_len: usize,
     dir_start: u32,
     fat_len: usize,
     mini_fat_len: usize,
@@ -223,7 +223,6 @@ impl Header {
             });
         }
 
-        let dir_len = read_usize(&buf[40..44]);
         let fat_len = read_usize(&buf[44..48]);
         let dir_start = read_u32(&buf[48..52]);
         let mini_fat_start = read_u32(&buf[60..64]);
@@ -238,7 +237,6 @@ impl Header {
             Header {
                 version,
                 sector_size,
-                dir_len,
                 dir_start,
                 fat_len,
                 mini_fat_len,
@@ -293,13 +291,16 @@ impl Sectors {
         r: &mut R,
         len: usize,
     ) -> Result<Vec<u8>, CfbError> {
-        let mut chain = Vec::with_capacity(len);
+        let mut chain = Vec::new();
         while sector_id != ENDOFCHAIN {
-            chain.extend_from_slice(self.get(sector_id, r)?);
+            let sector = self.get(sector_id, r)?;
+            let remaining = len - chain.len();
+            let to_copy = sector.len().min(remaining);
+            chain.extend_from_slice(&sector[..to_copy]);
+            if chain.len() >= len {
+                break;
+            }
             sector_id = fats[sector_id as usize];
-        }
-        if len > 0 {
-            chain.truncate(len);
         }
         Ok(chain)
     }

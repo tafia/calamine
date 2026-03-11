@@ -1,6 +1,6 @@
 [package]
 name = "calamine"
-version = "0.33.0"
+version = "0.34.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 repository = "https://github.com/tafia/calamine"
 documentation = "https://docs.rs/calamine"
@@ -22,7 +22,7 @@ byteorder = "1.5"
 encoding_rs = "0.8"
 fast-float2 = "0.2"
 zip = { version = "7.0", default-features = false, features = ["deflate"] }
-quick-xml = { version = "0.38", features = ["encoding"] }
+quick-xml = { version = "0.39", features = ["encoding"] }
 
 # Optional dependencies.
 chrono = { version = "0.4", features = ["serde"], optional = true, default-features = false }
@@ -33,6 +33,11 @@ sha2 = "0.10"
 env_logger = "0.11"
 serde_derive = "1.0"
 rstest = { version = "0.26", default-features = false }
+criterion = { version = "0.7", features = ["html_reports"] }
+
+[[bench]]
+name = "basic"
+harness = false
 
 [features]
 default = []

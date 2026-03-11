@@ -7,14 +7,14 @@ use quick_xml::{
     name::QName,
 };
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, Cow},
     collections::HashMap,
     io::{Read, Seek},
 };
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, read_string, replace_cell_names,
-    Dimensions, XlReader,
+    get_attribute, get_dimension, get_row, get_row_column, read_string_with_bufs,
+    replace_cell_names, Dimensions, XlReader,
 };
 use crate::{
     datatype::DataRef,
@@ -24,6 +24,30 @@ use crate::{
 };
 
 type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
+
+/// Workbook-level context used when reading cell values.
+struct WorkbookContext<'a> {
+    strings: &'a [String],
+    formats: &'a [CellFormat],
+    is_1904: bool,
+}
+
+/// Reusable scratch buffers for cell value parsing (avoid per-cell allocations).
+struct ValueBufs {
+    xml: Vec<u8>,
+    value: String,
+    str_inner: Vec<u8>,
+}
+
+impl ValueBufs {
+    fn new() -> Self {
+        Self {
+            xml: Vec::with_capacity(1024),
+            value: String::with_capacity(64),
+            str_inner: Vec::with_capacity(1024),
+        }
+    }
+}
 
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a, RS>
@@ -39,6 +63,7 @@ where
     col_index: u32,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
+    value_bufs: ValueBufs,
     formulas: Vec<Option<(String, FormulaMap)>>,
 }
 
@@ -99,6 +124,7 @@ where
             col_index: 0,
             buf: Vec::with_capacity(1024),
             cell_buf: Vec::with_capacity(1024),
+            value_bufs: ValueBufs::new(),
             formulas: Vec::with_capacity(1024),
         })
     }
@@ -123,8 +149,24 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                    let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
-                    let pos = if let Some(range) = attribute {
+                    // Extract all needed attributes in one pass (avoids calling
+                    // `get_attribute` multiple times as each re-iterates).
+                    let mut pos_attr = None;
+                    let mut style_attr = None;
+                    let mut type_attr = None;
+                    for a in c_element.attributes() {
+                        let a = a.map_err(XlsxError::XmlAttr)?;
+                        let Cow::Borrowed(val) = a.value else {
+                            continue;
+                        };
+                        match a.key {
+                            QName(b"r") => pos_attr = Some(val),
+                            QName(b"s") => style_attr = Some(val),
+                            QName(b"t") => type_attr = Some(val),
+                            _ => {}
+                        }
+                    }
+                    let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
                         (row, col)
@@ -136,13 +178,18 @@ where
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
                             Ok(Event::Start(e)) => {
+                                let ctx = WorkbookContext {
+                                    strings: self.strings,
+                                    formats: self.formats,
+                                    is_1904: self.is_1904,
+                                };
                                 value = read_value(
-                                    self.strings,
-                                    self.formats,
-                                    self.is_1904,
+                                    &ctx,
                                     &mut self.xml,
                                     &e,
-                                    &c_element,
+                                    style_attr,
+                                    type_attr,
+                                    &mut self.value_bufs,
                                 )?;
                             }
                             Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
@@ -280,13 +327,15 @@ where
     }
 }
 
+/// Reads a cell value using pre-extracted `s` and `t` attributes
+/// (avoids repeating attribute iteration on the `<c>` element).
 fn read_value<'s, RS>(
-    strings: &'s [String],
-    formats: &[CellFormat],
-    is_1904: bool,
+    ctx: &WorkbookContext<'s>,
     xml: &mut XlReader<'_, RS>,
     e: &BytesStart<'_>,
-    c_element: &BytesStart<'_>,
+    style_attr: Option<&[u8]>,
+    type_attr: Option<&[u8]>,
+    bufs: &mut ValueBufs,
 ) -> Result<DataRef<'s>, XlsxError>
 where
     RS: Read + Seek,
@@ -294,52 +343,56 @@ where
     Ok(match e.local_name().as_ref() {
         b"is" => {
             // inlineStr
-            read_string(xml, e.name())?.map_or(DataRef::Empty, DataRef::String)
+            read_string_with_bufs(xml, e.name(), &mut bufs.xml, &mut bufs.str_inner)?
+                .map_or(DataRef::Empty, DataRef::String)
         }
         b"v" => {
             // value
-            let mut v = String::new();
-            let mut v_buf = Vec::new();
+            bufs.value.clear();
             loop {
-                v_buf.clear();
-                match xml.read_event_into(&mut v_buf)? {
-                    Event::Text(t) => v.push_str(&t.xml10_content()?),
-                    Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut v)?,
+                bufs.xml.clear();
+                match xml.read_event_into(&mut bufs.xml)? {
+                    Event::Text(t) => bufs.value.push_str(&t.xml10_content()?),
+                    Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut bufs.value)?,
                     Event::End(end) if end.name() == e.name() => break,
                     Event::Eof => return Err(XlsxError::XmlEof("v")),
                     _ => (),
                 }
             }
-            read_v(v, strings, formats, c_element, is_1904)?
+            read_v(ctx, &mut bufs.value, style_attr, type_attr)?
         }
         b"f" => {
-            xml.read_to_end_into(e.name(), &mut Vec::new())?;
+            bufs.xml.clear();
+            xml.read_to_end_into(e.name(), &mut bufs.xml)?;
             DataRef::Empty
         }
         _n => return Err(XlsxError::UnexpectedNode("v, f, or is")),
     })
 }
 
-/// read the contents of a <v> cell
+/// Read the contents of a `<v>` cell using pre-extracted `s` and `t` attributes.
+/// Takes `v` by mutable reference to allow for buffer reuse across cells.
 fn read_v<'s>(
-    v: String,
-    strings: &'s [String],
-    formats: &[CellFormat],
-    c_element: &BytesStart<'_>,
-    is_1904: bool,
+    ctx: &WorkbookContext<'s>,
+    v: &mut String,
+    style_attr: Option<&[u8]>,
+    type_attr: Option<&[u8]>,
 ) -> Result<DataRef<'s>, XlsxError> {
-    let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
-        Ok(Some(style)) => {
+    let cell_format = match style_attr {
+        Some(style) => {
             let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
-            formats.get(id)
+            ctx.formats.get(id)
         }
         _ => Some(&CellFormat::Other),
     };
-    match get_attribute(c_element.attributes(), QName(b"t"))? {
+    match type_attr {
         Some(b"s") => {
+            if v.is_empty() {
+                return Ok(DataRef::Empty);
+            }
             // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
-            match strings.get(idx) {
+            match ctx.strings.get(idx) {
                 Some(shared_string) => Ok(DataRef::SharedString(shared_string)),
                 None => Err(XlsxError::Unexpected(
                     "Cell string index not found in shared strings table",
@@ -348,36 +401,36 @@ fn read_v<'s>(
         }
         Some(b"b") => {
             // boolean
-            Ok(DataRef::Bool(v != "0"))
+            Ok(DataRef::Bool(v.as_str() != "0"))
         }
         Some(b"e") => {
             // error
             Ok(DataRef::Error(v.parse()?))
         }
         Some(b"d") => {
-            // date
-            Ok(DataRef::DateTimeIso(v))
+            // date (needs owned String)
+            Ok(DataRef::DateTimeIso(std::mem::take(v)))
         }
         Some(b"str") => {
-            // string
-            Ok(DataRef::String(v))
+            // string (needs owned String)
+            Ok(DataRef::String(std::mem::take(v)))
         }
         Some(b"n") => {
             // n - number
             if v.is_empty() {
                 Ok(DataRef::Empty)
             } else {
-                v.parse()
-                    .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
-                    .map_err(XlsxError::ParseFloat)
+                fast_float2::parse::<f64, _>(v.as_bytes())
+                    .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
+                    .map_err(|_| XlsxError::ParseFloat(v.parse::<f64>().unwrap_err()))
             }
         }
         None => {
             // If type is not known, we try to parse as Float for utility, but fall back to
             // String if this fails.
-            v.parse()
-                .map(|n| format_excel_f64_ref(n, cell_format, is_1904))
-                .or(Ok(DataRef::String(v)))
+            fast_float2::parse::<f64, _>(v.as_bytes())
+                .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
+                .or(Ok(DataRef::String(std::mem::take(v))))
         }
         Some(b"is") => {
             // this case should be handled in outer loop over cell elements, in which

@@ -363,52 +363,54 @@ fn read_modules(stream: &mut &[u8], encoding: &XlsEncoding) -> Result<Vec<Module
 
     let module_len = stream.read_u16::<LittleEndian>()? as usize;
 
-    *stream = &stream[8..]; // PROJECTCOOKIE record
+    // PROJECTCOOKIE record: Id (2 bytes), Size (4 bytes), Cookie (2 bytes)
+    *stream = &stream[8..];
     let mut modules = Vec::with_capacity(module_len);
 
     for _ in 0..module_len {
-        // name
-        let name = check_variable_record(0x0019, stream)?;
+        let name = check_variable_record(0x0019, stream)?; // NameRecord
         let name = encoding.decode_all(name);
 
-        check_variable_record(0x0047, stream)?; // unicode
+        check_variable_record(0x0047, stream)?; // NameUnicodeRecord
 
-        let stream_name = check_variable_record(0x001A, stream)?; // stream name
+        let stream_name = check_variable_record(0x001A, stream)?;
         let stream_name = encoding.decode_all(stream_name);
 
-        check_variable_record(0x0032, stream)?; // stream name unicode
-        check_variable_record(0x001C, stream)?; // doc string
-        check_variable_record(0x0048, stream)?; // doc string unicode
+        check_variable_record(0x0032, stream)?; // StreamNameUnicode
+        check_variable_record(0x001C, stream)?; // StreamNameRecord
+        check_variable_record(0x0048, stream)?; // DocStringUnicode
 
-        // offset
-        check_record(0x0031, stream)?;
+        check_record(0x0031, stream)?; // OffsetRecord (10 bytes)
         *stream = &stream[4..];
         let offset = stream.read_u32::<LittleEndian>()? as usize;
 
-        // help context
-        check_record(0x001E, stream)?;
+        check_record(0x001E, stream)?; // HelpContextRecord (10 bytes)
         *stream = &stream[8..];
 
-        // cookie
-        check_record(0x002C, stream)?;
+        check_record(0x002C, stream)?; // CookieRecord (8 bytes)
         *stream = &stream[6..];
 
+        // TypeRecord (6 bytes)
         match stream.read_u16::<LittleEndian>()? {
             0x0021 /* procedural module */ |
             0x0022 /* document, class or designer module */ => (),
             e => return Err(VbaError::Unknown { typ: "module typ", val: e }),
         }
-
         loop {
-            *stream = &stream[4..]; // reserved
+            *stream = &stream[4..]; // reserved (4 bytes)
             match stream.read_u16::<LittleEndian>() {
-                Ok(0x0025 /* readonly */ | 0x0028 /* private */) => (),
-                Ok(0x002B) => break,
-                Ok(e) => return Err(VbaError::Unknown { typ: "record id", val: e }),
+                Ok(0x0025 | 0x0028) => (), // ReadOnlyRecord | PrivateRecord (6 bytes each)
+                Ok(0x002B) => break,       // Terminator (2 bytes)
+                Ok(e) => {
+                    return Err(VbaError::Unknown {
+                        typ: "record id",
+                        val: e,
+                    })
+                }
                 Err(e) => return Err(VbaError::Io(e)),
             }
         }
-        *stream = &stream[4..]; // reserved
+        *stream = &stream[4..]; // reserved (4 bytes)
 
         modules.push(Module {
             name,
@@ -432,17 +434,22 @@ fn read_variable_record<'a>(r: &mut &'a [u8], mult: usize) -> Result<&'a [u8], V
 
 /// Check that next record matches `id` and returns a variable length record
 fn check_variable_record<'a>(id: u16, r: &mut &'a [u8]) -> Result<&'a [u8], VbaError> {
-    check_record(id, r)?;
-    let record = read_variable_record(r, 1)?;
-    if log_enabled!(Level::Warn) && record.len() > 100_000 {
-        warn!(
-            "record id {} as a suspicious huge length of {} (hex: {:x})",
-            id,
-            record.len(),
-            record.len() as u32
-        );
+    if id == 0x0047 && (r.len() < 2 || read_u16(&r[..2]) != id) {
+        Ok(&[]) // NameUnicodeRecord (0x0047) is optional
+    } else {
+        // id must match; consume and read variable-length payload
+        check_record(id, r)?;
+        let record = read_variable_record(r, 1)?;
+        if log_enabled!(Level::Warn) && record.len() > 100_000 {
+            warn!(
+                "record id {} has a suspicious/huge length of {} (hex: {:x})",
+                id,
+                record.len(),
+                record.len() as u32
+            );
+        }
+        Ok(record)
     }
-    Ok(record)
 }
 
 /// Check that next record matches `id`
