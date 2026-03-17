@@ -33,7 +33,12 @@ sha2 = "0.10"
 env_logger = "0.11"
 serde_derive = "1.0"
 rstest = { version = "0.26", default-features = false }
+rust_xlsxwriter = "0.93"
 criterion = { version = "0.7", features = ["html_reports"] }
+
+[[example]]
+name = "generate_styles_1M"
+path = "benches/generate_styles_1M.rs"
 
 [[bench]]
 name = "basic"
