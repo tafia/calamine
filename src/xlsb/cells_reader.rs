@@ -8,7 +8,7 @@ use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::{read_f64, read_i32, read_u32, read_usize},
-    Cell, CellErrorType, Dimensions, XlsbError,
+    Cell, CellErrorType, ColNum, Dimensions, XlsbError,
 };
 
 use super::{cell_format, parse_formula, wide_str, RecordIter};
@@ -157,7 +157,7 @@ where
             };
             break value;
         };
-        let col = read_u32(&self.buf);
+        let col = read_u32(&self.buf) as ColNum;
         Ok(Some(Cell::new((self.row, col), value)))
     }
 
@@ -203,14 +203,14 @@ where
             };
             break value;
         };
-        let col = read_u32(&self.buf);
+        let col = read_u32(&self.buf) as ColNum;
         Ok(Some(Cell::new((self.row, col), value)))
     }
 }
 
 fn parse_dimensions(buf: &[u8]) -> Dimensions {
     Dimensions {
-        start: (read_u32(&buf[0..4]), read_u32(&buf[8..12])),
-        end: (read_u32(&buf[4..8]), read_u32(&buf[12..16])),
+        start: (read_u32(&buf[0..4]), read_u32(&buf[8..12]) as ColNum),
+        end: (read_u32(&buf[4..8]), read_u32(&buf[12..16]) as ColNum),
     }
 }
