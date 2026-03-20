@@ -1976,7 +1976,7 @@ fn non_monotonic_si_shared_formula() {
     for (row_idx, row) in expected_formulas.iter().enumerate() {
         for (col_idx, expected_formula) in row.iter().enumerate() {
             assert_eq!(
-                formula.get_value((row_idx as u32 + 1, col_idx as u32)),
+                formula.get_value((row_idx as u32 + 1, col_idx as u16)),
                 Some(&expected_formula.to_string())
             );
         }
@@ -1994,7 +1994,7 @@ fn issue_565_multi_axis_shared_formula() {
     for (row_idx, row) in expected_formulas.iter().enumerate() {
         for (col_idx, expected_formula) in row.iter().enumerate() {
             assert_eq!(
-                formula.get_value((row_idx as u32, col_idx as u32)),
+                formula.get_value((row_idx as u32, col_idx as u16)),
                 Some(&expected_formula.to_string())
             );
         }
@@ -2044,7 +2044,7 @@ fn issue_567_absolute_shared_formula() {
     for (row_idx, row) in expected_formulas.iter().enumerate() {
         for (col_idx, expected_formula) in row.iter().enumerate() {
             assert_eq!(
-                formula.get_value((row_idx as u32, col_idx as u32)),
+                formula.get_value((row_idx as u32, col_idx as u16)),
                 Some(&expected_formula.to_string())
             );
         }
@@ -2070,7 +2070,7 @@ fn column_row_ranges() {
     for (row_idx, row) in expected_formulas.iter().enumerate() {
         for (col_idx, expected_formula) in row.iter().enumerate() {
             assert_eq!(
-                formula.get_value((row_idx as u32, col_idx as u32)),
+                formula.get_value((row_idx as u32, col_idx as u16)),
                 Some(&expected_formula.to_string()),
                 "Column ranges mismatch at ({}, {})",
                 row_idx,
@@ -2091,7 +2091,7 @@ fn column_row_ranges() {
     for (row_idx, row) in expected_formulas.iter().enumerate() {
         for (col_idx, expected_formula) in row.iter().enumerate() {
             assert_eq!(
-                formula.get_value((row_idx as u32, col_idx as u32)),
+                formula.get_value((row_idx as u32, col_idx as u16)),
                 Some(&expected_formula.to_string()),
                 "Row ranges mismatch at ({}, {})",
                 row_idx,
@@ -2224,8 +2224,8 @@ fn test_ref_xlsb() {
 fn test_header_row_xlsx(
     #[case] fixture_path: &str,
     #[case] header_row: HeaderRow,
-    #[case] expected_start: (u32, u32),
-    #[case] expected_end: (u32, u32),
+    #[case] expected_start: (u32, u16),
+    #[case] expected_end: (u32, u16),
     #[case] expected_first_row: &[Data],
     #[case] expected_total_cells: usize,
 ) {

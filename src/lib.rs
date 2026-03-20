@@ -113,6 +113,14 @@ pub use crate::xlsx::{Xlsx, XlsxError};
 
 use crate::vba::VbaProject;
 
+/// Integer type to represent a zero indexed row number. The Excel and ODS limit
+/// for rows in a worksheet is 1,048,576.
+pub type RowNum = u32;
+
+/// Integer type to represent a zero indexed column number. The Excel and ODS
+/// limit for columns in a worksheet is 16,384.
+pub type ColNum = u16;
+
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
 /// An enum to represent all different errors that can appear as
 /// a value in a worksheet cell
@@ -155,24 +163,24 @@ impl fmt::Display for CellErrorType {
 #[derive(Debug, Default, PartialEq, Eq, Hash, Ord, PartialOrd, Copy, Clone)]
 pub struct Dimensions {
     /// start: (row, col)
-    pub start: (u32, u32),
+    pub start: (RowNum, ColNum),
     /// end: (row, col)
-    pub end: (u32, u32),
+    pub end: (RowNum, ColNum),
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Dimensions {
     /// create dimensions info with start position and end position
-    pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
+    pub fn new(start: (RowNum, ColNum), end: (RowNum, ColNum)) -> Self {
         Self { start, end }
     }
     /// check if a position is in it
-    pub fn contains(&self, row: u32, col: u32) -> bool {
+    pub fn contains(&self, row: RowNum, col: ColNum) -> bool {
         row >= self.start.0 && row <= self.end.0 && col >= self.start.1 && col <= self.end.1
     }
     /// len
     pub fn len(&self) -> u64 {
-        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 as u64 - self.start.1 as u64 + 1)
     }
 }
 
@@ -261,7 +269,7 @@ pub enum HeaderRow {
     #[default]
     FirstNonEmptyRow,
     /// Index of the header row
-    Row(u32),
+    Row(RowNum),
 }
 
 // FIXME `Reader` must only be seek `Seek` for `Xls::xls`. Because of the present API this limits
@@ -472,7 +480,7 @@ impl CellType for usize {} // for tests
 #[derive(Debug, Clone)]
 pub struct Cell<T: CellType> {
     // The position for the cell (row, column).
-    pos: (u32, u32),
+    pos: (RowNum, ColNum),
 
     // The [`CellType`] value of the cell.
     val: T,
@@ -500,7 +508,7 @@ impl<T: CellType> Cell<T> {
     /// assert_eq!(&Data::Int(42), cell.get_value());
     /// ```
     ///
-    pub fn new(position: (u32, u32), value: T) -> Cell<T> {
+    pub fn new(position: (RowNum, ColNum), value: T) -> Cell<T> {
         Cell {
             pos: position,
             val: value,
@@ -521,7 +529,7 @@ impl<T: CellType> Cell<T> {
     /// assert_eq!((1, 2), cell.get_position());
     /// ```
     ///
-    pub fn get_position(&self) -> (u32, u32) {
+    pub fn get_position(&self) -> (RowNum, ColNum) {
         self.pos
     }
 
@@ -591,8 +599,8 @@ impl<T: CellType> Cell<T> {
 ///
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Range<T> {
-    start: (u32, u32),
-    end: (u32, u32),
+    start: (RowNum, ColNum),
+    end: (RowNum, ColNum),
     inner: Vec<T>,
 }
 
@@ -635,12 +643,15 @@ impl<T: CellType> Range<T> {
     ///
     ///
     #[inline]
-    pub fn new(start: (u32, u32), end: (u32, u32)) -> Range<T> {
+    pub fn new(start: (RowNum, ColNum), end: (RowNum, ColNum)) -> Range<T> {
         assert!(start <= end, "invalid range bounds");
         Range {
             start,
             end,
-            inner: vec![T::default(); ((end.0 - start.0 + 1) * (end.1 - start.1 + 1)) as usize],
+            inner: vec![
+                T::default();
+                (end.0 - start.0 + 1) as usize * (end.1 as usize - start.1 as usize + 1)
+            ],
         }
     }
 
@@ -691,7 +702,7 @@ impl<T: CellType> Range<T> {
     /// ```
     ///
     #[inline]
-    pub fn start(&self) -> Option<(u32, u32)> {
+    pub fn start(&self) -> Option<(RowNum, ColNum)> {
         if self.is_empty() {
             None
         } else {
@@ -719,7 +730,7 @@ impl<T: CellType> Range<T> {
     /// ```
     ///
     #[inline]
-    pub fn end(&self) -> Option<(u32, u32)> {
+    pub fn end(&self) -> Option<(RowNum, ColNum)> {
         if self.is_empty() {
             None
         } else {
@@ -855,10 +866,10 @@ impl<T: CellType> Range<T> {
         }
         // cells do not always appear in (row, col) order
         // search bounds
-        let mut row_start = u32::MAX;
-        let mut row_end = 0;
-        let mut col_start = u32::MAX;
-        let mut col_end = 0;
+        let mut row_start: RowNum = u32::MAX;
+        let mut row_end: RowNum = 0;
+        let mut col_start: ColNum = u16::MAX;
+        let mut col_end: ColNum = 0;
         for (r, c) in cells.iter().map(|c| c.pos) {
             row_start = min(r, row_start);
             row_end = max(r, row_end);
@@ -923,7 +934,7 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range.get_value((2, 1)), Some(&Data::Float(1.0)));
     /// ```
     ///
-    pub fn set_value(&mut self, absolute_position: (u32, u32), value: T) {
+    pub fn set_value(&mut self, absolute_position: (RowNum, ColNum), value: T) {
         assert!(
             self.start.0 <= absolute_position.0 && self.start.1 <= absolute_position.1,
             "absolute_position out of bounds"
@@ -1002,7 +1013,7 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range.get_value((0, 0)), None);
     /// ```
     ///
-    pub fn get_value(&self, absolute_position: (u32, u32)) -> Option<&T> {
+    pub fn get_value(&self, absolute_position: (RowNum, ColNum)) -> Option<&T> {
         let p = absolute_position;
         if p.0 >= self.start.0 && p.0 <= self.end.0 && p.1 >= self.start.1 && p.1 <= self.end.1 {
             return self.get((
@@ -1297,7 +1308,7 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(c.get_value((5, 5)), Some(&Data::Empty));
     /// ```
     ///
-    pub fn range(&self, start: (u32, u32), end: (u32, u32)) -> Range<T> {
+    pub fn range(&self, start: (RowNum, ColNum), end: (RowNum, ColNum)) -> Range<T> {
         let mut other = Range::new(start, end);
         let (self_start_row, self_start_col) = self.start;
         let (self_end_row, self_end_col) = self.end;

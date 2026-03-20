@@ -577,8 +577,8 @@ fn get_range<T: Default + Clone + PartialEq>(
     let row_min = row_min + first_empty_rows_repeated;
     let row_max = row_max + first_empty_rows_repeated;
     Ok(Range {
-        start: (row_min as u32, col_min as u32),
-        end: (row_max as u32, col_max as u32),
+        start: (row_min as u32, col_min as u16),
+        end: (row_max as u32, col_max as u16),
         inner: cells,
     })
 }

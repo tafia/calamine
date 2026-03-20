@@ -8,7 +8,7 @@ use serde::{forward_to_deserialize_any, Deserialize, Deserializer};
 use std::marker::PhantomData;
 use std::{fmt, slice, str};
 
-use super::{CellErrorType, CellType, Data, Range, Rows};
+use super::{CellErrorType, CellType, ColNum, Data, Range, RowNum, Rows};
 
 /// A cell deserialization specific error enum
 #[derive(Debug)]
@@ -16,21 +16,21 @@ pub enum DeError {
     /// Cell out of range
     CellOutOfRange {
         /// Position tried
-        try_pos: (u32, u32),
+        try_pos: (RowNum, ColNum),
         /// Minimum position
-        min_pos: (u32, u32),
+        min_pos: (RowNum, ColNum),
     },
     /// The cell value is an error
     CellError {
         /// Cell value error
         err: CellErrorType,
         /// Cell position
-        pos: (u32, u32),
+        pos: (RowNum, ColNum),
     },
     /// Unexpected end of row
     UnexpectedEndOfRow {
         /// Cell position
-        pos: (u32, u32),
+        pos: (RowNum, ColNum),
     },
     /// Required header not found
     HeaderNotFound(String),
@@ -320,8 +320,8 @@ where
     column_indexes: Vec<usize>,
     headers: Option<Vec<String>>,
     rows: Rows<'cell, T>,
-    current_pos: (u32, u32),
-    end_pos: (u32, u32),
+    current_pos: (RowNum, ColNum),
+    end_pos: (RowNum, ColNum),
     _priv: PhantomData<D>,
 }
 
@@ -426,7 +426,7 @@ struct RowDeserializer<'header, 'cell, T> {
     headers: Option<&'header [String]>,
     iter: slice::Iter<'header, usize>, // iterator over column indexes
     peek: Option<usize>,
-    pos: (u32, u32),
+    pos: (RowNum, ColNum),
 }
 
 impl<'header, 'cell, T> RowDeserializer<'header, 'cell, T>
@@ -437,7 +437,7 @@ where
         column_indexes: &'header [usize],
         headers: Option<&'header [String]>,
         cells: &'cell [T],
-        pos: (u32, u32),
+        pos: (RowNum, ColNum),
     ) -> Self {
         RowDeserializer {
             iter: column_indexes.iter(),
@@ -571,7 +571,7 @@ pub trait ToCellDeserializer<'a>: CellType {
     type Deserializer: for<'de> serde::Deserializer<'de, Error = DeError>;
 
     /// Construct a `CellType` deserializer at the specified position.
-    fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> Self::Deserializer;
+    fn to_cell_deserializer(&'a self, pos: (RowNum, ColNum)) -> Self::Deserializer;
 
     /// Assess if the cell is empty.
     fn is_empty(&self) -> bool;
@@ -580,7 +580,7 @@ pub trait ToCellDeserializer<'a>: CellType {
 impl<'a> ToCellDeserializer<'a> for Data {
     type Deserializer = DataDeserializer<'a>;
 
-    fn to_cell_deserializer(&'a self, pos: (u32, u32)) -> DataDeserializer<'a> {
+    fn to_cell_deserializer(&'a self, pos: (RowNum, ColNum)) -> DataDeserializer<'a> {
         DataDeserializer {
             data_type: self,
             pos,
@@ -625,7 +625,7 @@ macro_rules! deserialize_num {
 /// A deserializer for the `Data` type.
 pub struct DataDeserializer<'a> {
     data_type: &'a Data,
-    pos: (u32, u32),
+    pos: (RowNum, ColNum),
 }
 
 impl<'a, 'de> serde::Deserializer<'de> for DataDeserializer<'a> {
