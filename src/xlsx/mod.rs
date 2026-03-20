@@ -29,8 +29,8 @@ use crate::utils::{
 };
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    Cell, CellErrorType, ColNum, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef,
+    RowNum, Sheet, SheetType, SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -1814,7 +1814,7 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
         }),
         2 => {
             let rows = parts[1].0 - parts[0].0;
-            let columns = parts[1].1 - parts[0].1;
+            let columns = parts[1].1 as u32 - parts[0].1 as u32;
             if rows > MAX_ROWS {
                 warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
             }
@@ -1832,7 +1832,7 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
 
 /// Converts a text range name into its position (row, column) (0 based index).
 /// If the row or column component in the range is missing, an Error is returned.
-pub(crate) fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
+pub(crate) fn get_row_column(range: &[u8]) -> Result<(RowNum, ColNum), XlsxError> {
     let (row, col) = get_row_and_optional_column(range)?;
     let col = col.ok_or(XlsxError::RangeWithoutColumnComponent)?;
     Ok((row, col))
@@ -1841,14 +1841,14 @@ pub(crate) fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
 /// Converts a text row name into its position (0 based index).
 /// If the row component in the range is missing, an Error is returned.
 /// If the text row name also contains a column component, it is ignored.
-pub(crate) fn get_row(range: &[u8]) -> Result<u32, XlsxError> {
+pub(crate) fn get_row(range: &[u8]) -> Result<RowNum, XlsxError> {
     get_row_and_optional_column(range).map(|(row, _)| row)
 }
 
 /// Converts a text-based range name into its `(row, column)` position (0-based index).
 /// If the column component of the range is missing, a None is returned (for the column).
 /// If the row component of the range is missing, an Error is returned.
-fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxError> {
+fn get_row_and_optional_column(range: &[u8]) -> Result<(RowNum, Option<ColNum>), XlsxError> {
     let len = range.len();
     let mut i = 0;
 
@@ -1884,7 +1884,7 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
     let row = row
         .checked_sub(1)
         .ok_or(XlsxError::RangeWithoutRowComponent)?;
-    Ok((row, col.checked_sub(1)))
+    Ok((row, col.checked_sub(1).map(|c| c as ColNum)))
 }
 
 /// Attempts to read either a simple or richtext string, reusing caller-provided
