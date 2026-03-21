@@ -13,13 +13,13 @@ use std::io::{BufReader, Read, Seek};
 use log::debug;
 
 use encoding_rs::UTF_16LE;
-use quick_xml::events::attributes::Attribute;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::attrs::{decode_attr, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{
@@ -183,32 +183,10 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 loop {
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.name() == QName(b"Relationship") => {
-                            let mut id = None;
-                            let mut target = None;
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: QName(b"Id"),
-                                        value: v,
-                                    } => {
-                                        id = Some(v.to_vec());
-                                    }
-                                    Attribute {
-                                        key: QName(b"Target"),
-                                        value: v,
-                                    } => {
-                                        target = Some(
-                                            xml.decoder()
-                                                .decode(&v)
-                                                .map_err(XlsbError::Encoding)?
-                                                .into_owned(),
-                                        );
-                                    }
-                                    _ => (),
-                                }
-                            }
+                            let (id, target) = get_attrs!(e, b"Id" => id, b"Target" => target);
                             if let (Some(id), Some(target)) = (id, target) {
-                                relationships.insert(id, target);
+                                relationships
+                                    .insert(id.to_vec(), decode_attr(&xml.decoder(), target)?);
                             }
                         }
                         Ok(Event::Eof) => break,
