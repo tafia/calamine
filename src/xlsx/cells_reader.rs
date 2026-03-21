@@ -346,21 +346,37 @@ where
             read_string_with_bufs(xml, e.name(), &mut bufs.xml, &mut bufs.str_inner)?
                 .map_or(DataRef::Empty, DataRef::String)
         }
-        b"v" => {
-            // value
-            bufs.value.clear();
-            loop {
+        b"v" => match type_attr {
+            Some(b"n") | Some(b"s") | Some(b"b") | Some(b"e") | None => {
+                // These types are always plain ASCII (no CR/LF or entities), so we can
+                // parse directly from raw bytes, skipping `xml10_content()` + String
                 bufs.xml.clear();
-                match xml.read_event_into(&mut bufs.xml)? {
-                    Event::Text(t) => bufs.value.push_str(&t.xml10_content()?),
-                    Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut bufs.value)?,
-                    Event::End(end) if end.name() == e.name() => break,
+                let val = match xml.read_event_into(&mut bufs.xml)? {
+                    Event::Text(t) => read_v(ctx, &t, style_attr, type_attr)?,
+                    Event::End(end) if end.name() == e.name() => return Ok(DataRef::Empty),
                     Event::Eof => return Err(XlsxError::XmlEof("v")),
-                    _ => (),
-                }
+                    _ => DataRef::Empty,
+                };
+                bufs.xml.clear();
+                xml.read_to_end_into(e.name(), &mut bufs.xml)?;
+                val
             }
-            read_v(ctx, &mut bufs.value, style_attr, type_attr)?
-        }
+            _ => {
+                // Types that may contain entities, or need owned Strings (eg: "str", "d")
+                bufs.value.clear();
+                loop {
+                    bufs.xml.clear();
+                    match xml.read_event_into(&mut bufs.xml)? {
+                        Event::Text(t) => bufs.value.push_str(&t.xml10_content()?),
+                        Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut bufs.value)?,
+                        Event::End(end) if end.name() == e.name() => break,
+                        Event::Eof => return Err(XlsxError::XmlEof("v")),
+                        _ => (),
+                    }
+                }
+                read_v(ctx, bufs.value.as_bytes(), style_attr, type_attr)?
+            }
+        },
         b"f" => {
             bufs.xml.clear();
             xml.read_to_end_into(e.name(), &mut bufs.xml)?;
@@ -370,11 +386,16 @@ where
     })
 }
 
-/// Read the contents of a `<v>` cell using pre-extracted `s` and `t` attributes.
-/// Takes `v` by mutable reference to allow for buffer reuse across cells.
+/// Convert raw `<v>` bytes to a `&str`, returning an error on invalid UTF-8.
+fn v_as_str(v: &[u8]) -> Result<&str, XlsxError> {
+    std::str::from_utf8(v).map_err(|_| XlsxError::Unexpected("invalid UTF-8 in cell value"))
+}
+
+/// Parse a `<v>` cell value from raw bytes with pre-extracted
+/// `s` (style) and `t` (type) attributes.
 fn read_v<'s>(
     ctx: &WorkbookContext<'s>,
-    v: &mut String,
+    v: &[u8],
     style_attr: Option<&[u8]>,
     type_attr: Option<&[u8]>,
 ) -> Result<DataRef<'s>, XlsxError> {
@@ -383,54 +404,43 @@ fn read_v<'s>(
             let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
             ctx.formats.get(id)
         }
-        _ => Some(&CellFormat::Other),
+        None => Some(&CellFormat::Other),
     };
     match type_attr {
         Some(b"s") => {
             if v.is_empty() {
                 return Ok(DataRef::Empty);
             }
-            // Cell value is an index into the shared string table.
-            let idx = atoi_simd::parse::<usize>(v.as_bytes()).unwrap_or(0);
-            match ctx.strings.get(idx) {
-                Some(shared_string) => Ok(DataRef::SharedString(shared_string)),
-                None => Err(XlsxError::Unexpected(
+            let idx = atoi_simd::parse::<usize>(v).unwrap_or(0);
+            ctx.strings
+                .get(idx)
+                .map(|s| DataRef::SharedString(s))
+                .ok_or(XlsxError::Unexpected(
                     "Cell string index not found in shared strings table",
-                )),
-            }
+                ))
         }
-        Some(b"b") => {
-            // boolean
-            Ok(DataRef::Bool(v.as_str() != "0"))
-        }
-        Some(b"e") => {
-            // error
-            Ok(DataRef::Error(v.parse()?))
-        }
-        Some(b"d") => {
-            // date (needs owned String)
-            Ok(DataRef::DateTimeIso(std::mem::take(v)))
-        }
-        Some(b"str") => {
-            // string (needs owned String)
-            Ok(DataRef::String(std::mem::take(v)))
-        }
-        Some(b"n") => {
-            // n - number
+        Some(b"b") => Ok(DataRef::Bool(v != b"0")),
+        Some(b"d") => Ok(DataRef::DateTimeIso(v_as_str(v)?.to_string())),
+        Some(b"e") => Ok(DataRef::Error(v_as_str(v)?.parse()?)),
+        Some(b"str") => Ok(DataRef::String(v_as_str(v)?.to_string())),
+        Some(b"n") | None => {
             if v.is_empty() {
-                Ok(DataRef::Empty)
-            } else {
-                fast_float2::parse::<f64, _>(v.as_bytes())
-                    .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
-                    .map_err(|_| XlsxError::ParseFloat(v.parse::<f64>().unwrap_err()))
+                return Ok(DataRef::Empty);
             }
-        }
-        None => {
             // If type is not known, we try to parse as Float for utility, but fall back to
             // String if this fails.
-            fast_float2::parse::<f64, _>(v.as_bytes())
+            fast_float2::parse::<f64, _>(v)
                 .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
-                .or(Ok(DataRef::String(std::mem::take(v))))
+                .or_else(|_| {
+                    if type_attr.is_none() {
+                        // No explicit type: fall back to String if not a valid float
+                        Ok(DataRef::String(v_as_str(v)?.to_string()))
+                    } else {
+                        Err(XlsxError::ParseFloat(
+                            v_as_str(v)?.parse::<f64>().unwrap_err(),
+                        ))
+                    }
+                })
         }
         Some(b"is") => {
             // this case should be handled in outer loop over cell elements, in which
