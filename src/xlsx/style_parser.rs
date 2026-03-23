@@ -297,10 +297,13 @@ pub(crate) fn parse_color(
 }
 
 /// Parse font weight from string.
+///
+/// Handles OOXML boolean values (`"1"`, `"true"`, `"0"`, `"false"`),
+/// named values (`"bold"`, `"normal"`), and numeric CSS-style weights.
 fn parse_font_weight(s: &str) -> FontWeight {
     match s {
-        "bold" | "700" => FontWeight::Bold,
-        "normal" | "400" => FontWeight::Normal,
+        "bold" | "700" | "1" | "true" => FontWeight::Bold,
+        "normal" | "400" | "0" | "false" => FontWeight::Normal,
         _ => {
             if let Ok(weight) = s.parse::<u16>() {
                 if weight >= 600 {
@@ -315,9 +318,13 @@ fn parse_font_weight(s: &str) -> FontWeight {
     }
 }
 
+/// Parse font style from string.
+///
+/// Handles OOXML boolean values (`"1"`, `"true"`) in addition to
+/// named values (`"italic"`, `"oblique"`).
 fn parse_font_style(s: &str) -> FontStyle {
     match s {
-        "italic" | "oblique" => FontStyle::Italic,
+        "italic" | "oblique" | "1" | "true" => FontStyle::Italic,
         _ => FontStyle::Normal,
     }
 }
@@ -501,10 +508,21 @@ pub fn parse_font<RS: BufRead>(
                         font = font.with_underline(underline_style);
                     }
                     b"strike" => {
+                        let mut is_strike = true;
+                        for attr in e.attributes() {
+                            let attr = attr?;
+                            if attr.key.as_ref() == b"val" {
+                                let val_str = String::from_utf8_lossy(&attr.value);
+                                is_strike = &*val_str != "0" && &*val_str != "false";
+                                break;
+                            }
+                        }
                         if !is_empty {
                             xml.read_to_end_into(e.name(), &mut Vec::new())?;
                         }
-                        font = font.with_strikethrough(true);
+                        if is_strike {
+                            font = font.with_strikethrough(true);
+                        }
                     }
                     b"color" => {
                         if let Some(color) = parse_color(
@@ -807,5 +825,47 @@ fn read_string<RS: BufRead>(
         Ok(None)
     } else {
         Ok(Some(content))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_font_weight_boolean_values() {
+        assert_eq!(parse_font_weight("1"), FontWeight::Bold);
+        assert_eq!(parse_font_weight("true"), FontWeight::Bold);
+        assert_eq!(parse_font_weight("0"), FontWeight::Normal);
+        assert_eq!(parse_font_weight("false"), FontWeight::Normal);
+    }
+
+    #[test]
+    fn test_parse_font_weight_named_values() {
+        assert_eq!(parse_font_weight("bold"), FontWeight::Bold);
+        assert_eq!(parse_font_weight("normal"), FontWeight::Normal);
+    }
+
+    #[test]
+    fn test_parse_font_weight_numeric_values() {
+        assert_eq!(parse_font_weight("700"), FontWeight::Bold);
+        assert_eq!(parse_font_weight("400"), FontWeight::Normal);
+        assert_eq!(parse_font_weight("600"), FontWeight::Bold);
+        assert_eq!(parse_font_weight("599"), FontWeight::Normal);
+    }
+
+    #[test]
+    fn test_parse_font_style_boolean_values() {
+        assert_eq!(parse_font_style("1"), FontStyle::Italic);
+        assert_eq!(parse_font_style("true"), FontStyle::Italic);
+        assert_eq!(parse_font_style("0"), FontStyle::Normal);
+        assert_eq!(parse_font_style("false"), FontStyle::Normal);
+    }
+
+    #[test]
+    fn test_parse_font_style_named_values() {
+        assert_eq!(parse_font_style("italic"), FontStyle::Italic);
+        assert_eq!(parse_font_style("oblique"), FontStyle::Italic);
+        assert_eq!(parse_font_style("normal"), FontStyle::Normal);
     }
 }
