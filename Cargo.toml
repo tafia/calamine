@@ -43,6 +43,10 @@ harness = false
 name = "style"
 harness = false
 
+[[bench]]
+name = "conditional_formatting"
+harness = false
+
 # Example that requires the `picture` feature.
 [[example]]
 name = "read_picture_data"
