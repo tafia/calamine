@@ -239,7 +239,7 @@ fn get_indexed_color(index: u8) -> Color {
 
 /// Parse color from XML attributes, resolving theme/indexed references and
 /// applying the tint modifier when present.
-fn parse_color(
+pub(crate) fn parse_color(
     attributes: &[Attribute],
     theme_colors: &[Color],
 ) -> Result<Option<Color>, XlsxError> {

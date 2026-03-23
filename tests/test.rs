@@ -7,9 +7,11 @@ use calamine::Data::{
     Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, RichText, String,
 };
 use calamine::{
-    open_workbook, open_workbook_auto, BorderStyle, Color, DataRef, DataType, Dimensions,
-    ExcelDateTime, ExcelDateTimeType, HeaderRow, HorizontalAlignment, Ods, Range, Reader,
-    ReaderRef, Sheet, SheetType, SheetVisible, UnderlineStyle, VerticalAlignment, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, BorderStyle, CfOperator, CfTextOperator, CfValueObjectType,
+    Color, ConditionalFormatRuleType, DataRef, DataType, Dimensions, ExcelDateTime,
+    ExcelDateTimeType, HeaderRow, HorizontalAlignment, IconSetType, Ods, Range, Reader, ReaderRef,
+    Sheet, SheetType, SheetVisible, TimePeriodType, UnderlineStyle, VerticalAlignment, Xls, Xlsb,
+    Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -3570,4 +3572,434 @@ fn test_worksheet_layout_nonexistent_sheet() {
         result.is_err(),
         "Should return error for nonexistent sheet name"
     );
+}
+
+// -----------------------------------------------------------------------
+// Conditional Formatting tests
+// -----------------------------------------------------------------------
+
+fn cf_blocks() -> Vec<calamine::ConditionalFormatting> {
+    let mut xlsx: Xlsx<_> = wb("conditional_formatting.xlsx");
+    xlsx.worksheet_conditional_formatting("Sheet1").unwrap()
+}
+
+#[test]
+fn test_cf_total_blocks() {
+    assert_eq!(cf_blocks().len(), 25);
+}
+
+#[test]
+fn test_cf_at_index() {
+    let mut xlsx: Xlsx<_> = wb("conditional_formatting.xlsx");
+    let cfs = xlsx
+        .worksheet_conditional_formatting_at(0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cfs.len(), 25);
+}
+
+// Block 0: CellIs greaterThan + between (two rules in one block)
+#[test]
+fn test_cf_cell_is_greater_than_and_between() {
+    let cfs = cf_blocks();
+    let cf = &cfs[0];
+    assert_eq!(cf.sqref, "A1:C3");
+    assert_eq!(cf.rules.len(), 2);
+
+    let r1 = &cf.rules[0];
+    assert_eq!(r1.priority, 1);
+    assert!(r1.format.is_some());
+    match &r1.rule_type {
+        ConditionalFormatRuleType::CellIs { operator, formulas } => {
+            assert_eq!(*operator, CfOperator::GreaterThan);
+            assert_eq!(formulas, &["50"]);
+        }
+        other => panic!("Expected CellIs, got {other:?}"),
+    }
+    assert!(r1.format.as_ref().unwrap().font.as_ref().unwrap().is_bold());
+
+    let r2 = &cf.rules[1];
+    assert_eq!(r2.priority, 2);
+    match &r2.rule_type {
+        ConditionalFormatRuleType::CellIs { operator, formulas } => {
+            assert_eq!(*operator, CfOperator::Between);
+            assert_eq!(formulas, &["20", "50"]);
+        }
+        other => panic!("Expected CellIs, got {other:?}"),
+    }
+}
+
+// Block 1: 3-color scale
+#[test]
+fn test_cf_color_scale_3() {
+    let cfs = cf_blocks();
+    let cf = &cfs[1];
+    assert_eq!(cf.sqref, "A1:A5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::ColorScale3 {
+            min, mid, max, min_color, mid_color: _, max_color,
+        } => {
+            assert_eq!(min.value_type, CfValueObjectType::Min);
+            assert_eq!(mid.value_type, CfValueObjectType::Percentile);
+            assert_eq!(mid.value.as_deref(), Some("50"));
+            assert_eq!(max.value_type, CfValueObjectType::Max);
+            assert_eq!(min_color.red, 0xF8);
+            assert_eq!(max_color.green, 0xBE);
+        }
+        other => panic!("Expected ColorScale3, got {other:?}"),
+    }
+}
+
+// Block 2: data bar (fill color only, no border color)
+#[test]
+fn test_cf_data_bar() {
+    let cfs = cf_blocks();
+    let cf = &cfs[2];
+    assert_eq!(cf.sqref, "B1:B5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::DataBar { min, max, fill_color, border_color } => {
+            assert_eq!(min.value_type, CfValueObjectType::Min);
+            assert_eq!(max.value_type, CfValueObjectType::Max);
+            assert_eq!(fill_color.unwrap().blue, 0xC6);
+            assert!(border_color.is_none());
+        }
+        other => panic!("Expected DataBar, got {other:?}"),
+    }
+}
+
+// Block 3: icon set (3TrafficLights, not reversed, showValue=true)
+#[test]
+fn test_cf_icon_set_default() {
+    let cfs = cf_blocks();
+    let cf = &cfs[3];
+    assert_eq!(cf.sqref, "C1:C3");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::IconSet { icon_type, thresholds, reversed, show_value } => {
+            assert_eq!(*icon_type, IconSetType::ThreeTrafficLights);
+            assert_eq!(thresholds.len(), 3);
+            assert_eq!(thresholds[0].value_type, CfValueObjectType::Percent);
+            assert_eq!(thresholds[1].value.as_deref(), Some("33"));
+            assert!(!reversed);
+            assert!(*show_value);
+        }
+        other => panic!("Expected IconSet, got {other:?}"),
+    }
+}
+
+// Block 4: top 3 (not percent, not bottom)
+#[test]
+fn test_cf_top10() {
+    let cfs = cf_blocks();
+    let cf = &cfs[4];
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::Top10 { rank, percent, bottom } => {
+            assert_eq!(*rank, 3);
+            assert!(!percent);
+            assert!(!bottom);
+        }
+        other => panic!("Expected Top10, got {other:?}"),
+    }
+    assert!(cf.rules[0].format.is_some());
+}
+
+// Block 5: duplicateValues
+#[test]
+fn test_cf_duplicate_values() {
+    let cfs = cf_blocks();
+    assert!(matches!(cfs[5].rules[0].rule_type, ConditionalFormatRuleType::DuplicateValues));
+}
+
+// Block 6: aboveAverage (above=true, equal=false, stdDev=0)
+#[test]
+fn test_cf_above_average() {
+    let cfs = cf_blocks();
+    match &cfs[6].rules[0].rule_type {
+        ConditionalFormatRuleType::AboveAverage { above_average, equal_average, std_dev } => {
+            assert!(*above_average);
+            assert!(!equal_average);
+            assert_eq!(*std_dev, 0);
+        }
+        other => panic!("Expected AboveAverage, got {other:?}"),
+    }
+}
+
+// Block 7: containsText
+#[test]
+fn test_cf_contains_text() {
+    let cfs = cf_blocks();
+    let cf = &cfs[7];
+    assert_eq!(cf.sqref, "A4:B4");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::Text { operator, text, formula } => {
+            assert_eq!(*operator, CfTextOperator::Contains);
+            assert_eq!(text, "hello");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text, got {other:?}"),
+    }
+}
+
+// Block 8: containsBlanks
+#[test]
+fn test_cf_contains_blanks() {
+    let cfs = cf_blocks();
+    match &cfs[8].rules[0].rule_type {
+        ConditionalFormatRuleType::ContainsBlanks { formula } => {
+            assert!(formula.is_some());
+            assert!(formula.as_ref().unwrap().contains("LEN"));
+        }
+        other => panic!("Expected ContainsBlanks, got {other:?}"),
+    }
+}
+
+// Block 9: expression
+#[test]
+fn test_cf_expression() {
+    let cfs = cf_blocks();
+    match &cfs[9].rules[0].rule_type {
+        ConditionalFormatRuleType::Expression { formula } => {
+            assert_eq!(formula, "MOD(ROW(),2)=0");
+        }
+        other => panic!("Expected Expression, got {other:?}"),
+    }
+}
+
+// Block 10: timePeriod (today)
+#[test]
+fn test_cf_time_period() {
+    let cfs = cf_blocks();
+    match &cfs[10].rules[0].rule_type {
+        ConditionalFormatRuleType::TimePeriod { period, formula } => {
+            assert_eq!(*period, TimePeriodType::Today);
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected TimePeriod, got {other:?}"),
+    }
+}
+
+// Block 11: 2-color scale with cfvo type="num"
+#[test]
+fn test_cf_color_scale_2() {
+    let cfs = cf_blocks();
+    let cf = &cfs[11];
+    assert_eq!(cf.sqref, "A1:A5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::ColorScale2 { min, max, min_color, max_color } => {
+            assert_eq!(min.value_type, CfValueObjectType::Num);
+            assert_eq!(min.value.as_deref(), Some("0"));
+            assert_eq!(max.value_type, CfValueObjectType::Num);
+            assert_eq!(max.value.as_deref(), Some("100"));
+            assert_eq!(*min_color, Color::new(255, 0xFF, 0x00, 0x00));
+            assert_eq!(*max_color, Color::new(255, 0x00, 0xFF, 0x00));
+        }
+        other => panic!("Expected ColorScale2, got {other:?}"),
+    }
+}
+
+// Block 12: uniqueValues
+#[test]
+fn test_cf_unique_values() {
+    let cfs = cf_blocks();
+    assert!(matches!(cfs[12].rules[0].rule_type, ConditionalFormatRuleType::UniqueValues));
+}
+
+// Block 13: notContainsBlanks
+#[test]
+fn test_cf_not_contains_blanks() {
+    let cfs = cf_blocks();
+    match &cfs[13].rules[0].rule_type {
+        ConditionalFormatRuleType::NotContainsBlanks { formula } => {
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected NotContainsBlanks, got {other:?}"),
+    }
+}
+
+// Block 14: containsErrors
+#[test]
+fn test_cf_contains_errors() {
+    let cfs = cf_blocks();
+    match &cfs[14].rules[0].rule_type {
+        ConditionalFormatRuleType::ContainsErrors { formula } => {
+            assert!(formula.is_some());
+            assert!(formula.as_ref().unwrap().contains("ISERROR"));
+        }
+        other => panic!("Expected ContainsErrors, got {other:?}"),
+    }
+}
+
+// Block 15: notContainsErrors
+#[test]
+fn test_cf_not_contains_errors() {
+    let cfs = cf_blocks();
+    match &cfs[15].rules[0].rule_type {
+        ConditionalFormatRuleType::NotContainsErrors { formula } => {
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected NotContainsErrors, got {other:?}"),
+    }
+}
+
+// Block 16: notContainsText
+#[test]
+fn test_cf_not_contains_text() {
+    let cfs = cf_blocks();
+    match &cfs[16].rules[0].rule_type {
+        ConditionalFormatRuleType::Text { operator, text, formula } => {
+            assert_eq!(*operator, CfTextOperator::NotContains);
+            assert_eq!(text, "world");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text NotContains, got {other:?}"),
+    }
+}
+
+// Block 17: beginsWith
+#[test]
+fn test_cf_begins_with() {
+    let cfs = cf_blocks();
+    match &cfs[17].rules[0].rule_type {
+        ConditionalFormatRuleType::Text { operator, text, formula } => {
+            assert_eq!(*operator, CfTextOperator::BeginsWith);
+            assert_eq!(text, "he");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text BeginsWith, got {other:?}"),
+    }
+}
+
+// Block 18: endsWith (no dxfId -> format is None)
+#[test]
+fn test_cf_ends_with() {
+    let cfs = cf_blocks();
+    let rule = &cfs[18].rules[0];
+    assert!(rule.format.is_none());
+    match &rule.rule_type {
+        ConditionalFormatRuleType::Text { operator, text, formula } => {
+            assert_eq!(*operator, CfTextOperator::EndsWith);
+            assert_eq!(text, "lo");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text EndsWith, got {other:?}"),
+    }
+}
+
+// Block 19: stopIfTrue + cellIs lessThan
+#[test]
+fn test_cf_stop_if_true() {
+    let cfs = cf_blocks();
+    let rule = &cfs[19].rules[0];
+    assert!(rule.stop_if_true);
+    assert_eq!(rule.priority, 21);
+    match &rule.rule_type {
+        ConditionalFormatRuleType::CellIs { operator, formulas } => {
+            assert_eq!(*operator, CfOperator::LessThan);
+            assert_eq!(formulas, &["0"]);
+        }
+        other => panic!("Expected CellIs LessThan, got {other:?}"),
+    }
+}
+
+// Block 20: icon set reversed + showValue=false + 5Arrows + num cfvo
+#[test]
+fn test_cf_icon_set_reversed() {
+    let cfs = cf_blocks();
+    match &cfs[20].rules[0].rule_type {
+        ConditionalFormatRuleType::IconSet { icon_type, thresholds, reversed, show_value } => {
+            assert_eq!(*icon_type, IconSetType::FiveArrows);
+            assert_eq!(thresholds.len(), 5);
+            assert!(*reversed);
+            assert!(!show_value);
+            assert_eq!(thresholds[1].value_type, CfValueObjectType::Num);
+            assert_eq!(thresholds[1].value.as_deref(), Some("20"));
+        }
+        other => panic!("Expected IconSet, got {other:?}"),
+    }
+}
+
+// Block 21: bottom 10 percent
+#[test]
+fn test_cf_bottom_percent() {
+    let cfs = cf_blocks();
+    match &cfs[21].rules[0].rule_type {
+        ConditionalFormatRuleType::Top10 { rank, percent, bottom } => {
+            assert_eq!(*rank, 10);
+            assert!(*percent);
+            assert!(*bottom);
+        }
+        other => panic!("Expected Top10 (bottom percent), got {other:?}"),
+    }
+}
+
+// Block 22: below average, equal, stdDev=1
+#[test]
+fn test_cf_below_average_with_stddev() {
+    let cfs = cf_blocks();
+    let rule = &cfs[22].rules[0];
+    assert!(rule.format.is_none());
+    match &rule.rule_type {
+        ConditionalFormatRuleType::AboveAverage { above_average, equal_average, std_dev } => {
+            assert!(!above_average);
+            assert!(*equal_average);
+            assert_eq!(*std_dev, 1);
+        }
+        other => panic!("Expected AboveAverage (below), got {other:?}"),
+    }
+}
+
+// Block 23: unknown/custom type
+#[test]
+fn test_cf_unknown_type() {
+    let cfs = cf_blocks();
+    match &cfs[23].rules[0].rule_type {
+        ConditionalFormatRuleType::Unknown { raw_type } => {
+            assert_eq!(raw_type, "someCustomType");
+        }
+        other => panic!("Expected Unknown, got {other:?}"),
+    }
+}
+
+// Block 24: data bar with both fill + border color, cfvo type=num
+#[test]
+fn test_cf_data_bar_with_border_color() {
+    let cfs = cf_blocks();
+    let cf = &cfs[24];
+    assert_eq!(cf.sqref, "C1:C5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::DataBar { min, max, fill_color, border_color } => {
+            assert_eq!(min.value_type, CfValueObjectType::Num);
+            assert_eq!(min.value.as_deref(), Some("0"));
+            assert_eq!(max.value_type, CfValueObjectType::Num);
+            assert_eq!(max.value.as_deref(), Some("100"));
+            assert!(fill_color.is_some());
+            assert!(border_color.is_some());
+            assert_eq!(fill_color.unwrap().green, 0xC3);
+            assert_eq!(border_color.unwrap(), Color::new(255, 0, 0, 0));
+        }
+        other => panic!("Expected DataBar, got {other:?}"),
+    }
+}
+
+// DXF format resolution
+#[test]
+fn test_cf_dxf_resolution() {
+    let cfs = cf_blocks();
+
+    // dxfId=0: bold red font (FF9C0006) + pink fill
+    let fmt0 = cfs[0].rules[0].format.as_ref().unwrap();
+    let font0 = fmt0.font.as_ref().unwrap();
+    assert!(font0.is_bold());
+    assert_eq!(font0.color, Some(Color::new(255, 0x9C, 0x00, 0x06)));
+    assert!(fmt0.fill.as_ref().unwrap().background_color.is_some());
+
+    // dxfId=1: green font (FF006100) + green fill
+    let fmt1 = cfs[0].rules[1].format.as_ref().unwrap();
+    let font1 = fmt1.font.as_ref().unwrap();
+    assert_eq!(font1.color, Some(Color::new(255, 0x00, 0x61, 0x00)));
+
+    // dxfId=2: amber font (FF9C6500), no fill
+    let fmt2 = cfs[4].rules[0].format.as_ref().unwrap();
+    let font2 = fmt2.font.as_ref().unwrap();
+    assert_eq!(font2.color, Some(Color::new(255, 0x9C, 0x65, 0x00)));
+    assert!(fmt2.fill.is_none());
 }

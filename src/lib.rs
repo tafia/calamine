@@ -81,6 +81,7 @@ mod utils;
 
 mod auto;
 mod cfb;
+pub mod conditional_format;
 mod datatype;
 mod formats;
 mod ods;
@@ -108,6 +109,10 @@ pub use crate::datatype::{CellData, Data, DataRef, DataType, ExcelDateTime, Exce
 pub use crate::de::{DeError, RangeDeserializer, RangeDeserializerBuilder, ToCellDeserializer};
 pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
+pub use crate::conditional_format::{
+    CfOperator, CfTextOperator, CfValueObject, CfValueObjectType, ConditionalFormatRule,
+    ConditionalFormatRuleType, ConditionalFormatting, IconSetType, TimePeriodType,
+};
 pub use crate::style::{
     Alignment, Border, BorderStyle, Borders, Color, ColumnWidth, Fill, FillPattern, Font,
     FontStyle, FontWeight, HorizontalAlignment, NumberFormat, Protection, RichText, RowHeight,

@@ -26,11 +26,15 @@ use zip::result::ZipError;
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::style::{
-    Color, ColumnWidth, Font, FontStyle, FontWeight, RichText, RowHeight, StyleRange, TextRun,
-    UnderlineStyle, WorksheetLayout,
+    Color, ColumnWidth, Font, FontStyle, FontWeight, NumberFormat, RichText, RowHeight, StyleRange,
+    TextRun, UnderlineStyle, WorksheetLayout,
 };
 use crate::utils::{
     build_zip_path_cache, cached_zip_path, unescape_entity_to_buffer, unescape_xml,
+};
+use crate::conditional_format::{
+    CfOperator, CfTextOperator, CfValueObject, CfValueObjectType, ConditionalFormatRule,
+    ConditionalFormatRuleType, ConditionalFormatting, IconSetType, TimePeriodType,
 };
 use crate::vba::VbaProject;
 use crate::{
@@ -262,6 +266,8 @@ pub struct Xlsx<RS> {
     formats: Vec<CellFormat>,
     /// Cell styles
     pub styles: Vec<Style>,
+    /// Differential format styles (for conditional formatting)
+    dxf_styles: Vec<Style>,
     /// 1904 datetime system
     is_1904: bool,
     /// Metadata
@@ -591,6 +597,113 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"dxfs" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"dxf" => {
+                            let mut style = Style::new();
+                            let mut dxf_buf = Vec::with_capacity(512);
+                            let mut skip_buf = Vec::new();
+                            loop {
+                                dxf_buf.clear();
+                                match xml.read_event_into(&mut dxf_buf) {
+                                    Ok(Event::Start(ref inner_e)) => {
+                                        match inner_e.local_name().as_ref() {
+                                            b"font" => {
+                                                let font = style_parser::parse_font(
+                                                    &mut xml,
+                                                    inner_e,
+                                                    &theme_colors,
+                                                )?;
+                                                style = style.with_font(font);
+                                            }
+                                            b"fill" => {
+                                                let fill = style_parser::parse_fill(
+                                                    &mut xml,
+                                                    inner_e,
+                                                    &theme_colors,
+                                                )?;
+                                                style = style.with_fill(fill);
+                                            }
+                                            b"border" => {
+                                                let border = style_parser::parse_border(
+                                                    &mut xml,
+                                                    inner_e,
+                                                    &theme_colors,
+                                                )?;
+                                                style = style.with_borders(border);
+                                            }
+                                            b"alignment" => {
+                                                let alignment = style_parser::parse_alignment(
+                                                    &mut xml, inner_e,
+                                                )?;
+                                                style = style.with_alignment(alignment);
+                                            }
+                                            b"protection" => {
+                                                let protection = style_parser::parse_protection(
+                                                    &mut xml, inner_e,
+                                                )?;
+                                                style = style.with_protection(protection);
+                                            }
+                                            b"numFmt" => {
+                                                if let Some(nf) = parse_dxf_num_fmt(inner_e, &xml)? {
+                                                    style = style.with_number_format(nf);
+                                                }
+                                                skip_buf.clear();
+                                                xml.read_to_end_into(
+                                                    inner_e.name(),
+                                                    &mut skip_buf,
+                                                )?;
+                                            }
+                                            _ => {
+                                                skip_buf.clear();
+                                                xml.read_to_end_into(
+                                                    inner_e.name(),
+                                                    &mut skip_buf,
+                                                )?;
+                                            }
+                                        }
+                                    }
+                                    Ok(Event::Empty(ref inner_e)) => {
+                                        match inner_e.local_name().as_ref() {
+                                            b"alignment" => {
+                                                let alignment = style_parser::parse_alignment(
+                                                    &mut xml, inner_e,
+                                                )?;
+                                                style = style.with_alignment(alignment);
+                                            }
+                                            b"protection" => {
+                                                let protection = style_parser::parse_protection(
+                                                    &mut xml, inner_e,
+                                                )?;
+                                                style = style.with_protection(protection);
+                                            }
+                                            b"numFmt" => {
+                                                if let Some(nf) = parse_dxf_num_fmt(inner_e, &xml)? {
+                                                    style = style.with_number_format(nf);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    Ok(Event::End(ref end_e))
+                                        if end_e.local_name().as_ref() == b"dxf" =>
+                                    {
+                                        break
+                                    }
+                                    Ok(Event::Eof) => return Err(XlsxError::XmlEof("dxf")),
+                                    Err(e) => return Err(XlsxError::Xml(e)),
+                                    _ => {}
+                                }
+                            }
+                            self.dxf_styles.push(style);
+                        }
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"dxfs" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("dxfs")),
                         Err(e) => return Err(XlsxError::Xml(e)),
                         _ => (),
                     }
@@ -2068,6 +2181,54 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(layout)
     }
 
+    /// Get the conditional formatting rules for a worksheet by name.
+    ///
+    /// Returns a vector of [`ConditionalFormatting`] blocks, each containing
+    /// the target cell range (`sqref`) and one or more rules. The differential
+    /// format referenced by each rule's `dxfId` is resolved to a [`Style`].
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet.
+    ///
+    pub fn worksheet_conditional_formatting(
+        &mut self,
+        name: &str,
+    ) -> Result<Vec<ConditionalFormatting>, XlsxError> {
+        let theme_colors = self.read_theme_colors();
+
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+
+        let mut xml = match xml_reader(&mut self.zip, path, &self.zip_path_cache) {
+            Some(x) => x?,
+            None => return Ok(Vec::new()),
+        };
+
+        let dxf_styles = &self.dxf_styles;
+        parse_conditional_formattings(&mut xml, dxf_styles, &theme_colors)
+    }
+
+    /// Get the conditional formatting rules for a worksheet by sheet index.
+    ///
+    /// See [`worksheet_conditional_formatting`](Self::worksheet_conditional_formatting)
+    /// for details.
+    pub fn worksheet_conditional_formatting_at(
+        &mut self,
+        sheet_index: usize,
+    ) -> Option<Result<Vec<ConditionalFormatting>, XlsxError>> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(sheet_index)
+            .map(|sheet| sheet.name.clone())?;
+
+        Some(self.worksheet_conditional_formatting(&name))
+    }
+
     /// Get all worksheets in the workbook.
     ///
     /// This function returns a vector of tuples, where each tuple contains the name of a worksheet and the range of cells in the worksheet.
@@ -2135,6 +2296,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             strings: Vec::new(),
             formats: Vec::new(),
             styles: Vec::new(),
+            dxf_styles: Vec::new(),
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
@@ -2304,6 +2466,508 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
 
         Ok(Range::from_sparse(cells))
     }
+}
+
+/// Parse a `<numFmt>` element's attributes into a `NumberFormat`.
+fn parse_dxf_num_fmt<RS: std::io::BufRead>(
+    e: &BytesStart,
+    xml: &XmlReader<RS>,
+) -> Result<Option<NumberFormat>, XlsxError> {
+    let mut format_code = String::new();
+    let mut num_fmt_id = None;
+    for a in e.attributes() {
+        let a = a.map_err(XlsxError::XmlAttr)?;
+        match a.key.as_ref() {
+            b"formatCode" => {
+                format_code = a
+                    .decode_and_unescape_value(xml.decoder())?
+                    .into_owned();
+            }
+            b"numFmtId" => {
+                num_fmt_id = xml
+                    .decoder()
+                    .decode(&a.value)?
+                    .parse::<u32>()
+                    .ok();
+            }
+            _ => {}
+        }
+    }
+    if format_code.is_empty() {
+        return Ok(None);
+    }
+    let mut nf = NumberFormat::new(format_code);
+    if let Some(id) = num_fmt_id {
+        nf = nf.with_id(id);
+    }
+    Ok(Some(nf))
+}
+
+/// Parse all `<conditionalFormatting>` blocks from a worksheet XML reader.
+fn parse_conditional_formattings<RS: std::io::BufRead>(
+    xml: &mut XmlReader<RS>,
+    dxf_styles: &[Style],
+    theme_colors: &[Color],
+) -> Result<Vec<ConditionalFormatting>, XlsxError> {
+    let mut result = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e))
+                if e.local_name().as_ref() == b"conditionalFormatting" =>
+            {
+                let mut sqref = String::new();
+                for attr in e.attributes() {
+                    let attr = attr.map_err(XlsxError::XmlAttr)?;
+                    if attr.key.as_ref() == b"sqref" {
+                        sqref = xml
+                            .decoder()
+                            .decode(&attr.value)?
+                            .into_owned();
+                    }
+                }
+
+                let rules = parse_cf_rules(xml, dxf_styles, theme_colors)?;
+
+                result.push(ConditionalFormatting { sqref, rules });
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    Ok(result)
+}
+
+/// Parse `<cfRule>` elements inside a `<conditionalFormatting>` block.
+fn parse_cf_rules<RS: std::io::BufRead>(
+    xml: &mut XmlReader<RS>,
+    dxf_styles: &[Style],
+    theme_colors: &[Color],
+) -> Result<Vec<ConditionalFormatRule>, XlsxError> {
+    let mut rules = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cfRule" => {
+                let rule = parse_single_cf_rule(xml, e, dxf_styles, theme_colors)?;
+                rules.push(rule);
+            }
+            Ok(Event::End(ref e))
+                if e.local_name().as_ref() == b"conditionalFormatting" =>
+            {
+                break;
+            }
+            Ok(Event::Eof) => {
+                return Err(XlsxError::XmlEof("conditionalFormatting"));
+            }
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    Ok(rules)
+}
+
+/// Parse a single `<cfRule>` element and its children.
+fn parse_single_cf_rule<RS: std::io::BufRead>(
+    xml: &mut XmlReader<RS>,
+    start: &BytesStart,
+    dxf_styles: &[Style],
+    theme_colors: &[Color],
+) -> Result<ConditionalFormatRule, XlsxError> {
+    let mut rule_type_str = String::new();
+    let mut priority: u32 = 0;
+    let mut stop_if_true = false;
+    let mut dxf_id: Option<usize> = None;
+    let mut operator_str = String::new();
+    let mut text = String::new();
+    let mut time_period_str = String::new();
+    let mut above_average = true;
+    let mut equal_average = false;
+    let mut std_dev: u32 = 0;
+    let mut rank: u32 = 10;
+    let mut percent = false;
+    let mut bottom = false;
+
+    for attr in start.attributes() {
+        let attr = attr.map_err(XlsxError::XmlAttr)?;
+        match attr.key.as_ref() {
+            b"type" => {
+                rule_type_str = xml.decoder().decode(&attr.value)?.into_owned();
+            }
+            b"priority" => {
+                priority = xml
+                    .decoder()
+                    .decode(&attr.value)?
+                    .parse::<u32>()
+                    .unwrap_or(0);
+            }
+            b"stopIfTrue" => {
+                stop_if_true = &*attr.value == b"1";
+            }
+            b"dxfId" => {
+                dxf_id = xml
+                    .decoder()
+                    .decode(&attr.value)?
+                    .parse::<usize>()
+                    .ok();
+            }
+            b"operator" => {
+                operator_str = xml.decoder().decode(&attr.value)?.into_owned();
+            }
+            b"text" => {
+                text = xml.decoder().decode(&attr.value)?.into_owned();
+            }
+            b"timePeriod" => {
+                time_period_str = xml.decoder().decode(&attr.value)?.into_owned();
+            }
+            b"aboveAverage" => {
+                above_average = &*attr.value != b"0";
+            }
+            b"equalAverage" => {
+                equal_average = &*attr.value == b"1";
+            }
+            b"stdDev" => {
+                std_dev = xml
+                    .decoder()
+                    .decode(&attr.value)?
+                    .parse::<u32>()
+                    .unwrap_or(0);
+            }
+            b"rank" => {
+                rank = xml
+                    .decoder()
+                    .decode(&attr.value)?
+                    .parse::<u32>()
+                    .unwrap_or(10);
+            }
+            b"percent" => {
+                percent = &*attr.value == b"1";
+            }
+            b"bottom" => {
+                bottom = &*attr.value == b"1";
+            }
+            _ => {}
+        }
+    }
+
+    // Parse child elements (formulas, colorScale, dataBar, iconSet)
+    let mut formulas = Vec::new();
+    let mut color_scale_data: Option<ConditionalFormatRuleType> = None;
+    let mut data_bar_data: Option<ConditionalFormatRuleType> = None;
+    let mut icon_set_data: Option<ConditionalFormatRuleType> = None;
+
+    let mut inner_buf = Vec::with_capacity(512);
+    loop {
+        inner_buf.clear();
+        match xml.read_event_into(&mut inner_buf) {
+            Ok(Event::Start(ref e)) => match e.local_name().as_ref() {
+                b"formula" => {
+                    let mut formula_buf = Vec::new();
+                    let formula_bytes = xml.read_text_into(e.name(), &mut formula_buf)?;
+                    formulas.push(
+                        xml.decoder()
+                            .decode(formula_bytes.as_ref())?
+                            .into_owned(),
+                    );
+                }
+                b"colorScale" => {
+                    color_scale_data =
+                        Some(parse_color_scale(xml, theme_colors)?);
+                }
+                b"dataBar" => {
+                    data_bar_data = Some(parse_data_bar(xml, theme_colors)?);
+                }
+                b"iconSet" => {
+                    icon_set_data = Some(parse_icon_set(xml, e)?);
+                }
+                _ => {
+                    xml.read_to_end_into(e.name(), &mut Vec::new())?;
+                }
+            },
+            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cfRule" => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("cfRule")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    let format = dxf_id.and_then(|id| dxf_styles.get(id).cloned());
+
+    let rule_type = if let Some(cs) = color_scale_data {
+        cs
+    } else if let Some(db) = data_bar_data {
+        db
+    } else if let Some(is) = icon_set_data {
+        is
+    } else {
+        match rule_type_str.as_str() {
+            "cellIs" => ConditionalFormatRuleType::CellIs {
+                operator: CfOperator::from_str(&operator_str).unwrap_or(CfOperator::Equal),
+                formulas,
+            },
+            "expression" => ConditionalFormatRuleType::Expression {
+                formula: formulas.into_iter().next().unwrap_or_default(),
+            },
+            "top10" => ConditionalFormatRuleType::Top10 {
+                rank,
+                percent,
+                bottom,
+            },
+            "aboveAverage" => ConditionalFormatRuleType::AboveAverage {
+                above_average,
+                equal_average,
+                std_dev,
+            },
+            "containsText" => ConditionalFormatRuleType::Text {
+                operator: CfTextOperator::Contains,
+                text,
+                formula: formulas.into_iter().next(),
+            },
+            "notContainsText" => ConditionalFormatRuleType::Text {
+                operator: CfTextOperator::NotContains,
+                text,
+                formula: formulas.into_iter().next(),
+            },
+            "beginsWith" => ConditionalFormatRuleType::Text {
+                operator: CfTextOperator::BeginsWith,
+                text,
+                formula: formulas.into_iter().next(),
+            },
+            "endsWith" => ConditionalFormatRuleType::Text {
+                operator: CfTextOperator::EndsWith,
+                text,
+                formula: formulas.into_iter().next(),
+            },
+            "timePeriod" => ConditionalFormatRuleType::TimePeriod {
+                period: TimePeriodType::from_str(&time_period_str)
+                    .unwrap_or(TimePeriodType::Today),
+                formula: formulas.into_iter().next(),
+            },
+            "containsBlanks" => ConditionalFormatRuleType::ContainsBlanks {
+                formula: formulas.into_iter().next(),
+            },
+            "notContainsBlanks" => ConditionalFormatRuleType::NotContainsBlanks {
+                formula: formulas.into_iter().next(),
+            },
+            "containsErrors" => ConditionalFormatRuleType::ContainsErrors {
+                formula: formulas.into_iter().next(),
+            },
+            "notContainsErrors" => ConditionalFormatRuleType::NotContainsErrors {
+                formula: formulas.into_iter().next(),
+            },
+            "duplicateValues" => ConditionalFormatRuleType::DuplicateValues,
+            "uniqueValues" => ConditionalFormatRuleType::UniqueValues,
+            other => ConditionalFormatRuleType::Unknown {
+                raw_type: other.to_string(),
+            },
+        }
+    };
+
+    Ok(ConditionalFormatRule {
+        priority,
+        stop_if_true,
+        format,
+        rule_type,
+    })
+}
+
+/// Parse `<colorScale>` child element.
+fn parse_color_scale<RS: std::io::BufRead>(
+    xml: &mut XmlReader<RS>,
+    theme_colors: &[Color],
+) -> Result<ConditionalFormatRuleType, XlsxError> {
+    let mut cfvos = Vec::new();
+    let mut colors = Vec::new();
+    let mut buf = Vec::with_capacity(256);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e) | Event::Empty(ref e)) => match e.local_name().as_ref() {
+                b"cfvo" => {
+                    cfvos.push(parse_cfvo(e, xml.decoder())?);
+                }
+                b"color" => {
+                    let attrs: Vec<_> = e.attributes().collect::<Result<Vec<_>, _>>()?;
+                    if let Some(c) = style_parser::parse_color(&attrs, theme_colors)? {
+                        colors.push(c);
+                    } else {
+                        colors.push(Color::rgb(0, 0, 0));
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"colorScale" => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("colorScale")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    let mut cfvo_iter = cfvos.into_iter();
+    if cfvo_iter.len() == 3 && colors.len() >= 3 {
+        Ok(ConditionalFormatRuleType::ColorScale3 {
+            min: cfvo_iter.next().unwrap_or_default(),
+            mid: cfvo_iter.next().unwrap_or_default(),
+            max: cfvo_iter.next().unwrap_or_default(),
+            min_color: colors[0],
+            mid_color: colors[1],
+            max_color: colors[2],
+        })
+    } else if cfvo_iter.len() >= 2 && colors.len() >= 2 {
+        Ok(ConditionalFormatRuleType::ColorScale2 {
+            min: cfvo_iter.next().unwrap_or_default(),
+            max: cfvo_iter.next().unwrap_or_default(),
+            min_color: colors[0],
+            max_color: colors[1],
+        })
+    } else {
+        Ok(ConditionalFormatRuleType::ColorScale2 {
+            min: cfvo_iter.next().unwrap_or_default(),
+            max: cfvo_iter.next().unwrap_or_default(),
+            min_color: colors.first().copied().unwrap_or(Color::rgb(0, 0, 0)),
+            max_color: colors.last().copied().unwrap_or(Color::rgb(255, 255, 255)),
+        })
+    }
+}
+
+/// Parse `<dataBar>` child element.
+fn parse_data_bar<RS: std::io::BufRead>(
+    xml: &mut XmlReader<RS>,
+    theme_colors: &[Color],
+) -> Result<ConditionalFormatRuleType, XlsxError> {
+    let mut cfvos = Vec::new();
+    let mut fill_color = None;
+    let mut border_color = None;
+    let mut buf = Vec::with_capacity(256);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e) | Event::Empty(ref e)) => match e.local_name().as_ref() {
+                b"cfvo" => {
+                    cfvos.push(parse_cfvo(e, xml.decoder())?);
+                }
+                b"color" => {
+                    let attrs: Vec<_> = e.attributes().collect::<Result<Vec<_>, _>>()?;
+                    if let Some(c) = style_parser::parse_color(&attrs, theme_colors)? {
+                        if fill_color.is_none() {
+                            fill_color = Some(c);
+                        } else {
+                            border_color = Some(c);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"dataBar" => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("dataBar")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    let mut cfvo_iter = cfvos.into_iter();
+    Ok(ConditionalFormatRuleType::DataBar {
+        min: cfvo_iter.next().unwrap_or_default(),
+        max: cfvo_iter.next().unwrap_or_default(),
+        fill_color,
+        border_color,
+    })
+}
+
+/// Parse `<iconSet>` child element.
+fn parse_icon_set<RS: std::io::BufRead>(
+    xml: &mut XmlReader<RS>,
+    start: &BytesStart,
+) -> Result<ConditionalFormatRuleType, XlsxError> {
+    let mut icon_type = IconSetType::ThreeTrafficLights;
+    let mut reversed = false;
+    let mut show_value = true;
+
+    for attr in start.attributes() {
+        let attr = attr.map_err(XlsxError::XmlAttr)?;
+        match attr.key.as_ref() {
+            b"iconSet" => {
+                let name = xml.decoder().decode(&attr.value)?;
+                if let Some(t) = IconSetType::from_str(&name) {
+                    icon_type = t;
+                }
+            }
+            b"reverse" => {
+                reversed = &*attr.value == b"1";
+            }
+            b"showValue" => {
+                show_value = &*attr.value != b"0";
+            }
+            _ => {}
+        }
+    }
+
+    let mut thresholds = Vec::new();
+    let mut buf = Vec::with_capacity(256);
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e) | Event::Empty(ref e))
+                if e.local_name().as_ref() == b"cfvo" =>
+            {
+                thresholds.push(parse_cfvo(e, xml.decoder())?);
+            }
+            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"iconSet" => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("iconSet")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => {}
+        }
+    }
+
+    Ok(ConditionalFormatRuleType::IconSet {
+        icon_type,
+        thresholds,
+        reversed,
+        show_value,
+    })
+}
+
+/// Parse a `<cfvo>` element from its attributes.
+fn parse_cfvo(e: &BytesStart, decoder: Decoder) -> Result<CfValueObject, XlsxError> {
+    let mut value_type = CfValueObjectType::Auto;
+    let mut value = None;
+    let mut gte = true;
+
+    for attr in e.attributes() {
+        let attr = attr.map_err(XlsxError::XmlAttr)?;
+        match attr.key.as_ref() {
+            b"type" => {
+                let type_str = decoder.decode(&attr.value)?;
+                value_type = CfValueObjectType::from_str(&type_str);
+            }
+            b"val" => {
+                let v = decoder.decode(&attr.value)?.into_owned();
+                if !v.is_empty() {
+                    value = Some(v);
+                }
+            }
+            b"gte" => {
+                gte = &*attr.value != b"0";
+            }
+            _ => {}
+        }
+    }
+
+    Ok(CfValueObject {
+        value_type,
+        value,
+        gte,
+    })
 }
 
 fn xml_reader<'a, RS: Read + Seek>(
@@ -4354,6 +5018,7 @@ mod tests {
             tables: None,
             formats: vec![],
             styles: Vec::new(),
+            dxf_styles: Vec::new(),
             is_1904: false,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]

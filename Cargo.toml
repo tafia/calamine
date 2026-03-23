@@ -44,6 +44,10 @@ path = "benches/generate_styles_1M.rs"
 name = "basic"
 harness = false
 
+[[bench]]
+name = "conditional_formatting"
+harness = false
+
 [features]
 default = []
 
