@@ -737,6 +737,27 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    /// Check if the workbook uses the 1904 date system.
+    ///
+    /// Returns `true` if the workbook uses the 1904 date epoch (used by some older
+    /// Mac versions of Excel), or `false` if it uses the standard 1900 date epoch.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let workbook: Xlsx<_> = open_workbook("tests/date_1904.xlsx")?;
+    ///     let is_1904 = workbook.has_1904_epoch();
+    ///     println!("Uses 1904 date system: {}", is_1904);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn has_1904_epoch(&self) -> bool {
+        self.is_1904
+    }
+
     /// Get all Pivot Tables in a workbook.
     ///
     /// # Note
