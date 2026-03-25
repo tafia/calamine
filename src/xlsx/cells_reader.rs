@@ -346,6 +346,13 @@ where
             read_string_with_bufs(xml, e.name(), &mut bufs.xml, &mut bufs.str_inner)?
                 .map_or(DataRef::Empty, DataRef::String)
         }
+        // Ignore <v> for inlineStr cells since it is redundant. The value is in
+        // the <is> element, which is handled above.
+        b"v" if matches!(type_attr, Some(b"inlineStr") | Some(b"is")) => {
+            bufs.xml.clear();
+            xml.read_to_end_into(e.name(), &mut bufs.xml)?;
+            DataRef::Empty
+        }
         b"v" => match type_attr {
             Some(b"n") | Some(b"s") | Some(b"b") | Some(b"e") | None => {
                 // These types are always plain ASCII (no CR/LF or entities), so we can
@@ -441,13 +448,6 @@ fn read_v<'s>(
                         ))
                     }
                 })
-        }
-        Some(b"is") => {
-            // this case should be handled in outer loop over cell elements, in which
-            // case read_inline_str is called instead. Case included here for completeness.
-            Err(XlsxError::Unexpected(
-                "called read_value on a cell of type inlineStr",
-            ))
         }
         Some(t) => {
             let t = std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();

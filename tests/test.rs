@@ -2869,3 +2869,16 @@ fn test_capitalized_book_stream() {
     // ref: https://github.com/tafia/calamine/issues/618
     let _wb: Xls<_> = wb("capitalized_wbook_stream.xls");
 }
+
+#[test]
+fn test_xlsx_inline_str_with_value() {
+    // extraneous v nodes should be ignored for inlineStr cells
+    let mut wb: Xlsx<_> = wb("inlineStr_with_value.xlsx");
+    let range = wb.worksheet_range_at(0).unwrap().unwrap();
+    assert_eq!(range.get_value((0, 4)), Some(&String("ID".to_string())));
+    assert_eq!(
+        range.get_value((1, 4)),
+        Some(&String("RQ11610".to_string()))
+    );
+    assert_eq!(range.get_value((1, 3)), Some(&String("1.".to_string())));
+}
