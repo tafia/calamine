@@ -438,10 +438,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     }
                                 }
                             }
-                            Attribute {
-                                key: QName(b"r:id" | b"relationships:id"),
-                                value: v,
-                            } => {
+                            // Ignore the "r:id" attribute namespace and match on the "id" name.
+                            Attribute { key, value: v } if key.local_name().as_ref() == b"id" => {
                                 let r = &relationships
                                     .get(&*v)
                                     .ok_or(XlsxError::RelationshipNotFound)?[..];
