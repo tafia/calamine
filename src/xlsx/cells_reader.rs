@@ -20,10 +20,10 @@ use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::unescape_entity_to_buffer,
-    Cell, XlsxError,
+    Cell, ColNum, RowNum, XlsxError,
 };
 
-type FormulaMap = HashMap<(u32, u32), (i64, i64)>;
+type FormulaMap = HashMap<(RowNum, ColNum), (i64, i64)>;
 
 /// Workbook-level context used when reading cell values.
 struct WorkbookContext<'a> {
@@ -59,8 +59,8 @@ where
     formats: &'a [CellFormat],
     is_1904: bool,
     dimensions: Dimensions,
-    row_index: u32,
-    col_index: u32,
+    row_index: RowNum,
+    col_index: ColNum,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
     value_bufs: ValueBufs,
@@ -248,8 +248,7 @@ where
                                     get_attribute(e.attributes(), QName(b"t"))
                                 {
                                     // shared formula
-                                    let mut offset_map: HashMap<(u32, u32), (i64, i64)> =
-                                        HashMap::new();
+                                    let mut offset_map: FormulaMap = HashMap::new();
                                     // shared index
                                     let shared_index =
                                         match get_attribute(e.attributes(), QName(b"si"))? {
