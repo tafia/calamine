@@ -247,6 +247,8 @@ type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 /// Xlsx, Xlsm, Xlam
 pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
+    /// Path to zip directory where excel xml is
+    xl_path: String,
     /// Shared strings
     strings: Vec<String>,
     /// Sheets paths
@@ -278,9 +280,68 @@ struct XlsxOptions {
 }
 
 impl<RS: Read + Seek> Xlsx<RS> {
+    fn read_package_relationships(&mut self) -> Result<(), XlsxError> {
+        let mut xml = match xml_reader(&mut self.zip, "_rels/.rels", &self.zip_path_cache) {
+            None => return Err(XlsxError::FileNotFound("_rels/.rels".to_string())),
+            Some(x) => x?,
+        };
+
+        let mut buf = Vec::with_capacity(1024);
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationships" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        let mut document_target = None;
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
+                    let mut rel_type = String::new();
+                    let mut target = String::new();
+                    for a in e.attributes() {
+                        let a = a?;
+                        match a.key {
+                            QName(b"Type") => {
+                                rel_type = a.decode_and_unescape_value(xml.decoder())?.to_string();
+                            }
+                            QName(b"Target") => {
+                                target = a.decode_and_unescape_value(xml.decoder())?.to_string();
+                            }
+                            _ => (),
+                        }
+                    }
+                    if rel_type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" {
+                        document_target = Some(target);
+                    }
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        if let Some(target) = document_target {
+            self.xl_path = target
+                .rfind('/')
+                .map(|i| &target[..=i])
+                .unwrap_or("")
+                .to_string();
+            Ok(())
+        } else {
+            Err(XlsxError::RelationshipNotFound)
+        }
+    }
+
     fn read_shared_strings(&mut self) -> Result<(), XlsxError> {
-        let mut xml = match xml_reader(&mut self.zip, "xl/sharedStrings.xml", &self.zip_path_cache)
-        {
+        let path = format!("{}sharedStrings.xml", self.xl_path);
+        let mut xml = match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
         };
@@ -325,7 +386,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     fn read_styles(&mut self) -> Result<(), XlsxError> {
-        let mut xml = match xml_reader(&mut self.zip, "xl/styles.xml", &self.zip_path_cache) {
+        let path = format!("{}styles.xml", self.xl_path);
+        let mut xml = match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
         };
@@ -397,8 +459,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsxError> {
-        let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml", &self.zip_path_cache) {
+    fn read_workbook(
+        &mut self,
+        relationships: &HashMap<Vec<u8>, (String, String)>,
+    ) -> Result<(), XlsxError> {
+        let path = format!("{}workbook.xml", self.xl_path);
+        let mut xml = match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
         };
@@ -410,7 +476,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"sheet" => {
                     let mut name = String::new();
-                    let mut path = String::new();
+                    let mut rel_id: Vec<u8> = b"".to_vec();
                     let mut visible = SheetVisible::Visible;
                     for a in e.attributes() {
                         let a = a?;
@@ -442,26 +508,27 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 key: QName(b"r:id" | b"relationships:id"),
                                 value: v,
                             } => {
-                                let r = &relationships
-                                    .get(&*v)
-                                    .ok_or(XlsxError::RelationshipNotFound)?[..];
-                                // target may have prepended "/xl/" or "xl/" path;
-                                // strip if present
-                                path = if r.starts_with("/xl/") {
-                                    r[1..].to_string()
-                                } else if r.starts_with("xl/") {
-                                    r.to_string()
-                                } else {
-                                    format!("xl/{r}")
-                                };
+                                rel_id = (*v).to_vec();
                             }
                             _ => (),
                         }
                     }
-                    let typ = match path.split('/').nth(1) {
-                        Some("worksheets") => SheetType::WorkSheet,
-                        Some("chartsheets") => SheetType::ChartSheet,
-                        Some("dialogsheets") => SheetType::DialogSheet,
+                    let (r, rel_type): &&(_, String) = &relationships
+                        .get(&rel_id)
+                        .ok_or(XlsxError::RelationshipNotFound)?;
+                    // target may have prepended "/xl/" or "xl/" path;
+                    // strip if present
+                    let path = if r.starts_with("/xl/") {
+                        r[1..].to_string()
+                    } else if r.starts_with("xl/") {
+                        r.to_string()
+                    } else {
+                        format!("{}{r}", self.xl_path)
+                    };
+                    let typ = match rel_type.split('/').next_back() {
+                        Some("worksheet") => SheetType::WorkSheet,
+                        Some("chartsheet") => SheetType::ChartSheet,
+                        Some("dialogsheet") => SheetType::DialogSheet,
                         _ => {
                             return Err(XlsxError::Unrecognized {
                                 typ: "sheet:type",
@@ -517,16 +584,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
-        let mut xml = match xml_reader(
-            &mut self.zip,
-            "xl/_rels/workbook.xml.rels",
-            &self.zip_path_cache,
-        ) {
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, (String, String)>, XlsxError> {
+        let rels_path = format!("{}_rels/workbook.xml.rels", self.xl_path);
+        let mut xml = match xml_reader(&mut self.zip, rels_path.as_ref(), &self.zip_path_cache) {
             None => {
-                return Err(XlsxError::FileNotFound(
-                    "xl/_rels/workbook.xml.rels".to_string(),
-                ));
+                return Err(XlsxError::FileNotFound(rels_path));
             }
             Some(x) => x?,
         };
@@ -537,6 +599,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                     let mut id = Vec::new();
+                    let mut rel_type = String::new();
                     let mut target = String::new();
                     for a in e.attributes() {
                         match a? {
@@ -545,13 +608,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 value: v,
                             } => id.extend_from_slice(&v),
                             Attribute {
+                                key: QName(b"Type"),
+                                value: v,
+                            } => rel_type = xml.decoder().decode(&v)?.into_owned(),
+                            Attribute {
                                 key: QName(b"Target"),
                                 value: v,
                             } => target = xml.decoder().decode(&v)?.into_owned(),
                             _ => (),
                         }
                     }
-                    relationships.insert(id, target);
+                    relationships.insert(id, (target, rel_type));
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
@@ -1593,6 +1660,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let zip_path_cache = build_zip_path_cache(&zip);
         let mut xlsx = Xlsx {
             zip,
+            xl_path: "xl/".to_string(),
             strings: Vec::new(),
             formats: Vec::new(),
             is_1904: false,
@@ -1605,6 +1673,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             options: XlsxOptions::default(),
             zip_path_cache,
         };
+        xlsx.read_package_relationships()?;
         xlsx.read_shared_strings()?;
         xlsx.read_styles()?;
         let relationships = xlsx.read_relationships()?;
@@ -1621,7 +1690,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsxError> {
-        let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
+        let path = format!("{}vbaProject.bin", self.xl_path);
+        let Some(mut f) = self.zip.by_name(path.as_ref()).ok() else {
             return Ok(None);
         };
         let len = f.size() as usize;
@@ -1634,6 +1704,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsxError> {
+        dbg!("here!");
         let rge = self.worksheet_range_ref(name)?;
         let inner = rge.inner.into_iter().map(|v| v.into()).collect();
         Ok(Range {
@@ -3447,6 +3518,7 @@ mod tests {
         let zip_path_cache = build_zip_path_cache(&zip);
         let mut xlsx = Xlsx {
             zip,
+            xl_path: "xl/".to_string(),
             strings: vec![],
             sheets: vec![],
             tables: None,
