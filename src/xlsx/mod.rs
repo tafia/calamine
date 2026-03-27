@@ -397,7 +397,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsxError> {
+    fn read_workbook(
+        &mut self,
+        relationships: &HashMap<Vec<u8>, (String, String)>,
+    ) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "xl/workbook.xml", &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
@@ -410,7 +413,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"sheet" => {
                     let mut name = String::new();
-                    let mut path = String::new();
+                    let mut rel_id: Vec<u8> = b"".to_vec();
                     let mut visible = SheetVisible::Visible;
                     for a in e.attributes() {
                         let a = a?;
@@ -442,26 +445,27 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 key: QName(b"r:id" | b"relationships:id"),
                                 value: v,
                             } => {
-                                let r = &relationships
-                                    .get(&*v)
-                                    .ok_or(XlsxError::RelationshipNotFound)?[..];
-                                // target may have prepended "/xl/" or "xl/" path;
-                                // strip if present
-                                path = if r.starts_with("/xl/") {
-                                    r[1..].to_string()
-                                } else if r.starts_with("xl/") {
-                                    r.to_string()
-                                } else {
-                                    format!("xl/{r}")
-                                };
+                                rel_id = (*v).to_vec();
                             }
                             _ => (),
                         }
                     }
-                    let typ = match path.split('/').nth(1) {
-                        Some("worksheets") => SheetType::WorkSheet,
-                        Some("chartsheets") => SheetType::ChartSheet,
-                        Some("dialogsheets") => SheetType::DialogSheet,
+                    let (r, rel_type): &&(_, String) = &relationships
+                        .get(&rel_id)
+                        .ok_or(XlsxError::RelationshipNotFound)?;
+                    // target may have prepended "/xl/" or "xl/" path;
+                    // strip if present
+                    let path = if r.starts_with("/xl/") {
+                        r[1..].to_string()
+                    } else if r.starts_with("xl/") {
+                        r.to_string()
+                    } else {
+                        format!("xl/{r}")
+                    };
+                    let typ = match rel_type.split('/').next_back() {
+                        Some("worksheet") => SheetType::WorkSheet,
+                        Some("chartsheet") => SheetType::ChartSheet,
+                        Some("dialogsheet") => SheetType::DialogSheet,
                         _ => {
                             return Err(XlsxError::Unrecognized {
                                 typ: "sheet:type",
@@ -517,7 +521,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsxError> {
+    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, (String, String)>, XlsxError> {
         let mut xml = match xml_reader(
             &mut self.zip,
             "xl/_rels/workbook.xml.rels",
@@ -537,6 +541,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                     let mut id = Vec::new();
+                    let mut rel_type = String::new();
                     let mut target = String::new();
                     for a in e.attributes() {
                         match a? {
@@ -545,13 +550,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 value: v,
                             } => id.extend_from_slice(&v),
                             Attribute {
+                                key: QName(b"Type"),
+                                value: v,
+                            } => rel_type = xml.decoder().decode(&v)?.into_owned(),
+                            Attribute {
                                 key: QName(b"Target"),
                                 value: v,
                             } => target = xml.decoder().decode(&v)?.into_owned(),
                             _ => (),
                         }
                     }
-                    relationships.insert(id, target);
+                    relationships.insert(id, (target, rel_type));
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
