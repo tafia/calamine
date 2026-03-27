@@ -2991,3 +2991,14 @@ fn test_xlsx_nonstandard_ns_prefix() {
         ]
     );
 }
+
+#[test]
+fn test_xlsx_minimal_package() {
+    // Should be able to open xlsx with different package layout.
+    let mut wb: Xlsx<_> = wb("minimal_package.xlsx");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&String("BKG_NUM".to_string()))
+    );
+}
