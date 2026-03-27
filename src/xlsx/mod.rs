@@ -1938,9 +1938,7 @@ where
                 if let Some(s) = &mut rich_buffer {
                     s.push_str(&value);
                 } else {
-                    // consume any remaining events up to expected closing tag
-                    xml.read_to_end_into(closing, text_buf)?;
-                    return Ok(Some(value));
+                    rich_buffer = Some(value);
                 }
             }
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
