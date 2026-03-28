@@ -2882,3 +2882,27 @@ fn test_xlsx_inline_str_with_value() {
     );
     assert_eq!(range.get_value((1, 3)), Some(&String("1.".to_string())));
 }
+
+#[test]
+fn test_xls_formula_date_format() {
+    let mut wb: Xls<_> = wb("formula-date-format.xls");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    // This date is a literal:
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            41331.,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    // While this one is a formula result:
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            41332.,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+}
