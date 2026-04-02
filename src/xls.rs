@@ -1322,11 +1322,11 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
                 formula.push('!');
-                // TODO: check with relative columns
+                // mask off fRwRel/fColRel flag bits (RgceArea: bits 14/15 of each col)
                 formula.push('$');
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
+                push_column((read_u16(&rgce[6..8]) & 0x3FFF) as u32, &mut formula);
                 write!(&mut formula, "${}:$", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
-                push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
+                push_column((read_u16(&rgce[8..10]) & 0x3FFF) as u32, &mut formula);
                 write!(&mut formula, "${}", read_u16(&rgce[4..6]) as u32 + 1).unwrap();
                 rgce = &rgce[10..];
             }
@@ -1560,10 +1560,11 @@ fn parse_formula(
             }
             0x25 | 0x45 | 0x65 => {
                 stack.push(formula.len());
+                // mask off fRwRel/fColRel flag bits (RgceArea: bits 14/15 of each col)
                 formula.push('$');
-                push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
+                push_column((read_u16(&rgce[4..6]) & 0x3FFF) as u32, &mut formula);
                 write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
+                push_column((read_u16(&rgce[6..8]) & 0x3FFF) as u32, &mut formula);
                 write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
                 rgce = &rgce[8..];
             }
