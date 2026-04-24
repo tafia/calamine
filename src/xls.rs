@@ -1287,10 +1287,7 @@ fn parse_formula(
     encoding: &XlsEncoding,
     biff: Biff,
 ) -> Result<String, XlsError> {
-    let is_pre_biff8 = matches!(
-        biff,
-        Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5
-    );
+    let is_pre_biff8 = matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5);
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
     let cce = read_u16(rgce) as usize;
