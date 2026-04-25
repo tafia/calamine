@@ -1499,7 +1499,7 @@ fn parse_formula(
                     }
                     _ => {
                         let iftab = read_u16(rgce) as usize;
-                        if iftab > crate::utils::FTAB_LEN {
+                        if iftab >= crate::utils::FTAB_LEN {
                             return Err(XlsError::IfTab(iftab));
                         }
                         rgce = &rgce[2..];
@@ -1534,7 +1534,11 @@ fn parse_formula(
                     formula.push(')');
                 } else {
                     stack.push(formula.len());
-                    formula.push_str(crate::utils::FTAB[iftab]);
+                    formula.push_str(
+                        crate::utils::FTAB
+                            .get(iftab)
+                            .ok_or(XlsError::IfTab(iftab))?,
+                    );
                     formula.push_str("()");
                 }
             }
