@@ -2888,6 +2888,19 @@ fn biff5_formula_ptg_ref_643() {
 }
 
 #[test]
+fn issue_646_unsupported_formula_function() {
+    // Unsupported BIFF function ids should be reported as formula parse errors,
+    // not panic while opening the workbook.
+    let mut excel: Xls<_> = wb("issue_646_unsupported_formula_function.xls");
+    assert!(!excel.sheet_names().is_empty());
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(
+        formula.get_value((0, 0)).map(|s| s.as_str()),
+        Some("Unrecognised formula for cell (0, 0): IfTab(32931)")
+    );
+}
+
+#[test]
 fn test_capitalized_book_stream() {
     // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
     // ref: https://github.com/tafia/calamine/issues/618
