@@ -1948,6 +1948,15 @@ fn issue_553_non_ascii_shared_formula() {
 }
 
 #[test]
+fn issue_644_shared_formula_function_names() {
+    let mut excel: Xlsx<_> = wb("issue644.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    for (row, _, f) in formula.cells() {
+        assert_eq!(f, &format!("LOG10(ABS(A{})+1)", row + 1));
+    }
+}
+
+#[test]
 fn non_monotonic_si_shared_formula() {
     // This excel has been manually edited so that the si numbers do not monotonically increase (si
     // 0 swapped with 1)
