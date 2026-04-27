@@ -1903,9 +1903,7 @@ where
     loop {
         xml_buf.clear();
         match xml.read_event_into(xml_buf) {
-            Ok(Event::Start(e))
-                if e.local_name().as_ref() == b"r" && rich_buffer.is_none() =>
-            {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" && rich_buffer.is_none() => {
                 // use a buffer since richtext has multiples <r> and <t> for the same cell
                 rich_buffer = Some(String::new());
             }
