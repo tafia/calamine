@@ -2882,3 +2882,24 @@ fn test_xlsx_inline_str_with_value() {
     );
     assert_eq!(range.get_value((1, 3)), Some(&String("1.".to_string())));
 }
+
+// Test for issue #648 where a inlineStr string contains CDATA.
+#[test]
+fn test_xlsx_inline_str_cdata() {
+    let mut excel: Xlsx<_> = wb("inlineStr_cdata.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    range_eq!(
+        range,
+        [
+            [
+                String("Hello CDATA".to_string()),
+                String("World".to_string()),
+            ],
+            [
+                String("12345".to_string()),
+                String("NormalText".to_string())
+            ],
+        ]
+    );
+}
