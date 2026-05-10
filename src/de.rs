@@ -421,7 +421,18 @@ where
     }
 }
 
-struct RowDeserializer<'header, 'cell, T> {
+/// A deserializer for a single row of cells.
+///
+/// Construct the deserializer via [`RowDeserializer::new`] and pass it directly
+/// to a [`serde::de::DeserializeSeed`] implementation when you need
+/// runtime-driven deserialization (e.g. column names only known after reading
+/// the header row).
+///
+/// When `headers` is `Some`, calling `deserialize_struct` or `deserialize_map`
+/// drives `visit_map` and each key is the corresponding header string. When
+/// `headers` is `None`, all `deserialize_*` methods drive `visit_seq`.
+///
+pub struct RowDeserializer<'header, 'cell, T> {
     cells: &'cell [T],
     headers: Option<&'header [String]>,
     iter: slice::Iter<'header, usize>, // iterator over column indexes
@@ -433,7 +444,14 @@ impl<'header, 'cell, T> RowDeserializer<'header, 'cell, T>
 where
     T: 'cell + ToCellDeserializer<'cell>,
 {
-    fn new(
+    /// Construct a deserializer for a single row.
+    ///
+    /// - `column_indexes` – the column positions to expose, in order.
+    /// - `headers` – optional header names parallel to `column_indexes`. When
+    ///   present, the struct/map deserialization is driven by `visit_map`.
+    /// - `cells` – the full row slice (indexed by `column_indexes`).
+    /// - `pos` – `(row, col)` position used in error reporting.
+    pub fn new(
         column_indexes: &'header [usize],
         headers: Option<&'header [String]>,
         cells: &'cell [T],
