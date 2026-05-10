@@ -2890,6 +2890,14 @@ fn test_xlsx_inline_str_with_value() {
 }
 
 #[test]
+fn test_xlsx_richtext_after_plain() {
+    // Ensure that richtext nodes are still parsed when the initial node is plain.
+    let mut wb: Xlsx<_> = wb("richtext-after-plain.xlsx");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&String("tvalrval1rval2".to_string()))
+
 fn test_xlsx_nonstandard_ns_prefix() {
     // Check that non-standard namespace alias for relationships is accepted.
     // While typically "r:", it is "ns:" in this workbook.
