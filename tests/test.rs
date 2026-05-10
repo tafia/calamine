@@ -2888,3 +2888,19 @@ fn test_xlsx_inline_str_with_value() {
     );
     assert_eq!(range.get_value((1, 3)), Some(&String("1.".to_string())));
 }
+
+#[test]
+fn test_xlsx_nonstandard_ns_prefix() {
+    // Check that non-standard namespace alias for relationships is accepted.
+    // While typically "r:", it is "ns:" in this workbook.
+    let mut wb: Xlsx<_> = wb("nonstandard-xml-ns-prefix.xlsx");
+    let range = wb.worksheet_range_at(0).unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("a".to_string()), String("b".to_string())],
+            [Float(1.), Float(3.)],
+            [Float(2.), Float(4.)]
+        ]
+    );
+}
