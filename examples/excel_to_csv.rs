@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright 2016-2025, Johann Tuffe.
+// Copyright 2016-2026, Johann Tuffe.
 
 //! An example for using the `calamine` crate to convert an Excel file to CSV.
 //!

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright 2016-2025, Johann Tuffe.
+// Copyright 2016-2026, Johann Tuffe.
 
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
