@@ -2870,6 +2870,15 @@ fn biff5_defined_names_and_empty_sheets_612() {
 }
 
 #[test]
+fn biff5_formula_ptg_ref_643() {
+    // covers a parsing error where biff8 formula token sizes were assumed
+    // ref: https://github.com/tafia/calamine/pull/643
+    let mut excel: Xls<_> = wb("issue_643_biff5_formula.xls");
+    let formulas = excel.worksheet_formula("SheetJS").unwrap();
+    assert_eq!(formulas.get_value((3, 1)), Some(&"$A$1".to_string()));
+}
+
+#[test]
 fn test_capitalized_book_stream() {
     // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
     // ref: https://github.com/tafia/calamine/issues/618

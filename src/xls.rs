@@ -522,6 +522,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &defined_names,
                             &xtis,
                             &encoding,
+                            biff,
                         )
                         .unwrap_or_else(|e| {
                             debug!("{e}");
@@ -1308,7 +1309,9 @@ fn parse_formula(
     names: &[(String, String)],
     xtis: &[Xti],
     encoding: &XlsEncoding,
+    biff: Biff,
 ) -> Result<String, XlsError> {
+    let is_pre_biff8 = matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5);
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
     let cce = read_u16(rgce) as usize;
@@ -1570,36 +1573,66 @@ fn parse_formula(
             }
             0x24 | 0x44 | 0x64 => {
                 stack.push(formula.len());
-                let row = read_u16(rgce) + 1;
-                let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
-                if rgce[3] & 0x80 != 0x80 {
-                    formula.push('$');
+                if is_pre_biff8 {
+                    // BIFF2-5 PtgRef: rw(2 bytes, 14-bit row + 2 rel flags) + col(1 byte)
+                    let rw_raw = read_u16(rgce);
+                    let row = (rw_raw & 0x3FFF) + 1;
+                    let col = rgce[2];
+                    if rw_raw & 0x4000 == 0 {
+                        formula.push('$');
+                    }
+                    push_column(col as u32, &mut formula);
+                    if rw_raw & 0x8000 == 0 {
+                        formula.push('$');
+                    }
+                    formula.push_str(&format!("{row}"));
+                    rgce = &rgce[3..];
+                } else {
+                    let row = read_u16(rgce) + 1;
+                    let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
+                    if rgce[3] & 0x80 != 0x80 {
+                        formula.push('$');
+                    }
+                    push_column(col as u32, &mut formula);
+                    if rgce[3] & 0x40 != 0x40 {
+                        formula.push('$');
+                    }
+                    formula.push_str(&format!("{row}"));
+                    rgce = &rgce[4..];
                 }
-                push_column(col as u32, &mut formula);
-                if rgce[3] & 0x40 != 0x40 {
-                    formula.push('$');
-                }
-                formula.push_str(&format!("{row}"));
-                rgce = &rgce[4..];
             }
             0x25 | 0x45 | 0x65 => {
                 stack.push(formula.len());
-                formula.push('$');
-                push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
-                rgce = &rgce[8..];
+                if is_pre_biff8 {
+                    // BIFF2-5 PtgArea: rwFirst(2) + rwLast(2) + colFirst(1) + colLast(1) = 6 bytes
+                    let row_first = (read_u16(&rgce[0..2]) & 0x3FFF) as u32 + 1;
+                    let row_last = (read_u16(&rgce[2..4]) & 0x3FFF) as u32 + 1;
+                    let col_first = rgce[4] as u32;
+                    let col_last = rgce[5] as u32;
+                    formula.push('$');
+                    push_column(col_first, &mut formula);
+                    write!(&mut formula, "${row_first}:$").unwrap();
+                    push_column(col_last, &mut formula);
+                    write!(&mut formula, "${row_last}").unwrap();
+                    rgce = &rgce[6..];
+                } else {
+                    formula.push('$');
+                    push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
+                    write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
+                    push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
+                    write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
+                    rgce = &rgce[8..];
+                }
             }
             0x2A | 0x4A | 0x6A => {
                 stack.push(formula.len());
                 formula.push_str("#REF!");
-                rgce = &rgce[4..];
+                rgce = &rgce[if is_pre_biff8 { 3 } else { 4 }..];
             }
             0x2B | 0x4B | 0x6B => {
                 stack.push(formula.len());
                 formula.push_str("#REF!");
-                rgce = &rgce[8..];
+                rgce = &rgce[if is_pre_biff8 { 6 } else { 8 }..];
             }
             0x39 | 0x59 => {
                 // PfgNameX
