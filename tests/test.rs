@@ -1517,6 +1517,7 @@ fn merge_cells_all_sheets_by_name() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn issue_305_merge_cells_xls() {
     let excel: Xls<_> = wb("merge_cells.xls");
     let merge_cells = excel.worksheet_merge_cells_at(0).unwrap();
@@ -1529,6 +1530,48 @@ fn issue_305_merge_cells_xls() {
             Dimensions::new((1, 1), (3, 3))
         ]
     );
+}
+
+#[test]
+fn merge_cells_by_sheet_name_xls() {
+    let excel: Xls<_> = wb("merge_cells.xls");
+    let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn merge_cells_by_sheet_id_xls() {
+    let excel: Xls<_> = wb("merge_cells.xls");
+    let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn merge_cells_by_sheet_name_not_found_xls() {
+    let excel: Xls<_> = wb("merge_cells.xls");
+    assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
+}
+
+#[test]
+fn merge_cells_by_sheet_id_out_of_range_xls() {
+    let excel: Xls<_> = wb("merge_cells.xls");
+    assert!(excel.merge_cells_by_sheet_id(99).is_err());
 }
 
 #[cfg(feature = "picture")]

@@ -219,16 +219,157 @@ impl<RS: Read + Seek> Xls<RS> {
     }
 
     /// Gets the worksheet merge cell dimensions
+    #[doc(hidden)]
+    #[deprecated(
+        since = "0.36.0",
+        note = "use `merge_cells_by_sheet_name()` or `merge_cells_by_sheet_id()` instead"
+    )]
     pub fn worksheet_merge_cells(&self, name: &str) -> Option<Vec<Dimensions>> {
         self.sheets.get(name).map(|r| r.merge_cells.clone())
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet name, then the corresponding worksheet.
+    #[doc(hidden)]
+    #[deprecated(
+        since = "0.36.0",
+        note = "use `merge_cells_by_sheet_name()` or `merge_cells_by_sheet_id()` instead"
+    )]
     pub fn worksheet_merge_cells_at(&self, n: usize) -> Option<Vec<Dimensions>> {
         let sheet = self.metadata().sheets.get(n)?;
 
+        #[allow(deprecated)]
         self.worksheet_merge_cells(&sheet.name)
+    }
+
+    /// Get the merged cells/regions in a worksheet by sheet name.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] for the merged cells in
+    /// the named worksheet.
+    ///
+    /// Note: unlike the equivalent [`crate::Xlsx`] method, this method takes
+    /// `&self` because XLS data is fully parsed at construction time and held
+    /// in memory.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsError::WorksheetNotFound`] if no worksheet with the given name
+    ///   exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Reader, Xls};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merge_cells.xls";
+    ///
+    ///     // Open the workbook.
+    ///     let workbook: Xls<_> = open_workbook(path)?;
+    ///
+    ///     // Get the names of all the sheets in the workbook.
+    ///     let sheet_names = workbook.sheet_names();
+    ///
+    ///     for sheet_name in &sheet_names {
+    ///         println!("{sheet_name}:");
+    ///
+    ///         // Get the merged cells in the current sheet.
+    ///         let merge_cells = workbook.merge_cells_by_sheet_name(sheet_name)?;
+    ///
+    ///         // Print the dimensions of each merged region.
+    ///         for dimension in &merge_cells {
+    ///             println!("    {dimension:?}");
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Dimensions { start: (0, 0), end: (0, 1) }
+    /// Dimensions { start: (1, 0), end: (3, 0) }
+    /// Dimensions { start: (1, 1), end: (3, 3) }
+    /// ```
+    ///
+    pub fn merge_cells_by_sheet_name(&self, name: &str) -> Result<Vec<Dimensions>, XlsError> {
+        self.sheets
+            .get(name)
+            .map(|r| r.merge_cells.clone())
+            .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
+    }
+
+    /// Get the merged cells/regions in a worksheet by sheet index.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] for the merged cells in
+    /// the worksheet at the given index.
+    ///
+    /// Note: unlike the equivalent [`crate::Xlsx`] method, this method takes
+    /// `&self` because XLS data is fully parsed at construction time and held
+    /// in memory.
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: The zero-based index of the worksheet.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsError::WorksheetNotFound`] if `id` is out of range.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xls};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merge_cells.xls";
+    ///
+    ///     // Open the workbook.
+    ///     let workbook: Xls<_> = open_workbook(path)?;
+    ///
+    ///     // Get the merged cells in the first worksheet.
+    ///     let merge_cells = workbook.merge_cells_by_sheet_id(0)?;
+    ///
+    ///     // Print the dimensions of each merged region.
+    ///     for dimension in &merge_cells {
+    ///         println!("{dimension:?}");
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Dimensions { start: (0, 0), end: (0, 1) }
+    /// Dimensions { start: (1, 0), end: (3, 0) }
+    /// Dimensions { start: (1, 1), end: (3, 3) }
+    /// ```
+    ///
+    pub fn merge_cells_by_sheet_id(&self, id: usize) -> Result<Vec<Dimensions>, XlsError> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(id)
+            .map(|sheet| sheet.name.clone())
+            .ok_or_else(|| XlsError::WorksheetNotFound(format!("Sheet index {id} out of range")))?;
+
+        self.merge_cells_by_sheet_name(&name)
     }
 
     /// Check if the workbook uses the 1904 date system.
