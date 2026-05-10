@@ -921,6 +921,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     /// - [`XlsxError::Xml`].
     ///
+    #[doc(hidden)]
+    #[deprecated(
+        since = "0.36.0",
+        note = "use `merge_cells_by_sheet_name()` or `merge_cells_by_sheet_id()` instead"
+    )]
     pub fn load_merged_regions(&mut self) -> Result<(), XlsxError> {
         if self.merged_regions.is_none() {
             self.read_merged_regions()
@@ -987,6 +992,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Sheet2: Dimensions { start: (0, 4), end: (1, 4) }
     /// ```
     ///
+    #[doc(hidden)]
+    #[deprecated(
+        since = "0.36.0",
+        note = "use `merge_cells_by_sheet_name()` or `merge_cells_by_sheet_id()` instead"
+    )]
     pub fn merged_regions(&self) -> &Vec<(String, String, Dimensions)> {
         self.merged_regions
             .as_ref()
@@ -1066,7 +1076,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     Dimensions { start: (0, 4), end: (1, 4) }
     /// ```
     ///
+    #[doc(hidden)]
+    #[deprecated(
+        since = "0.36.0",
+        note = "use `merge_cells_by_sheet_name()` or `merge_cells_by_sheet_id()` instead"
+    )]
     pub fn merged_regions_by_sheet(&self, name: &str) -> Vec<(&String, &String, &Dimensions)> {
+        #[allow(deprecated)]
         self.merged_regions()
             .iter()
             .filter(|s| s.0 == name)
@@ -1447,6 +1463,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     Dimensions { start: (0, 4), end: (1, 4) }
     /// ```
     ///
+    #[doc(hidden)]
+    #[deprecated(since = "0.36.0", note = "use `merge_cells_by_sheet_name()` instead")]
     pub fn worksheet_merge_cells(
         &mut self,
         name: &str,
@@ -1543,6 +1561,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Dimensions { start: (0, 6), end: (1, 6) }
     /// ```
     ///
+    #[doc(hidden)]
+    #[deprecated(since = "0.36.0", note = "use `merge_cells_by_sheet_id()` instead")]
     pub fn worksheet_merge_cells_at(
         &mut self,
         sheet_index: usize,
@@ -1553,7 +1573,184 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .get(sheet_index)
             .map(|sheet| sheet.name.clone())?;
 
+        #[allow(deprecated)]
         self.worksheet_merge_cells(&name)
+    }
+
+    /// Get the merged cells/regions in a worksheet by sheet name.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] for the merged cells in
+    /// the named worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::WorksheetNotFound`] if no worksheet with the given name
+    ///   exists.
+    /// - [`XlsxError::Xml`] if the worksheet XML cannot be parsed.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the merged cells in an Excel workbook by sheet
+    /// name.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Reader, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the names of all the sheets in the workbook.
+    ///     let sheet_names = workbook.sheet_names();
+    ///
+    ///     for sheet_name in &sheet_names {
+    ///         println!("{sheet_name}:");
+    ///
+    ///         // Get the merged cells in the current sheet.
+    ///         let merge_cells = workbook.merge_cells_by_sheet_name(sheet_name)?;
+    ///
+    ///         // Print the dimensions of each merged region.
+    ///         for dimension in &merge_cells {
+    ///             println!("    {dimension:?}");
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Sheet1:
+    ///     Dimensions { start: (0, 7), end: (1, 7) }
+    ///     Dimensions { start: (0, 0), end: (1, 0) }
+    ///     Dimensions { start: (0, 1), end: (1, 1) }
+    ///     Dimensions { start: (0, 2), end: (1, 3) }
+    ///     Dimensions { start: (2, 2), end: (2, 3) }
+    ///     Dimensions { start: (3, 2), end: (3, 3) }
+    ///     Dimensions { start: (0, 4), end: (1, 4) }
+    ///     Dimensions { start: (0, 5), end: (1, 5) }
+    ///     Dimensions { start: (0, 6), end: (1, 6) }
+    /// Sheet2:
+    ///     Dimensions { start: (0, 0), end: (3, 0) }
+    ///     Dimensions { start: (2, 2), end: (3, 3) }
+    ///     Dimensions { start: (0, 5), end: (3, 7) }
+    ///     Dimensions { start: (0, 1), end: (1, 1) }
+    ///     Dimensions { start: (0, 2), end: (1, 3) }
+    ///     Dimensions { start: (0, 4), end: (1, 4) }
+    /// ```
+    ///
+    pub fn merge_cells_by_sheet_name(&mut self, name: &str) -> Result<Vec<Dimensions>, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+
+        let xml = xml_reader(&mut self.zip, path, &self.zip_path_cache)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+
+        let mut xml = xml?;
+        let mut merge_cells = Vec::new();
+        let mut buffer = Vec::new();
+
+        loop {
+            buffer.clear();
+
+            match xml.read_event_into(&mut buffer) {
+                Ok(Event::Start(event)) if event.local_name().as_ref() == b"mergeCells" => {
+                    merge_cells = read_merge_cells(&mut xml)?;
+                    break;
+                }
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(merge_cells)
+    }
+
+    /// Get the merged cells/regions in a worksheet by sheet index.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] for the merged cells in
+    /// the worksheet at the given index.
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: The zero-based index of the worksheet.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::WorksheetNotFound`] if `id` is out of range.
+    /// - [`XlsxError::Xml`] if the worksheet XML cannot be parsed.
+    ///
+    /// # Examples
+    ///
+    /// An example of getting the merged cells in an Excel workbook by sheet
+    /// index.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merged_range.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the merged cells in the first worksheet.
+    ///     let merge_cells = workbook.merge_cells_by_sheet_id(0)?;
+    ///
+    ///     // Print the dimensions of each merged region.
+    ///     for dimension in &merge_cells {
+    ///         println!("{dimension:?}");
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Dimensions { start: (0, 7), end: (1, 7) }
+    /// Dimensions { start: (0, 0), end: (1, 0) }
+    /// Dimensions { start: (0, 1), end: (1, 1) }
+    /// Dimensions { start: (0, 2), end: (1, 3) }
+    /// Dimensions { start: (2, 2), end: (2, 3) }
+    /// Dimensions { start: (3, 2), end: (3, 3) }
+    /// Dimensions { start: (0, 4), end: (1, 4) }
+    /// Dimensions { start: (0, 5), end: (1, 5) }
+    /// Dimensions { start: (0, 6), end: (1, 6) }
+    /// ```
+    ///
+    pub fn merge_cells_by_sheet_id(&mut self, id: usize) -> Result<Vec<Dimensions>, XlsxError> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(id)
+            .map(|sheet| sheet.name.clone())
+            .ok_or_else(|| {
+                XlsxError::WorksheetNotFound(format!("Sheet index {id} out of range"))
+            })?;
+
+        self.merge_cells_by_sheet_name(&name)
     }
 }
 
