@@ -1946,6 +1946,7 @@ where
                 loop {
                     match xml.read_event_into(text_buf)? {
                         Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
+                        Event::CData(t) => value.push_str(&t.xml10_content()?),
                         Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                         Event::End(end) if end.name() == e.name() => break,
                         Event::Eof => return Err(XlsxError::XmlEof("t")),

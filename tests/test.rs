@@ -2907,6 +2907,24 @@ fn test_xlsx_inline_str_with_value() {
     assert_eq!(range.get_value((1, 3)), Some(&String("1.".to_string())));
 }
 
+// Test for issue #648 where a inlineStr string contains CDATA.
+#[test]
+fn test_xlsx_inline_str_cdata() {
+    let mut excel: Xlsx<_> = wb("inlineStr_cdata.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    range_eq!(
+        range,
+        [
+            [
+                String("Hello CDATA".to_string()),
+                String("World".to_string()),
+            ],
+            [
+                String("12345".to_string()),
+                String("NormalText".to_string())
+            ],
+
 #[test]
 fn test_xls_formula_date_format() {
     let mut wb: Xls<_> = wb("formula-date-format.xls");
@@ -2929,6 +2947,7 @@ fn test_xls_formula_date_format() {
             true
         )))
 
+#[test]
 fn test_xlsx_richtext_after_plain() {
     // Ensure that richtext nodes are still parsed when the initial node is plain.
     let mut wb: Xlsx<_> = wb("richtext-after-plain.xlsx");
@@ -2937,6 +2956,7 @@ fn test_xlsx_richtext_after_plain() {
         range.get_value((1, 0)),
         Some(&String("tvalrval1rval2".to_string()))
 
+#[test]
 fn test_xlsx_nonstandard_ns_prefix() {
     // Check that non-standard namespace alias for relationships is accepted.
     // While typically "r:", it is "ns:" in this workbook.
