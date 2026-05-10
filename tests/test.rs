@@ -1145,6 +1145,7 @@ fn issue_221() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn merged_regions_xlsx() {
     use calamine::Dimensions;
     use std::string::String;
@@ -1436,6 +1437,7 @@ fn issue_271() -> Result<(), calamine::Error> {
 }
 
 #[test]
+#[allow(deprecated)]
 fn issue_305_merge_cells() {
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     let merge_cells = excel.worksheet_merge_cells_at(0).unwrap().unwrap();
@@ -1448,6 +1450,70 @@ fn issue_305_merge_cells() {
             Dimensions::new((1, 1), (3, 3))
         ]
     );
+}
+
+#[test]
+fn merge_cells_by_sheet_name_xlsx() {
+    let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
+    let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn merge_cells_by_sheet_id_xlsx() {
+    let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
+    let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn merge_cells_by_sheet_name_not_found() {
+    let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
+    assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
+}
+
+#[test]
+fn merge_cells_by_sheet_id_out_of_range() {
+    let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
+    assert!(excel.merge_cells_by_sheet_id(99).is_err());
+}
+
+#[test]
+fn merge_cells_all_sheets_by_name() {
+    use calamine::Dimensions;
+    use std::collections::BTreeSet;
+    let mut excel: Xlsx<_> = wb("merged_range.xlsx");
+    let sheet_names = excel.sheet_names();
+
+    let all: BTreeSet<(std::string::String, Dimensions)> = sheet_names
+        .iter()
+        .flat_map(|name| {
+            excel
+                .merge_cells_by_sheet_name(name)
+                .unwrap()
+                .into_iter()
+                .map(|d| (name.clone(), d))
+                .collect::<Vec<(std::string::String, Dimensions)>>()
+        })
+        .collect();
+
+    assert_eq!(all.len(), 15); // 9 in Sheet1 + 6 in Sheet2.
 }
 
 #[test]
