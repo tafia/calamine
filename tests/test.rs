@@ -2924,6 +2924,9 @@ fn test_xlsx_inline_str_cdata() {
                 String("12345".to_string()),
                 String("NormalText".to_string())
             ],
+        ]
+    );
+}
 
 #[test]
 fn test_xls_formula_date_format() {
@@ -2946,6 +2949,8 @@ fn test_xls_formula_date_format() {
             ExcelDateTimeType::DateTime,
             true
         )))
+    );
+}
 
 #[test]
 fn test_xlsx_richtext_after_plain() {
@@ -2955,6 +2960,8 @@ fn test_xlsx_richtext_after_plain() {
     assert_eq!(
         range.get_value((1, 0)),
         Some(&String("tvalrval1rval2".to_string()))
+    );
+}
 
 #[test]
 fn test_xlsx_nonstandard_ns_prefix() {
