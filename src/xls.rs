@@ -230,6 +230,27 @@ impl<RS: Read + Seek> Xls<RS> {
 
         self.worksheet_merge_cells(&sheet.name)
     }
+
+    /// Check if the workbook uses the 1904 date system.
+    ///
+    /// Returns `true` if the workbook uses the 1904 date epoch (used by some older
+    /// Mac versions of Excel), or `false` if it uses the standard 1900 date epoch.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xls};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let workbook: Xls<_> = open_workbook("tests/date_1904.xls")?;
+    ///     let is_1904 = workbook.has_1904_epoch();
+    ///     println!("Uses 1904 date system: {}", is_1904);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn has_1904_epoch(&self) -> bool {
+        self.is_1904
+    }
 }
 
 impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
@@ -343,10 +364,8 @@ impl<RS: Read + Seek> Xls<RS> {
                     // FilePass (MS-XLS 2.4.117)
                     0x002F if read_u16(r.data) != 0 => return Err(XlsError::Password),
                     // CodePage (MS-XLS 2.4.52)
-                    0x0042 => {
-                        if self.options.force_codepage.is_none() {
-                            encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
-                        }
+                    0x0042 if self.options.force_codepage.is_none() => {
+                        encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
                     }
                     // RRTabId (MS-XLS 2.4.241)
                     0x013D => {
@@ -355,10 +374,8 @@ impl<RS: Read + Seek> Xls<RS> {
                         self.metadata.sheets.reserve(sheet_len);
                     }
                     // DateMode (MS-XLS 2.4.77)
-                    0x0022 => {
-                        if read_u16(r.data) == 1 {
-                            self.is_1904 = true;
-                        }
+                    0x0022 if read_u16(r.data) == 1 => {
+                        self.is_1904 = true;
                     }
                     // Format (MS-XLS 2.4.126)
                     0x041E => match parse_format(&mut r, &encoding, biff) {
@@ -486,8 +503,11 @@ impl<RS: Read + Seek> Xls<RS> {
                         }
                         let row = read_u16(r.data);
                         let col = read_u16(&r.data[2..]);
+                        let format = self.formats.get(read_u16(&r.data[4..]) as usize);
                         fmla_pos = (row as u32, col as u32);
-                        if let Some(val) = parse_formula_value(&r.data[6..14])? {
+                        if let Some(val) =
+                            parse_formula_value(&r.data[6..14], format, self.is_1904)?
+                        {
                             // If the value is a string
                             // it will appear in 0x0207 record coming next
                             cells.push(Cell::new(fmla_pos, val));
@@ -498,6 +518,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &defined_names,
                             &xtis,
                             &encoding,
+                            biff,
                         )
                         .unwrap_or_else(|e| {
                             debug!("{e}");
@@ -778,11 +799,8 @@ fn parse_mul_rk(
         });
     }
 
-    let mut col = col_first as u32;
-
-    for rk in r[4..r.len() - 2].chunks(6) {
+    for (col, rk) in (col_first as u32..).zip(r[4..r.len() - 2].chunks(6)) {
         cells.push(Cell::new((row as u32, col), rk_num(rk, formats, is_1904)));
-        col += 1;
     }
     Ok(())
 }
@@ -1284,7 +1302,9 @@ fn parse_formula(
     names: &[(String, String)],
     xtis: &[Xti],
     encoding: &XlsEncoding,
+    biff: Biff,
 ) -> Result<String, XlsError> {
+    let is_pre_biff8 = matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5);
     let mut stack = Vec::new();
     let mut formula = String::with_capacity(rgce.len());
     let cce = read_u16(rgce) as usize;
@@ -1546,36 +1566,66 @@ fn parse_formula(
             }
             0x24 | 0x44 | 0x64 => {
                 stack.push(formula.len());
-                let row = read_u16(rgce) + 1;
-                let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
-                if rgce[3] & 0x80 != 0x80 {
-                    formula.push('$');
+                if is_pre_biff8 {
+                    // BIFF2-5 PtgRef: rw(2 bytes, 14-bit row + 2 rel flags) + col(1 byte)
+                    let rw_raw = read_u16(rgce);
+                    let row = (rw_raw & 0x3FFF) + 1;
+                    let col = rgce[2];
+                    if rw_raw & 0x4000 == 0 {
+                        formula.push('$');
+                    }
+                    push_column(col as u32, &mut formula);
+                    if rw_raw & 0x8000 == 0 {
+                        formula.push('$');
+                    }
+                    formula.push_str(&format!("{row}"));
+                    rgce = &rgce[3..];
+                } else {
+                    let row = read_u16(rgce) + 1;
+                    let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
+                    if rgce[3] & 0x80 != 0x80 {
+                        formula.push('$');
+                    }
+                    push_column(col as u32, &mut formula);
+                    if rgce[3] & 0x40 != 0x40 {
+                        formula.push('$');
+                    }
+                    formula.push_str(&format!("{row}"));
+                    rgce = &rgce[4..];
                 }
-                push_column(col as u32, &mut formula);
-                if rgce[3] & 0x40 != 0x40 {
-                    formula.push('$');
-                }
-                formula.push_str(&format!("{row}"));
-                rgce = &rgce[4..];
             }
             0x25 | 0x45 | 0x65 => {
                 stack.push(formula.len());
-                formula.push('$');
-                push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
-                rgce = &rgce[8..];
+                if is_pre_biff8 {
+                    // BIFF2-5 PtgArea: rwFirst(2) + rwLast(2) + colFirst(1) + colLast(1) = 6 bytes
+                    let row_first = (read_u16(&rgce[0..2]) & 0x3FFF) as u32 + 1;
+                    let row_last = (read_u16(&rgce[2..4]) & 0x3FFF) as u32 + 1;
+                    let col_first = rgce[4] as u32;
+                    let col_last = rgce[5] as u32;
+                    formula.push('$');
+                    push_column(col_first, &mut formula);
+                    write!(&mut formula, "${row_first}:$").unwrap();
+                    push_column(col_last, &mut formula);
+                    write!(&mut formula, "${row_last}").unwrap();
+                    rgce = &rgce[6..];
+                } else {
+                    formula.push('$');
+                    push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
+                    write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
+                    push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
+                    write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
+                    rgce = &rgce[8..];
+                }
             }
             0x2A | 0x4A | 0x6A => {
                 stack.push(formula.len());
                 formula.push_str("#REF!");
-                rgce = &rgce[4..];
+                rgce = &rgce[if is_pre_biff8 { 3 } else { 4 }..];
             }
             0x2B | 0x4B | 0x6B => {
                 stack.push(formula.len());
                 formula.push_str("#REF!");
-                rgce = &rgce[8..];
+                rgce = &rgce[if is_pre_biff8 { 6 } else { 8 }..];
             }
             0x39 | 0x59 => {
                 // PfgNameX
@@ -1601,7 +1651,11 @@ fn parse_formula(
 }
 
 /// `FormulaValue` [MS-XLS 2.5.133]
-fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
+fn parse_formula_value(
+    r: &[u8],
+    format: Option<&CellFormat>,
+    is_1904: bool,
+) -> Result<Option<Data>, XlsError> {
     match *r {
         // String, value should be in next record
         [0x00, .., 0xFF, 0xFF] => Ok(None),
@@ -1613,7 +1667,7 @@ fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
             typ: "error",
             val: e,
         }),
-        _ => Ok(Some(Data::Float(read_f64(r)))),
+        _ => Ok(Some(format_excel_f64(read_f64(r), format, is_1904))),
     }
 }
 

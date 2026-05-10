@@ -823,6 +823,7 @@ fn table_by_ref() {
 #[test]
 fn date_xls() {
     let mut xls: Xls<_> = wb("date.xls");
+    assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -858,6 +859,7 @@ fn date_xls() {
 #[test]
 fn date_xls_1904() {
     let mut xls: Xls<_> = wb("date_1904.xls");
+    assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -893,6 +895,7 @@ fn date_xls_1904() {
 #[test]
 fn date_xlsx() {
     let mut xls: Xlsx<_> = wb("date.xlsx");
+    assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -928,6 +931,7 @@ fn date_xlsx() {
 #[test]
 fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = wb("date_1904.xlsx");
+    assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -1051,6 +1055,7 @@ fn date_ods() {
 #[test]
 fn date_xlsb() {
     let mut xls: Xlsb<_> = wb("date.xlsb");
+    assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -1086,6 +1091,7 @@ fn date_xlsb() {
 #[test]
 fn date_xlsb_1904() {
     let mut xls: Xlsb<_> = wb("date_1904.xlsb");
+    assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -1945,6 +1951,15 @@ fn issue_553_non_ascii_shared_formula() {
     assert!(formula
         .cells()
         .all(|(_, _, x)| x == r#"IF(ROW()>5,"한글","영어")"#))
+}
+
+#[test]
+fn issue_644_shared_formula_function_names() {
+    let mut excel: Xlsx<_> = wb("issue644.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    for (row, _, f) in formula.cells() {
+        assert_eq!(f, &format!("LOG10(ABS(A{})+1)", row + 1));
+    }
 }
 
 #[test]
@@ -2864,6 +2879,15 @@ fn biff5_defined_names_and_empty_sheets_612() {
 }
 
 #[test]
+fn biff5_formula_ptg_ref_643() {
+    // covers a parsing error where biff8 formula token sizes were assumed
+    // ref: https://github.com/tafia/calamine/pull/643
+    let mut excel: Xls<_> = wb("issue_643_biff5_formula.xls");
+    let formulas = excel.worksheet_formula("SheetJS").unwrap();
+    assert_eq!(formulas.get_value((3, 1)), Some(&"$A$1".to_string()));
+}
+
+#[test]
 fn test_capitalized_book_stream() {
     // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
     // ref: https://github.com/tafia/calamine/issues/618
@@ -2900,6 +2924,50 @@ fn test_xlsx_inline_str_cdata() {
                 String("12345".to_string()),
                 String("NormalText".to_string())
             ],
+
+#[test]
+fn test_xls_formula_date_format() {
+    let mut wb: Xls<_> = wb("formula-date-format.xls");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    // This date is a literal:
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            41331.,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    // While this one is a formula result:
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            41332.,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+
+#[test]
+fn test_xlsx_richtext_after_plain() {
+    // Ensure that richtext nodes are still parsed when the initial node is plain.
+    let mut wb: Xlsx<_> = wb("richtext-after-plain.xlsx");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&String("tvalrval1rval2".to_string()))
+
+#[test]
+fn test_xlsx_nonstandard_ns_prefix() {
+    // Check that non-standard namespace alias for relationships is accepted.
+    // While typically "r:", it is "ns:" in this workbook.
+    let mut wb: Xlsx<_> = wb("nonstandard-xml-ns-prefix.xlsx");
+    let range = wb.worksheet_range_at(0).unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("a".to_string()), String("b".to_string())],
+            [Float(1.), Float(3.)],
+            [Float(2.), Float(4.)]
         ]
     );
 }

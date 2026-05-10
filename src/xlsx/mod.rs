@@ -438,10 +438,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     }
                                 }
                             }
-                            Attribute {
-                                key: QName(b"r:id" | b"relationships:id"),
-                                value: v,
-                            } => {
+                            // Ignore the "r:id" attribute namespace and match on the "id" name.
+                            Attribute { key, value: v } if key.local_name().as_ref() == b"id" => {
                                 let r = &relationships
                                     .get(&*v)
                                     .ok_or(XlsxError::RelationshipNotFound)?[..];
@@ -735,6 +733,27 @@ impl<RS: Read + Seek> Xlsx<RS> {
             self.pictures = Some(pics);
         }
         Ok(())
+    }
+
+    /// Check if the workbook uses the 1904 date system.
+    ///
+    /// Returns `true` if the workbook uses the 1904 date epoch (used by some older
+    /// Mac versions of Excel), or `false` if it uses the standard 1900 date epoch.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let workbook: Xlsx<_> = open_workbook("tests/date_1904.xlsx")?;
+    ///     let is_1904 = workbook.has_1904_epoch();
+    ///     println!("Uses 1904 date system: {}", is_1904);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn has_1904_epoch(&self) -> bool {
+        self.is_1904
     }
 
     /// Get all Pivot Tables in a workbook.
@@ -1903,11 +1922,9 @@ where
     loop {
         xml_buf.clear();
         match xml.read_event_into(xml_buf) {
-            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
-                if rich_buffer.is_none() {
-                    // use a buffer since richtext has multiples <r> and <t> for the same cell
-                    rich_buffer = Some(String::new());
-                }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" && rich_buffer.is_none() => {
+                // use a buffer since richtext has multiples <r> and <t> for the same cell
+                rich_buffer = Some(String::new());
             }
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = true;
@@ -1939,9 +1956,7 @@ where
                 if let Some(s) = &mut rich_buffer {
                     s.push_str(&value);
                 } else {
-                    // consume any remaining events up to expected closing tag
-                    xml.read_to_end_into(closing, text_buf)?;
-                    return Ok(Some(value));
+                    rich_buffer = Some(value);
                 }
             }
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
@@ -2256,10 +2271,13 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         if !in_quote && (c.is_ascii_alphanumeric() || c == b'$' || c == b':') {
             token_end = i + 1;
         } else {
-            if token_start < token_end
-                && offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
-            {
-                res.extend(&bytes[token_start..token_end]);
+            if token_start < token_end {
+                let next_is_paren = c == b'(';
+                if next_is_paren
+                    || offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
+                {
+                    res.extend(&bytes[token_start..token_end]);
+                }
             }
             res.push(c);
             token_start = i + 1;
