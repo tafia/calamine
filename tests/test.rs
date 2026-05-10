@@ -2890,6 +2890,27 @@ fn test_xlsx_inline_str_with_value() {
 }
 
 #[test]
+fn test_xls_formula_date_format() {
+    let mut wb: Xls<_> = wb("formula-date-format.xls");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    // This date is a literal:
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            41331.,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+    );
+    // While this one is a formula result:
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            41332.,
+            ExcelDateTimeType::DateTime,
+            true
+        )))
+
 fn test_xlsx_richtext_after_plain() {
     // Ensure that richtext nodes are still parsed when the initial node is plain.
     let mut wb: Xlsx<_> = wb("richtext-after-plain.xlsx");

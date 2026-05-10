@@ -507,8 +507,11 @@ impl<RS: Read + Seek> Xls<RS> {
                         }
                         let row = read_u16(r.data);
                         let col = read_u16(&r.data[2..]);
+                        let format = self.formats.get(read_u16(&r.data[4..]) as usize);
                         fmla_pos = (row as u32, col as u32);
-                        if let Some(val) = parse_formula_value(&r.data[6..14])? {
+                        if let Some(val) =
+                            parse_formula_value(&r.data[6..14], format, self.is_1904)?
+                        {
                             // If the value is a string
                             // it will appear in 0x0207 record coming next
                             cells.push(Cell::new(fmla_pos, val));
@@ -1622,7 +1625,11 @@ fn parse_formula(
 }
 
 /// `FormulaValue` [MS-XLS 2.5.133]
-fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
+fn parse_formula_value(
+    r: &[u8],
+    format: Option<&CellFormat>,
+    is_1904: bool,
+) -> Result<Option<Data>, XlsError> {
     match *r {
         // String, value should be in next record
         [0x00, .., 0xFF, 0xFF] => Ok(None),
@@ -1634,7 +1641,7 @@ fn parse_formula_value(r: &[u8]) -> Result<Option<Data>, XlsError> {
             typ: "error",
             val: e,
         }),
-        _ => Ok(Some(Data::Float(read_f64(r)))),
+        _ => Ok(Some(format_excel_f64(read_f64(r), format, is_1904))),
     }
 }
 
