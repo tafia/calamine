@@ -1922,11 +1922,9 @@ where
     loop {
         xml_buf.clear();
         match xml.read_event_into(xml_buf) {
-            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" => {
-                if rich_buffer.is_none() {
-                    // use a buffer since richtext has multiples <r> and <t> for the same cell
-                    rich_buffer = Some(String::new());
-                }
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"r" && rich_buffer.is_none() => {
+                // use a buffer since richtext has multiples <r> and <t> for the same cell
+                rich_buffer = Some(String::new());
             }
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"rPh" => {
                 is_phonetic_text = true;
@@ -2272,10 +2270,13 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         if !in_quote && (c.is_ascii_alphanumeric() || c == b'$' || c == b':') {
             token_end = i + 1;
         } else {
-            if token_start < token_end
-                && offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
-            {
-                res.extend(&bytes[token_start..token_end]);
+            if token_start < token_end {
+                let next_is_paren = c == b'(';
+                if next_is_paren
+                    || offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
+                {
+                    res.extend(&bytes[token_start..token_end]);
+                }
             }
             res.push(c);
             token_start = i + 1;
