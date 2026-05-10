@@ -5,6 +5,79 @@ This is the changelog/release notes for the `calamine` crate.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.35.0] - 2026-5-10
+
+### Added
+
+- Added `has_1904_epoch()` method to Xls/Xlsx/Xlsb structs to allow the user to
+  determine which date epoch is in use by Excel. [PR #630].
+
+  [PR #630]: https://github.com/tafia/calamine/pull/630
+
+- Made `RowDeserializer` public to allow a custom `DeserializeSeed`.
+  [PR #635].
+
+  [PR #635]: https://github.com/tafia/calamine/pull/635
+
+### Changed
+
+- Added deserialization examples. [PR #649].
+
+  [PR #649]: https://github.com/tafia/calamine/pull/649
+
+- Performance improvements:
+  - Optimized `<v>` cell value parsing. [PR #622]
+  - Optimized cell reference parsing. [PR #623]
+
+  [PR #622]: https://github.com/tafia/calamine/pull/622
+  [PR #623]: https://github.com/tafia/calamine/pull/623
+
+### Fixed
+
+- Fixed issue with redundant `<v>` value in inlineStr XLSX cells. [Issue #633].
+
+  [Issue #633]: https://github.com/tafia/calamine/issues/633
+
+- Fixed issue when processing XLSX files to ignore namespace prefix when reading
+  relation ids. Previously accepted only `r:` and `relationships:` prefixes.
+  [Issue #634].
+
+  [Issue #634]: https://github.com/tafia/calamine/issues/634
+
+- Fixed XLSX issue where rich text `<r>` elements were ignored after initial
+  plain `<t>` elements. [Issue #636].
+
+  [Issue #636]: https://github.com/tafia/calamine/issues/636
+
+- Fixed XLS issue where date format was ignored for formula values.
+  [Issue #640].
+
+  [Issue #640]: https://github.com/tafia/calamine/issues/640
+
+- Fixed XLSX shared formula expansion corrupting function names. The
+  `replace_cell_names()` function treated `LOG10` as a cell reference (column
+  LOG, row 10). [Issue #644].
+
+  [Issue #644]: https://github.com/tafia/calamine/issues/644
+
+- Fixed XLSX `inlineStr` issue for elements that contain CDATA. [Issue #648].
+
+  [Issue #648]: https://github.com/tafia/calamine/issues/648
+
+- Fixed panic when parsing formulas in XLS BIFF5 workbooks.The `parse_formula`
+  function decoded the non-3D PtgRef, PtgArea, PtgRefErr, and PtgAreaErr tokens
+  assuming BIFF8 sizes. [PR #643].
+
+  [PR #643]: https://github.com/tafia/calamine/pull/643
+
+- Fixed XLS panic with unsupported formula functions. Handle unsupported XLS
+  function ids as formula parse errors instead of indexing past the function
+  table. [Issue #646].
+
+  [Issue #646]: https://github.com/tafia/calamine/issues/646
+
+
 ## [0.34.0] - 2026-03-07
 
 ### Changed
@@ -26,10 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [PR #615]: https://github.com/tafia/calamine/pull/615
 
 - Performance improvements:
-  - Cell reader buffer reuse and optimised maps. [PR #611]
-  - Optimised XLS sector chain reads. [PR #609]
+  - Cell reader buffer reuse and optimized maps. [PR #611]
+  - Optimized XLS sector chain reads. [PR #609]
   - Ensured `fast_float2` is used at all float-parsing call sites. [PR #608]
-  - Cached path and attr lookups, reused buffers, minimised allocations. [PR #606]
+  - Cached path and attr lookups, reused buffers, minimized allocations. [PR #606]
 
   [PR #606]: https://github.com/tafia/calamine/pull/606
   [PR #608]: https://github.com/tafia/calamine/pull/608
