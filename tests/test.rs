@@ -823,6 +823,7 @@ fn table_by_ref() {
 #[test]
 fn date_xls() {
     let mut xls: Xls<_> = wb("date.xls");
+    assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -858,6 +859,7 @@ fn date_xls() {
 #[test]
 fn date_xls_1904() {
     let mut xls: Xls<_> = wb("date_1904.xls");
+    assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -893,6 +895,7 @@ fn date_xls_1904() {
 #[test]
 fn date_xlsx() {
     let mut xls: Xlsx<_> = wb("date.xlsx");
+    assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -928,6 +931,7 @@ fn date_xlsx() {
 #[test]
 fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = wb("date_1904.xlsx");
+    assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -1051,6 +1055,7 @@ fn date_ods() {
 #[test]
 fn date_xlsb() {
     let mut xls: Xlsb<_> = wb("date.xlsb");
+    assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -1086,6 +1091,7 @@ fn date_xlsb() {
 #[test]
 fn date_xlsb_1904() {
     let mut xls: Xlsb<_> = wb("date_1904.xlsb");
+    assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
     assert_eq!(
@@ -2904,5 +2910,26 @@ fn test_xls_formula_date_format() {
             ExcelDateTimeType::DateTime,
             true
         )))
+
+fn test_xlsx_richtext_after_plain() {
+    // Ensure that richtext nodes are still parsed when the initial node is plain.
+    let mut wb: Xlsx<_> = wb("richtext-after-plain.xlsx");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(
+        range.get_value((1, 0)),
+        Some(&String("tvalrval1rval2".to_string()))
+
+fn test_xlsx_nonstandard_ns_prefix() {
+    // Check that non-standard namespace alias for relationships is accepted.
+    // While typically "r:", it is "ns:" in this workbook.
+    let mut wb: Xlsx<_> = wb("nonstandard-xml-ns-prefix.xlsx");
+    let range = wb.worksheet_range_at(0).unwrap().unwrap();
+    range_eq!(
+        range,
+        [
+            [String("a".to_string()), String("b".to_string())],
+            [Float(1.), Float(3.)],
+            [Float(2.), Float(4.)]
+        ]
     );
 }
