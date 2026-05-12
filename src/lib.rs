@@ -209,34 +209,6 @@ pub struct Picture {
     pub name: String,
 }
 
-#[cfg(feature = "picture")]
-impl Picture {
-    /// Get the Excel-style cell reference for the picture's anchor position.
-    ///
-    /// Returns a string like `"A1"` for the top-left anchor cell.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use calamine::{open_workbook, Reader, Xlsx};
-    ///
-    /// # let path = "tests/picture.xlsx";
-    /// let workbook: Xlsx<_> = open_workbook(path).unwrap();
-    /// for pic in workbook.pictures_with_metadata() {
-    ///     println!("{}: {}", pic.sheet_name, pic.cell_ref());
-    /// }
-    /// ```
-    pub fn cell_ref(&self) -> String {
-        let mut col = self.col + 1;
-        let mut name = String::new();
-        while col > 0 {
-            name.insert(0, (b'A' + ((col - 1) % 26) as u8) as char);
-            col = (col - 1) / 26;
-        }
-        format!("{}{}", name, self.row + 1)
-    }
-}
-
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
@@ -459,8 +431,8 @@ where
     ///     // Get pictures with their position data.
     ///     for pic in workbook.pictures_with_metadata() {
     ///         println!(
-    ///             "Sheet: '{}', Cell: {}, Type: '{}'",
-    ///             pic.sheet_name, pic.cell_ref(), pic.extension
+    ///             "Sheet: '{}', Row: {}, Col: {}, Type: '{}'",
+    ///             pic.sheet_name, pic.row, pic.col, pic.extension
     ///         );
     ///     }
     /// #
@@ -472,8 +444,8 @@ where
     /// Output:
     ///
     /// ```text
-    /// Sheet: 'Sheet1', Cell: A1, Type: 'jpg'
-    /// Sheet: 'Sheet2', Cell: A1, Type: 'png'
+    /// Sheet: 'Sheet1', Row: 0, Col: 0, Type: 'jpg'
+    /// Sheet: 'Sheet2', Row: 0, Col: 0, Type: 'png'
     /// ```
     ///
     #[cfg(feature = "picture")]

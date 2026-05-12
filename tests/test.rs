@@ -1538,7 +1538,6 @@ fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
     assert_eq!(sheet1_pic.extension, "jpg");
     assert_eq!(sheet1_pic.row, 0);
     assert_eq!(sheet1_pic.col, 0);
-    assert_eq!(sheet1_pic.cell_ref(), "A1");
     assert!(!sheet1_pic.name.is_empty());
 
     let sheet2_pic = pics
@@ -1548,7 +1547,6 @@ fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
     assert_eq!(sheet2_pic.extension, "png");
     assert_eq!(sheet2_pic.row, 0);
     assert_eq!(sheet2_pic.col, 0);
-    assert_eq!(sheet2_pic.cell_ref(), "A1");
 
     Ok(())
 }
@@ -1565,7 +1563,6 @@ fn pictures_with_positions_richdata() -> Result<(), calamine::Error> {
     assert_eq!(pics[0].sheet_name, "Sheet1");
     assert_eq!(pics[0].row, 1);
     assert_eq!(pics[0].col, 1);
-    assert_eq!(pics[0].cell_ref(), "B2");
 
     Ok(())
 }
