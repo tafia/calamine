@@ -32,7 +32,9 @@ use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
     SheetType, SheetVisible, Table,
 };
-pub use cells_reader::XlsxCellReader;
+pub use cells_reader::{
+    XlsxCellFormulaMetadataRecord, XlsxCellFormulaRecord, XlsxCellReader, XlsxFormulaMetadata,
+};
 
 pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
@@ -2258,10 +2260,60 @@ fn offset_range(range: &[u8], offset: (i64, i64), buf: &mut Vec<u8>) -> Result<(
     }
 }
 
+/// Translate a shared-formula template from its anchor cell to a target cell.
+///
+/// `anchor` and `target` are zero-based `(row, column)` positions. Relative
+/// references in `formula` are shifted by `target - anchor`; absolute
+/// references remain fixed. The translation is the same one used by Calamine
+/// when expanding XLSX shared formulas for [`Reader::worksheet_formula`].
+///
+/// This helper is intentionally workbook-state agnostic. XLSX shared-formula
+/// indices are worksheet-local, so callers are responsible for pairing the
+/// right template/anchor with each derived cell.
+pub fn translate_formula(
+    formula: &str,
+    anchor: (u32, u32),
+    target: (u32, u32),
+) -> Result<String, XlsxError> {
+    let mut out = String::with_capacity(formula.len());
+    translate_formula_into(formula, anchor, target, &mut out)?;
+    Ok(out)
+}
+
+/// Translate a shared-formula template into a caller-provided buffer.
+///
+/// This is the allocation-reuse variant of [`translate_formula`]. `out` is
+/// cleared before writing.
+pub fn translate_formula_into(
+    formula: &str,
+    anchor: (u32, u32),
+    target: (u32, u32),
+    out: &mut String,
+) -> Result<(), XlsxError> {
+    let offset = (
+        target.0 as i64 - anchor.0 as i64,
+        target.1 as i64 - anchor.1 as i64,
+    );
+    translate_formula_with_offset_into(formula, offset, out)
+}
+
+#[cfg(test)]
+fn translate_formula_with_offset(formula: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+    let mut out = String::with_capacity(formula.len());
+    translate_formula_with_offset_into(formula, offset, &mut out)?;
+    Ok(out)
+}
+
 // Advance all valid cell names in the string by the offset.
-fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
-    let bytes = s.as_bytes();
-    let mut res: Vec<u8> = Vec::new();
+fn translate_formula_with_offset_into(
+    formula: &str,
+    offset: (i64, i64),
+    out: &mut String,
+) -> Result<(), XlsxError> {
+    let bytes = formula.as_bytes();
+    let mut res = std::mem::take(out).into_bytes();
+    res.clear();
+    let mut token_buf = Vec::with_capacity(32);
     let mut in_quote = false;
 
     let mut token_start = 0;
@@ -2273,9 +2325,12 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         } else {
             if token_start < token_end {
                 let next_is_paren = c == b'(';
-                if next_is_paren
-                    || offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
+                token_buf.clear();
+                if !next_is_paren
+                    && offset_range(&bytes[token_start..token_end], offset, &mut token_buf).is_ok()
                 {
+                    res.extend(&token_buf);
+                } else {
                     res.extend(&bytes[token_start..token_end]);
                 }
             }
@@ -2289,16 +2344,28 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         }
     }
 
-    if token_start < token_end
-        && offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
-    {
-        res.extend(&bytes[token_start..token_end]);
+    if token_start < token_end {
+        token_buf.clear();
+        if offset_range(&bytes[token_start..token_end], offset, &mut token_buf).is_ok() {
+            res.extend(&token_buf);
+        } else {
+            res.extend(&bytes[token_start..token_end]);
+        }
     }
 
     match String::from_utf8(res) {
-        Ok(s) => Ok(s),
+        Ok(translated) => {
+            *out = translated;
+            Ok(())
+        }
         Err(_) => Err(XlsxError::Unexpected("fail to convert cell name")),
     }
+}
+
+// Backward-compatible internal name used by existing tests.
+#[cfg(test)]
+fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+    translate_formula_with_offset(s, offset)
 }
 
 /// Convert the integer to Excelsheet column title.
@@ -3000,9 +3067,212 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
+
+    fn minimal_xlsx(sheet_xml: &str, shared_strings_xml: Option<&str>) -> Vec<u8> {
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+        zip.start_file("[Content_Types].xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>"#).unwrap();
+
+        zip.start_file("_rels/.rels", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"#).unwrap();
+
+        zip.start_file("xl/workbook.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"#).unwrap();
+
+        zip.start_file("xl/_rels/workbook.xml.rels", options)
+            .unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>"#).unwrap();
+
+        zip.start_file("xl/styles.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs count="1"><xf numFmtId="0"/></cellXfs></styleSheet>"#).unwrap();
+
+        zip.start_file("xl/sharedStrings.xml", options).unwrap();
+        zip.write_all(shared_strings_xml.unwrap_or(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>"#).as_bytes()).unwrap();
+
+        zip.start_file("xl/worksheets/sheet1.xml", options).unwrap();
+        zip.write_all(sheet_xml.as_bytes()).unwrap();
+
+        zip.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn next_cell_with_formula_expands_shared_formulas() {
+        let sheet_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="B1:B3"/>
+  <sheetData>
+    <row r="1"><c r="B1"><f t="shared" si="0" ref="B1:B3">A1*2</f><v>2</v></c></row>
+    <row r="2"><c r="B2"><f t="shared" si="0"/><v>4</v></c></row>
+    <row r="3"><c r="B3"><f t="shared" si="0"/><v>6</v></c></row>
+  </sheetData>
+</worksheet>"#;
+        let bytes = minimal_xlsx(sheet_xml, None);
+        let mut xlsx = Xlsx::new(Cursor::new(bytes)).unwrap();
+        let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+
+        let b1 = reader.next_cell_with_formula().unwrap().unwrap();
+        assert_eq!(b1.formula, Some("A1*2".to_string()));
+        let b2 = reader.next_cell_with_formula().unwrap().unwrap();
+        assert_eq!(b2.formula, Some("A2*2".to_string()));
+        let b3 = reader.next_cell_with_formula().unwrap().unwrap();
+        assert_eq!(b3.formula, Some("A3*2".to_string()));
+        assert!(reader.next_cell_with_formula().unwrap().is_none());
+    }
+
+    #[test]
+    fn next_cell_with_formula_metadata_reports_shared_formula_semantics() {
+        let sheet_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:B3"/>
+  <sheetData>
+    <row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" si="0" ref="B1:B3">A1*2</f><v>2</v></c></row>
+    <row r="2"><c r="A2"><v>2</v></c><c r="B2"><f t="shared" si="0"/><v>4</v></c></row>
+    <row r="3"><c r="A3"><v>3</v></c><c r="B3"><f t="shared" si="0"/><v>6</v></c></row>
+  </sheetData>
+</worksheet>"#;
+        let bytes = minimal_xlsx(sheet_xml, None);
+        let mut xlsx = Xlsx::new(Cursor::new(bytes)).unwrap();
+        let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+
+        let a1 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(a1.pos, (0, 0));
+        assert!(a1.formula.is_none());
+
+        let b1 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(b1.pos, (0, 1));
+        assert_eq!(
+            b1.formula,
+            Some(XlsxFormulaMetadata::SharedAnchor {
+                shared_index: 0,
+                reference: Some(Dimensions::new((0, 1), (2, 1))),
+                formula: "A1*2".to_string(),
+            })
+        );
+
+        let _a2 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        let b2 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(
+            b2.formula,
+            Some(XlsxFormulaMetadata::SharedDerived { shared_index: 0 })
+        );
+
+        let _a3 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        let b3 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(
+            b3.formula,
+            Some(XlsxFormulaMetadata::SharedDerived { shared_index: 0 })
+        );
+        assert!(reader.next_cell_with_formula_metadata().unwrap().is_none());
+    }
+
+    #[test]
+    fn next_cell_with_formula_metadata_reports_missing_shared_anchor() {
+        let sheet_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="B2"/>
+  <sheetData>
+    <row r="2"><c r="B2"><f t="shared" si="7"/><v>4</v></c></row>
+  </sheetData>
+</worksheet>"#;
+        let bytes = minimal_xlsx(sheet_xml, None);
+        let mut xlsx = Xlsx::new(Cursor::new(bytes)).unwrap();
+        let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+
+        let b2 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(b2.pos, (1, 1));
+        assert_eq!(
+            b2.formula,
+            Some(XlsxFormulaMetadata::SharedDerived { shared_index: 7 })
+        );
+
+        let bytes = minimal_xlsx(sheet_xml, None);
+        let mut xlsx = Xlsx::new(Cursor::new(bytes)).unwrap();
+        let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+        let b2 = reader.next_cell_with_formula().unwrap().unwrap();
+        assert_eq!(b2.pos, (1, 1));
+        assert_eq!(b2.formula, None);
+    }
+
+    #[test]
+    fn next_formula_still_expands_shared_formulas() {
+        let sheet_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="B1:B3"/>
+  <sheetData>
+    <row r="1"><c r="B1"><f t="shared" si="0" ref="B1:B3">A1*2</f><v>2</v></c></row>
+    <row r="2"><c r="B2"><f t="shared" si="0"/><v>4</v></c></row>
+    <row r="3"><c r="B3"><f t="shared" si="0"/><v>6</v></c></row>
+  </sheetData>
+</worksheet>"#;
+        let bytes = minimal_xlsx(sheet_xml, None);
+        let mut xlsx = Xlsx::new(Cursor::new(bytes)).unwrap();
+        let formulas = xlsx.worksheet_formula("Sheet1").unwrap();
+        let got: Vec<_> = formulas
+            .used_cells()
+            .map(|(row, col, formula)| (row, col, formula.clone()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (0, 0, "A1*2".to_string()),
+                (1, 0, "A2*2".to_string()),
+                (2, 0, "A3*2".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn next_cell_with_formula_metadata_reads_shared_strings_and_formula_cached_values() {
+        let sheet_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:B1"/>
+  <sheetData>
+    <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1"><f>A1</f><v>42</v></c></row>
+  </sheetData>
+</worksheet>"#;
+        let shared_strings = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1"><si><t>Hello</t></si></sst>"#;
+        let bytes = minimal_xlsx(sheet_xml, Some(shared_strings));
+        let mut xlsx = Xlsx::new(Cursor::new(bytes)).unwrap();
+        let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+        let a1 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(a1.value, DataRef::SharedString("Hello"));
+        let b1 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+        assert_eq!(b1.value, DataRef::Float(42.0));
+        assert_eq!(
+            b1.formula,
+            Some(XlsxFormulaMetadata::Normal {
+                formula: "A1".to_string()
+            })
+        );
+    }
 
     #[test]
     fn test_dimensions() {
@@ -3357,6 +3627,34 @@ mod tests {
         // Offset pushes valid range out of bounds
         check_col_err(b"XFD:XFD", (0, 1));
         check_row_err(b"1048576:1048576", (1, 0));
+    }
+
+    #[test]
+    fn test_translate_formula_helpers() {
+        assert_eq!(
+            translate_formula("A1+$B1+C$1+$D$1", (0, 0), (2, 3)).unwrap(),
+            "D3+$B3+F$1+$D$1"
+        );
+        assert_eq!(
+            translate_formula("SUM(Sheet1!A1,'My Sheet'!$B2)", (0, 0), (1, 1)).unwrap(),
+            "SUM(Sheet1!B2,'My Sheet'!$B3)"
+        );
+        assert_eq!(
+            translate_formula("CONCATENATE(A1, \"A1\", Table1[Column1])", (0, 0), (1, 0)).unwrap(),
+            "CONCATENATE(A2, \"A1\", Table1[Column1])"
+        );
+        assert_eq!(
+            translate_formula("SUM(A1:XFE1)", (0, 0), (1, 1)).unwrap(),
+            "SUM(A1:XFE1)"
+        );
+
+        let mut out = String::with_capacity(128);
+        translate_formula_into("A1", (0, 0), (4, 4), &mut out).unwrap();
+        assert_eq!(out, "E5");
+        let cap = out.capacity();
+        translate_formula_into("B2", (1, 1), (2, 2), &mut out).unwrap();
+        assert_eq!(out, "C3");
+        assert!(out.capacity() >= cap);
     }
 
     #[test]
