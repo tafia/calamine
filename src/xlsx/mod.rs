@@ -2179,7 +2179,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     #[cfg(feature = "picture")]
-    fn pictures_with_positions(&self) -> Vec<Picture> {
+    fn pictures_with_metadata(&self) -> Vec<Picture> {
         self.pictures.as_deref().unwrap_or(&[]).to_vec()
     }
 }

@@ -1527,7 +1527,7 @@ fn pictures() -> Result<(), calamine::Error> {
 #[cfg(feature = "picture")]
 fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
     let workbook: Xlsx<_> = wb("picture.xlsx");
-    let pics = workbook.pictures_with_positions();
+    let pics = workbook.pictures_with_metadata();
 
     assert_eq!(pics.len(), 2);
 
@@ -1558,7 +1558,7 @@ fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
 #[cfg(feature = "picture")]
 fn pictures_with_positions_richdata() -> Result<(), calamine::Error> {
     let workbook: Xlsx<_> = wb("picture_richdata.xlsx");
-    let pics = workbook.pictures_with_positions();
+    let pics = workbook.pictures_with_metadata();
 
     assert_eq!(pics.len(), 1);
     assert_eq!(pics[0].extension, "png");

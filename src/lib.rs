@@ -180,7 +180,7 @@ impl Dimensions {
 
 /// A struct to hold picture data and position information in a workbook.
 ///
-/// The `Picture` struct is returned by the [`Reader::pictures_with_positions`]
+/// The `Picture` struct is returned by the [`Reader::pictures_with_metadata`]
 /// method. It contains the raw image data along with the worksheet position
 /// and metadata for each picture.
 #[cfg(feature = "picture")]
@@ -222,7 +222,7 @@ impl Picture {
     ///
     /// # let path = "tests/picture.xlsx";
     /// let workbook: Xlsx<_> = open_workbook(path).unwrap();
-    /// for pic in workbook.pictures_with_positions() {
+    /// for pic in workbook.pictures_with_metadata() {
     ///     println!("{}: {}", pic.sheet_name, pic.cell_ref());
     /// }
     /// ```
@@ -433,10 +433,14 @@ where
     #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
 
-    /// Get pictures with their worksheet position information.
+    /// Get workbook picture/image metadata.
+    ///
+    /// Get workbook picture/image metadata such as sheet name, cell reference,
+    /// file extension and raw data.
     ///
     /// Returns a vector of [`Picture`] structs, each containing the raw image
-    /// data and the worksheet position (sheet name, row, column) of the picture.
+    /// data and the worksheet position (sheet name, row, column) of the
+    /// picture.
     ///
     /// Returns an empty vector if there are no pictures with position data or
     /// if the file format doesn't support position data.
@@ -453,7 +457,7 @@ where
     ///     let workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Get pictures with their position data.
-    ///     for pic in workbook.pictures_with_positions() {
+    ///     for pic in workbook.pictures_with_metadata() {
     ///         println!(
     ///             "Sheet: '{}', Cell: {}, Type: '{}'",
     ///             pic.sheet_name, pic.cell_ref(), pic.extension
@@ -474,7 +478,7 @@ where
     ///
     #[cfg(feature = "picture")]
     #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
-    fn pictures_with_positions(&self) -> Vec<Picture> {
+    fn pictures_with_metadata(&self) -> Vec<Picture> {
         Vec::new()
     }
 }

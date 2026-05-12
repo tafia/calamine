@@ -167,12 +167,12 @@ where
     }
 
     #[cfg(feature = "picture")]
-    fn pictures_with_positions(&self) -> Vec<Picture> {
+    fn pictures_with_metadata(&self) -> Vec<Picture> {
         match self {
-            Sheets::Xls(e) => e.pictures_with_positions(),
-            Sheets::Xlsx(e) => e.pictures_with_positions(),
-            Sheets::Xlsb(e) => e.pictures_with_positions(),
-            Sheets::Ods(e) => e.pictures_with_positions(),
+            Sheets::Xls(e) => e.pictures_with_metadata(),
+            Sheets::Xlsx(e) => e.pictures_with_metadata(),
+            Sheets::Xlsb(e) => e.pictures_with_metadata(),
+            Sheets::Ods(e) => e.pictures_with_metadata(),
         }
     }
 }
