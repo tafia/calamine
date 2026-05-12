@@ -14,7 +14,7 @@ use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
     utils::unescape_entity_to_buffer,
-    Cell, XlsxError,
+    Cell, Data, Style, XlsxError,
 };
 
 #[derive(Clone, Debug)]
@@ -25,7 +25,7 @@ struct SharedFormula {
 
 /// Workbook-level context used when reading cell values.
 struct WorkbookContext<'a> {
-    strings: &'a [String],
+    strings: &'a [Data],
     formats: &'a [CellFormat],
     is_1904: bool,
 }
@@ -178,8 +178,9 @@ where
     RS: Read + Seek,
 {
     xml: XlReader<'a, RS>,
-    strings: &'a [String],
+    strings: &'a [Data],
     formats: &'a [CellFormat],
+    styles: &'a [Style],
     is_1904: bool,
     dimensions: Dimensions,
     row_index: u32,
@@ -197,8 +198,9 @@ where
     /// Create a new XLSX cell reader over a worksheet XML stream.
     pub fn new(
         mut xml: XlReader<'a, RS>,
-        strings: &'a [String],
+        strings: &'a [Data],
         formats: &'a [CellFormat],
+        styles: &'a [Style],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
@@ -226,7 +228,7 @@ where
                     if let Some(typ) = sh_type {
                         return Err(XlsxError::NotAWorksheet(typ));
                     } else {
-                        return Err(XlsxError::XmlEof("worksheet"));
+                        return Err(XlsxError::XmlEof("sheetData"));
                     }
                 }
                 _ => (),
@@ -236,6 +238,7 @@ where
             xml,
             strings,
             formats,
+            styles,
             is_1904,
             dimensions,
             row_index: 0,
@@ -277,6 +280,18 @@ where
                         (self.row_index, self.col_index)
                     };
                     let mut value = DataRef::Empty;
+                    let mut style = None;
+
+                    let style_id = style_attr
+                        .and_then(|s| atoi_simd::parse::<usize, true, false>(s).ok())
+                        .unwrap_or(0);
+
+                    if style_id < self.styles.len() {
+                        let mut s = self.styles[style_id].clone();
+                        s.style_id = Some(style_id as u32);
+                        style = Some(s);
+                    }
+
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
@@ -302,7 +317,12 @@ where
                         }
                     }
                     self.col_index += 1;
-                    return Ok(Some(Cell::new(pos, value)));
+
+                    if let Some(cell_style) = style {
+                        return Ok(Some(Cell::with_style(pos, value, cell_style)));
+                    } else {
+                        return Ok(Some(Cell::new(pos, value)));
+                    }
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
@@ -512,6 +532,19 @@ where
                         (self.row_index, self.col_index)
                     };
                     let mut value = None;
+                    let mut style = None;
+
+                    let style_id = c_element
+                        .raw_attr(b"s")?
+                        .map(|v| atoi_simd::parse::<usize, true, false>(v).unwrap_or(0))
+                        .unwrap_or(0);
+
+                    if style_id < self.styles.len() {
+                        let mut s = self.styles[style_id].clone();
+                        s.style_id = Some(style_id as u32);
+                        style = Some(s);
+                    }
+
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
@@ -536,7 +569,16 @@ where
                         }
                     }
                     self.col_index += 1;
-                    return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
+
+                    if let Some(cell_style) = style {
+                        return Ok(Some(Cell::with_style(
+                            pos,
+                            value.unwrap_or_default(),
+                            cell_style,
+                        )));
+                    } else {
+                        return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
+                    }
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
                     return Ok(None);
@@ -547,9 +589,148 @@ where
             }
         }
     }
+
+    /// Return the next cell's resolved [`Style`] in XML stream order.
+    pub fn next_style(&mut self) -> Result<Option<Cell<Style>>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(ref row_element))
+                    if row_element.local_name().as_ref() == b"row" =>
+                {
+                    let attribute = row_element.raw_attr(b"r")?;
+                    if let Some(range) = attribute {
+                        let row = get_row(range)?;
+                        self.row_index = row;
+                    }
+                }
+                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let attribute = c_element.raw_attr(b"r")?;
+                    let pos = if let Some(range) = attribute {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+
+                    // Extract style ID if present
+                    let style = if let Ok(Some(style_id_str)) = c_element.raw_attr(b"s") {
+                        if let Ok(style_id) = atoi_simd::parse::<usize, true, false>(style_id_str) {
+                            if style_id < self.styles.len() {
+                                let mut s = self.styles[style_id].clone();
+                                s.style_id = Some(style_id as u32);
+                                s
+                            } else {
+                                Style::new()
+                            }
+                        } else {
+                            Style::new()
+                        }
+                    } else {
+                        Style::new()
+                    };
+
+                    // Skip the cell content since we only care about the style
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+                    return Ok(Some(Cell::new(pos, style)));
+                }
+                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+    }
+
+    /// Iterate over cells, returning just position and style_id (no clone).
+    ///
+    /// Returns `(row, col, style_id)` where `style_id` is an index into the styles palette.
+    /// This is more efficient than `next_style()` when building compressed style storage.
+    pub fn next_style_id(&mut self) -> Result<Option<(u32, u32, usize)>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(ref row_element))
+                    if row_element.local_name().as_ref() == b"row" =>
+                {
+                    if let Some(row_index) = row_element.raw_attr(b"r")? {
+                        self.row_index = atoi_simd::parse::<u32, true, false>(row_index)
+                            .unwrap_or(1)
+                            .saturating_sub(1);
+                    }
+                }
+                Ok(Event::End(ref row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+                Ok(Event::Start(ref c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let attribute = c_element.raw_attr(b"r")?;
+                    let pos = if let Some(range) = attribute {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+
+                    // Extract style ID if present (no clone needed!)
+                    let style_id = if let Ok(Some(style_id_str)) = c_element.raw_attr(b"s") {
+                        atoi_simd::parse::<usize, true, false>(style_id_str).unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                    // Skip the cell content since we only care about the style ID
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::End(ref e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+
+                    // Only return cells with actual styles
+                    if style_id > 0 && style_id < self.styles.len() {
+                        return Ok(Some((pos.0, pos.1, style_id)));
+                    }
+                    // Continue to next cell if no style
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+    }
+
+    /// Get the styles palette (reference to avoid clones)
+    pub fn styles(&self) -> &[Style] {
+        self.styles
+    }
 }
 
-/// Reads a cell value using pre-extracted `s` and `t` attributes
+/// Reads a cell value using pre-extracted `s` and `t` attributes.
 /// (avoids repeating attribute iteration on the `<c>` element).
 fn read_value<'s, RS>(
     ctx: &WorkbookContext<'s>,
@@ -640,13 +821,18 @@ fn read_v<'s>(
             if v.is_empty() {
                 return Ok(DataRef::Empty);
             }
+            // Cell value is an index into the shared string table.
             let idx = atoi_simd::parse::<usize, true, false>(v).unwrap_or(0);
-            ctx.strings
-                .get(idx)
-                .map(|s| DataRef::SharedString(s))
-                .ok_or(XlsxError::Unexpected(
+            match ctx.strings.get(idx) {
+                Some(Data::String(s)) => Ok(DataRef::SharedString(s)),
+                Some(Data::RichText(rt)) => Ok(DataRef::SharedRichText(rt)),
+                Some(_) => Err(XlsxError::Unexpected(
+                    "Unexpected data type in shared strings table",
+                )),
+                None => Err(XlsxError::Unexpected(
                     "Cell string index not found in shared strings table",
-                ))
+                )),
+            }
         }
         Some(b"b") => Ok(DataRef::Bool(v != b"0")),
         Some(b"d") => Ok(DataRef::DateTimeIso(v_as_str(v)?.to_string())),
