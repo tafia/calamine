@@ -178,6 +178,65 @@ impl Dimensions {
     }
 }
 
+/// A struct to hold picture data and position information in a workbook.
+///
+/// The `Picture` struct is returned by the [`Reader::pictures_with_positions`]
+/// method. It contains the raw image data along with the worksheet position
+/// and metadata for each picture.
+#[cfg(feature = "picture")]
+#[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
+#[derive(Debug, Clone)]
+pub struct Picture {
+    /// The file extension of the picture (e.g., `"png"`, `"jpg"`).
+    pub extension: String,
+
+    /// The raw image data.
+    pub data: Vec<u8>,
+
+    /// The name of the worksheet containing the picture.
+    ///
+    /// An empty string indicates the picture could not be matched to a
+    /// worksheet, in which case `row` and `col` are both 0.
+    pub sheet_name: String,
+
+    /// The row index (0-based) of the picture's anchor cell.
+    pub row: u32,
+
+    /// The column index (0-based) of the picture's anchor cell.
+    pub col: u32,
+
+    /// The name of the picture object.
+    pub name: String,
+}
+
+#[cfg(feature = "picture")]
+impl Picture {
+    /// Get the Excel-style cell reference for the picture's anchor position.
+    ///
+    /// Returns a string like `"A1"` for the top-left anchor cell.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Reader, Xlsx};
+    ///
+    /// # let path = "tests/picture.xlsx";
+    /// let workbook: Xlsx<_> = open_workbook(path).unwrap();
+    /// for pic in workbook.pictures_with_positions() {
+    ///     println!("{}: {}", pic.sheet_name, pic.cell_ref());
+    /// }
+    /// ```
+    pub fn cell_ref(&self) -> String {
+        let mut col = self.col + 1;
+        let mut name = String::new();
+        while col > 0 {
+            name.insert(0, (b'A' + ((col - 1) % 26) as u8) as char);
+            col = (col - 1) / 26;
+        }
+        format!("{}{}", name, self.row + 1)
+    }
+}
+
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
@@ -373,6 +432,51 @@ where
     #[cfg(feature = "picture")]
     #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>>;
+
+    /// Get pictures with their worksheet position information.
+    ///
+    /// Returns a vector of [`Picture`] structs, each containing the raw image
+    /// data and the worksheet position (sheet name, row, column) of the picture.
+    ///
+    /// Returns an empty vector if there are no pictures with position data or
+    /// if the file format doesn't support position data.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use calamine::{open_workbook, Error, Reader, Xlsx};
+    /// #
+    /// # fn main() -> Result<(), Error> {
+    /// #     let path = "tests/picture.xlsx";
+    /// #
+    ///     // Open the workbook.
+    ///     let workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get pictures with their position data.
+    ///     for pic in workbook.pictures_with_positions() {
+    ///         println!(
+    ///             "Sheet: '{}', Cell: {}, Type: '{}'",
+    ///             pic.sheet_name, pic.cell_ref(), pic.extension
+    ///         );
+    ///     }
+    /// #
+    /// #     Ok(())
+    /// # }
+    /// #
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Sheet: 'Sheet1', Cell: A1, Type: 'jpg'
+    /// Sheet: 'Sheet2', Cell: A1, Type: 'png'
+    /// ```
+    ///
+    #[cfg(feature = "picture")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "picture")))]
+    fn pictures_with_positions(&self) -> Vec<Picture> {
+        Vec::new()
+    }
 }
 
 /// A trait to share spreadsheets reader functions across different `FileType`s

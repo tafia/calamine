@@ -6,10 +6,13 @@
 
 use crate::errors::Error;
 use crate::vba::VbaProject;
+#[cfg(feature = "picture")]
+use crate::Picture;
 use crate::{
     open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
     ReaderRef, Xls, Xlsb, Xlsx,
 };
+
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -160,6 +163,16 @@ where
             Sheets::Xlsx(e) => e.pictures(),
             Sheets::Xlsb(e) => e.pictures(),
             Sheets::Ods(e) => e.pictures(),
+        }
+    }
+
+    #[cfg(feature = "picture")]
+    fn pictures_with_positions(&self) -> Vec<Picture> {
+        match self {
+            Sheets::Xls(e) => e.pictures_with_positions(),
+            Sheets::Xlsx(e) => e.pictures_with_positions(),
+            Sheets::Xlsb(e) => e.pictures_with_positions(),
+            Sheets::Ods(e) => e.pictures_with_positions(),
         }
     }
 }
