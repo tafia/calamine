@@ -514,12 +514,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     let (r, rel_type) = relationships
                         .get(&rel_id)
                         .ok_or(XlsxError::RelationshipNotFound)?;
-                    // target may have prepended "/xl/" or "xl/" path;
-                    // strip if present
-                    let path = if r.starts_with("/xl/") {
-                        r[1..].to_string()
-                    } else if r.starts_with("xl/") {
-                        r.to_string()
+                    // target may be absolute or relative path;
+                    let path = if let Some(abs_path) = r.strip_prefix("/") {
+                        abs_path.to_string()
                     } else {
                         format!("{}{r}", self.xl_path)
                     };
@@ -777,10 +774,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     #[cfg(feature = "picture")]
     fn read_pictures(&mut self) -> Result<(), XlsxError> {
         let mut pics = Vec::new();
+        let media_path = format!("{}media", self.xl_path);
         for i in 0..self.zip.len() {
             let mut zfile = self.zip.by_index(i)?;
             let zname = zfile.name();
-            if zname.starts_with("xl/media") {
+            if zname.starts_with(&media_path) {
                 if let Some(ext) = zname.split('.').next_back() {
                     if [
                         "emf", "wmf", "pict", "jpeg", "jpg", "png", "dib", "gif", "tiff", "eps",
@@ -852,6 +850,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     &mut self.zip,
                     &definition_cache_path,
                     &self.zip_path_cache,
+                    &format!("{}pivotCache", self.xl_path),
                 )?;
 
                 pivot_tables.push(PivotTableRef::new(
@@ -2504,6 +2503,7 @@ fn find_pivot_cache_records_from_definitions<RS>(
     zip: &mut zip::ZipArchive<RS>,
     path: &str,
     cache: &HashMap<String, String>,
+    cache_path: &str,
 ) -> Result<String, XlsxError>
 where
     RS: Read + Seek,
@@ -2537,10 +2537,10 @@ where
                 }
                 match (is_pivot_cache_record_type, record_path.is_some()) {
                     (true, false) => {
-                        if target.starts_with("xl/pivotCache") {
+                        if target.starts_with(cache_path) {
                             record_path.replace(target);
                         } else if !target.is_empty() {
-                            record_path.replace(format!("xl/pivotCache/{target}"));
+                            record_path.replace(format!("{cache_path}/{target}"));
                         }
                     }
                     (true, true) => {
