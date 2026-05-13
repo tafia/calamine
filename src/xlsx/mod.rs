@@ -331,6 +331,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             self.xl_path = target
                 .rfind('/')
                 .map(|i| &target[..=i])
+                .map(|p| p.strip_prefix('/').unwrap_or(p))
                 .unwrap_or("")
                 .to_string();
             Ok(())
