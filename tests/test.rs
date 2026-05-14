@@ -2888,6 +2888,19 @@ fn biff5_formula_ptg_ref_643() {
 }
 
 #[test]
+fn biff5_rich_text_string() {
+    // This file uses RSTRING records, apparently produced by ABBYY FineReader.
+    let mut wb: Xls<_> = wb("biff5-rich-text-string.xls");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String(
+            "ELECTORAL DIVISION OF SOMERSET EAST ; FIELD-CÓRNËTCY No. 5, ZWAGERSHÓÊN.".to_string()
+        ))
+    );
+}
+
+#[test]
 fn issue_646_unsupported_formula_function() {
     // Unsupported BIFF function ids should be reported as formula parse errors,
     // not panic while opening the workbook.
