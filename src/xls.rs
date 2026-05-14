@@ -481,6 +481,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
                     0x0204 => cells.push(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
+                    0x00D6 => cells.push(parse_label(r.data, &encoding, biff)?), // RString
                     0x0205 => cells.push(parse_bool_err(r.data)?),               // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
