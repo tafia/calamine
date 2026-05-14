@@ -7,7 +7,7 @@ use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Flo
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
     ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx,
+    Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -1940,6 +1940,99 @@ fn issue_391_shared_formula() {
     assert_eq!(expect.start(), res.start());
     assert_eq!(expect.end(), res.end());
     assert!(expect.cells().eq(res.cells()));
+}
+
+#[test]
+fn xlsx_cell_reader_expands_excel_resaved_shared_formulas() {
+    let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
+    let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
+
+    let a1 = reader.next_cell_with_formula().unwrap().unwrap();
+    assert_eq!(a1.pos, (0, 0));
+    assert_eq!(a1.value, DataRef::Float(1.0));
+    assert_eq!(a1.formula, None);
+
+    let b1 = reader.next_cell_with_formula().unwrap().unwrap();
+    assert_eq!(b1.pos, (0, 1));
+    assert_eq!(b1.value, DataRef::Float(2.0));
+    assert_eq!(b1.formula, Some("A1*2".to_string()));
+
+    let _a2 = reader.next_cell_with_formula().unwrap().unwrap();
+    let b2 = reader.next_cell_with_formula().unwrap().unwrap();
+    assert_eq!(b2.pos, (1, 1));
+    assert_eq!(b2.value, DataRef::Float(4.0));
+    assert_eq!(b2.formula, Some("A2*2".to_string()));
+
+    let _a3 = reader.next_cell_with_formula().unwrap().unwrap();
+    let b3 = reader.next_cell_with_formula().unwrap().unwrap();
+    assert_eq!(b3.pos, (2, 1));
+    assert_eq!(b3.value, DataRef::Float(6.0));
+    assert_eq!(b3.formula, Some("A3*2".to_string()));
+    assert!(reader.next_cell_with_formula().unwrap().is_none());
+}
+
+#[test]
+fn xlsx_cell_reader_reports_excel_resaved_shared_formula_metadata() {
+    let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
+    let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
+
+    let a1 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+    assert_eq!(a1.pos, (0, 0));
+    assert!(a1.formula.is_none());
+
+    let b1 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+    assert_eq!(b1.pos, (0, 1));
+    assert_eq!(
+        b1.formula,
+        Some(XlsxFormulaMetadata::SharedAnchor {
+            shared_index: 0,
+            reference: Some(Dimensions::new((0, 1), (2, 1))),
+            formula: "A1*2".to_string(),
+        })
+    );
+
+    let _a2 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+    let b2 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+    assert_eq!(
+        b2.formula,
+        Some(XlsxFormulaMetadata::SharedDerived { shared_index: 0 })
+    );
+
+    let _a3 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+    let b3 = reader.next_cell_with_formula_metadata().unwrap().unwrap();
+    assert_eq!(
+        b3.formula,
+        Some(XlsxFormulaMetadata::SharedDerived { shared_index: 0 })
+    );
+    assert!(reader.next_cell_with_formula_metadata().unwrap().is_none());
+}
+
+#[test]
+fn xlsx_worksheet_formula_expands_excel_resaved_shared_formulas() {
+    let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+
+    assert_eq!(formula.get_value((0, 1)), Some(&"A1*2".to_string()));
+    assert_eq!(formula.get_value((1, 1)), Some(&"A2*2".to_string()));
+    assert_eq!(formula.get_value((2, 1)), Some(&"A3*2".to_string()));
+}
+
+#[test]
+fn xlsx_cell_reader_streams_excel_resaved_shared_formula_bench_fixture() {
+    let mut excel: Xlsx<_> = wb("shared_formula_bench.xlsx");
+    let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
+
+    let mut formula_count = 0usize;
+    let mut last_formula = None;
+    while let Some(record) = reader.next_cell_with_formula().unwrap() {
+        if record.formula.is_some() {
+            formula_count += 1;
+            last_formula = record.formula;
+        }
+    }
+
+    assert_eq!(formula_count, 100);
+    assert_eq!(last_formula, Some("A100*2".to_string()));
 }
 
 #[test]
