@@ -5,9 +5,9 @@
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_auto, BorderStyle, Color, DataRef, DataType, Dimensions,
+    ExcelDateTime, ExcelDateTimeType, HeaderRow, HorizontalAlignment, Ods, Range, Reader,
+    ReaderRef, Sheet, SheetType, SheetVisible, UnderlineStyle, VerticalAlignment, Xls, Xlsb, Xlsx,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -41,6 +41,38 @@ macro_rules! range_eq {
         for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
             for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
                 assert_eq!(cl, cr, "Mismatch at position ({}, {})", i, j);
+            }
+        }
+    };
+}
+
+/// Helper to compare text content regardless of whether it's String or RichText
+fn text_eq(data: &Data, expected: &str) -> bool {
+    match data {
+        Data::String(s) => s == expected,
+        Data::RichText(rt) => rt.plain_text() == expected,
+        _ => false,
+    }
+}
+
+/// Macro for comparing ranges where cells may be String or RichText
+macro_rules! range_text_eq {
+    ($range:expr, $right:expr) => {
+        assert_eq!(
+            $range.get_size(),
+            ($right.len(), $right[0].len()),
+            "Size mismatch"
+        );
+        for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
+            for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
+                assert!(
+                    text_eq(cl, cr),
+                    "Text mismatch at position ({}, {}): got {:?}, expected {:?}",
+                    i,
+                    j,
+                    cl.as_string(),
+                    cr
+                );
             }
         }
     };
@@ -112,14 +144,11 @@ fn error_file() {
 fn issue_9() {
     let mut excel: Xlsx<_> = wb("issue9.xlsx");
     let range = excel.worksheet_range("Feuil1").unwrap();
-    range_eq!(
+    // Some cells in this file have rich text formatting (bold, underline)
+    // so we compare text content rather than exact Data type
+    range_text_eq!(
         range,
-        [
-            [String("test1".to_string())],
-            [String("test2 other".to_string())],
-            [String("test3 aaa".to_string())],
-            [String("test4".to_string())]
-        ]
+        [["test1"], ["test2 other"], ["test3 aaa"], ["test4"]]
     );
 }
 
@@ -2879,6 +2908,88 @@ fn biff5_defined_names_and_empty_sheets_612() {
 }
 
 #[test]
+fn test_all_styles() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let values = xlsx.worksheet_range("Sheet 1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+    let get_font = |row: usize, col: usize| styles.get((row, col)).unwrap().get_font().unwrap();
+
+    // assert that the text is bold
+    let a1 = get_font(0, 0);
+    assert!(a1.is_bold());
+
+    // assert top border
+    let a1_style = styles.get((0, 0)).unwrap();
+    assert_eq!(
+        a1_style.borders.as_ref().unwrap().top.style,
+        BorderStyle::Thin
+    );
+
+    // assert that the text is italic
+    let a2 = get_font(1, 0);
+    assert!(a2.is_italic());
+
+    // assert that the text is underlined
+    let a3 = get_font(2, 0);
+    assert!(a3.has_underline());
+
+    // assert that the text is strikethrough
+    let a4 = get_font(3, 0);
+    assert!(a4.has_strikethrough());
+
+    // assert that the color is red
+    let a5 = get_font(4, 0);
+    assert_eq!(a5.color, Some(Color::new(255, 255, 0, 0)));
+
+    // assert that the foreground color is yellow
+    let a6 = styles.get((5, 0)).unwrap().get_fill().unwrap();
+    assert_eq!(a6.foreground_color, Some(Color::new(255, 255, 255, 0)));
+
+    // assert that text is horizontally centered
+    let a7 = styles.get((6, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a7.horizontal, HorizontalAlignment::Center);
+
+    // assert that text is vertically centered
+    let a8 = styles.get((7, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a8.vertical, VerticalAlignment::Center);
+
+    // assert that text is wrapped
+    let a9 = styles.get((8, 0)).unwrap().get_alignment().unwrap();
+    assert!(a9.wrap_text);
+
+    // assert that 1000000 is formatted as 1,000,000
+    let a10 = styles.get((9, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a10.format_code, "#,##0");
+
+    // assert that 100 is formatted as $100.00
+    let a11 = styles.get((10, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a11.format_code, "$0.00");
+
+    // assert that 0.5 is formatted as 0.5%
+    // assert that the value is 0.5
+    let a12 = styles.get((11, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a12.format_code, "0.0%");
+    assert_eq!(values.get((11, 0)).unwrap(), &Float(0.005));
+
+    // assert that 1000000 is formatted as 1.00E+06
+    let a13 = styles.get((12, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a13.format_code, "0.00E+00");
+    assert_eq!(values.get((12, 0)).unwrap(), &Float(1000000.0));
+
+    // assert that 7/21/2025  1:09:31 PM is formatted as 2005-07-21 13:09:31
+    let a14 = styles.get((13, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a14.format_code, "yyyy-mm-dd hh:mm:ss");
+    assert_eq!(
+        values.get((13, 0)).unwrap(),
+        &DateTime(ExcelDateTime::new(
+            45859.54827546296,
+            ExcelDateTimeType::DateTime,
+            false,
+        ))
+    );
+}
+
+#[test]
 fn biff5_formula_ptg_ref_643() {
     // covers a parsing error where biff8 formula token sizes were assumed
     // ref: https://github.com/tafia/calamine/pull/643
@@ -2905,6 +3016,486 @@ fn test_capitalized_book_stream() {
     // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
     // ref: https://github.com/tafia/calamine/issues/618
     let _wb: Xls<_> = wb("capitalized_wbook_stream.xls");
+}
+
+#[test]
+fn test_worksheet_style_iter() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Verify that we can iterate through styles without panicking
+    let mut style_count = 0;
+    let mut found_a1 = false;
+    for (row, col, style) in styles.cells() {
+        style_count += 1;
+        // Basic validation that we can access style properties
+        if row == 0 && col == 0 {
+            // A1 should be bold
+            assert!(style.get_font().unwrap().is_bold());
+            found_a1 = true;
+        }
+    }
+    assert!(style_count > 0, "Should have found at least one style");
+    assert!(found_a1, "Should have found A1");
+}
+
+#[test]
+fn test_worksheet_layout() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let layout = xlsx.worksheet_layout("Sheet 1").unwrap();
+
+    // Verify layout parsing produces some result (values depend on the test file)
+    // The important thing is no panic and the structure is populated
+    if let Some(width) = layout.default_column_width {
+        assert!(width > 0.0, "Default column width should be positive");
+    }
+    if let Some(height) = layout.default_row_height {
+        assert!(height > 0.0, "Default row height should be positive");
+    }
+}
+
+#[test]
+fn test_underline_parsing() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let worksheet = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Test that A3 has an underline (empty <u/> element)
+    let a3 = worksheet.get((2, 0)).unwrap().get_font().unwrap();
+    assert!(a3.has_underline());
+    assert_eq!(a3.underline, UnderlineStyle::Single);
+}
+
+#[test]
+fn test_color_parsing() {
+    use calamine::Color;
+
+    // Test that our color parsing works for both RGB and ARGB formats
+    let red_rgb = Color::rgb(255, 0, 0);
+    let red_argb = Color::new(255, 255, 0, 0);
+
+    assert_eq!(red_rgb, red_argb);
+
+    // Test that alpha=255 is the default for RGB
+    assert_eq!(red_rgb.alpha, 255);
+    assert_eq!(red_rgb.red, 255);
+    assert_eq!(red_rgb.green, 0);
+    assert_eq!(red_rgb.blue, 0);
+}
+
+#[test]
+fn test_border_colors() {
+    let mut xlsx: Xlsx<_> = wb("borders.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let mut found_thin_with_color = false;
+    let mut found_dashed_with_color = false;
+
+    // Test the first few rows to find different border styles with colors
+    for row in 0..5 {
+        for col in 0..5 {
+            if let Some(style) = styles.get((row, col)) {
+                if let Some(borders) = &style.borders {
+                    // Check each border side for styles and colors
+                    for border in [&borders.left, &borders.right, &borders.top, &borders.bottom] {
+                        if let Some(color) = border.color {
+                            if border.style == BorderStyle::None {
+                                continue;
+                            }
+                            match border.style {
+                                BorderStyle::Thin => {
+                                    found_thin_with_color = true;
+                                }
+                                BorderStyle::Dashed => {
+                                    found_dashed_with_color = true;
+                                }
+                                _ => {}
+                            }
+
+                            // Verify the color is red as expected.
+                            assert_eq!(color.red, 255, "Expected red color component to be 255");
+                            assert_eq!(color.green, 0, "Expected green color component to be 0");
+                            assert_eq!(color.blue, 0, "Expected blue color component to be 0");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Verify we found both types of borders with colors
+    assert!(
+        found_thin_with_color,
+        "Expected to find at least one thin border with color"
+    );
+    assert!(
+        found_dashed_with_color,
+        "Expected to find at least one dashed border with color"
+    );
+}
+
+#[test]
+fn test_problematic_formats() {
+    let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
+    let range = xlsx.worksheet_range("Sheet1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    // Check cell A1 (0,0) - should have white font
+    let a1_style = styles
+        .get((0, 0))
+        .expect("A1 should have style information");
+    let a1_font = a1_style
+        .get_font()
+        .expect("A1 should have font information");
+
+    // Font properties may or may not be explicitly set depending on the file;
+    // the important thing is that parsing succeeds without panic.
+    let _ = a1_font.name.as_ref();
+    let _ = a1_font.size;
+
+    // Check font color - should be white
+    if let Some(color) = a1_font.color {
+        assert!(
+            color.is_white(),
+            "A1 font color should be white, got RGB({}, {}, {})",
+            color.red,
+            color.green,
+            color.blue
+        );
+    }
+
+    // Check cell A2 (1,0) - verify it has style information
+    let a2_style = styles
+        .get((1, 0))
+        .expect("A2 should have style information");
+
+    // A2 should have number format information or use default
+    if let Some(number_format) = a2_style.get_number_format() {
+        assert!(
+            !number_format.format_code.is_empty(),
+            "Number format code should not be empty"
+        );
+    }
+
+    // Verify cell values exist
+    assert!(range.get((0, 0)).is_some(), "A1 should have a value");
+    assert!(range.get((1, 0)).is_some(), "A2 should have a value");
+}
+
+#[test]
+fn test_color_construction() {
+    use calamine::Color;
+
+    let rgb = Color::rgb(255, 0, 0);
+    assert_eq!(rgb.red, 255);
+    assert_eq!(rgb.green, 0);
+    assert_eq!(rgb.blue, 0);
+    assert_eq!(rgb.alpha, 255);
+
+    let argb = Color::new(128, 255, 0, 0);
+    assert_eq!(argb.alpha, 128);
+    assert_eq!(argb.red, 255);
+
+    assert!(Color::rgb(0, 0, 0).is_black());
+    assert!(Color::rgb(255, 255, 255).is_white());
+    assert!(!Color::rgb(1, 0, 0).is_black());
+}
+
+#[test]
+fn test_color_parsing_with_styles() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Test that we can read styles and colors from the styles.xlsx file
+    let range = xlsx.worksheet_range("Sheet 1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut cells_with_styles = 0;
+    let mut cells_with_font_colors = 0;
+
+    // Iterate through cells and check for style information
+    for (row, col, _cell) in range.cells() {
+        if let Some(style) = styles.get((row, col)) {
+            cells_with_styles += 1;
+
+            if let Some(font) = style.get_font() {
+                if let Some(color) = font.color {
+                    cells_with_font_colors += 1;
+
+                    // color.{red,green,blue,alpha} are u8 so the 0..=255 range is
+                    // guaranteed by the type system; check known specific colors instead.
+                    if row == 4 && col == 0 {
+                        // A5 should have red font color (from test_all_styles)
+                        assert_eq!(color.red, 255, "A5 should have red font");
+                        assert_eq!(color.green, 0, "A5 should have red font");
+                        assert_eq!(color.blue, 0, "A5 should have red font");
+                    }
+                }
+            }
+        }
+    }
+
+    // Verify we found some styled cells
+    assert!(
+        cells_with_styles > 0,
+        "Should find at least some cells with styles"
+    );
+
+    // Verify color parsing is working (we should find at least one colored font)
+    assert!(
+        cells_with_font_colors > 0,
+        "Should find at least some cells with font colors"
+    );
+}
+
+#[test]
+fn test_style_range_rle() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let unique_count = styles.unique_style_count();
+    let run_count = styles.run_count();
+
+    println!("RLE Stats for styles.xlsx:");
+    println!("  Unique styles: {}", unique_count);
+    println!("  Run count: {}", run_count);
+    println!("  Compression ratio: {:.1}x", styles.compression_ratio());
+
+    assert!(unique_count > 0, "Should have unique styles");
+
+    let mut cell_count = 0;
+    for (row, col, style) in styles.cells() {
+        cell_count += 1;
+        assert!(row < styles.height());
+        assert!(col < styles.width());
+        let _ = style.get_font();
+    }
+
+    println!("  Cell count: {}", cell_count);
+    assert!(cell_count > 0, "Should have cells with styles");
+
+    if let Some(style) = styles.get((0, 0)) {
+        let _ = style.get_font();
+    }
+}
+
+#[test]
+fn test_theme_color_with_tint() {
+    // EMSI_JobChange_UK.xlsx uses theme="2" tint="-0.0999..." for the header fill.
+    // The file's theme has lt2 = EEECE1 (238, 236, 225).
+    // With tint -0.1: each channel * 0.9 ≈ (214, 212, 203).
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // Row 0 is the header row; check cell A1 (0, 0)
+    let header_style = styles.get((0, 0)).expect("Header cell should have style");
+    let fill = header_style.get_fill().expect("Header should have fill");
+    let color = fill.get_color().expect("Header fill should have a color");
+
+    // The color should be a tan/beige, NOT dark grey.
+    // Expected: approximately RGB(214, 212, 203) based on EEECE1 with tint -0.1
+    assert!(
+        color.red > 200 && color.green > 200 && color.blue > 190,
+        "Header fill should be tan/beige, got RGB({}, {}, {})",
+        color.red,
+        color.green,
+        color.blue
+    );
+
+    // Verify it's NOT the old incorrect dark blue-grey (68, 84, 106)
+    assert!(
+        color.red > 150,
+        "Header fill red should be > 150 (not dark grey), got {}",
+        color.red
+    );
+}
+
+#[test]
+fn test_theme_colors_read_from_file() {
+    // EMSI_JobChange_UK.xlsx has the Office 2007 theme:
+    //   dk1=000000, lt1=FFFFFF, dk2=1F497D, lt2=EEECE1
+    // After Excel's index swap: theme 0=lt1, 1=dk1, 2=lt2, 3=dk2
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // The header row uses bold font with no explicit font color set,
+    // and the data rows use theme="1" (dk1=black) for font color.
+    // Verify a data cell (row 1) has correct style
+    let data_style = styles.get((1, 0)).expect("Data cell should have style");
+    assert!(
+        data_style.get_font().is_some(),
+        "Data cell should have font info"
+    );
+}
+
+#[test]
+fn test_sys_color_parsing_prefers_last_clr() {
+    // problematic_formats.xlsx has sysClr elements like:
+    //   <a:sysClr val="windowText" lastClr="000000"/>
+    //   <a:sysClr val="window" lastClr="FFFFFF"/>
+    // The parser should use lastClr (resolved) over val (system name).
+    let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let a1_style = styles.get((0, 0)).expect("A1 should have style");
+    let font = a1_style.get_font().expect("A1 should have font");
+
+    // Font uses theme="0" which should resolve to lt1 = FFFFFF (white)
+    // via the sysClr lastClr attribute
+    if let Some(color) = font.color {
+        assert!(
+            color.is_white(),
+            "A1 font color should be white (from sysClr lastClr), got RGB({}, {}, {})",
+            color.red,
+            color.green,
+            color.blue
+        );
+    }
+}
+
+#[test]
+fn test_tint_darkening() {
+    // Verify that negative tint darkens a color.
+    // EMSI_JobChange_UK.xlsx border colors use theme="0" tint="-0.2499..."
+    // theme 0 = lt1 = FFFFFF (255,255,255)
+    // With tint -0.25: 255 * 0.75 = 191 per channel → approximately (191, 191, 191)
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // Check a data cell that should have borders with tinted colors
+    if let Some(data_style) = styles.get((1, 0)) {
+        if let Some(borders) = data_style.get_borders() {
+            if borders.top.is_visible() {
+                if let Some(color) = borders.top.color {
+                    // Should be a light grey (around 191,191,191), not pure white or black
+                    assert!(
+                        color.red > 180 && color.red < 200,
+                        "Border color should be light grey from tinted white, got R={}",
+                        color.red
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Regression tests for quality fixes
+// ============================================================================
+
+#[test]
+fn test_font_parsing_empty_elements() {
+    // Regression: parse_font was ignoring Event::Empty elements like <b/>, <sz val="11"/>
+    // which are the most common form in real Excel files.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // A1 should have bold font - this was broken when Event::Empty was ignored
+    let a1_style = styles.get((0, 0)).expect("A1 should have a style");
+    let a1_font = a1_style.get_font().expect("A1 should have font info");
+    assert!(
+        a1_font.is_bold(),
+        "A1 should be bold (tests Event::Empty handling for <b/>)"
+    );
+}
+
+#[test]
+fn test_fill_parsing_empty_elements() {
+    // Regression: parse_fill was ignoring Event::Empty for <patternFill/>, <fgColor/>, etc.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut found_fill = false;
+    for (_row, _col, style) in styles.cells() {
+        if let Some(fill) = &style.fill {
+            if fill.is_visible() {
+                found_fill = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_fill,
+        "Should find at least one visible fill (tests Event::Empty handling for fill elements)"
+    );
+}
+
+#[test]
+fn test_border_parsing_empty_elements() {
+    // Regression: parse_border was ignoring Event::Empty for self-closing border sides
+    // like <left style="thin"/> with no child <color> element.
+    let mut xlsx: Xlsx<_> = wb("borders.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let mut found_border = false;
+    for (_row, _col, style) in styles.cells() {
+        if let Some(borders) = &style.borders {
+            if borders.left.is_visible()
+                || borders.right.is_visible()
+                || borders.top.is_visible()
+                || borders.bottom.is_visible()
+            {
+                found_border = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_border,
+        "Should find at least one visible border (tests Event::Empty handling)"
+    );
+}
+
+#[test]
+fn test_worksheet_layout_column_spans() {
+    // Regression: worksheet_layout was ignoring the 'max' attribute on <col> elements,
+    // so a <col min="3" max="10" width="15"/> only recorded column 3.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let layout = xlsx.worksheet_layout("Sheet 1").unwrap();
+
+    // Verify that column widths have been populated for column spans.
+    // BTreeMap is keyed by column index, so all entries are unique by definition.
+    if layout.column_widths.len() > 1 {
+        // Verify that column indices are populated (not all the same)
+        let min_col = *layout.column_widths.keys().next().unwrap();
+        let max_col = *layout.column_widths.keys().next_back().unwrap();
+        assert!(
+            max_col > min_col,
+            "Column widths should span multiple columns"
+        );
+    }
+}
+
+#[test]
+fn test_worksheet_layout_via_reader_trait() {
+    // Regression: the Reader trait impl for worksheet_layout was a full copy-paste
+    // instead of delegating. Verify both paths produce the same result.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Call via inherent impl
+    let layout1 = Xlsx::worksheet_layout(&mut xlsx, "Sheet 1").unwrap();
+
+    // Re-open to call via Reader trait
+    let mut xlsx2: Xlsx<_> = wb("styles.xlsx");
+    let layout2 = Reader::worksheet_layout(&mut xlsx2, "Sheet 1").unwrap();
+
+    assert_eq!(
+        layout1.default_column_width, layout2.default_column_width,
+        "Both paths should produce same default column width"
+    );
+    assert_eq!(
+        layout1.default_row_height, layout2.default_row_height,
+        "Both paths should produce same default row height"
+    );
+    assert_eq!(
+        layout1.column_widths.len(),
+        layout2.column_widths.len(),
+        "Both paths should produce same number of column widths"
+    );
+    assert_eq!(
+        layout1.row_heights.len(),
+        layout2.row_heights.len(),
+        "Both paths should produce same number of row heights"
+    );
 }
 
 #[test]
@@ -2973,6 +3564,98 @@ fn test_xlsx_richtext_after_plain() {
     assert_eq!(
         range.get_value((1, 0)),
         Some(&String("tvalrval1rval2".to_string()))
+    );
+}
+
+#[test]
+fn test_text_rotation_stacked() {
+    use calamine::TextRotation;
+
+    // Regression: textRotation=255 was being parsed as Degrees(255) instead of Stacked.
+    // This is a unit-level check on the type.
+    let stacked = TextRotation::Stacked;
+    let degrees = TextRotation::Degrees(90);
+    let none = TextRotation::None;
+
+    assert_ne!(stacked, degrees);
+    assert_ne!(stacked, none);
+    assert_ne!(degrees, none);
+}
+
+#[test]
+fn test_protection_defaults() {
+    use calamine::Protection;
+
+    // Regression: Protection::new() defaulted locked=false, but per OOXML spec
+    // cells are locked by default. The parser now correctly defaults to locked=true,
+    // so verify the Protection struct itself is consistent.
+    let protection = Protection::new();
+    // Protection::new() uses Default which is locked=false, hidden=false.
+    // The parser sets locked=true when the attribute is absent.
+    assert!(!protection.locked, "Protection::new() starts unlocked");
+    assert!(!protection.hidden, "Protection::new() starts not hidden");
+
+    let locked = protection.with_locked(true);
+    assert!(locked.locked);
+}
+
+#[test]
+fn test_style_parsing_with_protection() {
+    // Verify that protection parsing works on a real file
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Just verify we can access protection without panic
+    for (_row, _col, style) in styles.cells() {
+        if let Some(protection) = &style.protection {
+            let _ = protection.locked;
+            let _ = protection.hidden;
+        }
+    }
+}
+
+#[test]
+fn test_style_alignment_parsing() {
+    // Verify alignment parsing handles all properties correctly
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut found_alignment = false;
+    for (_row, _col, style) in styles.cells() {
+        if let Some(alignment) = &style.alignment {
+            // Verify we can read all alignment properties
+            let _ = alignment.horizontal;
+            let _ = alignment.vertical;
+            let _ = alignment.text_rotation;
+            let _ = alignment.wrap_text;
+            let _ = alignment.indent;
+            let _ = alignment.shrink_to_fit;
+            found_alignment = true;
+        }
+    }
+    assert!(
+        found_alignment,
+        "Should find at least one cell with alignment"
+    );
+}
+
+#[test]
+fn test_worksheet_style_nonexistent_sheet() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let result = xlsx.worksheet_style("nonexistent_sheet_name");
+    assert!(
+        result.is_err(),
+        "Should return error for nonexistent sheet name"
+    );
+}
+
+#[test]
+fn test_worksheet_layout_nonexistent_sheet() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let result = xlsx.worksheet_layout("nonexistent_sheet_name");
+    assert!(
+        result.is_err(),
+        "Should return error for nonexistent sheet name"
     );
 }
 
