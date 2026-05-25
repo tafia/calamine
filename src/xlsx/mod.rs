@@ -1821,6 +1821,352 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         self.merge_cells_by_sheet_name(&name)
     }
+    /// Get the hyperlinks defined on a worksheet by sheet name.
+    ///
+    /// Hyperlinks in Excel can point to external URLs, email addresses, files,
+    /// or to internal locations such as another cell or named range. Each
+    /// hyperlink is anchored to a cell or cell range on the worksheet and may
+    /// have an optional display string and tooltip.
+    ///
+    /// The function returns a vector of [`Hyperlink`] values. This is wrapped
+    /// in a [`Result`] and an [`Option`]. [`Option::None`] is returned when
+    /// the requested worksheet does not exist. An empty vector is returned for
+    /// worksheets that do not declare any hyperlinks.
+    ///
+    /// External hyperlink targets are resolved from the worksheet's
+    /// relationships file (`xl/worksheets/_rels/sheetN.xml.rels`). Purely
+    /// internal hyperlinks (those declared with only a `location` attribute)
+    /// have [`None`] for [`Hyperlink::target`].
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet to get the hyperlinks from.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::Xml`].
+    ///
+    /// # Examples
+    ///
+    /// An example of reading the hyperlinks from a worksheet.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/hyperlinks.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Get the hyperlinks defined on the first sheet.
+    ///     if let Some(hyperlinks) = workbook.worksheet_hyperlinks("Links") {
+    ///         for hyperlink in hyperlinks? {
+    ///             println!("{:?} -> {:?}", hyperlink.range, hyperlink.target);
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn worksheet_hyperlinks(
+        &mut self,
+        name: &str,
+    ) -> Option<Result<Vec<Hyperlink>, XlsxError>> {
+        let (_, path) = self.sheets.iter().find(|(n, _)| n == name)?;
+        let path = path.clone();
+
+        let rels = match read_sheet_hyperlink_rels(&mut self.zip, &path, &self.zip_path_cache) {
+            Ok(rels) => rels,
+            Err(e) => return Some(Err(e)),
+        };
+
+        let xml = xml_reader(&mut self.zip, &path, &self.zip_path_cache);
+
+        xml.map(|xml| {
+            let mut xml = xml?;
+            let mut hyperlinks = Vec::new();
+            let mut buffer = Vec::new();
+
+            loop {
+                buffer.clear();
+
+                match xml.read_event_into(&mut buffer) {
+                    Ok(Event::Start(event)) if event.local_name().as_ref() == b"hyperlinks" => {
+                        hyperlinks = read_hyperlinks(&mut xml, &rels)?;
+                        break;
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+
+            Ok(hyperlinks)
+        })
+    }
+
+    /// Get the hyperlinks defined on a worksheet by sheet index.
+    ///
+    /// See [`Xlsx::worksheet_hyperlinks()`] for the per-sheet variant keyed by
+    /// sheet name. This method is a convenience that resolves the sheet name
+    /// from the zero-based `sheet_index` and forwards to it.
+    ///
+    /// # Parameters
+    ///
+    /// - `sheet_index`: The zero-based index of the worksheet to get the
+    ///   hyperlinks from.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::Xml`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/hyperlinks.xlsx";
+    ///
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     if let Some(hyperlinks) = workbook.worksheet_hyperlinks_at(0) {
+    ///         for hyperlink in hyperlinks? {
+    ///             println!("{:?} -> {:?}", hyperlink.range, hyperlink.target);
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn worksheet_hyperlinks_at(
+        &mut self,
+        sheet_index: usize,
+    ) -> Option<Result<Vec<Hyperlink>, XlsxError>> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(sheet_index)
+            .map(|sheet| sheet.name.clone())?;
+
+        self.worksheet_hyperlinks(&name)
+    }
+}
+
+/// A hyperlink declared on an XLSX worksheet.
+///
+/// Hyperlinks are anchored to a cell or cell range and may point to:
+///
+/// - An external URL (e.g. `https://example.com`) — stored in [`Hyperlink::target`].
+/// - An email address (e.g. `mailto:foo@example.com`) — stored in [`Hyperlink::target`].
+/// - A local file — stored in [`Hyperlink::target`].
+/// - An internal workbook location (e.g. `'Sheet2'!B5`) — stored in
+///   [`Hyperlink::location`]. In this case [`Hyperlink::target`] is [`None`].
+///
+/// Hyperlinks may have a combination of an external target and an internal
+/// location (the location acts as a sub-anchor).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hyperlink {
+    /// Cell or range the hyperlink is anchored to.
+    pub range: Dimensions,
+    /// External URL, email, or file target.
+    ///
+    /// [`None`] for purely internal hyperlinks (where only
+    /// [`Hyperlink::location`] is set).
+    pub target: Option<String>,
+    /// Internal workbook location, e.g. `'Sheet2'!B5` or a named range.
+    pub location: Option<String>,
+    /// Optional display text override.
+    pub display: Option<String>,
+    /// Optional tooltip shown when hovering the hyperlink in Excel.
+    pub tooltip: Option<String>,
+}
+
+impl Hyperlink {
+    /// Returns `true` if this hyperlink's anchor range contains the cell at
+    /// the given zero-based `(row, column)`.
+    ///
+    /// This is a convenience for looking up the hyperlink applied to a
+    /// specific cell from the vector returned by
+    /// [`Xlsx::worksheet_hyperlinks()`]:
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let mut workbook: Xlsx<_> = open_workbook("tests/hyperlinks.xlsx")?;
+    ///     let hyperlinks = workbook
+    ///         .worksheet_hyperlinks("Links")
+    ///         .expect("sheet exists")?;
+    ///
+    ///     let link = hyperlinks.iter().find(|h| h.contains(0, 0));
+    ///     assert!(link.is_some());
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn contains(&self, row: u32, column: u32) -> bool {
+        let (r0, c0) = self.range.start;
+        let (r1, c1) = self.range.end;
+        row >= r0 && row <= r1 && column >= c0 && column <= c1
+    }
+}
+
+/// Read the hyperlink relationships for a sheet from its `.rels` file.
+///
+/// Returns a map from relationship id (`rId...`) to the relationship target
+/// (URL, file, etc.). Only relationships whose `Type` matches the OOXML
+/// hyperlink relationship are included. Sheets without a `.rels` file return
+/// an empty map.
+fn read_sheet_hyperlink_rels<RS>(
+    zip: &mut ZipArchive<RS>,
+    sheet_path: &str,
+    cache: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, XlsxError>
+where
+    RS: Read + Seek,
+{
+    let mut rels = HashMap::new();
+
+    let last_folder_index = match sheet_path.rfind('/') {
+        Some(i) => i,
+        None => return Ok(rels),
+    };
+    let (base_folder, file_name) = sheet_path.split_at(last_folder_index);
+    let rel_path = format!("{base_folder}/_rels{file_name}.rels");
+
+    let mut xml = match xml_reader(zip, &rel_path, cache) {
+        // A sheet without hyperlinks won't have a .rels file. That's not an error.
+        None => return Ok(rels),
+        Some(x) => x?,
+    };
+
+    let mut buf = Vec::with_capacity(256);
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if e.local_name().as_ref() == b"Relationship" =>
+            {
+                let mut id = String::new();
+                let mut target = String::new();
+                let mut is_hyperlink = false;
+                for a in e.attributes() {
+                    match a? {
+                        Attribute {
+                            key: QName(b"Id"),
+                            value: v,
+                        } => id = xml.decoder().decode(&v)?.into_owned(),
+                        Attribute {
+                            key: QName(b"Target"),
+                            value: v,
+                        } => target = unescape_xml(&xml.decoder().decode(&v)?).into_owned(),
+                        Attribute {
+                            key: QName(b"Type"),
+                            value: v,
+                        } => {
+                            is_hyperlink = v.ends_with(b"/relationships/hyperlink");
+                        }
+                        _ => (),
+                    }
+                }
+                if is_hyperlink && !id.is_empty() {
+                    rels.insert(id, target);
+                }
+            }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+
+    Ok(rels)
+}
+
+/// Parse a `<hyperlinks>` block from a worksheet XML stream.
+///
+/// Caller has already consumed the opening `<hyperlinks>` event; this reads
+/// child `<hyperlink>` elements until the matching close tag.
+fn read_hyperlinks<RS>(
+    xml: &mut XlReader<'_, RS>,
+    rels: &HashMap<String, String>,
+) -> Result<Vec<Hyperlink>, XlsxError>
+where
+    RS: Read + Seek,
+{
+    let mut hyperlinks = Vec::new();
+    let mut buffer = Vec::new();
+
+    loop {
+        buffer.clear();
+
+        match xml.read_event_into(&mut buffer) {
+            Ok(Event::Start(event)) | Ok(Event::Empty(event))
+                if event.local_name().as_ref() == b"hyperlink" =>
+            {
+                let mut range: Option<Dimensions> = None;
+                let mut rid: Option<String> = None;
+                let mut location: Option<String> = None;
+                let mut display: Option<String> = None;
+                let mut tooltip: Option<String> = None;
+
+                for attribute in event.attributes() {
+                    let attribute = attribute?;
+                    let local = attribute.key.local_name();
+                    match local.as_ref() {
+                        b"ref" => {
+                            range = Some(get_dimension(&attribute.value)?);
+                        }
+                        // Match on the local name; the namespace prefix
+                        // for the relationships namespace is conventionally
+                        // "r" but OOXML allows any prefix bound to the
+                        // relationships namespace URI.
+                        b"id" => {
+                            rid = Some(xml.decoder().decode(&attribute.value)?.into_owned());
+                        }
+                        b"location" => {
+                            location = Some(
+                                unescape_xml(&xml.decoder().decode(&attribute.value)?)
+                                    .into_owned(),
+                            );
+                        }
+                        b"display" => {
+                            display = Some(
+                                unescape_xml(&xml.decoder().decode(&attribute.value)?)
+                                    .into_owned(),
+                            );
+                        }
+                        b"tooltip" => {
+                            tooltip = Some(
+                                unescape_xml(&xml.decoder().decode(&attribute.value)?)
+                                    .into_owned(),
+                            );
+                        }
+                        _ => (),
+                    }
+                }
+
+                let Some(range) = range else { continue };
+                let target = rid.as_deref().and_then(|id| rels.get(id).cloned());
+
+                hyperlinks.push(Hyperlink {
+                    range,
+                    target,
+                    location,
+                    display,
+                    tooltip,
+                });
+            }
+            Ok(Event::End(event)) if event.local_name().as_ref() == b"hyperlinks" => break,
+            Ok(Event::Eof) => return Err(XlsxError::XmlEof("hyperlinks")),
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+
+    Ok(hyperlinks)
 }
 
 struct TableMetadata {

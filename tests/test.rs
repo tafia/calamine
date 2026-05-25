@@ -3261,3 +3261,81 @@ fn test_xlsx_minimal_package() {
         Some(&String("BKG_NUM".to_string()))
     );
 }
+
+#[test]
+fn issue_360_hyperlinks_xlsx() {
+    use calamine::Hyperlink;
+
+    let mut excel: Xlsx<_> = wb("hyperlinks.xlsx");
+
+    let hyperlinks = excel
+        .worksheet_hyperlinks("Links")
+        .expect("sheet exists")
+        .expect("hyperlinks parse");
+
+    let by_range = |row, col| {
+        hyperlinks
+            .iter()
+            .find(|h| h.range == Dimensions::new((row, col), (row, col)))
+            .unwrap_or_else(|| panic!("no hyperlink at ({row}, {col})"))
+    };
+
+    let a1 = by_range(0, 0);
+    assert_eq!(a1.target.as_deref(), Some("https://github.com/tafia/calamine"));
+    assert_eq!(a1.location, None);
+    assert_eq!(a1.display, None);
+    assert_eq!(a1.tooltip, None);
+
+    let a2 = by_range(1, 0);
+    assert_eq!(a2.target.as_deref(), Some("https://www.rust-lang.org/"));
+    assert_eq!(a2.location, None);
+    assert_eq!(a2.display.as_deref(), Some("Rust Programming Language"));
+    assert_eq!(a2.tooltip.as_deref(), Some("Rust homepage"));
+
+    let a3 = by_range(2, 0);
+    assert_eq!(a3.target, None);
+    assert_eq!(a3.location.as_deref(), Some("'Sheet2'!B5"));
+    assert_eq!(a3.display.as_deref(), Some("Sheet2 B5"));
+    assert_eq!(a3.tooltip, None);
+
+    let b1_c2: &Hyperlink = hyperlinks
+        .iter()
+        .find(|h| h.range == Dimensions::new((0, 1), (1, 2)))
+        .expect("range hyperlink missing");
+    assert_eq!(b1_c2.target.as_deref(), Some("mailto:foo@example.com"));
+    assert_eq!(b1_c2.tooltip.as_deref(), Some("Email Foo"));
+
+    // `Hyperlink::contains` — single-cell anchor.
+    assert!(a1.contains(0, 0));
+    assert!(!a1.contains(0, 1));
+    assert!(!a1.contains(1, 0));
+
+    // Range anchor B1:C2 should cover all four cells and nothing outside.
+    assert!(b1_c2.contains(0, 1));
+    assert!(b1_c2.contains(0, 2));
+    assert!(b1_c2.contains(1, 1));
+    assert!(b1_c2.contains(1, 2));
+    assert!(!b1_c2.contains(0, 0));
+    assert!(!b1_c2.contains(2, 1));
+    assert!(!b1_c2.contains(0, 3));
+
+    // Lookup a hyperlink for a specific cell.
+    let at_b2 = hyperlinks.iter().find(|h| h.contains(1, 1));
+    assert!(at_b2.is_some());
+    let at_a4 = hyperlinks.iter().find(|h| h.contains(3, 0));
+    assert!(at_a4.is_none());
+
+    let by_index = excel
+        .worksheet_hyperlinks_at(0)
+        .expect("sheet 0 exists")
+        .expect("hyperlinks parse");
+    assert_eq!(by_index.len(), hyperlinks.len());
+
+    let empty = excel
+        .worksheet_hyperlinks("Sheet2")
+        .expect("Sheet2 exists")
+        .expect("no error");
+    assert!(empty.is_empty());
+
+    assert!(excel.worksheet_hyperlinks("NoSuchSheet").is_none());
+}
