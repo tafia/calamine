@@ -8,68 +8,10 @@
 // HTML reports are written to target/criterion/.
 
 use calamine::{open_workbook, Ods, Reader, Xls, Xlsb, Xlsx, XlsxFormulaMetadata};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use std::fs::File;
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::fs::{read, File};
 use std::hint::black_box;
-use std::io::{BufReader, Cursor, Write};
-use zip::write::SimpleFileOptions;
-
-fn shared_formula_xlsx(rows: u32) -> Vec<u8> {
-    let mut sheet_data = String::with_capacity(rows as usize * 96);
-    for row in 1..=rows {
-        let formula = if row == 1 {
-            format!(r#"<f t="shared" si="0" ref="B1:B{rows}">A1*2</f>"#)
-        } else {
-            r#"<f t="shared" si="0"/>"#.to_string()
-        };
-        sheet_data.push_str(&format!(
-            r#"<row r="{row}"><c r="A{row}"><v>{row}</v></c><c r="B{row}">{formula}<v>{}</v></c></row>"#,
-            row * 2
-        ));
-    }
-    let sheet_xml = format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <dimension ref="A1:B{rows}"/>
-  <sheetData>{sheet_data}</sheetData>
-</worksheet>"#
-    );
-
-    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    zip.start_file("[Content_Types].xml", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-</Types>"#).unwrap();
-    zip.start_file("_rels/.rels", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-</Relationships>"#).unwrap();
-    zip.start_file("xl/workbook.xml", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
-</workbook>"#).unwrap();
-    zip.start_file("xl/_rels/workbook.xml.rels", options)
-        .unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>"#).unwrap();
-    zip.start_file("xl/styles.xml", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs count="1"><xf numFmtId="0"/></cellXfs></styleSheet>"#).unwrap();
-    zip.start_file("xl/worksheets/sheet1.xml", options).unwrap();
-    zip.write_all(sheet_xml.as_bytes()).unwrap();
-    zip.finish().unwrap().into_inner()
-}
+use std::io::{BufReader, Cursor};
 
 fn count<R: Reader<BufReader<File>>>(path: &str) -> usize {
     let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
@@ -169,7 +111,7 @@ fn count_shared_formula_metadata(bytes: &[u8]) -> usize {
         count += 1;
         if matches!(
             record.formula,
-            Some(XlsxFormulaMetadata::SharedAnchor { .. })
+            Some(XlsxFormulaMetadata::Shared { .. })
                 | Some(XlsxFormulaMetadata::SharedDerived { .. })
         ) {
             shared_tags += 1;
@@ -179,16 +121,19 @@ fn count_shared_formula_metadata(bytes: &[u8]) -> usize {
 }
 
 fn bench_xlsx_shared_formula_cells_reader(c: &mut Criterion) {
+    let path = format!(
+        "{}/tests/shared_formula_bench.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let bytes = read(path).expect("cannot read shared formula benchmark fixture");
+
     let mut group = c.benchmark_group("xlsx_shared_formula_cells_reader");
-    for rows in [1_000u32, 10_000, 100_000] {
-        let bytes = shared_formula_xlsx(rows);
-        group.bench_with_input(BenchmarkId::new("expanded", rows), &bytes, |b, bytes| {
-            b.iter(|| count_shared_formula_expanded(black_box(bytes)))
-        });
-        group.bench_with_input(BenchmarkId::new("metadata", rows), &bytes, |b, bytes| {
-            b.iter(|| count_shared_formula_metadata(black_box(bytes)))
-        });
-    }
+    group.bench_function("expanded/shared_formula_bench", |b| {
+        b.iter(|| count_shared_formula_expanded(black_box(&bytes)))
+    });
+    group.bench_function("metadata/shared_formula_bench", |b| {
+        b.iter(|| count_shared_formula_metadata(black_box(&bytes)))
+    });
     group.finish();
 }
 

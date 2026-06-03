@@ -1942,6 +1942,8 @@ fn issue_391_shared_formula() {
     assert!(expect.cells().eq(res.cells()));
 }
 
+// Regression coverage for PR #654: streaming cell+formula readers should
+// expand Excel-resaved shared formulas while reading values in one pass.
 #[test]
 fn xlsx_cell_reader_expands_excel_resaved_shared_formulas() {
     let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
@@ -1984,9 +1986,9 @@ fn xlsx_cell_reader_reports_excel_resaved_shared_formula_metadata() {
     assert_eq!(b1.pos, (0, 1));
     assert_eq!(
         b1.formula,
-        Some(XlsxFormulaMetadata::SharedAnchor {
+        Some(XlsxFormulaMetadata::Shared {
             shared_index: 0,
-            reference: Some(Dimensions::new((0, 1), (2, 1))),
+            range: Some(Dimensions::new((0, 1), (2, 1))),
             formula: "A1*2".to_string(),
         })
     );
@@ -2089,6 +2091,48 @@ fn non_monotonic_si_shared_formula() {
             );
         }
     }
+
+    let mut excel: Xlsx<_> = wb("non_monotonic_si.xlsx");
+    let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
+    let mut streamed_formulas = Vec::new();
+    while let Some(record) = reader.next_cell_with_formula().unwrap() {
+        if let Some(formula) = record.formula {
+            streamed_formulas.push((record.pos, formula));
+        }
+    }
+    for (row_idx, row) in expected_formulas.iter().enumerate() {
+        for (col_idx, expected_formula) in row.iter().enumerate() {
+            let pos = (row_idx as u32 + 1, col_idx as u32);
+            assert_eq!(
+                streamed_formulas
+                    .iter()
+                    .find(|(cell_pos, _)| *cell_pos == pos)
+                    .map(|(_, formula)| formula.as_str()),
+                Some(*expected_formula)
+            );
+        }
+    }
+
+    let mut excel: Xlsx<_> = wb("non_monotonic_si.xlsx");
+    let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
+    let mut shared_metadata = Vec::new();
+    while let Some(record) = reader.next_cell_with_formula_metadata().unwrap() {
+        match record.formula {
+            Some(XlsxFormulaMetadata::Shared { shared_index, .. }) => {
+                shared_metadata.push((record.pos, "shared", shared_index))
+            }
+            Some(XlsxFormulaMetadata::SharedDerived { shared_index }) => {
+                shared_metadata.push((record.pos, "derived", shared_index))
+            }
+            _ => {}
+        }
+    }
+    assert!(shared_metadata.contains(&((2, 0), "shared", 1)));
+    assert!(shared_metadata.contains(&((2, 1), "shared", 0)));
+    assert!(shared_metadata.contains(&((2, 2), "shared", 2)));
+    assert!(shared_metadata.contains(&((3, 0), "derived", 1)));
+    assert!(shared_metadata.contains(&((3, 1), "derived", 0)));
+    assert!(shared_metadata.contains(&((3, 2), "derived", 2)));
 }
 
 #[test]

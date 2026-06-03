@@ -12,8 +12,8 @@ use std::{
 };
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, read_string_with_bufs,
-    translate_formula, Dimensions, XlReader,
+    expand_shared_formula, get_attribute, get_dimension, get_row, get_row_column,
+    read_string_with_bufs, Dimensions, XlReader,
 };
 use crate::{
     datatype::DataRef,
@@ -23,9 +23,9 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-struct SharedFormulaTemplate {
+struct SharedFormula {
     formula: String,
-    anchor: (u32, u32),
+    range: Dimensions,
 }
 
 /// Workbook-level context used when reading cell values.
@@ -61,15 +61,17 @@ pub enum XlsxFormulaMetadata {
         /// Formula text.
         formula: String,
     },
+
     /// Shared formula anchor/template cell.
-    SharedAnchor {
+    Shared {
         /// Shared formula index (`si`). Shared formula indices are worksheet-local.
         shared_index: usize,
-        /// Shared formula reference range, when present.
-        reference: Option<Dimensions>,
+        /// Shared formula range, when present.
+        range: Option<Dimensions>,
         /// Template formula text as stored on the anchor cell.
         formula: String,
     },
+
     /// Shared formula derived cell.
     SharedDerived {
         /// Shared formula index (`si`). Shared formula indices are worksheet-local.
@@ -82,33 +84,41 @@ impl XlsxFormulaMetadata {
     pub fn shared_index(&self) -> Option<usize> {
         match self {
             Self::Normal { .. } => None,
-            Self::SharedAnchor { shared_index, .. } | Self::SharedDerived { shared_index } => {
+            Self::Shared { shared_index, .. } | Self::SharedDerived { shared_index } => {
                 Some(*shared_index)
             }
         }
     }
 }
 
+/// Internal formula metadata used while streaming a cell.
+///
+/// This mirrors the public [`XlsxFormulaMetadata`] but can also carry an
+/// expanded formula string for shared-formula derived cells when callers ask
+/// for the convenience text API. The public metadata API intentionally drops
+/// that string to avoid per-derived-cell expansion and allocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum FormulaRecord {
+enum FormulaMetadata {
     Normal {
         formula: String,
     },
-    SharedAnchor {
+
+    Shared {
         shared_index: usize,
-        reference: Option<Dimensions>,
+        range: Option<Dimensions>,
         formula: String,
     },
+
     SharedDerived {
         shared_index: usize,
         translated_formula: Option<String>,
     },
 }
 
-impl FormulaRecord {
+impl FormulaMetadata {
     fn formula_text(&self) -> Option<&str> {
         match self {
-            Self::Normal { formula } | Self::SharedAnchor { formula, .. } => Some(formula),
+            Self::Normal { formula } | Self::Shared { formula, .. } => Some(formula),
             Self::SharedDerived {
                 translated_formula, ..
             } => translated_formula.as_deref(),
@@ -118,13 +128,13 @@ impl FormulaRecord {
     fn into_metadata(self) -> XlsxFormulaMetadata {
         match self {
             Self::Normal { formula } => XlsxFormulaMetadata::Normal { formula },
-            Self::SharedAnchor {
+            Self::Shared {
                 shared_index,
-                reference,
+                range,
                 formula,
-            } => XlsxFormulaMetadata::SharedAnchor {
+            } => XlsxFormulaMetadata::Shared {
                 shared_index,
-                reference,
+                range,
                 formula,
             },
             Self::SharedDerived { shared_index, .. } => {
@@ -134,9 +144,9 @@ impl FormulaRecord {
     }
 }
 
-/// A single XLSX cell record containing both cached/literal value and expanded formula text.
+/// A single XLSX cell structure containing both cached/literal value and expanded formula text.
 #[derive(Clone, Debug, PartialEq)]
-pub struct XlsxCellFormulaRecord<'a> {
+pub struct XlsxCellFormula<'a> {
     /// Zero-based `(row, column)` cell position.
     pub pos: (u32, u32),
     /// Literal or cached value associated with the cell.
@@ -160,10 +170,14 @@ pub struct XlsxCellFormulaMetadataRecord<'a> {
 struct XlsxCellFormulaMetadataRecordInternal<'a> {
     pos: (u32, u32),
     value: DataRef<'a>,
-    formula: Option<FormulaRecord>,
+    formula: Option<FormulaMetadata>,
 }
 
-/// An xlsx Cell Iterator
+/// An xlsx Cell Iterator.
+///
+/// The `next_*` methods all advance the same XML stream. Use one streaming
+/// method per reader; mixing methods on a single reader will consume cells from
+/// the current stream position.
 pub struct XlsxCellReader<'a, RS>
 where
     RS: Read + Seek,
@@ -178,7 +192,7 @@ where
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
     value_bufs: ValueBufs,
-    formulas: Vec<Option<SharedFormulaTemplate>>,
+    formulas: Vec<Option<SharedFormula>>,
 }
 
 impl<'a, RS> XlsxCellReader<'a, RS>
@@ -330,11 +344,11 @@ where
 
     fn read_formula_record(
         xml: &mut XlReader<'_, RS>,
-        formulas: &mut Vec<Option<SharedFormulaTemplate>>,
+        formulas: &mut Vec<Option<SharedFormula>>,
         e: &BytesStart<'_>,
         pos: (u32, u32),
         expand_shared_derived: bool,
-    ) -> Result<Option<FormulaRecord>, XlsxError> {
+    ) -> Result<Option<FormulaMetadata>, XlsxError> {
         let formula = read_formula(xml, e)?;
 
         if let Ok(Some(b"shared")) = get_attribute(e.attributes(), QName(b"t")) {
@@ -352,28 +366,22 @@ where
 
             return match get_attribute(e.attributes(), QName(b"ref"))? {
                 Some(res) => {
-                    let reference = get_dimension(res)?;
-                    if let Some(f) = formula {
-                        if expand_shared_derived {
-                            if formulas.len() <= shared_index {
-                                formulas.resize(shared_index + 1, None);
-                            }
-                            formulas[shared_index] = Some(SharedFormulaTemplate {
-                                formula: f.clone(),
-                                anchor: pos,
-                            });
+                    let range = get_dimension(res)?;
+                    let formula = formula.unwrap_or_default();
+                    if expand_shared_derived {
+                        if formulas.len() <= shared_index {
+                            formulas.resize(shared_index + 1, None);
                         }
-                        Ok(Some(FormulaRecord::SharedAnchor {
-                            shared_index,
-                            reference: Some(reference),
-                            formula: f,
-                        }))
-                    } else {
-                        Ok(Some(FormulaRecord::SharedDerived {
-                            shared_index,
-                            translated_formula: None,
-                        }))
+                        formulas[shared_index] = Some(SharedFormula {
+                            formula: formula.clone(),
+                            range,
+                        });
                     }
+                    Ok(Some(FormulaMetadata::Shared {
+                        shared_index,
+                        range: Some(range),
+                        formula,
+                    }))
                 }
                 None => {
                     let translated_formula = if expand_shared_derived {
@@ -381,13 +389,13 @@ where
                             .get(shared_index)
                             .and_then(|template| template.as_ref())
                             .map(|template| {
-                                translate_formula(&template.formula, template.anchor, pos)
+                                expand_shared_formula(&template.formula, template.range.start, pos)
                             })
                             .transpose()?
                     } else {
                         None
                     };
-                    Ok(Some(FormulaRecord::SharedDerived {
+                    Ok(Some(FormulaMetadata::SharedDerived {
                         shared_index,
                         translated_formula,
                     }))
@@ -395,19 +403,17 @@ where
             };
         }
 
-        Ok(formula.map(|formula| FormulaRecord::Normal { formula }))
+        Ok(formula.map(|formula| FormulaMetadata::Normal { formula }))
     }
 
     /// Return the next cell record, exposing cached/literal value plus expanded
     /// per-cell formula text. Shared-formula metadata is intentionally not
     /// exposed through this compatibility-oriented one-pass API; use
     /// [`Self::next_cell_with_formula_metadata`] when shared-formula metadata is needed.
-    pub fn next_cell_with_formula(
-        &mut self,
-    ) -> Result<Option<XlsxCellFormulaRecord<'a>>, XlsxError> {
+    pub fn next_cell_with_formula(&mut self) -> Result<Option<XlsxCellFormula<'a>>, XlsxError> {
         Ok(self
             .next_cell_formula_record_impl(true)?
-            .map(|record| XlsxCellFormulaRecord {
+            .map(|record| XlsxCellFormula {
                 pos: record.pos,
                 value: record.value,
                 formula: record
@@ -428,7 +434,7 @@ where
             .map(|record| XlsxCellFormulaMetadataRecord {
                 pos: record.pos,
                 value: record.value,
-                formula: record.formula.map(FormulaRecord::into_metadata),
+                formula: record.formula.map(FormulaMetadata::into_metadata),
             }))
     }
 
