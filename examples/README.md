@@ -11,6 +11,8 @@ This directory contains some example of Calamine usage.
   Excel file to CSV.
 - `search_errors.rs`: Recursively searches a directory for Excel files and
   checks them for errors.
+- `xlsx_formula_stream.rs`: Streams XLSX cell values and formula text in one
+  worksheet pass.
 
 ### Serialization examples
 

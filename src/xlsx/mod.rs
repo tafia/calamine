@@ -32,7 +32,9 @@ use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
     SheetType, SheetVisible, Table,
 };
-pub use cells_reader::XlsxCellReader;
+pub use cells_reader::{
+    XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
+};
 
 pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
@@ -2525,10 +2527,62 @@ fn offset_range(range: &[u8], offset: (i64, i64), buf: &mut Vec<u8>) -> Result<(
     }
 }
 
-// Advance all valid cell names in the string by the offset.
-fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
-    let bytes = s.as_bytes();
-    let mut res: Vec<u8> = Vec::new();
+/// Expand a shared-formula template from its starting cell to another cell.
+///
+/// `start` and `end` are zero-based `(row, column)` positions. Relative
+/// references in `formula` are shifted by `end - start`; absolute references
+/// remain fixed. This is the same expansion Calamine uses for XLSX shared
+/// formulas in [`Reader::worksheet_formula`].
+///
+/// This helper is intentionally workbook-state agnostic. XLSX shared-formula
+/// indices are worksheet-local, so callers are responsible for pairing the
+/// right template and starting cell with each derived cell.
+pub fn expand_shared_formula(
+    formula: &str,
+    start: (u32, u32),
+    end: (u32, u32),
+) -> Result<String, XlsxError> {
+    let mut out = String::with_capacity(formula.len());
+    expand_shared_formula_into(formula, start, end, &mut out)?;
+    Ok(out)
+}
+
+/// Expand a shared-formula template into a caller-provided buffer.
+///
+/// This is the allocation-reuse variant of [`expand_shared_formula`]. `out` is
+/// cleared before writing.
+pub fn expand_shared_formula_into(
+    formula: &str,
+    start: (u32, u32),
+    end: (u32, u32),
+    out: &mut String,
+) -> Result<(), XlsxError> {
+    let offset = (end.0 as i64 - start.0 as i64, end.1 as i64 - start.1 as i64);
+    expand_shared_formula_with_offset_into(formula, offset, out)
+}
+
+#[cfg(test)]
+fn expand_shared_formula_with_offset(
+    formula: &str,
+    offset: (i64, i64),
+) -> Result<String, XlsxError> {
+    let mut out = String::with_capacity(formula.len());
+    expand_shared_formula_with_offset_into(formula, offset, &mut out)?;
+    Ok(out)
+}
+
+// Apply a row/column offset to each valid cell or range reference in a formula.
+// Function-like tokens (immediately followed by `(`), quoted strings, structured
+// references, and references that would move out of XLSX bounds are preserved.
+fn expand_shared_formula_with_offset_into(
+    formula: &str,
+    offset: (i64, i64),
+    out: &mut String,
+) -> Result<(), XlsxError> {
+    let bytes = formula.as_bytes();
+    let mut res = std::mem::take(out).into_bytes();
+    res.clear();
+    let mut token_buf = Vec::with_capacity(32);
     let mut in_quote = false;
 
     let mut token_start = 0;
@@ -2540,9 +2594,12 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         } else {
             if token_start < token_end {
                 let next_is_paren = c == b'(';
-                if next_is_paren
-                    || offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
+                token_buf.clear();
+                if !next_is_paren
+                    && offset_range(&bytes[token_start..token_end], offset, &mut token_buf).is_ok()
                 {
+                    res.extend(&token_buf);
+                } else {
                     res.extend(&bytes[token_start..token_end]);
                 }
             }
@@ -2556,16 +2613,28 @@ fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> 
         }
     }
 
-    if token_start < token_end
-        && offset_range(&bytes[token_start..token_end], offset, &mut res).is_err()
-    {
-        res.extend(&bytes[token_start..token_end]);
+    if token_start < token_end {
+        token_buf.clear();
+        if offset_range(&bytes[token_start..token_end], offset, &mut token_buf).is_ok() {
+            res.extend(&token_buf);
+        } else {
+            res.extend(&bytes[token_start..token_end]);
+        }
     }
 
     match String::from_utf8(res) {
-        Ok(s) => Ok(s),
+        Ok(translated) => {
+            *out = translated;
+            Ok(())
+        }
         Err(_) => Err(XlsxError::Unexpected("fail to convert cell name")),
     }
+}
+
+// Backward-compatible internal name used by existing tests.
+#[cfg(test)]
+fn replace_cell_names(s: &str, offset: (i64, i64)) -> Result<String, XlsxError> {
+    expand_shared_formula_with_offset(s, offset)
 }
 
 /// Convert the integer to Excelsheet column title.
@@ -3625,6 +3694,35 @@ mod tests {
         // Offset pushes valid range out of bounds
         check_col_err(b"XFD:XFD", (0, 1));
         check_row_err(b"1048576:1048576", (1, 0));
+    }
+
+    #[test]
+    fn test_expand_shared_formula_helpers() {
+        assert_eq!(
+            expand_shared_formula("A1+$B1+C$1+$D$1", (0, 0), (2, 3)).unwrap(),
+            "D3+$B3+F$1+$D$1"
+        );
+        assert_eq!(
+            expand_shared_formula("SUM(Sheet1!A1,'My Sheet'!$B2)", (0, 0), (1, 1)).unwrap(),
+            "SUM(Sheet1!B2,'My Sheet'!$B3)"
+        );
+        assert_eq!(
+            expand_shared_formula("CONCATENATE(A1, \"A1\", Table1[Column1])", (0, 0), (1, 0))
+                .unwrap(),
+            "CONCATENATE(A2, \"A1\", Table1[Column1])"
+        );
+        assert_eq!(
+            expand_shared_formula("SUM(A1:XFE1)", (0, 0), (1, 1)).unwrap(),
+            "SUM(A1:XFE1)"
+        );
+
+        let mut out = String::with_capacity(128);
+        expand_shared_formula_into("A1", (0, 0), (4, 4), &mut out).unwrap();
+        assert_eq!(out, "E5");
+        let cap = out.capacity();
+        expand_shared_formula_into("B2", (1, 1), (2, 2), &mut out).unwrap();
+        assert_eq!(out, "C3");
+        assert!(out.capacity() >= cap);
     }
 
     #[test]

@@ -111,7 +111,10 @@ pub use crate::errors::Error;
 pub use crate::ods::{Ods, OdsError};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
-pub use crate::xlsx::{Xlsx, XlsxError};
+pub use crate::xlsx::{
+    expand_shared_formula, expand_shared_formula_into, Xlsx, XlsxCellFormula,
+    XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxError, XlsxFormulaMetadata,
+};
 
 use crate::vba::VbaProject;
 
