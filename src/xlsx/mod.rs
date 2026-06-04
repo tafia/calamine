@@ -1827,7 +1827,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Hyperlinks in Excel can point to external URLs, email addresses, files,
     /// or to internal locations such as another cell or named range. Each
     /// hyperlink is anchored to a cell or cell range on the worksheet and may
-    /// have an optional display string and tooltip.
+    /// have an optional displayed text string and tooltip.
     ///
     /// The function returns a vector of [`Hyperlink`] values for the named
     /// worksheet. An empty vector is returned for worksheets that do not
@@ -1955,29 +1955,48 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
 /// A hyperlink declared on an XLSX worksheet.
 ///
-/// Hyperlinks are anchored to a cell or cell range and may point to:
+/// Hyperlinks are anchored to a cell or cell range and point to one of the
+/// link types supported by Excel:
 ///
-/// - An external URL (e.g. `https://example.com`) — stored in [`Hyperlink::target`].
-/// - An email address (e.g. `mailto:foo@example.com`) — stored in [`Hyperlink::target`].
-/// - A local file — stored in [`Hyperlink::target`].
-/// - An internal workbook location (e.g. `'Sheet2'!B5`) — stored in
-///   [`Hyperlink::location`]. In this case [`Hyperlink::target`] is [`None`].
+/// - A web-based URI such as `http://`, `https://`, `ftp://`, `ftps://`,
+///   `mailto:` or a custom `protocol://domain` link — stored in
+///   [`Hyperlink::target`].
+/// - A local file link using the `file://` URI (e.g.
+///   `file:///C:\Temp\Book1.xlsx` or `file:///Book2.xlsx#'Sales Data'!A1:G5`)
+///   — stored in [`Hyperlink::target`].
+/// - An internal link to a cell or range in the same workbook (e.g.
+///   `'Sheet2'!B5`) — stored in [`Hyperlink::location`], with
+///   [`Hyperlink::target`] left as [`None`].
 ///
-/// Hyperlinks may have a combination of an external target and an internal
-/// location (the location acts as a sub-anchor).
+/// A single hyperlink may combine an external target with an internal
+/// location, in which case the location acts as a sub-anchor within the
+/// target file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hyperlink {
     /// Cell or range the hyperlink is anchored to.
     pub range: Dimensions,
-    /// External URL, email, or file target.
+
+    /// External link target.
     ///
-    /// [`None`] for purely internal hyperlinks (where only
-    /// [`Hyperlink::location`] is set).
+    /// This holds the subset of Excel link types that resolve to an external
+    /// resource: web URIs (e.g. `https://example.com`), email addresses (e.g.
+    /// `mailto:foo@example.com`) and local file links (e.g.
+    /// `file:///C:\Temp\Book1.xlsx`).
+    ///
+    /// It is [`None`] for purely internal hyperlinks, where only
+    /// [`Hyperlink::location`] is set.
     pub target: Option<String>,
+
     /// Internal workbook location, e.g. `'Sheet2'!B5` or a named range.
     pub location: Option<String>,
-    /// Optional display text override.
-    pub display: Option<String>,
+
+    /// Optional text displayed in the cell instead of the target.
+    ///
+    /// For example a link to `https://www.rust-lang.org/` might be displayed
+    /// as `Rust Programming Language`. [`None`] when Excel shows the target
+    /// itself.
+    pub displayed_text: Option<String>,
+
     /// Optional tooltip shown when hovering the hyperlink in Excel.
     pub tooltip: Option<String>,
 }
@@ -2104,7 +2123,7 @@ where
                 let mut range: Option<Dimensions> = None;
                 let mut rid: Option<String> = None;
                 let mut location: Option<String> = None;
-                let mut display: Option<String> = None;
+                let mut displayed_text: Option<String> = None;
                 let mut tooltip: Option<String> = None;
 
                 for attribute in event.attributes() {
@@ -2128,7 +2147,7 @@ where
                             );
                         }
                         b"display" => {
-                            display = Some(
+                            displayed_text = Some(
                                 unescape_xml(&xml.decoder().decode(&attribute.value)?)
                                     .into_owned(),
                             );
@@ -2150,7 +2169,7 @@ where
                     range,
                     target,
                     location,
-                    display,
+                    displayed_text,
                     tooltip,
                 });
             }

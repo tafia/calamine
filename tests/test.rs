@@ -3282,19 +3282,19 @@ fn issue_360_hyperlinks_xlsx() {
     let a1 = by_range(0, 0);
     assert_eq!(a1.target.as_deref(), Some("https://github.com/tafia/calamine"));
     assert_eq!(a1.location, None);
-    assert_eq!(a1.display, None);
+    assert_eq!(a1.displayed_text, None);
     assert_eq!(a1.tooltip, None);
 
     let a2 = by_range(1, 0);
     assert_eq!(a2.target.as_deref(), Some("https://www.rust-lang.org/"));
     assert_eq!(a2.location, None);
-    assert_eq!(a2.display.as_deref(), Some("Rust Programming Language"));
+    assert_eq!(a2.displayed_text.as_deref(), Some("Rust Programming Language"));
     assert_eq!(a2.tooltip.as_deref(), Some("Rust homepage"));
 
     let a3 = by_range(2, 0);
     assert_eq!(a3.target, None);
     assert_eq!(a3.location.as_deref(), Some("'Sheet2'!B5"));
-    assert_eq!(a3.display.as_deref(), Some("Sheet2 B5"));
+    assert_eq!(a3.displayed_text.as_deref(), Some("Sheet2 B5"));
     assert_eq!(a3.tooltip, None);
 
     let b1_c2: &Hyperlink = hyperlinks
