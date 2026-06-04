@@ -1987,7 +1987,14 @@ pub struct Hyperlink {
     /// [`Hyperlink::location`] is set.
     pub target: Option<String>,
 
-    /// Internal workbook location, e.g. `'Sheet2'!B5` or a named range.
+    /// In-file location the hyperlink points to, set only for a subset of
+    /// link types.
+    ///
+    /// For a purely internal link this is the cell, range or named range it
+    /// targets (e.g. `'Sheet2'!B5`). For an external file link it holds the
+    /// sub-anchor — the part after `#`, e.g. the `Sheet1!A1` in
+    /// `file:///Book2.xlsx#Sheet1!A1` — while [`Hyperlink::target`] holds the
+    /// file itself. [`None`] when the hyperlink has no in-file location.
     pub location: Option<String>,
 
     /// Optional text displayed in the cell instead of the target.
