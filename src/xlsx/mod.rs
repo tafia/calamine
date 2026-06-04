@@ -2142,20 +2142,17 @@ where
                         }
                         b"location" => {
                             location = Some(
-                                unescape_xml(&xml.decoder().decode(&attribute.value)?)
-                                    .into_owned(),
+                                unescape_xml(&xml.decoder().decode(&attribute.value)?).into_owned(),
                             );
                         }
                         b"display" => {
                             displayed_text = Some(
-                                unescape_xml(&xml.decoder().decode(&attribute.value)?)
-                                    .into_owned(),
+                                unescape_xml(&xml.decoder().decode(&attribute.value)?).into_owned(),
                             );
                         }
                         b"tooltip" => {
                             tooltip = Some(
-                                unescape_xml(&xml.decoder().decode(&attribute.value)?)
-                                    .into_owned(),
+                                unescape_xml(&xml.decoder().decode(&attribute.value)?).into_owned(),
                             );
                         }
                         _ => (),

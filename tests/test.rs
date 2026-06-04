@@ -3280,7 +3280,10 @@ fn test_hyperlinks_xlsx() {
     };
 
     let a1 = by_range(0, 0);
-    assert_eq!(a1.target.as_deref(), Some("https://github.com/tafia/calamine"));
+    assert_eq!(
+        a1.target.as_deref(),
+        Some("https://github.com/tafia/calamine")
+    );
     assert_eq!(a1.location, None);
     assert_eq!(a1.displayed_text, None);
     assert_eq!(a1.tooltip, None);
@@ -3288,7 +3291,10 @@ fn test_hyperlinks_xlsx() {
     let a2 = by_range(1, 0);
     assert_eq!(a2.target.as_deref(), Some("https://www.rust-lang.org/"));
     assert_eq!(a2.location, None);
-    assert_eq!(a2.displayed_text.as_deref(), Some("Rust Programming Language"));
+    assert_eq!(
+        a2.displayed_text.as_deref(),
+        Some("Rust Programming Language")
+    );
     assert_eq!(a2.tooltip.as_deref(), Some("Rust homepage"));
 
     let a3 = by_range(2, 0);
@@ -3345,14 +3351,10 @@ fn test_hyperlinks_xlsx() {
     let at_empty = hyperlinks.iter().find(|h| h.contains(8, 0));
     assert!(at_empty.is_none());
 
-    let by_index = excel
-        .hyperlinks_by_sheet_id(0)
-        .expect("hyperlinks parse");
+    let by_index = excel.hyperlinks_by_sheet_id(0).expect("hyperlinks parse");
     assert_eq!(by_index.len(), hyperlinks.len());
 
-    let empty = excel
-        .hyperlinks_by_sheet_name("Sheet2")
-        .expect("no error");
+    let empty = excel.hyperlinks_by_sheet_name("Sheet2").expect("no error");
     assert!(empty.is_empty());
 
     assert!(matches!(
