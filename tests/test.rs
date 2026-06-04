@@ -3263,7 +3263,7 @@ fn test_xlsx_minimal_package() {
 }
 
 #[test]
-fn issue_360_hyperlinks_xlsx() {
+fn test_hyperlinks_xlsx() {
     use calamine::Hyperlink;
 
     let mut excel: Xlsx<_> = wb("hyperlinks.xlsx");
@@ -3304,6 +3304,27 @@ fn issue_360_hyperlinks_xlsx() {
     assert_eq!(b1_c2.target.as_deref(), Some("mailto:foo@example.com"));
     assert_eq!(b1_c2.tooltip.as_deref(), Some("Email Foo"));
 
+    // External file:// links (local file / cell links).
+    let a4 = by_range(3, 0);
+    assert_eq!(a4.target.as_deref(), Some("file:///Book2.xlsx"));
+    assert_eq!(a4.location, None);
+
+    let a5 = by_range(4, 0);
+    assert_eq!(a5.target.as_deref(), Some(r"file:///..\Sales\Book2.xlsx"));
+
+    let a6 = by_range(5, 0);
+    assert_eq!(a6.target.as_deref(), Some(r"file:///C:\Temp\Book1.xlsx"));
+
+    // file:// links with an in-file anchor: the file is the `target` and the
+    // part after `#` is carried in `location`.
+    let a7 = by_range(6, 0);
+    assert_eq!(a7.target.as_deref(), Some("file:///Book2.xlsx"));
+    assert_eq!(a7.location.as_deref(), Some("Sheet1!A1"));
+
+    let a8 = by_range(7, 0);
+    assert_eq!(a8.target.as_deref(), Some("file:///Book2.xlsx"));
+    assert_eq!(a8.location.as_deref(), Some("'Sales Data'!A1:G5"));
+
     // `Hyperlink::contains` — single-cell anchor.
     assert!(a1.contains(0, 0));
     assert!(!a1.contains(0, 1));
@@ -3321,8 +3342,8 @@ fn issue_360_hyperlinks_xlsx() {
     // Lookup a hyperlink for a specific cell.
     let at_b2 = hyperlinks.iter().find(|h| h.contains(1, 1));
     assert!(at_b2.is_some());
-    let at_a4 = hyperlinks.iter().find(|h| h.contains(3, 0));
-    assert!(at_a4.is_none());
+    let at_empty = hyperlinks.iter().find(|h| h.contains(8, 0));
+    assert!(at_empty.is_none());
 
     let by_index = excel
         .hyperlinks_by_sheet_id(0)
