@@ -3269,8 +3269,7 @@ fn issue_360_hyperlinks_xlsx() {
     let mut excel: Xlsx<_> = wb("hyperlinks.xlsx");
 
     let hyperlinks = excel
-        .worksheet_hyperlinks("Links")
-        .expect("sheet exists")
+        .hyperlinks_by_sheet_name("Links")
         .expect("hyperlinks parse");
 
     let by_range = |row, col| {
@@ -3326,16 +3325,17 @@ fn issue_360_hyperlinks_xlsx() {
     assert!(at_a4.is_none());
 
     let by_index = excel
-        .worksheet_hyperlinks_at(0)
-        .expect("sheet 0 exists")
+        .hyperlinks_by_sheet_id(0)
         .expect("hyperlinks parse");
     assert_eq!(by_index.len(), hyperlinks.len());
 
     let empty = excel
-        .worksheet_hyperlinks("Sheet2")
-        .expect("Sheet2 exists")
+        .hyperlinks_by_sheet_name("Sheet2")
         .expect("no error");
     assert!(empty.is_empty());
 
-    assert!(excel.worksheet_hyperlinks("NoSuchSheet").is_none());
+    assert!(matches!(
+        excel.hyperlinks_by_sheet_name("NoSuchSheet"),
+        Err(calamine::XlsxError::WorksheetNotFound(_))
+    ));
 }

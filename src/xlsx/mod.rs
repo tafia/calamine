@@ -1821,6 +1821,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         self.merge_cells_by_sheet_name(&name)
     }
+
     /// Get the hyperlinks defined on a worksheet by sheet name.
     ///
     /// Hyperlinks in Excel can point to external URLs, email addresses, files,
@@ -1828,10 +1829,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// hyperlink is anchored to a cell or cell range on the worksheet and may
     /// have an optional display string and tooltip.
     ///
-    /// The function returns a vector of [`Hyperlink`] values. This is wrapped
-    /// in a [`Result`] and an [`Option`]. [`Option::None`] is returned when
-    /// the requested worksheet does not exist. An empty vector is returned for
-    /// worksheets that do not declare any hyperlinks.
+    /// The function returns a vector of [`Hyperlink`] values for the named
+    /// worksheet. An empty vector is returned for worksheets that do not
+    /// declare any hyperlinks.
     ///
     /// External hyperlink targets are resolved from the worksheet's
     /// relationships file (`xl/worksheets/_rels/sheetN.xml.rels`). Purely
@@ -1844,7 +1844,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     /// # Errors
     ///
-    /// - [`XlsxError::Xml`].
+    /// - [`XlsxError::WorksheetNotFound`] if no worksheet with the given name
+    ///   exists.
+    /// - [`XlsxError::Xml`] if the worksheet XML cannot be parsed.
     ///
     /// # Examples
     ///
@@ -1860,66 +1862,64 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
     ///     // Get the hyperlinks defined on the first sheet.
-    ///     if let Some(hyperlinks) = workbook.worksheet_hyperlinks("Links") {
-    ///         for hyperlink in hyperlinks? {
-    ///             println!("{:?} -> {:?}", hyperlink.range, hyperlink.target);
-    ///         }
+    ///     let hyperlinks = workbook.hyperlinks_by_sheet_name("Links")?;
+    ///     for hyperlink in &hyperlinks {
+    ///         println!("{:?} -> {:?}", hyperlink.range, hyperlink.target);
     ///     }
     ///
     ///     Ok(())
     /// }
     /// ```
-    pub fn worksheet_hyperlinks(
-        &mut self,
-        name: &str,
-    ) -> Option<Result<Vec<Hyperlink>, XlsxError>> {
-        let (_, path) = self.sheets.iter().find(|(n, _)| n == name)?;
+    pub fn hyperlinks_by_sheet_name(&mut self, name: &str) -> Result<Vec<Hyperlink>, XlsxError> {
+        let (_, path) = self
+            .sheets
+            .iter()
+            .find(|(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
         let path = path.clone();
 
-        let rels = match read_sheet_hyperlink_rels(&mut self.zip, &path, &self.zip_path_cache) {
-            Ok(rels) => rels,
-            Err(e) => return Some(Err(e)),
-        };
+        let rels = read_sheet_hyperlink_rels(&mut self.zip, &path, &self.zip_path_cache)?;
 
-        let xml = xml_reader(&mut self.zip, &path, &self.zip_path_cache);
+        let xml = xml_reader(&mut self.zip, &path, &self.zip_path_cache)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
 
-        xml.map(|xml| {
-            let mut xml = xml?;
-            let mut hyperlinks = Vec::new();
-            let mut buffer = Vec::new();
+        let mut xml = xml?;
+        let mut hyperlinks = Vec::new();
+        let mut buffer = Vec::new();
 
-            loop {
-                buffer.clear();
+        loop {
+            buffer.clear();
 
-                match xml.read_event_into(&mut buffer) {
-                    Ok(Event::Start(event)) if event.local_name().as_ref() == b"hyperlinks" => {
-                        hyperlinks = read_hyperlinks(&mut xml, &rels)?;
-                        break;
-                    }
-                    Ok(Event::Eof) => break,
-                    Err(e) => return Err(XlsxError::Xml(e)),
-                    _ => (),
+            match xml.read_event_into(&mut buffer) {
+                Ok(Event::Start(event)) if event.local_name().as_ref() == b"hyperlinks" => {
+                    hyperlinks = read_hyperlinks(&mut xml, &rels)?;
+                    break;
                 }
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
             }
+        }
 
-            Ok(hyperlinks)
-        })
+        Ok(hyperlinks)
     }
 
     /// Get the hyperlinks defined on a worksheet by sheet index.
     ///
-    /// See [`Xlsx::worksheet_hyperlinks()`] for the per-sheet variant keyed by
-    /// sheet name. This method is a convenience that resolves the sheet name
-    /// from the zero-based `sheet_index` and forwards to it.
+    /// See [`Xlsx::hyperlinks_by_sheet_name()`] for the per-sheet variant keyed
+    /// by sheet name. This method is a convenience that resolves the sheet name
+    /// from the zero-based `id` and forwards to it.
     ///
     /// # Parameters
     ///
-    /// - `sheet_index`: The zero-based index of the worksheet to get the
-    ///   hyperlinks from.
+    /// - `id`: The zero-based index of the worksheet to get the hyperlinks
+    ///   from.
     ///
     /// # Errors
     ///
-    /// - [`XlsxError::Xml`].
+    /// - [`XlsxError::WorksheetNotFound`] if no worksheet with the given index
+    ///   exists.
+    /// - [`XlsxError::Xml`] if the worksheet XML cannot be parsed.
     ///
     /// # Examples
     ///
@@ -1931,26 +1931,25 @@ impl<RS: Read + Seek> Xlsx<RS> {
     ///
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
     ///
-    ///     if let Some(hyperlinks) = workbook.worksheet_hyperlinks_at(0) {
-    ///         for hyperlink in hyperlinks? {
-    ///             println!("{:?} -> {:?}", hyperlink.range, hyperlink.target);
-    ///         }
+    ///     let hyperlinks = workbook.hyperlinks_by_sheet_id(0)?;
+    ///     for hyperlink in &hyperlinks {
+    ///         println!("{:?} -> {:?}", hyperlink.range, hyperlink.target);
     ///     }
     ///
     ///     Ok(())
     /// }
     /// ```
-    pub fn worksheet_hyperlinks_at(
-        &mut self,
-        sheet_index: usize,
-    ) -> Option<Result<Vec<Hyperlink>, XlsxError>> {
+    pub fn hyperlinks_by_sheet_id(&mut self, id: usize) -> Result<Vec<Hyperlink>, XlsxError> {
         let name = self
             .metadata()
             .sheets
-            .get(sheet_index)
-            .map(|sheet| sheet.name.clone())?;
+            .get(id)
+            .map(|sheet| sheet.name.clone())
+            .ok_or_else(|| {
+                XlsxError::WorksheetNotFound(format!("Sheet index {id} out of range"))
+            })?;
 
-        self.worksheet_hyperlinks(&name)
+        self.hyperlinks_by_sheet_name(&name)
     }
 }
 
@@ -1989,16 +1988,14 @@ impl Hyperlink {
     ///
     /// This is a convenience for looking up the hyperlink applied to a
     /// specific cell from the vector returned by
-    /// [`Xlsx::worksheet_hyperlinks()`]:
+    /// [`Xlsx::hyperlinks_by_sheet_name()`]:
     ///
     /// ```
     /// use calamine::{open_workbook, Error, Xlsx};
     ///
     /// fn main() -> Result<(), Error> {
     ///     let mut workbook: Xlsx<_> = open_workbook("tests/hyperlinks.xlsx")?;
-    ///     let hyperlinks = workbook
-    ///         .worksheet_hyperlinks("Links")
-    ///         .expect("sheet exists")?;
+    ///     let hyperlinks = workbook.hyperlinks_by_sheet_name("Links")?;
     ///
     ///     let link = hyperlinks.iter().find(|h| h.contains(0, 0));
     ///     assert!(link.is_some());
