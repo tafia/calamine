@@ -13,6 +13,8 @@ This directory contains some example of Calamine usage.
   checks them for errors.
 - `xlsx_formula_stream.rs`: Streams XLSX cell values and formula text in one
   worksheet pass.
+- `read_hyperlinks.rs`: Reads the hyperlinks defined on an XLSX worksheet,
+  either by sheet name or by sheet index.
 
 ### Serialization examples
 

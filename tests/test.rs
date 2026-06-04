@@ -3261,3 +3261,104 @@ fn test_xlsx_minimal_package() {
         Some(&String("BKG_NUM".to_string()))
     );
 }
+
+#[test]
+fn test_hyperlinks_xlsx() {
+    use calamine::Hyperlink;
+
+    let mut excel: Xlsx<_> = wb("hyperlinks.xlsx");
+
+    let hyperlinks = excel
+        .hyperlinks_by_sheet_name("Links")
+        .expect("hyperlinks parse");
+
+    let by_range = |row, col| {
+        hyperlinks
+            .iter()
+            .find(|h| h.range == Dimensions::new((row, col), (row, col)))
+            .unwrap_or_else(|| panic!("no hyperlink at ({row}, {col})"))
+    };
+
+    let a1 = by_range(0, 0);
+    assert_eq!(
+        a1.target.as_deref(),
+        Some("https://github.com/tafia/calamine")
+    );
+    assert_eq!(a1.location, None);
+    assert_eq!(a1.displayed_text, None);
+    assert_eq!(a1.tooltip, None);
+
+    let a2 = by_range(1, 0);
+    assert_eq!(a2.target.as_deref(), Some("https://www.rust-lang.org/"));
+    assert_eq!(a2.location, None);
+    assert_eq!(
+        a2.displayed_text.as_deref(),
+        Some("Rust Programming Language")
+    );
+    assert_eq!(a2.tooltip.as_deref(), Some("Rust homepage"));
+
+    let a3 = by_range(2, 0);
+    assert_eq!(a3.target, None);
+    assert_eq!(a3.location.as_deref(), Some("'Sheet2'!B5"));
+    assert_eq!(a3.displayed_text.as_deref(), Some("Sheet2 B5"));
+    assert_eq!(a3.tooltip, None);
+
+    let b1_c2: &Hyperlink = hyperlinks
+        .iter()
+        .find(|h| h.range == Dimensions::new((0, 1), (1, 2)))
+        .expect("range hyperlink missing");
+    assert_eq!(b1_c2.target.as_deref(), Some("mailto:foo@example.com"));
+    assert_eq!(b1_c2.tooltip.as_deref(), Some("Email Foo"));
+
+    // External file:// links (local file / cell links).
+    let a4 = by_range(3, 0);
+    assert_eq!(a4.target.as_deref(), Some("file:///Book2.xlsx"));
+    assert_eq!(a4.location, None);
+
+    let a5 = by_range(4, 0);
+    assert_eq!(a5.target.as_deref(), Some(r"file:///..\Sales\Book2.xlsx"));
+
+    let a6 = by_range(5, 0);
+    assert_eq!(a6.target.as_deref(), Some(r"file:///C:\Temp\Book1.xlsx"));
+
+    // file:// links with an in-file anchor: the file is the `target` and the
+    // part after `#` is carried in `location`.
+    let a7 = by_range(6, 0);
+    assert_eq!(a7.target.as_deref(), Some("file:///Book2.xlsx"));
+    assert_eq!(a7.location.as_deref(), Some("Sheet1!A1"));
+
+    let a8 = by_range(7, 0);
+    assert_eq!(a8.target.as_deref(), Some("file:///Book2.xlsx"));
+    assert_eq!(a8.location.as_deref(), Some("'Sales Data'!A1:G5"));
+
+    // `Hyperlink::contains` — single-cell anchor.
+    assert!(a1.contains(0, 0));
+    assert!(!a1.contains(0, 1));
+    assert!(!a1.contains(1, 0));
+
+    // Range anchor B1:C2 should cover all four cells and nothing outside.
+    assert!(b1_c2.contains(0, 1));
+    assert!(b1_c2.contains(0, 2));
+    assert!(b1_c2.contains(1, 1));
+    assert!(b1_c2.contains(1, 2));
+    assert!(!b1_c2.contains(0, 0));
+    assert!(!b1_c2.contains(2, 1));
+    assert!(!b1_c2.contains(0, 3));
+
+    // Lookup a hyperlink for a specific cell.
+    let at_b2 = hyperlinks.iter().find(|h| h.contains(1, 1));
+    assert!(at_b2.is_some());
+    let at_empty = hyperlinks.iter().find(|h| h.contains(8, 0));
+    assert!(at_empty.is_none());
+
+    let by_index = excel.hyperlinks_by_sheet_id(0).expect("hyperlinks parse");
+    assert_eq!(by_index.len(), hyperlinks.len());
+
+    let empty = excel.hyperlinks_by_sheet_name("Sheet2").expect("no error");
+    assert!(empty.is_empty());
+
+    assert!(matches!(
+        excel.hyperlinks_by_sheet_name("NoSuchSheet"),
+        Err(calamine::XlsxError::WorksheetNotFound(_))
+    ));
+}
