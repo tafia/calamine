@@ -2004,9 +2004,7 @@ impl Hyperlink {
     /// }
     /// ```
     pub fn contains(&self, row: u32, column: u32) -> bool {
-        let (r0, c0) = self.range.start;
-        let (r1, c1) = self.range.end;
-        row >= r0 && row <= r1 && column >= c0 && column <= c1
+        self.range.contains(row, column)
     }
 }
 
