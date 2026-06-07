@@ -6,8 +6,8 @@ use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
+    ExcelDateTimeType, HeaderRow, IndexSet, Ods, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -3361,4 +3361,213 @@ fn test_hyperlinks_xlsx() {
         excel.hyperlinks_by_sheet_name("NoSuchSheet"),
         Err(calamine::XlsxError::WorksheetNotFound(_))
     ));
+}
+
+/// Assert projected `cols` reproduce the full sheet's values
+/// at the kept cols, with dropped columns reading `Empty`.
+#[rstest]
+#[case::disjoint("col-projection.xlsx", "Sheet1", IndexSet::from([0u32, 2]), &[0, 2])]
+#[case::list("col-projection.xlsx", "Sheet1", IndexSet::from([0u32, 1, 2]), &[0, 1, 2])]
+#[case::range("col-projection.xlsx", "Sheet1", IndexSet::from(0u32..3), &[0, 1, 2])]
+#[case::single("col-projection.xlsx", "Sheet1", IndexSet::from(2u32), &[2])]
+#[case::unsorted_dup("col-projection.xlsx", "Sheet1", IndexSet::from([2u32, 0, 0]), &[0, 2])]
+#[case::xlsb("issues.xlsb", "issue2", IndexSet::from([1u32]), &[1])]
+fn test_region_columns(
+    #[case] fixture: &str,
+    #[case] sheet: &str,
+    #[case] cols: IndexSet,
+    #[case] kept: &[u32],
+) {
+    let path = test_path(fixture);
+    let mut full_wb = open_workbook_auto(&path).expect(&path);
+    let full = full_wb.worksheet_range_ref_region(sheet, .., ..).unwrap();
+    let mut proj_wb = open_workbook_auto(&path).expect(&path);
+    let proj = proj_wb.worksheet_range_ref_region(sheet, cols, ..).unwrap();
+
+    // Bounding box spans the lowest..=highest kept column. Dropped interior
+    // columns are Empty, and every kept column matches the full sheet.
+    let (lo, hi) = (kept[0], *kept.last().unwrap());
+    assert_eq!(proj.width() as u32, hi - lo + 1);
+    assert_eq!(proj.height(), full.height());
+    for row in 0..proj.height() {
+        for c in lo..=hi {
+            let expected = if kept.contains(&c) {
+                full.get((row, c as usize))
+            } else {
+                Some(&DataRef::Empty)
+            };
+            assert_eq!(
+                proj.get((row, (c - lo) as usize)),
+                expected,
+                "row {row} col {c}"
+            );
+        }
+    }
+}
+
+/// Row projection reproduces the full sheet's selected row window.
+#[rstest]
+#[case::head("col-projection.xlsx", "Sheet1", IndexSet::from(0u32..2), 0, Some(1))]
+#[case::tail("col-projection.xlsx", "Sheet1", IndexSet::from(1u32..), 1, None)]
+#[case::xlsb("issues.xlsb", "issue2", IndexSet::from(0u32..2), 0, Some(1))]
+fn test_region_rows(
+    #[case] fixture: &str,
+    #[case] sheet: &str,
+    #[case] rows: IndexSet,
+    #[case] start: u32,
+    #[case] end: Option<u32>,
+) {
+    let path = test_path(fixture);
+    let mut x = open_workbook_auto(&path).expect(&path);
+    let full = x.worksheet_range_region(sheet, .., ..).unwrap();
+    let proj = x.worksheet_range_region(sheet, .., rows).unwrap();
+
+    // `None` -> open-ended range
+    let last = end.unwrap_or_else(|| full.end().unwrap().0);
+    assert_eq!(proj.start().map(|(r, _)| r), Some(start));
+    assert_eq!(proj.end().map(|(r, _)| r), Some(last));
+
+    // `get` is relative to each range's start; both fixtures start at column 0
+    let full_start = full.start().unwrap().0;
+    for i in 0..proj.height() {
+        let full_row = (start as usize + i) - full_start as usize;
+        for c in 0..proj.width() {
+            assert_eq!(
+                proj.get((i, c)),
+                full.get((full_row, c)),
+                "rel row {i} col {c}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_region_full_equals_plain() {
+    // The unprojected region (`.., ..`) matches `worksheet_range_ref`.
+    let mut x: Xlsx<_> = wb("col-projection.xlsx");
+    let full = x.worksheet_range_ref_region("Sheet1", .., ..).unwrap();
+    let mut plain_wb: Xlsx<_> = wb("col-projection.xlsx");
+    let plain = plain_wb.worksheet_range_ref("Sheet1").unwrap();
+    assert_eq!(full, plain);
+    assert!(
+        full.width() > 3,
+        "fixture must be wider than projection subsets"
+    );
+}
+
+#[test]
+fn test_region_both_axes() {
+    let mut x: Xlsx<_> = wb("col-projection.xlsx");
+    let full = x.worksheet_range_region("Sheet1", .., ..).unwrap();
+    let both = x.worksheet_range_region("Sheet1", 0..2, 0..2).unwrap();
+    assert_eq!(both.start(), Some((0, 0)));
+    assert_eq!(both.end().map(|(r, _)| r), Some(1));
+    assert_eq!(both.width(), 2);
+    for row in 0..2 {
+        for col in 0..2 {
+            assert_eq!(both.get((row, col)), full.get((row, col)));
+        }
+    }
+}
+
+#[test]
+fn test_region_overlaps_merge() {
+    // Overlapping/duplicate selections are valid and merge silently.
+    let mut x: Xlsx<_> = wb("col-projection.xlsx");
+    let merged = x
+        .worksheet_range_region("Sheet1", [0..2, 1..3], ..)
+        .unwrap();
+    let contiguous = x.worksheet_range_region("Sheet1", 0..3, ..).unwrap();
+    assert_eq!(merged, contiguous);
+}
+
+/// Column projection composes with header row; dropped cols read
+/// Empty and the header floor is preserved for both header modes.
+#[rstest]
+#[case(HeaderRow::Row(8))]
+#[case(HeaderRow::FirstNonEmptyRow)]
+fn test_region_header_columns(#[case] header: HeaderRow) {
+    let mut x: Xlsx<_> = wb("header-row.xlsx");
+    x.with_header_row(header);
+    let full = x.worksheet_range_region("Sheet1", .., ..).unwrap();
+    let proj = x.worksheet_range_region("Sheet1", [0, 2], ..).unwrap();
+    assert_eq!(proj.start(), full.start());
+    assert_eq!(proj.width(), 3);
+    for row in 0..proj.height() {
+        assert_eq!(proj.get((row, 0)), full.get((row, 0)));
+        assert_eq!(proj.get((row, 2)), full.get((row, 2)));
+        assert_eq!(proj.get((row, 1)), Some(&Empty));
+    }
+}
+
+#[test]
+fn test_region_header_row_always_retained() {
+    // HeaderRow::Row(8) with a row selection that EXCLUDES row 8; header
+    // row should still be present, and rows above 8 must still be dropped.
+    let mut x: Xlsx<_> = wb("header-row.xlsx");
+    let range = x
+        .with_header_row(HeaderRow::Row(8))
+        .worksheet_range_ref_region("Sheet1", .., 9..10)
+        .unwrap();
+    assert_eq!(range.start().map(|(r, _)| r), Some(8));
+    assert_eq!(range.end().map(|(r, _)| r), Some(9));
+}
+
+#[test]
+fn test_region_xlsb_with_header_row() {
+    let mut x: Xlsb<_> = wb("date.xlsb");
+    x.with_header_row(HeaderRow::Row(1));
+    let full = x.worksheet_range_region("Sheet1", .., ..).unwrap();
+    let proj = x.worksheet_range_region("Sheet1", [1], ..).unwrap();
+    assert_eq!(proj.start(), Some((1, 1)));
+    assert_eq!(proj.end(), Some((2, 1)));
+    assert_eq!(proj.width(), 1);
+    for row in 0..proj.height() {
+        assert_eq!(proj.get((row, 0)), full.get((row, 1)));
+    }
+}
+
+#[test]
+fn test_region_through_sheets_auto() {
+    let path = test_path("col-projection.xlsx");
+    let mut sheets = open_workbook_auto(&path).expect(&path);
+    let dispatched = sheets
+        .worksheet_range_ref_region("Sheet1", [0, 2], ..)
+        .unwrap();
+
+    let mut direct: Xlsx<_> = wb("col-projection.xlsx");
+    let expected = direct
+        .worksheet_range_ref_region("Sheet1", [0, 2], ..)
+        .unwrap();
+    assert_eq!(dispatched, expected);
+
+    // Owned variant also dispatches through `Sheets`.
+    let mut owned = open_workbook_auto(&path).expect(&path);
+    assert_eq!(
+        owned
+            .worksheet_range_region("Sheet1", [0, 1, 2], ..)
+            .unwrap()
+            .width(),
+        3
+    );
+}
+
+#[test]
+fn test_region_unsupported_for_xls_ods() {
+    for file in ["any_sheets.xls", "any_sheets.ods"] {
+        let path = test_path(file);
+        let mut sheets = open_workbook_auto(&path).expect(&path);
+        let name = sheets.sheet_names()[0].clone();
+        assert!(
+            matches!(
+                sheets.worksheet_range_ref_region(&name, [0], ..),
+                Err(calamine::Error::Msg(_))
+            ),
+            "{file}: expected Error::Msg, not a panic"
+        );
+        assert!(matches!(
+            sheets.worksheet_range_ref(&name),
+            Err(calamine::Error::Msg(_))
+        ));
+    }
 }

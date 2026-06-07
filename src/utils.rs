@@ -11,6 +11,9 @@ use std::io::{Read, Seek};
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
 use zip::read::ZipArchive;
 
+use crate::datatype::DataRef;
+use crate::{Cell, Dimensions, HeaderRow, IndexSet, Range};
+
 const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _x00HH_.
 
 macro_rules! from_err {
@@ -63,6 +66,67 @@ pub fn read_usize(s: &[u8]) -> usize {
 #[inline]
 pub fn read_f64(s: &[u8]) -> f64 {
     f64::from_le_bytes(s[..8].try_into().unwrap())
+}
+
+/// Collect a worksheet's cells into a [`Range`], honouring the header-row
+/// option and column/row projection.
+///
+/// `cols` and `rows` are normalized index sets; an empty set selects every
+/// column / row respectively. Overlapping or duplicate indices in either set
+/// are merged.
+pub fn collect_cells_into_range<'a, E>(
+    header_row: HeaderRow,
+    cols: &IndexSet,
+    rows: &IndexSet,
+    dimensions: Dimensions,
+    mut next_cell: impl FnMut() -> Result<Option<Cell<DataRef<'a>>>, E>,
+) -> Result<Range<DataRef<'a>>, E> {
+    // `Row(idx)` floors the kept rows at the header row; `FirstNonEmptyRow` keeps all.
+    let min_row = match header_row {
+        HeaderRow::FirstNonEmptyRow => 0,
+        HeaderRow::Row(idx) => idx,
+    };
+
+    // Keep non-empty cells within both projections; the header row is always retained.
+    let header_idx = match header_row {
+        HeaderRow::Row(idx) => Some(idx),
+        HeaderRow::FirstNonEmptyRow => None,
+    };
+    let keep = |row: u32, col: u32| {
+        row >= min_row && cols.keep(col) && (rows.keep(row) || Some(row) == header_idx)
+    };
+
+    // Reserve for the *projected* cell count, not the full sheet.
+    let full_cols = dimensions.end.1 - dimensions.start.1 + 1;
+    let full_rows = dimensions.end.0 - dimensions.start.0 + 1;
+    let projected_len = dimensions
+        .len()
+        .saturating_mul(cols.selected_count(full_cols))
+        .saturating_mul(rows.selected_count(full_rows))
+        / (full_cols as u64).max(1)
+        / (full_rows as u64).max(1);
+    let mut cells = Vec::new();
+    if projected_len < 100_000 {
+        cells.reserve(projected_len as usize);
+    }
+    while let Some(cell) = next_cell()? {
+        if !matches!(cell.val, DataRef::Empty) && keep(cell.pos.0, cell.pos.1) {
+            cells.push(cell);
+        }
+    }
+
+    // If no cell survived on the header row, anchor it with an empty cell in a
+    // kept column so it stays in the range. Skipped when no cells survived at all.
+    if let HeaderRow::Row(header_row_idx) = header_row {
+        if let Some(first) = cells.first() {
+            if first.pos.0 != header_row_idx {
+                let col = first.pos.1;
+                cells.push(Cell::new((header_row_idx, col), DataRef::Empty));
+            }
+        }
+    }
+
+    Ok(Range::from_sparse(cells))
 }
 
 /// Push literal column into a String buffer
