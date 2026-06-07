@@ -92,6 +92,7 @@ mod xlsx;
 
 mod de;
 mod errors;
+mod index_set;
 
 pub mod changelog;
 pub mod vba;
@@ -110,6 +111,7 @@ pub use crate::de::{
     DeError, RangeDeserializer, RangeDeserializerBuilder, RowDeserializer, ToCellDeserializer,
 };
 pub use crate::errors::Error;
+pub use crate::index_set::IndexSet;
 pub use crate::ods::{Ods, OdsError};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
@@ -472,8 +474,12 @@ where
     ///
     /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
     /// do not support lazy iteration.
-    fn worksheet_range_ref<'a>(&'a mut self, name: &str)
-        -> Result<Range<DataRef<'a>>, Self::Error>;
+    fn worksheet_range_ref<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<Range<DataRef<'a>>, Self::Error> {
+        self.worksheet_range_region_ref(name, .., ..)
+    }
 
     /// Get the nth worksheet range where shared string values are only borrowed. Shortcut for getting the nth
     /// worksheet name, then the corresponding worksheet.
@@ -486,6 +492,36 @@ where
     ) -> Option<Result<Range<DataRef<'_>>, Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range_ref(&name))
+    }
+
+    /// Get the worksheet range where shared string values are only borrowed,
+    /// projected onto a subset of columns and rows.
+    ///
+    /// `cols` and `rows` accept anything convertible to an [`IndexSet`]; a
+    /// range, list of ranges, an index, or a list of indices. Overlapping
+    /// selections are merged. Pass `..` to select everything.
+    fn worksheet_range_region_ref<'a>(
+        &'a mut self,
+        name: &str,
+        cols: impl Into<IndexSet>,
+        rows: impl Into<IndexSet>,
+    ) -> Result<Range<DataRef<'a>>, Self::Error>;
+
+    /// Owned-data equivalent of [`worksheet_range_region_ref`](ReaderRef::worksheet_range_region_ref);
+    /// see that method for the column/row-selection semantics.
+    fn worksheet_range_region(
+        &mut self,
+        name: &str,
+        cols: impl Into<IndexSet>,
+        rows: impl Into<IndexSet>,
+    ) -> Result<Range<Data>, Self::Error> {
+        let rge = self.worksheet_range_region_ref(name, cols, rows)?;
+        let inner = rge.inner.into_iter().map(Into::into).collect();
+        Ok(Range {
+            start: rge.start,
+            end: rge.end,
+            inner,
+        })
     }
 }
 
