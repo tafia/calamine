@@ -1631,6 +1631,85 @@ fn pictures() -> Result<(), calamine::Error> {
     Ok(())
 }
 
+// Test picture positions extracted from DrawingML anchors.
+#[test]
+#[cfg(feature = "picture")]
+fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
+    let workbook: Xlsx<_> = wb("picture.xlsx");
+    let pics = workbook.pictures_with_metadata();
+
+    assert_eq!(pics.len(), 2);
+
+    let sheet1_pic = pics
+        .iter()
+        .find(|p| p.sheet_name == "Sheet1")
+        .expect("no picture found for Sheet1");
+    assert_eq!(sheet1_pic.extension, "jpg");
+    assert_eq!(sheet1_pic.row, 0);
+    assert_eq!(sheet1_pic.col, 0);
+    assert!(!sheet1_pic.name.is_empty());
+
+    let sheet2_pic = pics
+        .iter()
+        .find(|p| p.sheet_name == "Sheet2")
+        .expect("no picture found for Sheet2");
+    assert_eq!(sheet2_pic.extension, "png");
+    assert_eq!(sheet2_pic.row, 0);
+    assert_eq!(sheet2_pic.col, 0);
+
+    Ok(())
+}
+
+// Test picture positions extracted from Excel 365 embedded style images.
+#[test]
+#[cfg(feature = "picture")]
+fn pictures_with_positions_richdata() -> Result<(), calamine::Error> {
+    let workbook: Xlsx<_> = wb("picture_richdata.xlsx");
+    let pics = workbook.pictures_with_metadata();
+
+    assert_eq!(pics.len(), 1);
+    assert_eq!(pics[0].extension, "png");
+    assert_eq!(pics[0].sheet_name, "Sheet1");
+    assert_eq!(pics[0].row, 1);
+    assert_eq!(pics[0].col, 1);
+
+    Ok(())
+}
+
+// Test picture positions from a file with both in-cell (rich data) and
+// over-cell (DrawingML) images on the same sheet.
+#[test]
+#[cfg(feature = "picture")]
+fn pictures_with_positions_mixed() -> Result<(), calamine::Error> {
+    let workbook: Xlsx<_> = wb("pictures_in_cell_and_over_cell.xlsx");
+    let mut pics = workbook.pictures_with_metadata();
+
+    assert_eq!(pics.len(), 3);
+
+    // Sort for a stable assertion order: by (row, col).
+    pics.sort_by_key(|p| (p.row, p.col));
+
+    // image1.png — in-cell at A1 (row 0, col 0).
+    assert_eq!(pics[0].extension, "png");
+    assert_eq!(pics[0].sheet_name, "Sheet1");
+    assert_eq!(pics[0].row, 0);
+    assert_eq!(pics[0].col, 0);
+
+    // image2.png — in-cell at A3 (row 2, col 0).
+    assert_eq!(pics[1].extension, "png");
+    assert_eq!(pics[1].sheet_name, "Sheet1");
+    assert_eq!(pics[1].row, 2);
+    assert_eq!(pics[1].col, 0);
+
+    // image3.png — over-cell DrawingML anchor at E9 (row 8, col 4).
+    assert_eq!(pics[2].extension, "png");
+    assert_eq!(pics[2].sheet_name, "Sheet1");
+    assert_eq!(pics[2].row, 8);
+    assert_eq!(pics[2].col, 4);
+
+    Ok(())
+}
+
 #[test]
 fn ods_merged_cells() {
     let mut ods: Ods<_> = wb("merged_cells.ods");
