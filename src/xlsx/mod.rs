@@ -6,7 +6,6 @@
 
 mod cells_reader;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
 use std::collections::HashSet;
@@ -15,15 +14,14 @@ use std::io::{Read, Seek};
 use std::str::FromStr;
 
 use log::warn;
-use quick_xml::events::attributes::{AttrError, Attribute, Attributes};
-use quick_xml::events::BytesStart;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Decoder;
 use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
+use crate::attrs::{decode_attr, local_name_matches, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::utils::{
@@ -308,22 +306,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                    let mut rel_type = String::new();
-                    let mut target = String::new();
-                    for a in e.attributes() {
-                        let a = a?;
-                        match a.key {
-                            QName(b"Type") => {
-                                rel_type = a.decode_and_unescape_value(xml.decoder())?.to_string();
-                            }
-                            QName(b"Target") => {
-                                target = a.decode_and_unescape_value(xml.decoder())?.to_string();
-                            }
-                            _ => (),
+                    let (rel_type, target) =
+                        get_attrs!(e, b"Type" => rel_type, b"Target" => target)?;
+                    if rel_type == Some(b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument".as_slice()) {
+                        if let Some(target) = target {
+                            document_target = Some(decode_attr(&xml.decoder(), target)?);
                         }
-                    }
-                    if rel_type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" {
-                        document_target = Some(target);
                     }
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -358,7 +346,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"sst" => {
-                    if let Ok(Some(count)) = get_attribute(e.attributes(), QName(b"uniqueCount")) {
+                    if let Some(count) = e.raw_attr(b"uniqueCount")? {
                         if let Ok(n) = atoi_simd::parse::<usize>(count) {
                             self.strings.reserve(n);
                         }
@@ -410,23 +398,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"numFmt" => {
-                            let mut id = Vec::new();
-                            let mut format = String::new();
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: QName(b"numFmtId"),
-                                        value: v,
-                                    } => id.extend_from_slice(&v),
-                                    Attribute {
-                                        key: QName(b"formatCode"),
-                                        value: v,
-                                    } => format = xml.decoder().decode(&v)?.into_owned(),
-                                    _ => (),
-                                }
-                            }
-                            if !format.is_empty() {
-                                number_formats.insert(id, format);
+                            let (id, format_code) =
+                                get_attrs!(e, b"numFmtId" => id, b"formatCode" => fmt)?;
+                            if let (Some(id), Some(fc)) = (id, format_code) {
+                                let format = decode_attr(&xml.decoder(), fc)?;
+                                number_formats.insert(id.to_vec(), format);
                             }
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"numFmts" => break,
@@ -439,17 +415,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"xf" => {
-                            self.formats.push(
-                                e.attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|a| a.key == QName(b"numFmtId"))
-                                    .map_or(CellFormat::Other, |a| {
-                                        match number_formats.get(&*a.value) {
-                                            Some(fmt) => detect_custom_number_format(fmt),
-                                            None => builtin_format_by_id(&a.value),
-                                        }
-                                    }),
-                            );
+                            self.formats.push(e.raw_attr(b"numFmtId")?.map_or(
+                                CellFormat::Other,
+                                |val| match number_formats.get(val) {
+                                    Some(fmt) => detect_custom_number_format(fmt),
+                                    None => builtin_format_by_id(val),
+                                },
+                            ));
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
@@ -485,37 +457,31 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     let mut name = String::new();
                     let mut rel_id = Vec::new();
                     let mut visible = SheetVisible::Visible;
-                    for a in e.attributes() {
-                        let a = a?;
-                        match a {
-                            Attribute {
-                                key: QName(b"name"),
-                                ..
-                            } => {
-                                name = a.decode_and_unescape_value(xml.decoder())?.to_string();
+                    for attr in e.iter_raw_attrs() {
+                        let (key, val) = attr?;
+                        match key {
+                            b"name" => {
+                                name = decode_attr(&xml.decoder(), val)?;
                             }
-                            Attribute {
-                                key: QName(b"state"),
-                                ..
-                            } => {
-                                visible = match a.decode_and_unescape_value(xml.decoder())?.as_ref()
-                                {
-                                    "visible" => SheetVisible::Visible,
-                                    "hidden" => SheetVisible::Hidden,
-                                    "veryHidden" => SheetVisible::VeryHidden,
+                            b"state" => {
+                                visible = match val {
+                                    b"visible" => SheetVisible::Visible,
+                                    b"hidden" => SheetVisible::Hidden,
+                                    b"veryHidden" => SheetVisible::VeryHidden,
                                     v => {
+                                        let v = xml.decoder().decode(v)?;
                                         return Err(XlsxError::Unrecognized {
                                             typ: "sheet:state",
-                                            val: v.to_string(),
-                                        })
+                                            val: v.into_owned(),
+                                        });
                                     }
                                 }
                             }
                             // Ignore the "r:id" attribute namespace and match on the "id" name.
-                            Attribute { key, value: v } if key.local_name().as_ref() == b"id" => {
-                                rel_id = (*v).to_vec();
+                            key if local_name_matches(key, b"id") => {
+                                rel_id = val.to_vec();
                             }
-                            _ => (),
+                            _ => {}
                         }
                     }
                     let (r, rel_type) = relationships
@@ -545,23 +511,15 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     });
                     self.sheets.push((name, path));
                 }
-                Ok(Event::Start(e)) if e.name().as_ref() == b"workbookPr" => {
-                    self.is_1904 = match e.try_get_attribute("date1904")? {
-                        Some(c) => ["1", "true"].contains(
-                            &c.decode_and_unescape_value(xml.decoder())
-                                .map_err(XlsxError::Xml)?
-                                .as_ref(),
-                        ),
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"workbookPr" => {
+                    self.is_1904 = match e.raw_attr(b"date1904")? {
+                        Some(v) => v == b"1" || v == b"true",
                         None => false,
                     };
                 }
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"definedName" => {
-                    if let Some(a) = e
-                        .attributes()
-                        .filter_map(std::result::Result::ok)
-                        .find(|a| a.key == QName(b"name"))
-                    {
-                        let name = a.decode_and_unescape_value(xml.decoder())?.to_string();
+                    if let Some(val) = e.raw_attr(b"name")? {
+                        let name = decode_attr(&xml.decoder(), val)?;
                         val_buf.clear();
                         let mut value = String::new();
                         loop {
@@ -600,27 +558,20 @@ impl<RS: Read + Seek> Xlsx<RS> {
             buf.clear();
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                    let mut id = Vec::new();
-                    let mut rel_type = String::new();
-                    let mut target = String::new();
-                    for a in e.attributes() {
-                        match a? {
-                            Attribute {
-                                key: QName(b"Id"),
-                                value: v,
-                            } => id.extend_from_slice(&v),
-                            Attribute {
-                                key: QName(b"Type"),
-                                value: v,
-                            } => rel_type = xml.decoder().decode(&v)?.into_owned(),
-                            Attribute {
-                                key: QName(b"Target"),
-                                value: v,
-                            } => target = xml.decoder().decode(&v)?.into_owned(),
-                            _ => (),
-                        }
+                    let (id, rel_type, target) =
+                        get_attrs!(e, b"Id" => id, b"Type" => rel_type, b"Target" => target)?;
+                    if let Some(id) = id {
+                        let decoder = xml.decoder();
+                        let rel_type = rel_type
+                            .map(|v| decoder.decode(v).map(|s| s.into_owned()))
+                            .transpose()?
+                            .unwrap_or_default();
+                        let target = target
+                            .map(|v| decoder.decode(v).map(|s| s.into_owned()))
+                            .transpose()?
+                            .unwrap_or_default();
+                        relationships.insert(id.to_vec(), (target, rel_type));
                     }
-                    relationships.insert(id, (target, rel_type));
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
@@ -651,27 +602,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                            let mut id = Vec::new();
-                            let mut target = String::new();
-                            let mut table_type = false;
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: QName(b"Id"),
-                                        value: v,
-                                    } => id.extend_from_slice(&v),
-                                    Attribute {
-                                        key: QName(b"Target"),
-                                        value: v,
-                                    } => target = xml.decoder().decode(&v)?.into_owned(),
-                                    Attribute {
-                                        key: QName(b"Type"),
-                                        value: v,
-                                    } => table_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"[..],
-                                    _ => (),
-                                }
-                            }
+                            let (_, target, typ) =
+                                get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                            let table_type = typ == Some(b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" as &[u8]);
                             if table_type {
+                                let target = match target {
+                                    Some(t) => decode_attr(&xml.decoder(), t)?,
+                                    None => String::new(),
+                                };
                                 if target.starts_with("../") {
                                     // Relative path.
                                     let new_index =
@@ -706,49 +644,31 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"table" => {
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: QName(b"displayName"),
-                                        value: v,
-                                    } => {
-                                        table_meta.display_name =
-                                            xml.decoder().decode(&v)?.into_owned();
+                            for attr in e.iter_raw_attrs() {
+                                let (key, val) = attr?;
+                                match key {
+                                    b"displayName" => {
+                                        table_meta.display_name = decode_attr(&xml.decoder(), val)?;
                                     }
-                                    Attribute {
-                                        key: QName(b"ref"),
-                                        value: v,
-                                    } => {
+                                    b"ref" => {
                                         table_meta.ref_cells =
-                                            xml.decoder().decode(&v)?.into_owned();
+                                            xml.decoder().decode(val)?.into_owned();
                                     }
-                                    Attribute {
-                                        key: QName(b"headerRowCount"),
-                                        value: v,
-                                    } => {
+                                    b"headerRowCount" => {
                                         table_meta.header_row_count =
-                                            xml.decoder().decode(&v)?.parse()?;
+                                            xml.decoder().decode(val)?.parse()?;
                                     }
-                                    Attribute {
-                                        key: QName(b"totalsRowCount"),
-                                        value: v,
-                                    } => {
+                                    b"totalsRowCount" => {
                                         table_meta.totals_row_count =
-                                            xml.decoder().decode(&v)?.parse()?;
+                                            xml.decoder().decode(val)?.parse()?;
                                     }
-                                    _ => (),
+                                    _ => {}
                                 }
                             }
                         }
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"tableColumn" => {
-                            for a in e.attributes().flatten() {
-                                if let Attribute {
-                                    key: QName(b"name"),
-                                    value: v,
-                                } = a
-                                {
-                                    column_names.push(xml.decoder().decode(&v)?.into_owned());
-                                }
+                            if let Some(val) = e.raw_attr(b"name")? {
+                                column_names.push(decode_attr(&xml.decoder(), val)?);
                             }
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"table" => break,
@@ -834,27 +754,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                            let mut is_drawing = false;
-                            let mut target = String::new();
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: QName(b"Type"),
-                                        value: v,
-                                    } => {
-                                        is_drawing = v.ends_with(b"/drawing");
+                            let (rel_type, target) =
+                                get_attrs!(e, b"Type" => typ, b"Target" => target)?;
+                            let is_drawing = rel_type.is_some_and(|t| t.ends_with(b"/drawing"));
+                            if is_drawing {
+                                if let Some(target) = target {
+                                    let target = decode_attr(&xml.decoder(), target)?;
+                                    if !target.is_empty() {
+                                        drawing_paths.push(resolve_path(base_folder, &target));
                                     }
-                                    Attribute {
-                                        key: QName(b"Target"),
-                                        value: v,
-                                    } => {
-                                        target = xml.decoder().decode(&v)?.into_owned();
-                                    }
-                                    _ => (),
                                 }
-                            }
-                            if is_drawing && !target.is_empty() {
-                                drawing_paths.push(resolve_path(base_folder, &target));
                             }
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -883,36 +792,21 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         buf.clear();
                         match xml.read_event_into(&mut buf) {
                             Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                                let mut id = String::new();
-                                let mut target = String::new();
-                                let mut is_image = false;
-                                for a in e.attributes() {
-                                    match a? {
-                                        Attribute {
-                                            key: QName(b"Id"),
-                                            value: v,
-                                        } => {
-                                            id = xml.decoder().decode(&v)?.into_owned();
+                                let (id, target, rel_type) = get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                                let is_image = rel_type.is_some_and(|t| t.ends_with(b"/image"));
+                                if is_image {
+                                    if let Some(id) = id {
+                                        let id = decode_attr(&xml.decoder(), id)?;
+                                        if !id.is_empty() {
+                                            let target = match target {
+                                                Some(t) => decode_attr(&xml.decoder(), t)?,
+                                                None => String::new(),
+                                            };
+                                            let norm = resolve_path(draw_base, &target)
+                                                .to_ascii_lowercase();
+                                            rid_to_media.insert(id, norm);
                                         }
-                                        Attribute {
-                                            key: QName(b"Target"),
-                                            value: v,
-                                        } => {
-                                            target = xml.decoder().decode(&v)?.into_owned();
-                                        }
-                                        Attribute {
-                                            key: QName(b"Type"),
-                                            value: v,
-                                        } => {
-                                            is_image = v.ends_with(b"/image");
-                                        }
-                                        _ => (),
                                     }
-                                }
-                                if is_image && !id.is_empty() {
-                                    let norm =
-                                        resolve_path(draw_base, &target).to_ascii_lowercase();
-                                    rid_to_media.insert(id, norm);
                                 }
                             }
                             Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => {
@@ -960,23 +854,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     b"col" if in_from => in_col = true,
                                     b"row" if in_from => in_row = true,
                                     b"blip" if in_anchor => {
-                                        for a in e.attributes().flatten() {
-                                            if a.key.local_name().as_ref() == b"embed" {
-                                                current_rid =
-                                                    xml.decoder().decode(&a.value)?.into_owned();
-                                            }
+                                        // The embed rId is namespaced (`r:embed`).
+                                        if let Some(val) = e.raw_attr_local(b"embed")? {
+                                            current_rid = decode_attr(&xml.decoder(), val)?;
                                         }
                                     }
                                     b"cNvPr" if in_anchor => {
-                                        for a in e.attributes() {
-                                            if let Attribute {
-                                                key: QName(b"name"),
-                                                value: v,
-                                            } = a?
-                                            {
-                                                current_name =
-                                                    xml.decoder().decode(&v)?.into_owned();
-                                            }
+                                        if let Some(val) = e.raw_attr(b"name")? {
+                                            current_name = decode_attr(&xml.decoder(), val)?;
                                         }
                                     }
                                     _ => (),
@@ -1068,35 +953,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                        let mut id = String::new();
-                        let mut target = String::new();
-                        let mut is_image = false;
-                        for a in e.attributes() {
-                            match a? {
-                                Attribute {
-                                    key: QName(b"Id"),
-                                    value: v,
-                                } => {
-                                    id = xml.decoder().decode(&v)?.into_owned();
+                        let (id, target, rel_type) =
+                            get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                        let is_image = rel_type.is_some_and(|t| t.ends_with(b"/image"));
+                        if is_image {
+                            if let Some(id) = id {
+                                let id = decode_attr(&xml.decoder(), id)?;
+                                if !id.is_empty() {
+                                    let target = match target {
+                                        Some(t) => decode_attr(&xml.decoder(), t)?,
+                                        None => String::new(),
+                                    };
+                                    let norm =
+                                        resolve_path("xl/richData", &target).to_ascii_lowercase();
+                                    rid_to_media.insert(id, norm);
                                 }
-                                Attribute {
-                                    key: QName(b"Target"),
-                                    value: v,
-                                } => {
-                                    target = xml.decoder().decode(&v)?.into_owned();
-                                }
-                                Attribute {
-                                    key: QName(b"Type"),
-                                    value: v,
-                                } => {
-                                    is_image = v.ends_with(b"/image");
-                                }
-                                _ => (),
                             }
-                        }
-                        if is_image && !id.is_empty() {
-                            let norm = resolve_path("xl/richData", &target).to_ascii_lowercase();
-                            rid_to_media.insert(id, norm);
                         }
                     }
                     Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -1123,13 +995,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"rel" => {
-                        let mut rid = String::new();
-                        for a in e.attributes().flatten() {
-                            if a.key.local_name().as_ref() == b"id" {
-                                rid = xml.decoder().decode(&a.value)?.into_owned();
-                                break;
-                            }
-                        }
+                        // The rId is namespaced (`r:id`).
+                        let rid = match e.raw_attr_local(b"id")? {
+                            Some(val) => decode_attr(&xml.decoder(), val)?,
+                            None => String::new(),
+                        };
                         let media_path = rid_to_media.get(&rid).cloned().unwrap_or_default();
                         idx_to_media.push(media_path);
                     }
@@ -1208,45 +1078,20 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"row" => {
-                        for a in e.attributes() {
-                            if let Attribute {
-                                key: QName(b"r"),
-                                value: v,
-                            } = a?
-                            {
-                                let s = xml.decoder().decode(&v)?.into_owned();
-                                current_row = s.parse::<u32>().unwrap_or(1) - 1;
-                            }
+                        if let Some(r) = e.raw_attr(b"r")? {
+                            current_row = atoi_simd::parse::<u32>(r).unwrap_or(1) - 1;
                         }
                     }
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"c" => {
-                        let mut vm: Option<usize> = None;
-                        let mut cell_ref = String::new();
-                        for a in e.attributes() {
-                            match a? {
-                                Attribute {
-                                    key: QName(b"vm"),
-                                    value: v,
-                                } => {
-                                    let s = xml.decoder().decode(&v)?.into_owned();
-                                    vm = s.parse().ok();
-                                }
-                                Attribute {
-                                    key: QName(b"r"),
-                                    value: v,
-                                } => {
-                                    cell_ref = xml.decoder().decode(&v)?.into_owned();
-                                }
-                                _ => (),
-                            }
-                        }
+                        let (vm, r) = get_attrs!(e, b"vm" => vm, b"r" => r)?;
+                        let vm = vm.and_then(|v| atoi_simd::parse::<usize>(v).ok());
                         if let Some(vm_val) = vm {
                             let rv_idx = vm_val.saturating_sub(1);
                             if let Some(&img_idx) = rv_to_img_idx.get(&rv_idx) {
                                 if let Some(media_path) = idx_to_media.get(img_idx) {
                                     if !media_path.is_empty() {
                                         if let Some((ext, data)) = media.get(media_path) {
-                                            let col = col_from_cell_ref(&cell_ref);
+                                            let col = r.map_or(0, col_from_cell_ref);
                                             seen.insert(media_path.clone());
                                             pics.push(Picture {
                                                 extension: ext.clone(),
@@ -1395,8 +1240,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.local_name() == QName(b"mergeCell").into() => {
-                            if let Some(attr) = get_attribute(e.attributes(), QName(b"ref"))? {
-                                let dimension = get_dimension(attr)?;
+                            if let Some(val) = e.raw_attr(b"ref")? {
+                                let dimension = get_dimension(val)?;
                                 regions.push((
                                     sheet_name.to_string(),
                                     sheet_path.to_string(),
@@ -2539,30 +2384,22 @@ where
             Ok(Event::Start(e)) | Ok(Event::Empty(e))
                 if e.local_name().as_ref() == b"Relationship" =>
             {
-                let mut id = String::new();
-                let mut target = String::new();
-                let mut is_hyperlink = false;
-                for a in e.attributes() {
-                    match a? {
-                        Attribute {
-                            key: QName(b"Id"),
-                            value: v,
-                        } => id = xml.decoder().decode(&v)?.into_owned(),
-                        Attribute {
-                            key: QName(b"Target"),
-                            value: v,
-                        } => target = unescape_xml(&xml.decoder().decode(&v)?).into_owned(),
-                        Attribute {
-                            key: QName(b"Type"),
-                            value: v,
-                        } => {
-                            is_hyperlink = v.ends_with(b"/relationships/hyperlink");
-                        }
-                        _ => (),
+                let (id, target, typ) =
+                    get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                let is_hyperlink = typ.is_some_and(|t| t.ends_with(b"/relationships/hyperlink"));
+                if is_hyperlink {
+                    if let Some(id) = id.filter(|id| !id.is_empty()) {
+                        let id = xml.decoder().decode(id)?.into_owned();
+                        let target = target
+                            .map(|t| {
+                                xml.decoder()
+                                    .decode(t)
+                                    .map(|t| unescape_xml(&t).into_owned())
+                            })
+                            .transpose()?
+                            .unwrap_or_default();
+                        rels.insert(id, target);
                     }
-                }
-                if is_hyperlink && !id.is_empty() {
-                    rels.insert(id, target);
                 }
             }
             Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -2602,34 +2439,28 @@ where
                 let mut displayed_text: Option<String> = None;
                 let mut tooltip: Option<String> = None;
 
-                for attribute in event.attributes() {
-                    let attribute = attribute?;
-                    let local = attribute.key.local_name();
-                    match local.as_ref() {
+                for attr in event.iter_raw_attrs() {
+                    let (key, val) = attr?;
+                    match key {
                         b"ref" => {
-                            range = Some(get_dimension(&attribute.value)?);
+                            range = Some(get_dimension(val)?);
+                        }
+                        b"location" => {
+                            location = Some(unescape_xml(&xml.decoder().decode(val)?).into_owned());
+                        }
+                        b"display" => {
+                            displayed_text =
+                                Some(unescape_xml(&xml.decoder().decode(val)?).into_owned());
+                        }
+                        b"tooltip" => {
+                            tooltip = Some(unescape_xml(&xml.decoder().decode(val)?).into_owned());
                         }
                         // Match on the local name; the namespace prefix
                         // for the relationships namespace is conventionally
                         // "r" but OOXML allows any prefix bound to the
                         // relationships namespace URI.
-                        b"id" => {
-                            rid = Some(xml.decoder().decode(&attribute.value)?.into_owned());
-                        }
-                        b"location" => {
-                            location = Some(
-                                unescape_xml(&xml.decoder().decode(&attribute.value)?).into_owned(),
-                            );
-                        }
-                        b"display" => {
-                            displayed_text = Some(
-                                unescape_xml(&xml.decoder().decode(&attribute.value)?).into_owned(),
-                            );
-                        }
-                        b"tooltip" => {
-                            tooltip = Some(
-                                unescape_xml(&xml.decoder().decode(&attribute.value)?).into_owned(),
-                            );
+                        key if local_name_matches(key, b"id") => {
+                            rid = Some(xml.decoder().decode(val)?.into_owned());
                         }
                         _ => (),
                     }
@@ -2902,11 +2733,12 @@ fn resolve_path(base: &str, target: &str) -> String {
     }
 }
 
-// Parse the 0-based column index from an A1-style cell reference like "B2".
+// Parse the 0-based column index from the raw bytes of an A1-style cell
+// reference like `B2`.
 #[cfg(feature = "picture")]
-fn col_from_cell_ref(cell_ref: &str) -> u32 {
+fn col_from_cell_ref(cell_ref: &[u8]) -> u32 {
     let mut col: u32 = 0;
-    for b in cell_ref.bytes() {
+    for &b in cell_ref {
         if b.is_ascii_alphabetic() {
             col = col * 26 + (b.to_ascii_uppercase() - b'A') as u32 + 1;
         } else {
@@ -2936,24 +2768,6 @@ fn xml_reader<'a, RS: Read + Seek>(
         Err(ZipError::FileNotFound) => None,
         Err(e) => Some(Err(e.into())),
     }
-}
-
-/// search through an Element's attributes for the named one
-pub(crate) fn get_attribute<'a>(
-    atts: Attributes<'a>,
-    n: QName,
-) -> Result<Option<&'a [u8]>, XlsxError> {
-    for a in atts {
-        match a {
-            Ok(Attribute {
-                key,
-                value: Cow::Borrowed(value),
-            }) if key == n => return Ok(Some(value)),
-            Err(e) => return Err(XlsxError::XmlAttr(e)),
-            _ => {} // ignore other attributes
-        }
-    }
-    Ok(None)
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
@@ -3130,15 +2944,8 @@ where
 
         match xml.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) if event.local_name().as_ref() == b"mergeCell" => {
-                for attribute in event.attributes() {
-                    let attribute = attribute?;
-
-                    if attribute.key == QName(b"ref") {
-                        let dimensions = get_dimension(&attribute.value)?;
-                        merge_cells.push(dimensions);
-
-                        break;
-                    }
+                if let Some(val) = event.raw_attr(b"ref")? {
+                    merge_cells.push(get_dimension(val)?);
                 }
             }
             Ok(Event::End(event)) if event.local_name().as_ref() == b"mergeCells" => {
@@ -3555,17 +3362,9 @@ fn item_tag(e: &BytesStart) -> Option<Tag> {
         _ => None,
     }
 }
-fn item_value(e: &BytesStart) -> Result<Value, AttrError> {
-    for a in e.attributes() {
-        if let Attribute {
-            key: QName(b"v"),
-            value,
-        } = a?
-        {
-            return Ok(Some(Box::from(value)));
-        }
-    }
-    Ok(None)
+
+fn item_value(e: &BytesStart) -> Result<Value, quick_xml::events::attributes::AttrError> {
+    Ok(e.raw_attr(b"v")?.map(Box::from))
 }
 
 // Get the target location of the pivot table's pivot cache definitions.
@@ -3589,21 +3388,12 @@ where
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                let mut target = String::new();
-                let mut is_pivot_cache_definitions_type = false;
-                for a in e.attributes() {
-                    match a? {
-                            Attribute {
-                                key: QName(b"Target"),
-                                value: v,
-                            } => target = xml.decoder().decode(&v)?.into_owned(),
-                            Attribute {
-                                key: QName(b"Type"),
-                                value: v,
-                            } => is_pivot_cache_definitions_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"[..],
-                            _ => (),
-                        }
-                }
+                let (target, typ) = get_attrs!(e, b"Target" => target, b"Type" => typ)?;
+                let is_pivot_cache_definitions_type = typ == Some(b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition" as &[u8]);
+                let target = match target {
+                    Some(t) => decode_attr(&xml.decoder(), t)?,
+                    None => String::new(),
+                };
                 match (is_pivot_cache_definitions_type, definitions_path.is_some()) {
                     (true, false) => {
                         if let Some(target) = target.strip_prefix("../") {
@@ -3658,21 +3448,12 @@ where
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                let mut target = String::new();
-                let mut is_pivot_cache_record_type = false;
-                for a in e.attributes() {
-                    match a? {
-                            Attribute {
-                                key: QName(b"Target"),
-                                value: v,
-                            } => target = xml.decoder().decode(&v)?.into_owned(),
-                            Attribute {
-                                key: QName(b"Type"),
-                                value: v,
-                            } => is_pivot_cache_record_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords"[..],
-                            _ => (),
-                        }
-                }
+                let (target, typ) = get_attrs!(e, b"Target" => target, b"Type" => typ)?;
+                let is_pivot_cache_record_type = typ == Some(b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords" as &[u8]);
+                let target = match target {
+                    Some(t) => decode_attr(&xml.decoder(), t)?,
+                    None => String::new(),
+                };
                 match (is_pivot_cache_record_type, record_path.is_some()) {
                     (true, false) => {
                         if target.starts_with(cache_path) {
@@ -3728,22 +3509,13 @@ where
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                let mut target = String::new();
-                let mut is_pivot_table_type = false;
-                for a in e.attributes() {
-                    match a? {
-                            Attribute {
-                                key: QName(b"Target"),
-                                value: v,
-                            } => target = xml.decoder().decode(&v)?.into_owned(),
-                            Attribute {
-                                key: QName(b"Type"),
-                                value: v,
-                            } => is_pivot_table_type = *v == b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"[..],
-                            _ => (),
-                        }
-                }
+                let (target, typ) = get_attrs!(e, b"Target" => target, b"Type" => typ)?;
+                let is_pivot_table_type = typ == Some(b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable" as &[u8]);
                 if is_pivot_table_type {
+                    let target = match target {
+                        Some(t) => decode_attr(&xml.decoder(), t)?,
+                        None => String::new(),
+                    };
                     if let Some(target) = target.strip_prefix("../") {
                         // this is an incomplete implementation, but should be good enough for excel
                         let (parent, _) = base_folder
@@ -3784,20 +3556,13 @@ where
         buf.clear();
         match xml.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"pivotTableDefinition" => {
-                for a in e.attributes() {
-                    if let Attribute {
-                        key: QName(b"name"),
-                        value: v,
-                    } = a?
-                    {
-                        if name.is_some() {
-                            return Err(XlsxError::Unexpected(
-                                "multiple name entries for one pivot table path",
-                            ));
-                        } else {
-                            name.replace(xml.decoder().decode(&v)?.into_owned());
-                        }
+                if let Some(val) = e.raw_attr(b"name")? {
+                    if name.is_some() {
+                        return Err(XlsxError::Unexpected(
+                            "multiple name entries for one pivot table path",
+                        ));
                     }
+                    name.replace(decode_attr(&xml.decoder(), val)?);
                 }
             }
             Ok(Event::End(e)) if e.local_name().as_ref() == b"pivotTableDefinition" => break,
@@ -4056,26 +3821,14 @@ fn get_pivot_cache_iter<'a, RS: Read + Seek + 'a>(
 
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"cacheField" => {
-                    for a in e.attributes() {
-                        match a? {
-                            Attribute {
-                                key: QName(b"name"),
-                                value,
-                            } => {
-                                field_names.push(xml.decoder().decode(value.as_ref())?.to_string());
-                                fields.push(vec![]);
-                            }
-                            Attribute {
-                                key: QName(b"formula"),
-                                value: _value,
-                            } => {
-                                field_names.pop();
-                                fields.pop();
-                            }
-                            _ => {
-                                // do nothing
-                            }
-                        }
+                    let (name, formula) = get_attrs!(e, b"name" => name, b"formula" => formula)?;
+                    if let Some(name) = name {
+                        field_names.push(decode_attr(&xml.decoder(), name)?);
+                        fields.push(vec![]);
+                    }
+                    if formula.is_some() {
+                        field_names.pop();
+                        fields.pop();
                     }
                 }
                 // Exclude grouped fields from results.
@@ -4150,30 +3903,25 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
             buf.clear();
             match self.reader.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"x" => {
-                    for a in e.attributes() {
-                        if let Ok(Attribute {
-                            key: QName(b"v"),
-                            value,
-                        }) = a
-                        {
-                            let value_position = match self.reader.decoder().decode(value.as_ref())
-                            {
-                                Ok(val) => match val.parse::<usize>() {
-                                    Ok(val) => val,
-                                    Err(e) => {
-                                        return Some(Err(XlsxError::ParseInt(e)));
-                                    }
-                                },
-                                Err(e) => return Some(Err(XlsxError::Encoding(e))),
-                            };
+                    let v = match e.raw_attr(b"v") {
+                        Ok(v) => v,
+                        Err(e) => return Some(Err(e.into())),
+                    };
+                    if let Some(val) = v {
+                        let value_position = match atoi_simd::parse::<usize>(val) {
+                            Ok(val) => val,
+                            Err(_) => {
+                                return Some(Err(XlsxError::Unexpected(
+                                    "pivot cache x:v attribute must be a number",
+                                )));
+                            }
+                        };
 
-                            let column_name = &self.field_names[col_number];
-                            row.push(parse_item(
-                                &self.definitions[column_name][value_position],
-                                &self.reader.decoder(),
-                            ));
-                            break;
-                        }
+                        let column_name = &self.field_names[col_number];
+                        row.push(parse_item(
+                            &self.definitions[column_name][value_position],
+                            &self.reader.decoder(),
+                        ));
                     }
 
                     col_number += 1;
@@ -4190,10 +3938,12 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
                 Err(e) => return Some(Err(XlsxError::Xml(e))),
                 Ok(Event::Start(e)) => {
                     if let Some(tag) = item_tag(&e) {
-                        if let Ok(value) = item_value(&e) {
-                            row.push(parse_item(&(tag, value), &self.reader.decoder()));
-                            col_number += 1;
-                        }
+                        let value = match item_value(&e) {
+                            Ok(value) => value,
+                            Err(e) => return Some(Err(e.into())),
+                        };
+                        row.push(parse_item(&(tag, value), &self.reader.decoder()));
+                        col_number += 1;
                     }
                 }
                 Ok(_) => {}

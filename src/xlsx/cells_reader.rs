@@ -2,19 +2,14 @@
 //
 // Copyright 2016-2026, Johann Tuffe.
 
-use quick_xml::{
-    events::{attributes::Attribute, BytesStart, Event},
-    name::QName,
-};
-use std::{
-    borrow::Cow,
-    io::{Read, Seek},
-};
+use quick_xml::events::{BytesStart, Event};
+use std::io::{Read, Seek};
 
 use super::{
-    expand_shared_formula, get_attribute, get_dimension, get_row, get_row_column,
-    read_string_with_bufs, Dimensions, XlReader,
+    expand_shared_formula, get_dimension, get_row, get_row_column, read_string_with_bufs,
+    Dimensions, XlReader,
 };
+use crate::attrs::RawAttributes;
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
@@ -214,15 +209,9 @@ where
             match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
                 Event::Start(e) => match e.local_name().as_ref() {
                     b"dimension" => {
-                        for a in e.attributes() {
-                            if let Attribute {
-                                key: QName(b"ref"),
-                                value: rdim,
-                            } = a?
-                            {
-                                dimensions = get_dimension(&rdim)?;
-                                continue 'xml;
-                            }
+                        if let Some(rdim) = e.raw_attr(b"ref")? {
+                            dimensions = get_dimension(rdim)?;
+                            continue 'xml;
                         }
                         return Err(XlsxError::UnexpectedNode("dimension"));
                     }
@@ -269,10 +258,8 @@ where
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
-                    let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
-                    if let Some(range) = attribute {
-                        let row = get_row(range)?;
-                        self.row_index = row;
+                    if let Some(r) = row_element.raw_attr(b"r")? {
+                        self.row_index = get_row(r)?;
                     }
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
@@ -280,23 +267,8 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                    // Extract all needed attributes in one pass (avoids calling
-                    // `get_attribute` multiple times as each re-iterates).
-                    let mut pos_attr = None;
-                    let mut style_attr = None;
-                    let mut type_attr = None;
-                    for a in c_element.attributes() {
-                        let a = a.map_err(XlsxError::XmlAttr)?;
-                        let Cow::Borrowed(val) = a.value else {
-                            continue;
-                        };
-                        match a.key {
-                            QName(b"r") => pos_attr = Some(val),
-                            QName(b"s") => style_attr = Some(val),
-                            QName(b"t") => type_attr = Some(val),
-                            _ => {}
-                        }
-                    }
+                    let (pos_attr, style_attr, type_attr) =
+                        get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
@@ -351,8 +323,9 @@ where
     ) -> Result<Option<FormulaMetadata>, XlsxError> {
         let formula = read_formula(xml, e)?;
 
-        if let Ok(Some(b"shared")) = get_attribute(e.attributes(), QName(b"t")) {
-            let shared_index = match get_attribute(e.attributes(), QName(b"si"))? {
+        let (t_attr, si_attr, ref_attr) = get_attrs!(e, b"t" => t, b"si" => si, b"ref" => ref_)?;
+        if t_attr == Some(b"shared".as_slice()) {
+            let shared_index = match si_attr {
                 Some(res) => match atoi_simd::parse::<usize>(res) {
                     Ok(res) => res,
                     Err(_) => return Err(XlsxError::Unexpected("si attribute must be a number")),
@@ -364,7 +337,7 @@ where
                 }
             };
 
-            return match get_attribute(e.attributes(), QName(b"ref"))? {
+            return match ref_attr {
                 Some(res) => {
                     let range = get_dimension(res)?;
                     let formula = formula.unwrap_or_default();
@@ -446,10 +419,8 @@ where
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
-                    let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
-                    if let Some(range) = attribute {
-                        let row = get_row(range)?;
-                        self.row_index = row;
+                    if let Some(r) = row_element.raw_attr(b"r")? {
+                        self.row_index = get_row(r)?;
                     }
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
@@ -457,21 +428,8 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                    let mut pos_attr = None;
-                    let mut style_attr = None;
-                    let mut type_attr = None;
-                    for a in c_element.attributes() {
-                        let a = a.map_err(XlsxError::XmlAttr)?;
-                        let Cow::Borrowed(val) = a.value else {
-                            continue;
-                        };
-                        match a.key {
-                            QName(b"r") => pos_attr = Some(val),
-                            QName(b"s") => style_attr = Some(val),
-                            QName(b"t") => type_attr = Some(val),
-                            _ => {}
-                        }
-                    }
+                    let (pos_attr, style_attr, type_attr) =
+                        get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
@@ -537,10 +495,8 @@ where
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
-                    let attribute = get_attribute(row_element.attributes(), QName(b"r"))?;
-                    if let Some(range) = attribute {
-                        let row = get_row(range)?;
-                        self.row_index = row;
+                    if let Some(r) = row_element.raw_attr(b"r")? {
+                        self.row_index = get_row(r)?;
                     }
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
@@ -548,9 +504,8 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                    let attribute = get_attribute(c_element.attributes(), QName(b"r"))?;
-                    let pos = if let Some(range) = attribute {
-                        let (row, col) = get_row_column(range)?;
+                    let pos = if let Some(r) = c_element.raw_attr(b"r")? {
+                        let (row, col) = get_row_column(r)?;
                         self.col_index = col;
                         (row, col)
                     } else {
