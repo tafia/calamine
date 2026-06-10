@@ -21,7 +21,7 @@ use quick_xml::Reader as XmlReader;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
-use crate::attrs::{decode_attr, RawAttributes};
+use crate::attrs::{decode_attr, local_name_matches, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::utils::{
@@ -478,7 +478,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 }
                             }
                             // Ignore the "r:id" attribute namespace and match on the "id" name.
-                            key if key == b"id" || key.ends_with(b":id") => {
+                            key if local_name_matches(key, b"id") => {
                                 rel_id = val.to_vec();
                             }
                             _ => {}
@@ -754,27 +754,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     buf.clear();
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                            let mut is_drawing = false;
-                            let mut target = String::new();
-                            for a in e.attributes() {
-                                match a? {
-                                    Attribute {
-                                        key: QName(b"Type"),
-                                        value: v,
-                                    } => {
-                                        is_drawing = v.ends_with(b"/drawing");
+                            let (rel_type, target) =
+                                get_attrs!(e, b"Type" => typ, b"Target" => target)?;
+                            let is_drawing = rel_type.is_some_and(|t| t.ends_with(b"/drawing"));
+                            if is_drawing {
+                                if let Some(target) = target {
+                                    let target = decode_attr(&xml.decoder(), target)?;
+                                    if !target.is_empty() {
+                                        drawing_paths.push(resolve_path(base_folder, &target));
                                     }
-                                    Attribute {
-                                        key: QName(b"Target"),
-                                        value: v,
-                                    } => {
-                                        target = xml.decoder().decode(&v)?.into_owned();
-                                    }
-                                    _ => (),
                                 }
-                            }
-                            if is_drawing && !target.is_empty() {
-                                drawing_paths.push(resolve_path(base_folder, &target));
                             }
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -803,36 +792,21 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         buf.clear();
                         match xml.read_event_into(&mut buf) {
                             Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                                let mut id = String::new();
-                                let mut target = String::new();
-                                let mut is_image = false;
-                                for a in e.attributes() {
-                                    match a? {
-                                        Attribute {
-                                            key: QName(b"Id"),
-                                            value: v,
-                                        } => {
-                                            id = xml.decoder().decode(&v)?.into_owned();
+                                let (id, target, rel_type) = get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                                let is_image = rel_type.is_some_and(|t| t.ends_with(b"/image"));
+                                if is_image {
+                                    if let Some(id) = id {
+                                        let id = decode_attr(&xml.decoder(), id)?;
+                                        if !id.is_empty() {
+                                            let target = match target {
+                                                Some(t) => decode_attr(&xml.decoder(), t)?,
+                                                None => String::new(),
+                                            };
+                                            let norm = resolve_path(draw_base, &target)
+                                                .to_ascii_lowercase();
+                                            rid_to_media.insert(id, norm);
                                         }
-                                        Attribute {
-                                            key: QName(b"Target"),
-                                            value: v,
-                                        } => {
-                                            target = xml.decoder().decode(&v)?.into_owned();
-                                        }
-                                        Attribute {
-                                            key: QName(b"Type"),
-                                            value: v,
-                                        } => {
-                                            is_image = v.ends_with(b"/image");
-                                        }
-                                        _ => (),
                                     }
-                                }
-                                if is_image && !id.is_empty() {
-                                    let norm =
-                                        resolve_path(draw_base, &target).to_ascii_lowercase();
-                                    rid_to_media.insert(id, norm);
                                 }
                             }
                             Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => {
@@ -880,23 +854,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     b"col" if in_from => in_col = true,
                                     b"row" if in_from => in_row = true,
                                     b"blip" if in_anchor => {
-                                        for a in e.attributes().flatten() {
-                                            if a.key.local_name().as_ref() == b"embed" {
-                                                current_rid =
-                                                    xml.decoder().decode(&a.value)?.into_owned();
-                                            }
+                                        // The embed rId is namespaced (`r:embed`).
+                                        if let Some(val) = e.raw_attr_local(b"embed")? {
+                                            current_rid = decode_attr(&xml.decoder(), val)?;
                                         }
                                     }
                                     b"cNvPr" if in_anchor => {
-                                        for a in e.attributes() {
-                                            if let Attribute {
-                                                key: QName(b"name"),
-                                                value: v,
-                                            } = a?
-                                            {
-                                                current_name =
-                                                    xml.decoder().decode(&v)?.into_owned();
-                                            }
+                                        if let Some(val) = e.raw_attr(b"name")? {
+                                            current_name = decode_attr(&xml.decoder(), val)?;
                                         }
                                     }
                                     _ => (),
@@ -988,35 +953,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
-                        let mut id = String::new();
-                        let mut target = String::new();
-                        let mut is_image = false;
-                        for a in e.attributes() {
-                            match a? {
-                                Attribute {
-                                    key: QName(b"Id"),
-                                    value: v,
-                                } => {
-                                    id = xml.decoder().decode(&v)?.into_owned();
+                        let (id, target, rel_type) =
+                            get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                        let is_image = rel_type.is_some_and(|t| t.ends_with(b"/image"));
+                        if is_image {
+                            if let Some(id) = id {
+                                let id = decode_attr(&xml.decoder(), id)?;
+                                if !id.is_empty() {
+                                    let target = match target {
+                                        Some(t) => decode_attr(&xml.decoder(), t)?,
+                                        None => String::new(),
+                                    };
+                                    let norm =
+                                        resolve_path("xl/richData", &target).to_ascii_lowercase();
+                                    rid_to_media.insert(id, norm);
                                 }
-                                Attribute {
-                                    key: QName(b"Target"),
-                                    value: v,
-                                } => {
-                                    target = xml.decoder().decode(&v)?.into_owned();
-                                }
-                                Attribute {
-                                    key: QName(b"Type"),
-                                    value: v,
-                                } => {
-                                    is_image = v.ends_with(b"/image");
-                                }
-                                _ => (),
                             }
-                        }
-                        if is_image && !id.is_empty() {
-                            let norm = resolve_path("xl/richData", &target).to_ascii_lowercase();
-                            rid_to_media.insert(id, norm);
                         }
                     }
                     Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
@@ -1043,13 +995,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"rel" => {
-                        let mut rid = String::new();
-                        for a in e.attributes().flatten() {
-                            if a.key.local_name().as_ref() == b"id" {
-                                rid = xml.decoder().decode(&a.value)?.into_owned();
-                                break;
-                            }
-                        }
+                        // The rId is namespaced (`r:id`).
+                        let rid = match e.raw_attr_local(b"id")? {
+                            Some(val) => decode_attr(&xml.decoder(), val)?,
+                            None => String::new(),
+                        };
                         let media_path = rid_to_media.get(&rid).cloned().unwrap_or_default();
                         idx_to_media.push(media_path);
                     }
@@ -1128,45 +1078,20 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 buf.clear();
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"row" => {
-                        for a in e.attributes() {
-                            if let Attribute {
-                                key: QName(b"r"),
-                                value: v,
-                            } = a?
-                            {
-                                let s = xml.decoder().decode(&v)?.into_owned();
-                                current_row = s.parse::<u32>().unwrap_or(1) - 1;
-                            }
+                        if let Some(r) = e.raw_attr(b"r")? {
+                            current_row = atoi_simd::parse::<u32>(r).unwrap_or(1) - 1;
                         }
                     }
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"c" => {
-                        let mut vm: Option<usize> = None;
-                        let mut cell_ref = String::new();
-                        for a in e.attributes() {
-                            match a? {
-                                Attribute {
-                                    key: QName(b"vm"),
-                                    value: v,
-                                } => {
-                                    let s = xml.decoder().decode(&v)?.into_owned();
-                                    vm = s.parse().ok();
-                                }
-                                Attribute {
-                                    key: QName(b"r"),
-                                    value: v,
-                                } => {
-                                    cell_ref = xml.decoder().decode(&v)?.into_owned();
-                                }
-                                _ => (),
-                            }
-                        }
+                        let (vm, r) = get_attrs!(e, b"vm" => vm, b"r" => r)?;
+                        let vm = vm.and_then(|v| atoi_simd::parse::<usize>(v).ok());
                         if let Some(vm_val) = vm {
                             let rv_idx = vm_val.saturating_sub(1);
                             if let Some(&img_idx) = rv_to_img_idx.get(&rv_idx) {
                                 if let Some(media_path) = idx_to_media.get(img_idx) {
                                     if !media_path.is_empty() {
                                         if let Some((ext, data)) = media.get(media_path) {
-                                            let col = col_from_cell_ref(&cell_ref);
+                                            let col = r.map_or(0, col_from_cell_ref);
                                             seen.insert(media_path.clone());
                                             pics.push(Picture {
                                                 extension: ext.clone(),
@@ -2534,7 +2459,7 @@ where
                         // for the relationships namespace is conventionally
                         // "r" but OOXML allows any prefix bound to the
                         // relationships namespace URI.
-                        key if key == b"id" || key.ends_with(b":id") => {
+                        key if local_name_matches(key, b"id") => {
                             rid = Some(xml.decoder().decode(val)?.into_owned());
                         }
                         _ => (),
@@ -2808,11 +2733,12 @@ fn resolve_path(base: &str, target: &str) -> String {
     }
 }
 
-// Parse the 0-based column index from an A1-style cell reference like "B2".
+// Parse the 0-based column index from the raw bytes of an A1-style cell
+// reference like `B2`.
 #[cfg(feature = "picture")]
-fn col_from_cell_ref(cell_ref: &str) -> u32 {
+fn col_from_cell_ref(cell_ref: &[u8]) -> u32 {
     let mut col: u32 = 0;
-    for b in cell_ref.bytes() {
+    for &b in cell_ref {
         if b.is_ascii_alphabetic() {
             col = col * 26 + (b.to_ascii_uppercase() - b'A') as u32 + 1;
         } else {

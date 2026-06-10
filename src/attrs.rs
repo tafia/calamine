@@ -96,19 +96,44 @@ impl<'a> Iterator for RawAttrIter<'a> {
     }
 }
 
+/// Compare an attribute key against a local name, ignoring any namespace
+/// prefix, eg: both `id` and `r:id` would match a `local_name` of `b"id"`.
+#[inline]
+pub(crate) fn local_name_matches(key: &[u8], local_name: &[u8]) -> bool {
+    // exact match, or `<prefix>:<local>`
+    key == local_name
+        || key
+            .strip_suffix(local_name) // compare on subslice to avoid allocation
+            .is_some_and(|prefix| prefix.last() == Some(&b':'))
+}
+
 /// Extension trait for fast/raw attribute access on XML elements.
 pub(crate) trait RawAttributes {
     /// Iterate over attributes, yielding `(key, value)` byte-slice
     /// pairs (or an [`AttrError`] for malformed input).
     fn iter_raw_attrs(&self) -> RawAttrIter<'_>;
 
-    /// Get a single attribute by name, returning `Ok(None)` if absent and
+    /// Get a single attribute by exact key, returning `Ok(None)` if absent and
     /// an `Err` if a malformed attribute is encountered while scanning.
     #[inline]
     fn raw_attr(&self, name: &[u8]) -> Result<Option<&[u8]>, AttrError> {
         for item in self.iter_raw_attrs() {
             let (k, v) = item?;
             if k == name {
+                return Ok(Some(v));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Like `raw_attr`, but matches on the attribute's *local* name, ignoring
+    /// any namespace prefix (so both `id` and `r:id` would match `b"id"`).
+    #[allow(dead_code)] // note: currently only reached from `picture`-gated code
+    #[inline] // but the function is general-purpose and will be useful elsewhere
+    fn raw_attr_local(&self, local_name: &[u8]) -> Result<Option<&[u8]>, AttrError> {
+        for item in self.iter_raw_attrs() {
+            let (k, v) = item?;
+            if local_name_matches(k, local_name) {
                 return Ok(Some(v));
             }
         }
@@ -302,6 +327,35 @@ mod tests {
         assert_eq!(e.raw_attr(b"s"), Ok(Some(&b"3"[..])));
         assert_eq!(e.raw_attr(b"t"), Ok(Some(&b"s"[..])));
         assert_eq!(e.raw_attr(b"missing"), Ok(None));
+    }
+
+    #[test]
+    fn test_local_name_matches() {
+        // match
+        assert!(local_name_matches(b"id", b"id"));
+        assert!(local_name_matches(b"r:id", b"id"));
+        assert!(local_name_matches(b"x:embed", b"embed"));
+        assert!(local_name_matches(b":id", b"id"));
+
+        // don't match
+        assert!(!local_name_matches(b"xmlid", b"id"));
+        assert!(!local_name_matches(b"rid", b"id"));
+        assert!(!local_name_matches(b"name", b"id"));
+    }
+
+    #[test]
+    fn test_raw_attr_local_lookup() {
+        use quick_xml::events::Event;
+        use quick_xml::Reader;
+
+        let mut reader = Reader::from_str(r#"<blip cstate="print" r:embed="rId1"/>"#);
+        let Event::Empty(e) = reader.read_event().unwrap() else {
+            panic!("expected empty element");
+        };
+        // namespaced key matched on local name, exact key still works
+        assert_eq!(e.raw_attr_local(b"embed"), Ok(Some(&b"rId1"[..])));
+        assert_eq!(e.raw_attr_local(b"cstate"), Ok(Some(&b"print"[..])));
+        assert_eq!(e.raw_attr_local(b"missing"), Ok(None));
     }
 
     #[test]
