@@ -9,8 +9,8 @@ use crate::vba::VbaProject;
 #[cfg(feature = "picture")]
 use crate::Picture;
 use crate::{
-    open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
-    ReaderRef, Xls, Xlsb, Xlsx,
+    open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, IndexSet, Metadata, Ods, Range,
+    Reader, ReaderRef, Xls, Xlsb, Xlsx,
 };
 
 use std::fs::File;
@@ -188,8 +188,32 @@ where
         match self {
             Sheets::Xlsx(e) => e.worksheet_range_ref(name).map_err(Error::Xlsx),
             Sheets::Xlsb(e) => e.worksheet_range_ref(name).map_err(Error::Xlsb),
-            Sheets::Xls(_) => unimplemented!(),
-            Sheets::Ods(_) => unimplemented!(),
+            _ => Err(Error::Msg(
+                // Xls and Ods are eager, owned-data readers and don't produce
+                // borrowed `DataRef` ranges (they don't implement `ReaderRef`)
+                "`worksheet_range_ref` is only supported for Xlsx and Xlsb",
+            )),
+        }
+    }
+
+    fn worksheet_range_ref_region<'a>(
+        &'a mut self,
+        name: &str,
+        cols: impl Into<IndexSet>,
+        rows: impl Into<IndexSet>,
+    ) -> Result<Range<DataRef<'a>>, Self::Error> {
+        let cols = cols.into();
+        let rows = rows.into();
+        match self {
+            Sheets::Xlsx(e) => e
+                .worksheet_range_ref_region(name, cols, rows)
+                .map_err(Error::Xlsx),
+            Sheets::Xlsb(e) => e
+                .worksheet_range_ref_region(name, cols, rows)
+                .map_err(Error::Xlsb),
+            _ => Err(Error::Msg(
+                "`worksheet_range_ref_region` is only supported for Xlsx and Xlsb",
+            )),
         }
     }
 }

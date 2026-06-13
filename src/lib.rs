@@ -90,6 +90,7 @@ mod xlsx;
 
 mod de;
 mod errors;
+mod index_set;
 
 pub mod changelog;
 pub mod vba;
@@ -108,6 +109,7 @@ pub use crate::de::{
     DeError, RangeDeserializer, RangeDeserializerBuilder, RowDeserializer, ToCellDeserializer,
 };
 pub use crate::errors::Error;
+pub use crate::index_set::IndexSet;
 pub use crate::ods::{Ods, OdsError};
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
@@ -466,18 +468,63 @@ pub trait ReaderRef<RS>: Reader<RS>
 where
     RS: Read + Seek,
 {
-    /// Get worksheet range where shared string values are only borrowed.
+    /// Get the worksheet range where shared string values are only borrowed,
+    /// projected onto a subset of columns and rows.
     ///
-    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
-    /// do not support lazy iteration.
-    fn worksheet_range_ref<'a>(&'a mut self, name: &str)
-        -> Result<Range<DataRef<'a>>, Self::Error>;
+    /// `cols` and `rows` accept anything convertible to an [`IndexSet`]: a range
+    /// (`0..5`, `0..=4`, `5..`), a single index, a list (`[1, 3, 5]`), or a list
+    /// of ranges (`[0..3, 8..10]`). Pass `..` to select every column / row.
+    ///
+    /// Overlapping selections merge silently. When a header row is configured
+    /// via [`Reader::with_header_row`], that row is retained even if the row
+    /// selection would exclude it (unless the header row and every projected
+    /// column are entirely empty), and rows above it are always dropped.
+    ///
+    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and
+    /// [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats do not support
+    /// lazy iteration.
+    fn worksheet_range_ref_region<'a>(
+        &'a mut self,
+        name: &str,
+        cols: impl Into<IndexSet>,
+        rows: impl Into<IndexSet>,
+    ) -> Result<Range<DataRef<'a>>, Self::Error>;
 
-    /// Get the nth worksheet range where shared string values are only borrowed. Shortcut for getting the nth
-    /// worksheet name, then the corresponding worksheet.
+    /// Get the worksheet range where shared string values are only borrowed.
     ///
-    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats
-    /// do not support lazy iteration.
+    /// Shortcut for [`worksheet_range_ref_region`](ReaderRef::worksheet_range_ref_region)
+    /// with no column/row projection.
+    ///
+    /// This is implemented only for [`calamine::Xlsx`](crate::Xlsx) and
+    /// [`calamine::Xlsb`](crate::Xlsb), as Xls and Ods formats do not support
+    /// lazy iteration.
+    fn worksheet_range_ref<'a>(
+        &'a mut self,
+        name: &str,
+    ) -> Result<Range<DataRef<'a>>, Self::Error> {
+        self.worksheet_range_ref_region(name, .., ..)
+    }
+
+    /// Owned-data equivalent of
+    /// [`worksheet_range_ref_region`](ReaderRef::worksheet_range_ref_region);
+    /// see that method for the column/row-selection semantics.
+    fn worksheet_range_region(
+        &mut self,
+        name: &str,
+        cols: impl Into<IndexSet>,
+        rows: impl Into<IndexSet>,
+    ) -> Result<Range<Data>, Self::Error> {
+        let rge = self.worksheet_range_ref_region(name, cols, rows)?;
+        let inner = rge.inner.into_iter().map(Into::into).collect();
+        Ok(Range {
+            start: rge.start,
+            end: rge.end,
+            inner,
+        })
+    }
+
+    /// Get the nth worksheet range where shared string values are only borrowed.
+    /// Shortcut for getting the nth worksheet name, then the corresponding worksheet.
     fn worksheet_range_at_ref(
         &mut self,
         n: usize,
