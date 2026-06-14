@@ -87,7 +87,6 @@ where
     pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsbError> {
         // loop until end of sheet
         let value = loop {
-            self.buf.clear();
             self.typ = self.iter.read_type()?;
             let _ = self.iter.fill_buffer(&mut self.buf)?;
             let value = match self.typ {
