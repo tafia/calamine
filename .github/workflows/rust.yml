@@ -1,0 +1,60 @@
+name: Rust
+
+on: [ push, pull_request ]
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        toolchain:
+          - "1.83"  # MSRV.
+          - stable
+          - beta
+          - nightly
+    steps:
+    - uses: actions/checkout@v4
+    - name: ensure dependencies
+      if: ${{ startsWith(matrix.toolchain, '1.') && fromJson(matrix.toolchain) < 1.85 }}
+      run: CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS="fallback" cargo update
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+          toolchain: ${{ matrix.toolchain }}
+    - name: Toolchain version
+      run: |
+        cargo -vV
+        rustc -vV
+    - name: Build
+      run: |
+        cargo build
+    - name: Run tests
+      run: |
+        cargo test --all-features
+    - name: Install rustfmt, clippy
+      uses: dtolnay/rust-toolchain@master
+      if: ${{ matrix.toolchain == 'stable' }}
+      with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+    - name: Format checks
+      if: ${{ matrix.toolchain == 'stable' }}
+      run: |
+        cargo fmt -- --check
+    - name: Clippy checks
+      if: ${{ matrix.toolchain == 'stable' }}
+      run: |
+        cargo clippy --all-targets --all-features -- -Dwarnings
+
+  wasm:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - name: Check wasm32 compilation
+      run: |
+        cargo check --target wasm32-unknown-unknown
+        cargo check --target wasm32-unknown-unknown --all-features

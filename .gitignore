@@ -1,0 +1,11 @@
+target
+Cargo.lock
+*.bk
+.vim
+/.idea/
+fuzz.xlsx
+.idea
+nyc.rs
+.DS_Store
+.vscode/
+examples/doc_*.rs
