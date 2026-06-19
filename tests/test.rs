@@ -928,6 +928,38 @@ fn date_xlsx() {
     }
 }
 
+// Regression test: a custom number format whose `formatCode` contains
+// quoted literal text (e.g. `mmmm" "yyyy`) is stored in styles.xml with
+// `&quot;` XML entity references. The format detection must therefore
+// see the unescaped string — otherwise the `;` inside `&quot;` causes
+// `detect_custom_number_format` to bail out early and the cell is
+// reported as a plain `Float`.
+//
+// All four cells below use the same serial value (2021-01-01) but
+// different quoted custom formats covering English month names,
+// ISO-like dates with quoted separators, a locale-prefixed English
+// long-date format, and a Japanese era format.
+#[test]
+fn date_xlsx_custom_format_with_quoted_text() {
+    let mut xls: Xlsx<_> = wb("date_quoted_format.xlsx");
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    let expected = DateTime(ExcelDateTime::new(
+        44197.0,
+        ExcelDateTimeType::DateTime,
+        false,
+    ));
+
+    // A1: `mmmm" "yyyy`
+    assert_eq!(range.get_value((0, 0)), Some(&expected));
+    // A2: `yyyy"-"mm"-"dd`
+    assert_eq!(range.get_value((1, 0)), Some(&expected));
+    // A3: `[$-409]mmmm" "d", "yyyy`
+    assert_eq!(range.get_value((2, 0)), Some(&expected));
+    // A4: `[$-411]ggge"年"m"月"d"日";@` (Japanese era)
+    assert_eq!(range.get_value((3, 0)), Some(&expected));
+}
+
 #[test]
 fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = wb("date_1904.xlsx");
