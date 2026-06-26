@@ -22,11 +22,7 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
     for s in format.chars() {
         match (s, escaped, is_quote, ap, brackets) {
             (_, true, ..) => escaped = false, // if escaped, ignore
-            // `\` escapes, `_` skips a character's width, and `*` repeats the
-            // next character to fill the cell. In all three cases the following
-            // character is a literal, not a format token, so it must be ignored
-            // (otherwise a fill/skip char such as `d`, `m` or `y` is mistaken
-            // for a date token and a numeric cell is reported as a date).
+            // `\` escapes, `_` skips width, `*` fills; the next char is always a literal, not a format token.
             ('_' | '\\' | '*', ..) => escaped = true,
             ('"', _, true, _, _) => is_quote = false,
             (_, _, true, _, _) => (),
