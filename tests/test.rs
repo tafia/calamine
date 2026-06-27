@@ -3481,14 +3481,12 @@ fn test_whitespace_trim_inline_str() {
     let range = excel.worksheet_range("inlineStr").unwrap();
     range_eq!(
         range,
-        [
-            [
-                String("trimmed value".to_string()),
-                String("value with tabs".to_string()),
-                String(" \t\n".to_string()),
-                String("clean text".to_string()),
-            ]
-        ]
+        [[
+            String("trimmed value".to_string()),
+            String("value with tabs".to_string()),
+            String(" \t\n".to_string()),
+            String("clean text".to_string()),
+        ]]
     );
 }
 
@@ -3499,13 +3497,11 @@ fn test_whitespace_trim_shared_strings() {
     let range = excel.worksheet_range("SharedStrings").unwrap();
     range_eq!(
         range,
-        [
-            [
-                String("trimmed value".to_string()),
-                String("  preserved value  ".to_string()),
-                String("".to_string()),
-                String("clean text".to_string()),
-            ]
-        ]
+        [[
+            String("trimmed value".to_string()),
+            String("  preserved value  ".to_string()),
+            String("".to_string()),
+            String("clean text".to_string()),
+        ]]
     );
 }
