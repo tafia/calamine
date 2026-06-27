@@ -674,10 +674,20 @@ where
         match key {
             b"office:value" if !is_value_set => {
                 let v = reader.decoder().decode(value)?;
-                val = Data::Float(
-                    fast_float2::parse(v.as_bytes())
-                        .map_err(|_| OdsError::ParseFloat(v.parse::<f64>().unwrap_err()))?,
-                );
+                val = if !value.contains(&b'.') {
+                    match atoi_simd::parse::<i64>(v.as_bytes()) {
+                        Ok(n) => Data::Int(n),
+                        Err(_) => Data::Float(
+                            fast_float2::parse(v.as_bytes())
+                                .map_err(|_| OdsError::ParseFloat(v.parse::<f64>().unwrap_err()))?,
+                        ),
+                    }
+                } else {
+                    Data::Float(
+                        fast_float2::parse(v.as_bytes())
+                            .map_err(|_| OdsError::ParseFloat(v.parse::<f64>().unwrap_err()))?,
+                    )
+                };
                 is_value_set = true;
             }
             b"office:string-value" | b"office:date-value" | b"office:time-value"

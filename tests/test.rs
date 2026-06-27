@@ -53,9 +53,9 @@ fn issue_2() {
     range_eq!(
         range,
         [
-            [Float(1.), String("a".to_string())],
-            [Float(2.), String("b".to_string())],
-            [Float(3.), String("c".to_string())]
+            [Int(1), String("a".to_string())],
+            [Int(2), String("b".to_string())],
+            [Int(3), String("c".to_string())]
         ]
     );
 }
@@ -65,7 +65,7 @@ fn issue_3() {
     // test if sheet is resolved with only one row
     let mut excel: Xlsx<_> = wb("issue3.xlsm");
     let range = excel.worksheet_range("Sheet1").unwrap();
-    range_eq!(range, [[Float(1.), String("a".to_string())]]);
+    range_eq!(range, [[Int(1), String("a".to_string())]]);
 }
 
 #[test]
@@ -82,8 +82,8 @@ fn issue_6() {
     range_eq!(
         range,
         [
-            [Float(1.)],
-            [Float(2.)],
+            [Int(1)],
+            [Int(2)],
             [String("ab".to_string())],
             [Bool(false)]
         ]
@@ -155,9 +155,9 @@ fn xlsx() {
     range_eq!(
         range,
         [
-            [Float(1.), String("a".to_string())],
-            [Float(2.), String("b".to_string())],
-            [Float(3.), String("c".to_string())]
+            [Int(1), String("a".to_string())],
+            [Int(2), String("b".to_string())],
+            [Int(3), String("c".to_string())]
         ]
     );
 }
@@ -223,7 +223,7 @@ fn ods() {
     range_eq!(
         range,
         [
-            [Float(1.)],
+            [Int(1)],
             [Float(1.5)],
             [String("ab".to_string())],
             [Bool(false)],
@@ -236,9 +236,9 @@ fn ods() {
     range_eq!(
         range,
         [
-            [Float(1.), String("a".to_string())],
-            [Float(2.), String("b".to_string())],
-            [Float(3.), String("c".to_string())]
+            [Int(1), String("a".to_string())],
+            [Int(2), String("b".to_string())],
+            [Int(3), String("c".to_string())]
         ]
     );
 
@@ -638,7 +638,7 @@ fn issue_120() {
     assert_eq!(None, a);
 
     let b = range.get_value((0, 0));
-    assert_eq!(Some(&Float(1.)), b);
+    assert_eq!(Some(&Int(1)), b);
 }
 
 #[test]
@@ -701,7 +701,7 @@ fn table() {
     assert_eq!(data.get((0, 0)), Some(&String("celsius".to_owned())));
     assert_eq!(data.get((1, 0)), Some(&String("fahrenheit".to_owned())));
     assert_eq!(data.get((0, 1)), Some(&Float(22.2222)));
-    assert_eq!(data.get((1, 1)), Some(&Float(72.0)));
+    assert_eq!(data.get((1, 1)), Some(&Int(72)));
     // Check the second table
     let table = xls
         .table_by_name("OtherTable")
@@ -713,7 +713,7 @@ fn table() {
     assert_eq!(data.get((0, 0)), Some(&String("something".to_owned())));
     assert_eq!(data.get((1, 0)), Some(&String("else".to_owned())));
     assert_eq!(data.get((0, 1)), Some(&Float(12.5)));
-    assert_eq!(data.get((1, 1)), Some(&Float(64.0)));
+    assert_eq!(data.get((1, 1)), Some(&Int(64)));
     xls.worksheet_range_at(0).unwrap().unwrap();
 
     // Check if owned data works
@@ -725,7 +725,7 @@ fn table() {
     );
     assert_eq!(owned_data.get((1, 0)), Some(&String("else".to_owned())));
     assert_eq!(owned_data.get((0, 1)), Some(&Float(12.5)));
-    assert_eq!(owned_data.get((1, 1)), Some(&Float(64.0)));
+    assert_eq!(owned_data.get((1, 1)), Some(&Int(64)));
 }
 
 #[test]
@@ -760,7 +760,7 @@ fn table_by_ref() {
     assert_eq!(
         data.get((1, 1))
             .expect("Could not get data from table ref."),
-        &DataRef::Float(72.0)
+        &DataRef::Int(72)
     );
     // Check the second table
     let table = xls
@@ -788,7 +788,7 @@ fn table_by_ref() {
     assert_eq!(
         data.get((1, 1))
             .expect("Could not get data from table ref."),
-        &DataRef::Float(64.0)
+        &DataRef::Int(64)
     );
 
     // Check if owned data works
@@ -816,7 +816,7 @@ fn table_by_ref() {
         owned_data
             .get((1, 1))
             .expect("Could not get data from table ref."),
-        &DataRef::Float(64.0)
+        &DataRef::Int(64)
     );
 }
 
@@ -1405,7 +1405,7 @@ fn issue_261() {
         .iter()
         .for_each(|cell| assert!(cell.is_empty()));
 
-    assert_eq!(range_b.get_value((60, 6)).unwrap(), &Float(939.));
+    assert_eq!(range_b.get_value((60, 6)).unwrap(), &Int(939));
     assert_eq!(
         range_b.get_value((65, 0)).unwrap(),
         &String("String Value 42".into())
@@ -2108,9 +2108,9 @@ fn issue_384_multiple_formula() {
     // first check values
     let range = workbook.worksheet_range("Sheet1").unwrap();
     let expected = [
-        (0, 0, Data::Float(23.)),
-        (0, 2, Data::Float(23.)),
-        (12, 6, Data::Float(2.)),
+        (0, 0, Data::Int(23)),
+        (0, 2, Data::Int(23)),
+        (12, 6, Data::Int(2)),
         (13, 9, Data::String("US".into())),
     ];
     let expected = expected
@@ -2127,7 +2127,7 @@ fn issue_384_multiple_formula() {
         .collect::<Vec<_>>();
     let expected = [
         (0, 0, "C1+E5"),
-        // (0, 2, Data::Float(23.)),
+        // (0, 2, Data::Int(23)),
         (12, 6, "SUM(1+1)"),
         (
             13,
@@ -2171,24 +2171,24 @@ fn xlsx_cell_reader_expands_excel_resaved_shared_formulas() {
 
     let a1 = reader.next_cell_with_formula().unwrap().unwrap();
     assert_eq!(a1.pos, (0, 0));
-    assert_eq!(a1.value, DataRef::Float(1.0));
+    assert_eq!(a1.value, DataRef::Int(1));
     assert_eq!(a1.formula, None);
 
     let b1 = reader.next_cell_with_formula().unwrap().unwrap();
     assert_eq!(b1.pos, (0, 1));
-    assert_eq!(b1.value, DataRef::Float(2.0));
+    assert_eq!(b1.value, DataRef::Int(2));
     assert_eq!(b1.formula, Some("A1*2".to_string()));
 
     let _a2 = reader.next_cell_with_formula().unwrap().unwrap();
     let b2 = reader.next_cell_with_formula().unwrap().unwrap();
     assert_eq!(b2.pos, (1, 1));
-    assert_eq!(b2.value, DataRef::Float(4.0));
+    assert_eq!(b2.value, DataRef::Int(4));
     assert_eq!(b2.formula, Some("A2*2".to_string()));
 
     let _a3 = reader.next_cell_with_formula().unwrap().unwrap();
     let b3 = reader.next_cell_with_formula().unwrap().unwrap();
     assert_eq!(b3.pos, (2, 1));
-    assert_eq!(b3.value, DataRef::Float(6.0));
+    assert_eq!(b3.value, DataRef::Int(6));
     assert_eq!(b3.formula, Some("A3*2".to_string()));
     assert!(reader.next_cell_with_formula().unwrap().is_none());
 }
@@ -2286,12 +2286,12 @@ fn non_monotonic_si_shared_formula() {
     let formula = excel.worksheet_formula("Sheet1").unwrap();
 
     let expected_values = [
-        [Float(1.), Float(2.), Float(3.)],
-        [Float(2.), Float(4.), Float(6.)],
-        [Float(3.), Float(6.), Float(9.)],
-        [Float(4.), Float(8.), Float(12.)],
-        [Float(5.), Float(10.), Float(15.)],
-        [Float(6.), Float(12.), Float(18.)],
+        [Int(1), Int(2), Int(3)],
+        [Int(2), Int(4), Int(6)],
+        [Int(3), Int(6), Int(9)],
+        [Int(4), Int(8), Int(12)],
+        [Int(5), Int(10), Int(15)],
+        [Int(6), Int(12), Int(18)],
     ];
     range_eq!(range, expected_values);
 
@@ -2383,7 +2383,7 @@ fn shared_formula_reversed() {
         let range = excel.worksheet_range(sheet_name).unwrap();
         let formula = excel.worksheet_formula(sheet_name).unwrap();
 
-        let expected_values = [Float(1.), Float(2.), Float(3.), Float(4.), Float(5.)];
+        let expected_values = [Int(1), Int(2), Int(3), Int(4), Int(5)];
 
         for (row_idx, expected_value) in expected_values.iter().enumerate() {
             assert_eq!(range.get_value((row_idx as u32, 1)), Some(expected_value));
@@ -2482,10 +2482,10 @@ fn issue_420_empty_s_attribute() {
         range,
         [
             [String("Name".to_string()), String("Value".to_string())],
-            [String("John".to_string()), Float(1.)],
-            [String("Sophia".to_string()), Float(2.)],
-            [String("Peter".to_string()), Float(3.)],
-            [String("Sam".to_string()), Float(4.)],
+            [String("John".to_string()), Int(1)],
+            [String("Sophia".to_string()), Int(2)],
+            [String("Peter".to_string()), Int(3)],
+            [String("Sam".to_string()), Int(4)],
         ]
     );
 }
@@ -2527,7 +2527,7 @@ fn test_ref_xlsx() {
                     ExcelDateTimeType::DateTime,
                     false
                 )),
-                DataRef::Float(15.0)
+                DataRef::Int(15)
             ],
             [
                 DataRef::DateTime(ExcelDateTime::new(
@@ -2535,7 +2535,7 @@ fn test_ref_xlsx() {
                     ExcelDateTimeType::DateTime,
                     false
                 )),
-                DataRef::Float(16.0)
+                DataRef::Int(16)
             ],
             [
                 DataRef::DateTime(ExcelDateTime::new(
@@ -2543,7 +2543,7 @@ fn test_ref_xlsx() {
                     ExcelDateTimeType::TimeDelta,
                     false
                 )),
-                DataRef::Float(17.0)
+                DataRef::Int(17)
             ]
         ]
     );
@@ -2734,8 +2734,8 @@ fn test_header_row_ods() {
         }]
     );
 
-    let first_line = [DateTimeIso("2021-01-01".to_string()), Float(15.0)];
-    let third_line = [DurationIso("PT10H10M10S".to_string()), Float(17.0)];
+    let first_line = [DateTimeIso("2021-01-01".to_string()), Int(15)];
+    let third_line = [DurationIso("PT10H10M10S".to_string()), Int(17)];
 
     let range = ods.worksheet_range("Sheet1").unwrap();
     assert_eq!(range.start(), Some((0, 0)));
@@ -3356,8 +3356,8 @@ fn test_xlsx_nonstandard_ns_prefix() {
         range,
         [
             [String("a".to_string()), String("b".to_string())],
-            [Float(1.), Float(3.)],
-            [Float(2.), Float(4.)]
+            [Int(1), Int(3)],
+            [Int(2), Int(4)]
         ]
     );
 }

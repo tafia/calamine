@@ -17,6 +17,9 @@ use crate::{
     Cell, XlsxError,
 };
 
+#[cfg(test)]
+use crate::datatype::{ExcelDateTime, ExcelDateTimeType};
+
 #[derive(Clone, Debug)]
 struct SharedFormula {
     formula: String,
@@ -656,6 +659,16 @@ fn read_v<'s>(
             if v.is_empty() {
                 return Ok(DataRef::Empty);
             }
+            if !v.contains(&b'.')
+                && !matches!(
+                    cell_format,
+                    Some(CellFormat::DateTime | CellFormat::TimeDelta)
+                )
+            {
+                if let Ok(n) = atoi_simd::parse::<i64>(v) {
+                    return Ok(DataRef::Int(n));
+                }
+            }
             // If type is not known, we try to parse as Float for utility, but fall back to
             // String if this fails.
             fast_float2::parse::<f64, _>(v)
@@ -703,5 +716,129 @@ where
             Ok(Some(f))
         }
         _ => Err(XlsxError::UnexpectedNode("v, f, or is")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DataRef;
+
+    #[test]
+    fn test_read_v_int_for_whole_number() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[],
+            is_1904: false,
+        };
+        // Whole number, type "n" → Int
+        let result = read_v(&ctx, b"95", Some(b"s"), Some(b"n")).unwrap();
+        assert_eq!(result, DataRef::Int(95));
+
+        // Whole number with no style → Int
+        let result = read_v(&ctx, b"42", None, Some(b"n")).unwrap();
+        assert_eq!(result, DataRef::Int(42));
+
+        // Whole number, no type attr → Int (falls into Some(b"n") | None)
+        let result = read_v(&ctx, b"7", None, None).unwrap();
+        assert_eq!(result, DataRef::Int(7));
+    }
+
+    #[test]
+    fn test_read_v_float_for_decimal() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[],
+            is_1904: false,
+        };
+        let result = read_v(&ctx, b"95.5", None, Some(b"n")).unwrap();
+        assert_eq!(result, DataRef::Float(95.5));
+
+        let result = read_v(&ctx, b"0.5", None, Some(b"n")).unwrap();
+        assert_eq!(result, DataRef::Float(0.5));
+    }
+
+    #[test]
+    fn test_read_v_datetime_bypasses_int() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[CellFormat::DateTime],
+            is_1904: false,
+        };
+        // style_attr = b"0" => format index 0 is CellFormat::DateTime
+        let result = read_v(&ctx, b"95", Some(b"0"), Some(b"n")).unwrap();
+        assert_eq!(
+            result,
+            DataRef::DateTime(ExcelDateTime::new(95.0, ExcelDateTimeType::DateTime, false))
+        );
+    }
+
+    #[test]
+    fn test_read_v_timedelta_bypasses_int() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[CellFormat::TimeDelta],
+            is_1904: false,
+        };
+        let result = read_v(&ctx, b"95", Some(b"0"), Some(b"n")).unwrap();
+        assert_eq!(
+            result,
+            DataRef::DateTime(ExcelDateTime::new(
+                95.0,
+                ExcelDateTimeType::TimeDelta,
+                false
+            ))
+        );
+    }
+
+    #[test]
+    fn test_read_v_empty() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[],
+            is_1904: false,
+        };
+        let result = read_v(&ctx, b"", None, Some(b"n")).unwrap();
+        assert_eq!(result, DataRef::Empty);
+    }
+
+    #[test]
+    fn test_read_v_fallback_to_string() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[],
+            is_1904: false,
+        };
+        // Invalid float, no type → fallback to String
+        let result = read_v(&ctx, b"abc", None, None).unwrap();
+        assert_eq!(result, DataRef::String("abc".to_string()));
+    }
+
+    #[test]
+    fn test_read_v_bool_passthrough() {
+        let ctx = WorkbookContext {
+            strings: &[],
+            formats: &[],
+            is_1904: false,
+        };
+        let result = read_v(&ctx, b"1", None, Some(b"b")).unwrap();
+        assert_eq!(result, DataRef::Bool(true));
+
+        let result = read_v(&ctx, b"0", None, Some(b"b")).unwrap();
+        assert_eq!(result, DataRef::Bool(false));
+    }
+
+    #[test]
+    fn test_read_v_shared_string() {
+        let ctx = WorkbookContext {
+            strings: &["hello".to_string(), "world".to_string()],
+            formats: &[],
+            is_1904: false,
+        };
+        let result = read_v(&ctx, b"0", None, Some(b"s")).unwrap();
+        assert_eq!(result, DataRef::SharedString("hello"));
+
+        let result = read_v(&ctx, b"1", None, Some(b"s")).unwrap();
+        assert_eq!(result, DataRef::SharedString("world"));
     }
 }
