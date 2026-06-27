@@ -3473,3 +3473,39 @@ fn test_hyperlinks_xlsx() {
         Err(calamine::XlsxError::WorksheetNotFound(_))
     ));
 }
+
+#[test]
+fn test_whitespace_trim_inline_str() {
+    // inlineStr cells: whitespace trimmed unless xml:space="preserve"
+    let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
+    let range = excel.worksheet_range("inlineStr").unwrap();
+    range_eq!(
+        range,
+        [
+            [
+                String("trimmed value".to_string()),
+                String("value with tabs".to_string()),
+                String(" \t\n".to_string()),
+                String("clean text".to_string()),
+            ]
+        ]
+    );
+}
+
+#[test]
+fn test_whitespace_trim_shared_strings() {
+    // shared string cells: whitespace trimmed unless xml:space="preserve"
+    let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
+    let range = excel.worksheet_range("SharedStrings").unwrap();
+    range_eq!(
+        range,
+        [
+            [
+                String("trimmed value".to_string()),
+                String("  preserved value  ".to_string()),
+                String("".to_string()),
+                String("clean text".to_string()),
+            ]
+        ]
+    );
+}
