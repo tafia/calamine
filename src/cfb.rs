@@ -49,11 +49,13 @@ impl std::fmt::Display for CfbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CfbError::Io(e) => write!(f, "I/O error: {e}"),
-            CfbError::Ole { len, magic } if *len < 512 => write!(
-                f,
-                "Invalid CFB file ({len} bytes is too small), magic: {:x?}",
-                &magic[..8.min(*len)]
-            ),
+            CfbError::Ole { len, magic } if *len < 512 => {
+                write!(f, "Invalid CFB file ({len} bytes is too small), magic: ",)?;
+                for b in &magic[..8.min(*len)] {
+                    write!(f, "\\x{b:02x?}")?;
+                }
+                Ok(())
+            }
             CfbError::Ole { magic, .. } => write!(
                 f,
                 "Invalid OLE signature (not an office document?) {magic:x?}"
