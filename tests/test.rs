@@ -3482,9 +3482,13 @@ fn test_whitespace_trim_inline_str() {
     range_eq!(
         range,
         [[
+            // A1: raw "<t>  trimmed value  </t>" → trimmed
             String("trimmed value".to_string()),
+            // B1: raw "<t>\n\tvalue with tabs\n</t>" → trimmed
             String("value with tabs".to_string()),
+            // C1: raw "<t xml:space="preserve"> \t\n</t>" → preserved as-is
             String(" \t\n".to_string()),
+            // D1: raw "<t>clean text</t>" → no change
             String("clean text".to_string()),
         ]]
     );
@@ -3498,9 +3502,13 @@ fn test_whitespace_trim_shared_strings() {
     range_eq!(
         range,
         [[
+            // idx 0: raw "<t>  trimmed value</t>" → trimmed
             String("trimmed value".to_string()),
+            // idx 1: raw "<t xml:space="preserve">  preserved value  </t>" → preserved as-is
             String("  preserved value  ".to_string()),
+            // idx 2: raw "<t> \t\n</t>" → trimmed to empty string
             String("".to_string()),
+            // idx 3: raw "<t>clean text</t>" → no change
             String("clean text".to_string()),
         ]]
     );
