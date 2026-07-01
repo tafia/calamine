@@ -26,7 +26,7 @@ pub enum CfbError {
     Io(std::io::Error),
     Ole {
         len: usize,
-        magic: [u8; 8],
+        signature: Option<[u8; 8]>,
     },
     EmptyRootDir,
     StreamNotFound(String),
@@ -49,17 +49,23 @@ impl std::fmt::Display for CfbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CfbError::Io(e) => write!(f, "I/O error: {e}"),
-            CfbError::Ole { len, magic } if *len < 512 => {
-                write!(f, "Invalid CFB file ({len} bytes is too small), magic: ",)?;
-                for b in &magic[..8.min(*len)] {
-                    write!(f, "\\x{b:02x?}")?;
+            CfbError::Ole { len, signature } => {
+                write!(f, "Invalid OLE (",)?;
+                if *len < 512 {
+                    write!(f, "{len} bytes is too small")?;
                 }
-                Ok(())
+                if let Some(signature) = signature {
+                    if *len < 512 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "signature ")?;
+                    for b in &signature[..8.min(*len)] {
+                        write!(f, "\\x{b:02x?}")?;
+                    }
+                    write!(f, " invalid, not an office document?")?;
+                }
+                write!(f, ")")
             }
-            CfbError::Ole { magic, .. } => write!(
-                f,
-                "Invalid OLE signature (not an office document?) {magic:x?}"
-            ),
             CfbError::EmptyRootDir => write!(f, "Empty Root directory"),
             CfbError::StreamNotFound(e) => write!(f, "Cannot find {e} stream"),
             CfbError::Invalid {
@@ -207,15 +213,13 @@ impl Header {
             n += k;
         }
         let [m0, m1, m2, m3, m4, m5, m6, m7, ..] = buf;
-        let magic = [m0, m1, m2, m3, m4, m5, m6, m7];
-        if n < buf.len() {
-            return Err(CfbError::Ole { len: n, magic });
-        }
-
         // check ole signature
-        let signature = u64::from_le_bytes(magic);
-        if signature != 0xE11A_B1A1_E011_CFD0 {
-            return Err(CfbError::Ole { len: n, magic });
+        let signature = [m0, m1, m2, m3, m4, m5, m6, m7];
+        if n < buf.len() || signature != *b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" {
+            return Err(CfbError::Ole {
+                len: n,
+                signature: (signature != *b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1").then_some(signature),
+            });
         }
 
         let version = read_u16(&buf[26..28]);
