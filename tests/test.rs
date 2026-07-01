@@ -3479,19 +3479,22 @@ fn test_whitespace_trim_inline_str() {
     // inlineStr cells: whitespace trimmed unless xml:space="preserve"
     let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
     let range = excel.worksheet_range("inlineStr").unwrap();
-    range_eq!(
-        range,
-        [[
-            // A1: raw "<t>  trimmed value  </t>" → trimmed
-            String("trimmed value".to_string()),
-            // B1: raw "<t>\n\tvalue with tabs\n</t>" → trimmed
-            String("value with tabs".to_string()),
-            // C1: raw "<t xml:space="preserve"> \t\n</t>" → preserved as-is
-            String(" \t\n".to_string()),
-            // D1: raw "<t>clean text</t>" → no change
-            String("clean text".to_string()),
-        ]]
-    );
+
+    // Row 1
+    // A1: raw "<t>  trimmed value  </t>" → trimmed
+    assert_eq!(range.get_value((0, 0)), Some(&String("trimmed value".to_string())));
+    // B1: raw "<t>\n\tvalue with tabs\n</t>" → trimmed
+    assert_eq!(range.get_value((0, 1)), Some(&String("value with tabs".to_string())));
+    // C1: raw "<t xml:space="preserve"> \t\n</t>" → preserved as-is
+    assert_eq!(range.get_value((0, 2)), Some(&String(" \t\n".to_string())));
+    // D1: raw "<t>clean text</t>" → no change
+    assert_eq!(range.get_value((0, 3)), Some(&String("clean text".to_string())));
+
+    // Row 2: multi-line text
+    // A2: raw "<t>  line1\nline2  </t>" → trimmed (inner newline preserved)
+    assert_eq!(range.get_value((1, 0)), Some(&String("line1\nline2".to_string())));
+    // B2: raw "<t xml:space="preserve">  line1\nline2  </t>" → preserved as-is
+    assert_eq!(range.get_value((1, 1)), Some(&String("  line1\nline2  ".to_string())));
 }
 
 #[test]
@@ -3499,17 +3502,20 @@ fn test_whitespace_trim_shared_strings() {
     // shared string cells: whitespace trimmed unless xml:space="preserve"
     let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
     let range = excel.worksheet_range("SharedStrings").unwrap();
-    range_eq!(
-        range,
-        [[
-            // idx 0: raw "<t>  trimmed value</t>" → trimmed
-            String("trimmed value".to_string()),
-            // idx 1: raw "<t xml:space="preserve">  preserved value  </t>" → preserved as-is
-            String("  preserved value  ".to_string()),
-            // idx 2: raw "<t> \t\n</t>" → trimmed to empty string
-            String("".to_string()),
-            // idx 3: raw "<t>clean text</t>" → no change
-            String("clean text".to_string()),
-        ]]
-    );
+
+    // Row 1
+    // idx 0: raw "<t>  trimmed value</t>" → trimmed
+    assert_eq!(range.get_value((0, 0)), Some(&String("trimmed value".to_string())));
+    // idx 1: raw "<t xml:space="preserve">  preserved value  </t>" → preserved as-is
+    assert_eq!(range.get_value((0, 1)), Some(&String("  preserved value  ".to_string())));
+    // idx 2: raw "<t> \t\n</t>" → trimmed to empty string
+    assert_eq!(range.get_value((0, 2)), Some(&String("".to_string())));
+    // idx 3: raw "<t>clean text</t>" → no change
+    assert_eq!(range.get_value((0, 3)), Some(&String("clean text".to_string())));
+
+    // Row 2: multi-line text
+    // idx 4: raw "<t>  line1\nline2  </t>" → trimmed (inner newline preserved)
+    assert_eq!(range.get_value((1, 0)), Some(&String("line1\nline2".to_string())));
+    // idx 5: raw "<t xml:space="preserve">  line1\nline2  </t>" → preserved as-is
+    assert_eq!(range.get_value((1, 1)), Some(&String("  line1\nline2  ".to_string())));
 }
