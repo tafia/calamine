@@ -24,7 +24,10 @@ const ENDOFCHAIN: u32 = 0xFFFF_FFFE;
 #[derive(Debug)]
 pub enum CfbError {
     Io(std::io::Error),
-    Ole,
+    Ole {
+        len: usize,
+        signature: Option<[u8; 8]>,
+    },
     EmptyRootDir,
     StreamNotFound(String),
     Invalid {
@@ -46,7 +49,23 @@ impl std::fmt::Display for CfbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CfbError::Io(e) => write!(f, "I/O error: {e}"),
-            CfbError::Ole => write!(f, "Invalid OLE signature (not an office document?)"),
+            CfbError::Ole { len, signature } => {
+                write!(f, "Invalid OLE (",)?;
+                if *len < 512 {
+                    write!(f, "{len} bytes is too small")?;
+                }
+                if let Some(signature) = signature {
+                    if *len < 512 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "signature ")?;
+                    for b in &signature[..8.min(*len)] {
+                        write!(f, "\\x{b:02x?}")?;
+                    }
+                    write!(f, " invalid, not an office document?")?;
+                }
+                write!(f, ")")
+            }
             CfbError::EmptyRootDir => write!(f, "Empty Root directory"),
             CfbError::StreamNotFound(e) => write!(f, "Cannot find {e} stream"),
             CfbError::Invalid {
@@ -184,15 +203,23 @@ enum SectorSize {
 
 impl Header {
     fn from_reader<R: Read>(f: &mut R) -> Result<(Header, Vec<u32>), CfbError> {
+        let mut n = 0;
         let mut buf = [0u8; 512];
-        f.read_exact(&mut buf)?;
-
+        loop {
+            let k = f.read(&mut buf[n..])?;
+            if k == 0 {
+                break;
+            }
+            n += k;
+        }
+        let [m0, m1, m2, m3, m4, m5, m6, m7, ..] = buf;
         // check ole signature
-        let signature = buf
-            .get(0..8)
-            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()));
-        if signature != Some(0xE11A_B1A1_E011_CFD0) {
-            return Err(CfbError::Ole);
+        let signature = [m0, m1, m2, m3, m4, m5, m6, m7];
+        if n < buf.len() || signature != *b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" {
+            return Err(CfbError::Ole {
+                len: n,
+                signature: (signature != *b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1").then_some(signature),
+            });
         }
 
         let version = read_u16(&buf[26..28]);

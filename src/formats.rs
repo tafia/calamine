@@ -22,7 +22,8 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
     for s in format.chars() {
         match (s, escaped, is_quote, ap, brackets) {
             (_, true, ..) => escaped = false, // if escaped, ignore
-            ('_' | '\\', ..) => escaped = true,
+            // `\` escapes, `_` skips width, `*` fills; the next char is always a literal, not a format token.
+            ('_' | '\\' | '*', ..) => escaped = true,
             ('"', _, true, _, _) => is_quote = false,
             (_, _, true, _, _) => (),
             ('"', _, _, _, _) => is_quote = true,
@@ -217,5 +218,16 @@ fn test_is_date_format() {
     assert_eq!(
         detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
         CellFormat::Other
+    );
+    // The `*` fill operator repeats the next character to fill the cell, so
+    // that character is a literal and must not be read as a date token even
+    // when it happens to be one (here `y`, `d`, `m`).
+    assert_eq!(detect_custom_number_format("#,##0*y"), CellFormat::Other);
+    assert_eq!(detect_custom_number_format("0\"x\"*d"), CellFormat::Other);
+    assert_eq!(detect_custom_number_format("*-#,##0"), CellFormat::Other);
+    // A real date token after the single fill char is still detected.
+    assert_eq!(
+        detect_custom_number_format("*-yyyy-mm-dd"),
+        CellFormat::DateTime
     );
 }

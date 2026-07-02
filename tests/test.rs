@@ -3549,3 +3549,17 @@ fn test_whitespace_trim_shared_strings() {
         Some(&String("  line1\nline2  ".to_string()))
     );
 }
+
+#[test]
+fn too_small_xls() {
+    let path = test_path("too_small.xls");
+    let res: Result<Xls<_>, _> = open_workbook(&path);
+    match res {
+
+        Err(calamine::XlsError::Cfb(e)) if e.to_string() == "Invalid OLE (68 bytes is too small, signature \\x41\\x74\\x74\\x61\\x63\\x68\\x6d\\x65 invalid, not an office document?)" => {}
+        Err(calamine::XlsError::Cfb(e)) => {
+            panic!("Is expected to return CfbError::Ole(_) error: {e}")
+        }
+        Ok(_) | Err(_) => panic!("Is expected to return CfbError::Ole(_) error"),
+    }
+}
