@@ -2895,8 +2895,13 @@ where
                 is_phonetic_text = false;
             }
             Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" && !is_phonetic_text => {
+                let preserve_space =
+                    matches!(e.raw_attr(b"xml:space")?, Some(v) if v == b"preserve");
                 text_buf.clear();
                 let mut value = String::new();
+                if !preserve_space {
+                    xml.config_mut().trim_text(true);
+                }
                 loop {
                     match xml.read_event_into(text_buf)? {
                         Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
@@ -2906,6 +2911,9 @@ where
                         Event::Eof => return Err(XlsxError::XmlEof("t")),
                         _ => (),
                     }
+                }
+                if !preserve_space {
+                    xml.config_mut().trim_text(false);
                 }
                 if let Some(s) = &mut rich_buffer {
                     s.push_str(&value);
