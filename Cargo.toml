@@ -11,7 +11,7 @@ keywords = ["excel", "ods", "xls", "xlsx", "xlsb"]
 categories = ["encoding", "parsing", "text-processing"]
 exclude = ["tests/**/*"]
 edition = "2021"
-rust-version = "1.83" # For quick-xml + encoding_rs.
+rust-version = "1.88" # For zip
 
 [dependencies]
 log = "0.4"
@@ -21,7 +21,7 @@ atoi_simd = "0.18"
 byteorder = "1.5"
 encoding_rs = "0.8"
 fast-float2 = "0.2"
-zip = { version = "7.0", default-features = false, features = ["deflate"] }
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.39", features = ["encoding"] }
 
 # Optional dependencies.
