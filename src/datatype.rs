@@ -161,7 +161,7 @@ impl DataType for Data {
             Data::Int(v) => Some(*v),
             Data::Float(v) => Some(*v as i64),
             Data::Bool(v) => Some(*v as i64),
-            Data::String(v) => atoi_simd::parse::<i64>(v.as_bytes()).ok(),
+            Data::String(v) => atoi_simd::parse::<i64, true, false>(v.as_bytes()).ok(),
             _ => None,
         }
     }
@@ -473,8 +473,8 @@ impl DataType for DataRef<'_> {
             DataRef::Int(v) => Some(*v),
             DataRef::Float(v) => Some(*v as i64),
             DataRef::Bool(v) => Some(*v as i64),
-            DataRef::String(v) => atoi_simd::parse::<i64>(v.as_bytes()).ok(),
-            DataRef::SharedString(v) => atoi_simd::parse::<i64>(v.as_bytes()).ok(),
+            DataRef::String(v) => atoi_simd::parse::<i64, true, false>(v.as_bytes()).ok(),
+            DataRef::SharedString(v) => atoi_simd::parse::<i64, true, false>(v.as_bytes()).ok(),
             _ => None,
         }
     }

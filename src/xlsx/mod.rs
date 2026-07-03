@@ -347,7 +347,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"sst" => {
                     if let Some(count) = e.raw_attr(b"uniqueCount")? {
-                        if let Ok(n) = atoi_simd::parse::<usize>(count) {
+                        if let Ok(n) = atoi_simd::parse::<usize, true, false>(count) {
                             self.strings.reserve(n);
                         }
                     }
@@ -1079,12 +1079,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 match xml.read_event_into(&mut buf) {
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"row" => {
                         if let Some(r) = e.raw_attr(b"r")? {
-                            current_row = atoi_simd::parse::<u32>(r).unwrap_or(1) - 1;
+                            current_row = atoi_simd::parse::<u32, true, false>(r).unwrap_or(1) - 1;
                         }
                     }
                     Ok(Event::Start(e)) if e.local_name().as_ref() == b"c" => {
                         let (vm, r) = get_attrs!(e, b"vm" => vm, b"r" => r)?;
-                        let vm = vm.and_then(|v| atoi_simd::parse::<usize>(v).ok());
+                        let vm = vm.and_then(|v| atoi_simd::parse::<usize, true, false>(v).ok());
                         if let Some(vm_val) = vm {
                             let rv_idx = vm_val.saturating_sub(1);
                             if let Some(&img_idx) = rv_to_img_idx.get(&rv_idx) {
@@ -3636,7 +3636,7 @@ fn parse_item(item: &(Tag, Value), decoder: &Decoder) -> Data {
 // Parse failures are handled with None and left to `Self::parse_item` to address.
 fn bytes_to_i64(val: &[u8], decoder: &Decoder) -> Option<i64> {
     if let Ok(val) = decoder.decode(val) {
-        atoi_simd::parse::<i64>(val.as_bytes()).ok()
+        atoi_simd::parse::<i64, true, false>(val.as_bytes()).ok()
     } else {
         None
     }
@@ -3916,7 +3916,7 @@ impl<'a, RS: Read + Seek + 'a> Iterator for PivotCacheIter<'a, RS> {
                         Err(e) => return Some(Err(e.into())),
                     };
                     if let Some(val) = v {
-                        let value_position = match atoi_simd::parse::<usize>(val) {
+                        let value_position = match atoi_simd::parse::<usize, true, false>(val) {
                             Ok(val) => val,
                             Err(_) => {
                                 return Some(Err(XlsxError::Unexpected(
