@@ -335,15 +335,16 @@ fn special_chrs_ods() {
     );
 }
 
-// Test for decoding/unescaping simple XML entities and also for numeric
-// entities like "&#xA;" for new line.
+// Test for decoding/unescaping simple XML entities. A2 is `&#xA;` (newline
+// character reference) — without xml:space="preserve" it is trimmed like any
+// other edge whitespace.
 #[test]
 fn decode_xml_entities() {
     let mut excel: Xlsx<_> = wb("encoded_entities.xlsx");
     let range = excel.worksheet_range("Sheet1").unwrap();
 
     assert_eq!(range.get_value((0, 0)), Some(&String("&".to_string())));
-    assert_eq!(range.get_value((1, 0)), Some(&String("\n".to_string())));
+    assert_eq!(range.get_value((1, 0)), Some(&String("".to_string())));
 }
 
 // Test for unescaping Excel XML escapes in a cell string. Excel encodes a
@@ -3510,6 +3511,14 @@ fn test_whitespace_trim_inline_str() {
         range.get_value((1, 1)),
         Some(&String("  line1\nline2  ".to_string()))
     );
+
+    // Row 3: internal literal space between two character references must be
+    // preserved (the parser emits the space as its own Text event).
+    // A3: raw "<t>&#26085;&#26399; &#26102;&#38388;</t>" → "日期 时间"
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&String("日期 时间".to_string()))
+    );
 }
 
 #[test]
@@ -3547,6 +3556,14 @@ fn test_whitespace_trim_shared_strings() {
     assert_eq!(
         range.get_value((1, 1)),
         Some(&String("  line1\nline2  ".to_string()))
+    );
+
+    // Row 3: internal literal space between two character references must be
+    // preserved (the parser emits the space as its own Text event).
+    // idx 6: raw "<t>&#26085;&#26399; &#26102;&#38388;</t>" → "日期 时间"
+    assert_eq!(
+        range.get_value((2, 0)),
+        Some(&String("日期 时间".to_string()))
     );
 }
 

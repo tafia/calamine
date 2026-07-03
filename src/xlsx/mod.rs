@@ -2899,12 +2899,9 @@ where
                     matches!(e.raw_attr(b"xml:space")?, Some(v) if v == b"preserve");
                 text_buf.clear();
                 let mut value = String::new();
-                if !preserve_space {
-                    xml.config_mut().trim_text(true);
-                }
                 loop {
                     match xml.read_event_into(text_buf)? {
-                        Event::Text(t) => value.push_str(&unescape_xml(&t.xml10_content()?)),
+                        Event::Text(t) => value.push_str(&t.xml10_content()?),
                         Event::CData(t) => value.push_str(&t.xml10_content()?),
                         Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
                         Event::End(end) if end.name() == e.name() => break,
@@ -2913,8 +2910,10 @@ where
                     }
                 }
                 if !preserve_space {
-                    xml.config_mut().trim_text(false);
+                    // Trim only ASCII whitespace, keeping Unicode spaces like U+00A0
+                    value = value.trim_matches([' ', '\t', '\r', '\n']).to_owned();
                 }
+                value = unescape_xml(&value).into_owned();
                 if let Some(s) = &mut rich_buffer {
                     s.push_str(&value);
                 } else {
