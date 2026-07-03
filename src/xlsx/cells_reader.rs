@@ -326,7 +326,7 @@ where
         let (t_attr, si_attr, ref_attr) = get_attrs!(e, b"t" => t, b"si" => si, b"ref" => ref_)?;
         if t_attr == Some(b"shared".as_slice()) {
             let shared_index = match si_attr {
-                Some(res) => match atoi_simd::parse::<usize>(res) {
+                Some(res) => match atoi_simd::parse::<usize, true, false>(res) {
                     Ok(res) => res,
                     Err(_) => return Err(XlsxError::Unexpected("si attribute must be a number")),
                 },
@@ -630,7 +630,7 @@ fn read_v<'s>(
 ) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match style_attr {
         Some(style) => {
-            let id = atoi_simd::parse::<usize>(style).unwrap_or(0);
+            let id = atoi_simd::parse::<usize, true, false>(style).unwrap_or(0);
             ctx.formats.get(id)
         }
         None => Some(&CellFormat::Other),
@@ -640,7 +640,7 @@ fn read_v<'s>(
             if v.is_empty() {
                 return Ok(DataRef::Empty);
             }
-            let idx = atoi_simd::parse::<usize>(v).unwrap_or(0);
+            let idx = atoi_simd::parse::<usize, true, false>(v).unwrap_or(0);
             ctx.strings
                 .get(idx)
                 .map(|s| DataRef::SharedString(s))
