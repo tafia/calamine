@@ -3275,7 +3275,14 @@ fn expand_shared_formula_with_offset_into(
     let mut token_end = 0;
 
     for (i, &c) in bytes.iter().enumerate() {
-        if !in_quote && (c.is_ascii_alphanumeric() || c == b'$' || c == b':') {
+        if !in_quote
+            && (c.is_ascii_alphanumeric()
+                || c == b'\\'
+                || c == b'.'
+                || c == b'_'
+                || c == b'$'
+                || c == b':')
+        {
             token_end = i + 1;
         } else {
             if token_start < token_end {
@@ -4372,6 +4379,95 @@ mod tests {
         assert_eq!(
             replace_cell_names("한글 A1 テスト", (0, 1)).unwrap(),
             "한글 B1 テスト".to_owned()
+        );
+
+        assert_eq!(
+            replace_cell_names("ABS(AND(Q1934;AA1_SOMETHING))", (0, 1)).unwrap(),
+            "ABS(AND(R1934;AA1_SOMETHING))".to_owned()
+        );
+
+        assert_eq!(
+            replace_cell_names("ABS(AND(Q1934;AA1_SOMETHING))", (1, 0)).unwrap(),
+            "ABS(AND(Q1935;AA1_SOMETHING))".to_owned()
+        );
+
+        assert_eq!(
+            replace_cell_names("Z1+1", (0, 1)).unwrap(),
+            "AA1+1".to_owned()
+        );
+
+        assert_eq!(
+            replace_cell_names("Z9+3", (1, 0)).unwrap(),
+            "Z10+3".to_owned()
+        );
+
+        assert_eq!(
+            replace_cell_names("Z1+A3B", (0, 1)).unwrap(),
+            "AA1+A3B".to_owned()
+        );
+
+        assert_eq!(
+            replace_cell_names("Z1+A3B", (1, 0)).unwrap(),
+            "Z2+A3B".to_owned()
+        );
+
+        // Named range after a cell ref.
+        assert_eq!(
+            replace_cell_names("A6+NO1_VARIABLE", (0, 1)).unwrap(),
+            "B6+NO1_VARIABLE"
+        );
+        assert_eq!(
+            replace_cell_names("A6+NO1_VARIABLE", (1, 0)).unwrap(),
+            "A7+NO1_VARIABLE"
+        );
+
+        assert_eq!(
+            replace_cell_names("A6+NO1.VARIABLE", (0, 1)).unwrap(),
+            "B6+NO1.VARIABLE"
+        );
+        assert_eq!(
+            replace_cell_names("A6+NO1.VARIABLE", (1, 0)).unwrap(),
+            "A7+NO1.VARIABLE"
+        );
+
+        assert_eq!(replace_cell_names("A6+\\NO1", (0, 1)).unwrap(), "B6+\\NO1");
+        assert_eq!(replace_cell_names("A6+\\NO1", (1, 0)).unwrap(), "A7+\\NO1");
+
+        // Named range before a cell ref.
+        assert_eq!(
+            replace_cell_names("NO1_VARIABLE+Q5", (0, 1)).unwrap(),
+            "NO1_VARIABLE+R5"
+        );
+
+        assert_eq!(
+            replace_cell_names("NO1.VARIABLE+Q5", (0, 1)).unwrap(),
+            "NO1.VARIABLE+R5"
+        );
+
+        assert_eq!(replace_cell_names("\\NO1+Q5", (0, 1)).unwrap(), "\\NO1+R5");
+
+        // Leading underscore named range — should pass through.
+        assert_eq!(
+            replace_cell_names("_PRIVATE+A1", (0, 1)).unwrap(),
+            "_PRIVATE+B1"
+        );
+
+        // Named range with multiple underscores.
+        assert_eq!(
+            replace_cell_names("NO1__DOUBLE+A1", (0, 1)).unwrap(),
+            "NO1__DOUBLE+B1"
+        );
+
+        // Named range with multiple period signs.
+        assert_eq!(
+            replace_cell_names("NO1..VARIABLE+A1", (0, 1)).unwrap(),
+            "NO1..VARIABLE+B1"
+        );
+
+        // Named range with multiple back slashes.
+        assert_eq!(
+            replace_cell_names("\\\\NO1+A1", (0, 1)).unwrap(),
+            "\\\\NO1+B1"
         );
 
         assert_eq!(
