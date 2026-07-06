@@ -6,6 +6,97 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.36.0] - 2026-07-06
+
+### Added
+
+- Added an XLSX streaming API for cell and formula records, including shared
+  formula metadata. There are two new APIs:
+  `XlsxCellReader::next_cell_with_formula()` and
+  `XlsxCellReader::next_cell_with_formula_metadata()`. Previously it required 2
+  separate reads to get similar information. [PR #654].
+
+  [PR #654]: https://github.com/tafia/calamine/pull/654
+
+- Added a per-sheet, lazy XLSX API to read worksheet hyperlinks:
+  `Xlsx::hyperlinks_by_sheet_name()` and `Xlsx::hyperlinks_by_sheet_id()`. Each
+  hyperlink reports its anchor range (`Dimensions`), external target
+  (URL/file/mailto), optional internal location, displayed text, and optional
+  tooltip. [PR #659].
+
+  [PR #659]: https://github.com/tafia/calamine/pull/659
+
+- Extended the `picture` feature to also extract cell position information and
+  the raw image data, and to handle newer Excel 365 style embedded images.
+  [PR #652].
+
+  [PR #652]: https://github.com/tafia/calamine/pull/652
+
+- Added support for reading XLSX rich string (`rstring`) records. [Issue #655].
+
+  [Issue #655]: https://github.com/tafia/calamine/issues/655
+
+### Changed
+
+- Updated dependencies and the minimum supported Rust version (MSRV) for
+  release 0.36.0:
+
+  - `atoi_simd`: 0.17 → 0.18. [PR #672]
+  - `zip`: 7.0 → 8.6. This raises the MSRV from 1.83 to 1.88. [PR #672]
+  - `quick-xml`: 0.39 → 0.41, to address advisories [RUSTSEC-2026-0194] and
+    [RUSTSEC-2026-0195]. [Issue #674].
+
+  [PR #672]: https://github.com/tafia/calamine/pull/672
+  [Issue #674]: https://github.com/tafia/calamine/issues/674
+  [RUSTSEC-2026-0194]: https://rustsec.org/advisories/RUSTSEC-2026-0194.html
+  [RUSTSEC-2026-0195]: https://rustsec.org/advisories/RUSTSEC-2026-0195.html
+
+- Performance improvements:
+  - Custom zero-overhead attribute extraction and optimized `local_name`
+    matching. [PR #621]
+  - Optimized buffer use for XLSB cell reads. [PR #662]
+
+  [PR #621]: https://github.com/tafia/calamine/pull/621
+  [PR #662]: https://github.com/tafia/calamine/pull/662
+
+- Refactored and unified the merged-cell handling APIs. For historical reasons
+  the XLSX methods for accessing merged cells were duplicated. This change
+  introduces a cleaner API, deprecates the older methods, and aligns the XLS
+  merged-cell handling with the new XLSX APIs. [Issue #536].
+
+  [Issue #536]: https://github.com/tafia/calamine/issues/536
+
+- Made XLSX package path resolution more robust for non-standard package
+  layouts. [Issue #638].
+
+  [Issue #638]: https://github.com/tafia/calamine/issues/638
+
+- Changed XLSX `<t>` text handling in shared strings and inline strings to trim
+  leading and trailing ASCII whitespace (space, tab, CR, LF) unless the element
+  carries `xml:space="preserve"`.  See [PR #671] and [PR #673].
+
+  [PR #671]: https://github.com/tafia/calamine/pull/671
+  [PR #673]: https://github.com/tafia/calamine/pull/673
+
+
+### Fixed
+
+- Fixed XLSX shared-formula cell-name replacement to be more precise for defined
+  names. [PR #664].
+
+  [PR #664]: https://github.com/tafia/calamine/pull/664
+
+- Fixed XLSX custom number-format detection to treat the `*` (fill/repeat)
+  operator as escaping the character that follows it. [PR #667].
+
+  [PR #667]: https://github.com/tafia/calamine/pull/667
+
+- Improved the XLS error message when a file is too small to be a valid
+  workbook. [PR #670].
+
+  [PR #670]: https://github.com/tafia/calamine/pull/670
+
+
 ## [0.35.0] - 2026-5-10
 
 ### Added

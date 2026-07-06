@@ -181,6 +181,14 @@ for s in sheets {
 }
 ```
 
+## Add Calamine to your Rust project
+
+Add the `calamine` dependency to the project's `Cargo.toml` file as follows:
+
+```bash
+$ cargo add calamine
+```
+
 
 ## Crate Features
 
