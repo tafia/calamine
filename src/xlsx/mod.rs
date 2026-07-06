@@ -2909,11 +2909,13 @@ where
                         _ => (),
                     }
                 }
-                if !preserve_space {
-                    // Trim only ASCII whitespace, keeping Unicode spaces like U+00A0
-                    value = value.trim_matches([' ', '\t', '\r', '\n']).to_owned();
-                }
-                value = unescape_xml(&value).into_owned();
+                let value = if preserve_space {
+                    unescape_xml(&value).into_owned()
+                } else {
+                    // Trim ASCII whitespace (space/tab/CR/LF). Unicode spaces
+                    // such as U+00A0 (NBSP) are preserved.
+                    unescape_xml(value.trim_matches([' ', '\t', '\r', '\n'])).into_owned()
+                };
                 if let Some(s) = &mut rich_buffer {
                     s.push_str(&value);
                 } else {
