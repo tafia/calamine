@@ -23,12 +23,12 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{
-    build_zip_path_cache, cached_zip_path, push_column, read_f64, read_i32, read_u16, read_u32,
-    read_usize,
+    build_zip_path_cache, cached_zip_path, collect_cells_into_range, push_column, read_f64,
+    read_i32, read_u16, read_u32, read_usize,
 };
 use crate::vba::VbaProject;
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Data, HeaderRow, IndexSet, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
 };
 
 /// A Xlsb specific error
@@ -514,13 +514,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {
-        let rge = self.worksheet_range_ref(name)?;
-        let inner = rge.inner.into_iter().map(|v| v.into()).collect();
-        Ok(Range {
-            start: rge.start,
-            end: rge.end,
-            inner,
-        })
+        self.worksheet_range_region(name, .., ..)
     }
 
     /// MS-XLSB 2.1.7.62
@@ -558,66 +552,18 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 }
 
 impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
-    fn worksheet_range_ref<'a>(&'a mut self, name: &str) -> Result<Range<DataRef<'a>>, XlsbError> {
+    fn worksheet_range_region_ref<'a>(
+        &'a mut self,
+        name: &str,
+        cols: impl Into<IndexSet>,
+        rows: impl Into<IndexSet>,
+    ) -> Result<Range<DataRef<'a>>, XlsbError> {
+        let cols = cols.into();
+        let rows = rows.into();
         let header_row = self.options.header_row;
         let mut cell_reader = self.worksheet_cells_reader(name)?;
-        let len = cell_reader.dimensions().len();
-        let mut cells = Vec::new();
-        if len < 100_000 {
-            cells.reserve(len as usize);
-        }
-
-        match header_row {
-            HeaderRow::FirstNonEmptyRow => {
-                // the header row is the row of the first non-empty cell
-                loop {
-                    match cell_reader.next_cell() {
-                        Ok(Some(Cell {
-                            val: DataRef::Empty,
-                            ..
-                        })) => (),
-                        Ok(Some(cell)) => cells.push(cell),
-                        Ok(None) => break,
-                        Err(e) => return Err(e),
-                    }
-                }
-            }
-            HeaderRow::Row(header_row_idx) => {
-                // If `header_row` is a row index, we only add non-empty cells after this index.
-                loop {
-                    match cell_reader.next_cell() {
-                        Ok(Some(Cell {
-                            val: DataRef::Empty,
-                            ..
-                        })) => (),
-                        Ok(Some(cell)) => {
-                            if cell.pos.0 >= header_row_idx {
-                                cells.push(cell);
-                            }
-                        }
-                        Ok(None) => break,
-                        Err(e) => return Err(e),
-                    }
-                }
-
-                // If `header_row` is set and the first non-empty cell is not at the `header_row`, we add
-                // an empty cell at the beginning with row `header_row` and same column as the first non-empty cell.
-                if cells.first().is_some_and(|c| c.pos.0 != header_row_idx) {
-                    cells.insert(
-                        0,
-                        Cell {
-                            pos: (
-                                header_row_idx,
-                                cells.first().expect("cells should not be empty").pos.1,
-                            ),
-                            val: DataRef::Empty,
-                        },
-                    );
-                }
-            }
-        }
-
-        Ok(Range::from_sparse(cells))
+        let dims = cell_reader.dimensions();
+        collect_cells_into_range(header_row, &cols, &rows, dims, || cell_reader.next_cell())
     }
 }
 
