@@ -13,6 +13,7 @@ use crate::attrs::RawAttributes;
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
+    style::Style,
     utils::unescape_entity_to_buffer,
     Cell, XlsxError,
 };
@@ -180,6 +181,7 @@ where
     xml: XlReader<'a, RS>,
     strings: &'a [String],
     formats: &'a [CellFormat],
+    styles: &'a [Style],
     is_1904: bool,
     dimensions: Dimensions,
     row_index: u32,
@@ -199,6 +201,7 @@ where
         mut xml: XlReader<'a, RS>,
         strings: &'a [String],
         formats: &'a [CellFormat],
+        styles: &'a [Style],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
@@ -236,6 +239,7 @@ where
             xml,
             strings,
             formats,
+            styles,
             is_1904,
             dimensions,
             row_index: 0,
@@ -546,6 +550,70 @@ where
                 _ => (),
             }
         }
+    }
+
+    /// Return the position and style id of the next cell that has an explicit
+    /// style, in XML stream order.
+    ///
+    /// The style id is the cell's index into the workbook style palette (see
+    /// [`XlsxCellReader::styles`]). Cells with style id 0 (the default
+    /// format), or with an id outside the palette, are skipped. Returns
+    /// `None` when the end of the sheet data is reached.
+    pub fn next_style_id(&mut self) -> Result<Option<(u32, u32, usize)>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    if let Some(r) = row_element.raw_attr(b"r")? {
+                        self.row_index = get_row(r)?;
+                    }
+                }
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let (pos_attr, style_attr) = get_attrs!(c_element, b"r" => r, b"s" => s)?;
+                    let pos = if let Some(range) = pos_attr {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+                    let style_id = style_attr
+                        .and_then(|s| atoi_simd::parse::<usize, true, false>(s).ok())
+                        .unwrap_or(0);
+
+                    // Skip the cell body.
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+
+                    if style_id > 0 && style_id < self.styles.len() {
+                        return Ok(Some((pos.0, pos.1, style_id)));
+                    }
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+    }
+
+    /// Return the workbook style palette, indexed by style id.
+    pub fn styles(&self) -> &[Style] {
+        self.styles
     }
 }
 

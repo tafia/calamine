@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod cells_reader;
+mod style_parser;
 
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
@@ -23,7 +24,10 @@ use zip::result::ZipError;
 
 use crate::attrs::{decode_attr, local_name_matches, RawAttributes};
 use crate::datatype::DataRef;
-use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
+use crate::formats::{
+    builtin_format_by_id, builtin_format_code_by_id, detect_custom_number_format, CellFormat,
+};
+use crate::style::{Borders, Color, Fill, Font, NumberFormat, Style, StyleRange};
 use crate::utils::{
     build_zip_path_cache, cached_zip_path, unescape_entity_to_buffer, unescape_xml,
 };
@@ -261,6 +265,8 @@ pub struct Xlsx<RS> {
     tables: Tables,
     /// Cell (number) formats
     formats: Vec<CellFormat>,
+    /// Cell styles, parallel to `formats`, indexed by the cell `s` attribute
+    styles: Vec<Style>,
     /// 1904 datetime system
     is_1904: bool,
     /// Metadata
@@ -380,7 +386,19 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
+    // Read the theme color palette used to resolve theme-indexed colors,
+    // falling back to the default Office theme when the part is missing.
+    fn read_theme_colors(&mut self) -> Result<Vec<Color>, XlsxError> {
+        let path = format!("{}theme/theme1.xml", self.xl_path);
+        match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
+            None => Ok(style_parser::default_theme_colors()),
+            Some(xml) => style_parser::read_theme_colors(&mut xml?),
+        }
+    }
+
     fn read_styles(&mut self) -> Result<(), XlsxError> {
+        let theme_colors = self.read_theme_colors()?;
+
         let path = format!("{}styles.xml", self.xl_path);
         let mut xml = match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
             None => return Ok(()),
@@ -388,9 +406,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
         };
 
         let mut number_formats = HashMap::new();
+        let mut fonts: Vec<Font> = Vec::new();
+        let mut fills: Vec<Fill> = Vec::new();
+        let mut borders: Vec<Borders> = Vec::new();
 
         let mut buf = Vec::with_capacity(1024);
         let mut inner_buf = Vec::with_capacity(1024);
+        let mut xf_buf = Vec::new();
         loop {
             buf.clear();
             match xml.read_event_into(&mut buf) {
@@ -411,6 +433,42 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         _ => (),
                     }
                 },
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"fonts" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"font" => {
+                            fonts.push(style_parser::parse_font(&mut xml, &theme_colors)?);
+                        }
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"fonts" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("fonts")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"fills" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"fill" => {
+                            fills.push(style_parser::parse_fill(&mut xml, &theme_colors)?);
+                        }
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"fills" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("fills")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"borders" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"border" => {
+                            borders.push(style_parser::parse_border(&mut xml, &e, &theme_colors)?);
+                        }
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"borders" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("borders")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                },
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"cellXfs" => loop {
                     inner_buf.clear();
                     match xml.read_event_into(&mut inner_buf) {
@@ -422,6 +480,82 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     None => builtin_format_by_id(val),
                                 },
                             ));
+
+                            // Build the full style for this xf record.
+                            let (num_fmt_id, font_id, fill_id, border_id) = get_attrs!(
+                                e,
+                                b"numFmtId" => num_fmt_id,
+                                b"fontId" => font_id,
+                                b"fillId" => fill_id,
+                                b"borderId" => border_id
+                            )?;
+
+                            let mut style = Style::new();
+
+                            let font = font_id
+                                .and_then(|v| atoi_simd::parse::<usize, true, false>(v).ok())
+                                .and_then(|id| fonts.get(id));
+                            if let Some(font) = font {
+                                style = style.set_font(font.clone());
+                            }
+
+                            let fill = fill_id
+                                .and_then(|v| atoi_simd::parse::<usize, true, false>(v).ok())
+                                .and_then(|id| fills.get(id));
+                            if let Some(fill) = fill {
+                                style = style.set_fill(fill.clone());
+                            }
+
+                            let border = border_id
+                                .and_then(|v| atoi_simd::parse::<usize, true, false>(v).ok())
+                                .and_then(|id| borders.get(id));
+                            if let Some(border) = border {
+                                style = style.set_borders(border.clone());
+                            }
+
+                            if let Some(val) = num_fmt_id {
+                                if let Ok(id) = atoi_simd::parse::<u32, true, false>(val) {
+                                    let format_code = number_formats
+                                        .get(val)
+                                        .cloned()
+                                        .or_else(|| {
+                                            builtin_format_code_by_id(id).map(str::to_string)
+                                        })
+                                        .unwrap_or_else(|| "General".to_string());
+                                    style = style.set_number_format(
+                                        NumberFormat::new(format_code).set_format_id(id),
+                                    );
+                                }
+                            }
+
+                            // Consume the xf record body, capturing nested
+                            // alignment and protection elements.
+                            loop {
+                                xf_buf.clear();
+                                match xml.read_event_into(&mut xf_buf) {
+                                    Ok(Event::Start(ref c) | Event::Empty(ref c)) => {
+                                        match c.local_name().as_ref() {
+                                            b"alignment" => {
+                                                style = style.set_alignment(
+                                                    style_parser::parse_alignment(c)?,
+                                                );
+                                            }
+                                            b"protection" => {
+                                                style = style.set_protection(
+                                                    style_parser::parse_protection(c)?,
+                                                );
+                                            }
+                                            _ => (),
+                                        }
+                                    }
+                                    Ok(Event::End(c)) if c.local_name().as_ref() == b"xf" => break,
+                                    Ok(Event::Eof) => return Err(XlsxError::XmlEof("xf")),
+                                    Err(e) => return Err(XlsxError::Xml(e)),
+                                    _ => (),
+                                }
+                            }
+
+                            self.styles.push(style);
                         }
                         Ok(Event::End(e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
@@ -2528,7 +2662,40 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let is_1904 = self.is_1904;
         let strings = &self.strings;
         let formats = &self.formats;
-        XlsxCellReader::new(xml, strings, formats, is_1904)
+        let styles = &self.styles;
+        XlsxCellReader::new(xml, strings, formats, styles, is_1904)
+    }
+
+    /// Get the cell styles for the worksheet with the given name.
+    ///
+    /// Returns a [`StyleRange`] holding the styles of all cells in the
+    /// worksheet that have an explicit (non-default) format, over the
+    /// bounding box of those cells. Cells without an explicit format resolve
+    /// to the default format.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Reader, Xlsx};
+    ///
+    /// # let path = format!("{}/tests/styles.xlsx", env!("CARGO_MANIFEST_DIR"));
+    /// let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
+    /// let styles = workbook.worksheet_style("Sheet 1").unwrap();
+    ///
+    /// if let Some(style) = styles.get((0, 0)) {
+    ///     if let Some(font) = &style.font {
+    ///         println!("A1 bold: {}", font.is_bold());
+    ///     }
+    /// }
+    /// ```
+    pub fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+        let mut cell_reader = self.worksheet_cells_reader(name)?;
+        let mut cells = Vec::new();
+        while let Some(cell) = cell_reader.next_style_id()? {
+            cells.push(cell);
+        }
+        drop(cell_reader);
+        Ok(StyleRange::from_style_ids(cells, self.styles.clone()))
     }
 }
 
@@ -2545,6 +2712,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             xl_path: "xl/".to_string(),
             strings: Vec::new(),
             formats: Vec::new(),
+            styles: Vec::new(),
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
@@ -2615,6 +2783,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             }
         }
         Ok(Range::from_sparse(cells))
+    }
+
+    fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, XlsxError> {
+        Xlsx::worksheet_style(self, name)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
@@ -4563,6 +4735,7 @@ mod tests {
             sheets: vec![],
             tables: None,
             formats: vec![],
+            styles: vec![],
             is_1904: false,
             metadata: Metadata::default(),
             #[cfg(feature = "picture")]
