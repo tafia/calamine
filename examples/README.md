@@ -15,6 +15,8 @@ This directory contains some example of Calamine usage.
   worksheet pass.
 - `read_hyperlinks.rs`: Reads the hyperlinks defined in an XLSX worksheet,
   either by sheet name or by sheet index.
+- `read_cell_styles.rs`: Reads cell style/formatting information (fonts,
+  fills, borders, alignment and number formats) from an XLSX worksheet.
 - `read_picture_data.rs`: Reads pictures and their metadata from an XLSX file.
 - `read_properties.rs`: Reads the workbook properties (including custom
   properties) from an XLSX, XLSB or ODS file.
