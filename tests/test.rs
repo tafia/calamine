@@ -4105,3 +4105,37 @@ fn test_worksheet_style_auto_forwarding() {
     assert!(!styles.is_empty());
     assert!(styles.get((0, 0)).unwrap().font.as_ref().unwrap().is_bold());
 }
+
+#[test]
+fn test_next_cell_with_style_id() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Stream cell values and style ids in a single pass.
+    let mut cells = Vec::new();
+    let mut reader = xlsx.worksheet_cells_reader("Sheet 1").unwrap();
+    while let Some((cell, style_id)) = reader.next_cell_with_style_id().unwrap() {
+        // The style id resolves against the workbook palette in the same pass.
+        let is_bold = reader.styles()[style_id]
+            .font
+            .as_ref()
+            .is_some_and(|font| font.is_bold());
+        let value: Data = cell.get_value().clone().into();
+        cells.push((cell.get_position(), value, style_id, is_bold));
+    }
+    drop(reader);
+
+    // Every cell in the fixture has an explicit (non-default) style.
+    assert_eq!(cells.len(), 14);
+    assert!(cells.iter().all(|&(_, _, id, _)| id > 0));
+
+    // A1 is bold; A2 is italic, not bold.
+    assert_eq!(cells[0].0, (0, 0));
+    assert!(cells[0].3);
+    assert!(!cells[1].3);
+
+    // The streamed values match the bulk worksheet_range() values.
+    let range = xlsx.worksheet_range("Sheet 1").unwrap();
+    for (pos, value, _, _) in &cells {
+        assert_eq!(range.get_value((pos.0, pos.1)).unwrap(), value);
+    }
+}

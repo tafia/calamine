@@ -318,6 +318,90 @@ where
         }
     }
 
+    /// Return the next cell value and its style id in XML stream order.
+    ///
+    /// This is equivalent to [`XlsxCellReader::next_cell`] but also returns
+    /// the cell's style id in the same pass over the worksheet, avoiding a
+    /// second read of the sheet data when both values and styles are needed.
+    ///
+    /// The style id is the cell's index into the workbook style palette (see
+    /// [`XlsxCellReader::styles`]). Cells without an explicit style return
+    /// the default format id 0 "General" format.
+    pub fn next_cell_with_style_id(
+        &mut self,
+    ) -> Result<Option<(Cell<DataRef<'a>>, usize)>, XlsxError> {
+        loop {
+            self.buf.clear();
+            match self.xml.read_event_into(&mut self.buf) {
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    if let Some(r) = row_element.raw_attr(b"r")? {
+                        self.row_index = get_row(r)?;
+                    }
+                }
+
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                    self.row_index += 1;
+                    self.col_index = 0;
+                }
+
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
+                    let (pos_attr, style_attr, type_attr) =
+                        get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
+
+                    let pos = if let Some(range) = pos_attr {
+                        let (row, col) = get_row_column(range)?;
+                        self.col_index = col;
+                        (row, col)
+                    } else {
+                        (self.row_index, self.col_index)
+                    };
+
+                    let style_id = style_attr
+                        .and_then(|s| atoi_simd::parse::<usize, true, false>(s).ok())
+                        .unwrap_or(0);
+                    let mut value = DataRef::Empty;
+
+                    loop {
+                        self.cell_buf.clear();
+                        match self.xml.read_event_into(&mut self.cell_buf) {
+                            Ok(Event::Start(e)) => {
+                                let ctx = WorkbookContext {
+                                    strings: self.strings,
+                                    formats: self.formats,
+                                    is_1904: self.is_1904,
+                                };
+                                value = read_value(
+                                    &ctx,
+                                    &mut self.xml,
+                                    &e,
+                                    style_attr,
+                                    type_attr,
+                                    &mut self.value_bufs,
+                                )?;
+                            }
+                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
+                            Err(e) => return Err(XlsxError::Xml(e)),
+                            _ => (),
+                        }
+                    }
+                    self.col_index += 1;
+                    return Ok(Some((Cell::new(pos, value), style_id)));
+                }
+
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                    return Ok(None);
+                }
+
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
+
+                Err(e) => return Err(XlsxError::Xml(e)),
+
+                _ => (),
+            }
+        }
+    }
+
     fn read_formula_record(
         xml: &mut XlReader<'_, RS>,
         formulas: &mut Vec<Option<SharedFormula>>,
