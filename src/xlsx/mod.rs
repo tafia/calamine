@@ -308,7 +308,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
                     let (rel_type, target) =
                         get_attrs!(e, b"Type" => rel_type, b"Target" => target)?;
-                    if rel_type == Some(b"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument".as_slice()) {
+                    let is_office_doc = rel_type
+                        .map(|t| t.ends_with(b"/relationships/officeDocument"))
+                        .unwrap_or(false);
+                    if is_office_doc {
                         if let Some(target) = target {
                             document_target = Some(decode_attr(&xml.decoder(), target)?);
                         }
