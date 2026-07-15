@@ -10,7 +10,7 @@ use crate::vba::VbaProject;
 use crate::Picture;
 use crate::{
     open_workbook, open_workbook_from_rs, Data, DataRef, HeaderRow, Metadata, Ods, Range, Reader,
-    ReaderRef, Xls, Xlsb, Xlsx,
+    ReaderRef, StyleRange, Xls, Xlsb, Xlsx,
 };
 
 use std::fs::File;
@@ -144,6 +144,16 @@ where
             Sheets::Xlsx(e) => e.worksheet_formula(name).map_err(Error::Xlsx),
             Sheets::Xlsb(e) => e.worksheet_formula(name).map_err(Error::Xlsb),
             Sheets::Ods(e) => e.worksheet_formula(name).map_err(Error::Ods),
+        }
+    }
+
+    /// Get the cell styles for the worksheet with the given name.
+    fn worksheet_style(&mut self, name: &str) -> Result<StyleRange, Self::Error> {
+        match self {
+            Sheets::Xls(e) => e.worksheet_style(name).map_err(Error::Xls),
+            Sheets::Xlsx(e) => e.worksheet_style(name).map_err(Error::Xlsx),
+            Sheets::Xlsb(e) => e.worksheet_style(name).map_err(Error::Xlsb),
+            Sheets::Ods(e) => e.worksheet_style(name).map_err(Error::Ods),
         }
     }
 

@@ -407,7 +407,10 @@ Many (most) parts of the specifications are not implemented, the focus has been 
 The main unsupported items are:
 
 - no support for writing excel files, this is a read-only library
-- no support for reading extra content, such as formatting, excel parameter, encrypted components etc ...
+- limited support for reading cell formatting: XLSX cell styles (font, fill,
+  borders, alignment and number format) can be read with `worksheet_style()`,
+  but there is no formatting support for the other file formats, or for other
+  extra content such as excel parameters, encrypted components etc ...
 - no support for reading VB for opendocuments
 
 ## Credits
