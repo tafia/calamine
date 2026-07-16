@@ -3580,3 +3580,10 @@ fn too_small_xls() {
         Ok(_) | Err(_) => panic!("Is expected to return CfbError::Ole(_) error"),
     }
 }
+
+// Test for xlsx file with strict ISO/IEC 29500 relationship paths.
+// See issue #680.
+#[test]
+fn test_xlsx_strict_iso_paths() {
+    let _: Xlsx<_> = wb("strict_iso_paths.xlsx");
+}
