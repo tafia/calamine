@@ -4763,3 +4763,913 @@ fn test_cf_dxf_resolution() {
     assert_eq!(font2.color, Some(Color::new(255, 0x9C, 0x65, 0x00)));
     assert!(fmt2.fill.is_none());
 }
+
+// -----------------------------------------------------------------------
+// Chart tests
+// -----------------------------------------------------------------------
+
+use calamine::{
+    Chart, ChartAxisCrosses, ChartAxisPosition, ChartAxisType, ChartBar3dShape,
+    ChartCrossBetween, ChartDataLabelPosition, ChartDisplayBlanksAs, ChartDisplayUnits,
+    ChartEditAs, ChartErrorBarsDirection, ChartErrorBarsType, ChartErrorBarsValueType,
+    ChartExParentLabelLayout, ChartExQuartileMethod, ChartFill, ChartLegendPosition,
+    ChartLineDashType, ChartMarkerType, ChartOfPieSplitType, ChartSizeRepresents,
+    ChartTickLabelPosition, ChartTickMark, ChartTrendlineType, ChartType, ThemeColors,
+};
+
+fn charts() -> Vec<Chart> {
+    let mut xlsx: Xlsx<_> = wb("charts.xlsx");
+    xlsx.worksheet_charts("Sheet1").unwrap()
+}
+
+#[test]
+fn test_chart_count_and_names() {
+    let charts = charts();
+    assert_eq!(charts.len(), 23);
+    assert_eq!(charts[0].name.as_deref(), Some("Chart 1"));
+    assert_eq!(charts[15].name.as_deref(), Some("Chart 16"));
+    assert_eq!(charts[18].name.as_deref(), Some("ChartEx 1"));
+}
+
+#[test]
+fn test_chart_types() {
+    let charts = charts();
+    let types: Vec<ChartType> = charts.iter().map(|c| c.chart_type()).collect();
+    assert_eq!(
+        types,
+        vec![
+            ChartType::Column,
+            ChartType::BarStacked,
+            ChartType::Line,
+            ChartType::Pie,
+            ChartType::ScatterSmoothWithMarkers,
+            ChartType::Doughnut,
+            ChartType::RadarWithMarkers,
+            ChartType::Bubble,
+            ChartType::AreaPercentStacked,
+            ChartType::Column3D,
+            ChartType::Pie3D,
+            ChartType::Line3D,
+            ChartType::Surface3D,
+            ChartType::ContourWireframe,
+            ChartType::Column, // combo chart: first group is a column chart
+            ChartType::Stock,
+            ChartType::PieOfPie,
+            ChartType::BarOfPie,
+            ChartType::Funnel,
+            ChartType::Pareto,
+            ChartType::Treemap,
+            ChartType::Waterfall,
+            ChartType::BoxWhisker,
+        ]
+    );
+    // 3D and chart-ex detection.
+    assert!(!ChartType::Column.is_3d());
+    assert!(ChartType::Column3D.is_3d());
+    assert!(ChartType::Contour.is_3d());
+    assert!(ChartType::Funnel.is_chart_ex());
+    assert!(!ChartType::Pie.is_chart_ex());
+}
+
+#[test]
+fn test_chart_column_series_and_data() {
+    let charts = charts();
+    let chart = &charts[0];
+    assert_eq!(chart.style, Some(7));
+
+    let series: Vec<_> = chart.series().collect();
+    assert_eq!(series.len(), 2);
+
+    let north = series[0];
+    assert_eq!(north.index, Some(0));
+    assert_eq!(north.name_text(), Some("North"));
+    assert_eq!(
+        north.name.as_ref().unwrap().formula.as_deref(),
+        Some("Sheet1!$B$1")
+    );
+
+    let cats = north.categories.as_ref().unwrap();
+    assert_eq!(cats.formula.as_deref(), Some("Sheet1!$A$2:$A$5"));
+    assert_eq!(
+        cats.values,
+        vec![
+            String("Apples".to_string()),
+            String("Pears".to_string()),
+            String("Grapes".to_string()),
+            String("Bananas".to_string()),
+        ]
+    );
+
+    let vals = north.values.as_ref().unwrap();
+    assert_eq!(vals.formula.as_deref(), Some("Sheet1!$B$2:$B$5"));
+    assert_eq!(
+        vals.values,
+        vec![Float(10.), Float(15.), Float(20.), Float(25.)]
+    );
+    assert_eq!(vals.number_format.as_deref(), Some("General"));
+
+    // Group-level layout options.
+    let group = &chart.groups[0];
+    assert_eq!(group.gap_width, Some(150));
+    assert_eq!(group.overlap, Some(-10));
+    assert_eq!(group.vary_colors, Some(false));
+    assert_eq!(group.axis_ids, vec![1001, 1002]);
+}
+
+#[test]
+fn test_chart_series_formatting() {
+    let charts = charts();
+    let north = charts[0].series().next().unwrap();
+
+    let format = north.format.as_ref().unwrap();
+    assert_eq!(
+        format.fill,
+        Some(ChartFill::Solid(Color::rgb(0xFF, 0x00, 0x00)))
+    );
+    let line = format.line.as_ref().unwrap();
+    assert_eq!(line.color, Some(Color::rgb(0x00, 0x00, 0x80)));
+    assert_eq!(line.width, Some(2.25)); // 28575 EMU
+    assert_eq!(north.invert_if_negative, Some(false));
+}
+
+#[test]
+fn test_chart_title_and_legend() {
+    let charts = charts();
+    let chart = &charts[0];
+
+    let title = chart.title.as_ref().unwrap();
+    assert_eq!(title.text().as_deref(), Some("Sales by Region"));
+    assert!(!title.overlay);
+
+    let legend = chart.legend.as_ref().unwrap();
+    assert_eq!(legend.position, ChartLegendPosition::Bottom);
+    assert!(!legend.overlay);
+}
+
+#[test]
+fn test_chart_axes() {
+    let charts = charts();
+    let chart = &charts[0];
+    assert_eq!(chart.axes.len(), 2);
+
+    let x = chart.x_axis().unwrap();
+    assert_eq!(x.axis_type, ChartAxisType::Category);
+    assert_eq!(x.id, Some(1001));
+    assert_eq!(x.position, Some(ChartAxisPosition::Bottom));
+    assert_eq!(
+        x.title.as_ref().unwrap().text().as_deref(),
+        Some("Fruit")
+    );
+    assert!(!x.hidden);
+
+    let y = chart.y_axis().unwrap();
+    assert_eq!(y.axis_type, ChartAxisType::Value);
+    assert_eq!(y.id, Some(1002));
+    assert_eq!(y.position, Some(ChartAxisPosition::Left));
+    assert_eq!(y.title.as_ref().unwrap().text().as_deref(), Some("Amount"));
+    assert_eq!(y.min, Some(0.0));
+    assert_eq!(y.max, Some(60.0));
+    assert_eq!(y.major_unit, Some(10.0));
+    assert_eq!(y.number_format.as_deref(), Some("0.00"));
+    assert!(y.major_gridlines);
+    assert!(!y.minor_gridlines);
+}
+
+#[test]
+fn test_chart_positions() {
+    let charts = charts();
+
+    // twoCellAnchor: no explicit editAs means the "twoCell" default.
+    let pos = charts[0].position.unwrap();
+    let from = pos.from.unwrap();
+    assert_eq!((from.col, from.row), (0, 0));
+    let to = pos.to.unwrap();
+    assert_eq!((to.col, to.row), (8, 15));
+    assert_eq!(to.col_offset, 190500);
+    assert_eq!(to.row_offset, 95250);
+    assert_eq!(pos.edit_as, Some(ChartEditAs::TwoCell));
+
+    // twoCellAnchor with an explicit editAs attribute.
+    let pos = charts[3].position.unwrap();
+    assert_eq!(pos.edit_as, Some(ChartEditAs::OneCell));
+
+    // oneCellAnchor: from + extent, no editAs.
+    let pos = charts[1].position.unwrap();
+    let from = pos.from.unwrap();
+    assert_eq!((from.col, from.row), (5, 1));
+    assert!(pos.to.is_none());
+    assert_eq!(pos.width, Some(5486400));
+    assert_eq!(pos.height, Some(3200400));
+    assert_eq!(pos.edit_as, None);
+
+    // absoluteAnchor: position + extent, no editAs.
+    let pos = charts[2].position.unwrap();
+    assert!(pos.from.is_none());
+    assert_eq!(pos.x, Some(1905000));
+    assert_eq!(pos.y, Some(952500));
+    assert_eq!(pos.width, Some(8666820));
+    assert_eq!(pos.height, Some(6280921));
+    assert_eq!(pos.edit_as, None);
+}
+
+#[test]
+fn test_chart_line_marker_and_dash() {
+    let charts = charts();
+    let series = charts[2].series().next().unwrap();
+
+    let line = series.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(line.color, Some(Color::rgb(0x00, 0xB0, 0x50)));
+    assert_eq!(line.width, Some(1.5)); // 19050 EMU
+    assert_eq!(line.dash_type, Some(ChartLineDashType::Dash));
+
+    let marker = series.marker.as_ref().unwrap();
+    assert_eq!(marker.marker_type, ChartMarkerType::Circle);
+    assert_eq!(marker.size, Some(7));
+    assert_eq!(
+        marker.format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0xFF, 0xC0, 0x00)))
+    );
+
+    assert_eq!(series.smooth, Some(true));
+}
+
+#[test]
+fn test_chart_pie_data_points() {
+    let charts = charts();
+    let chart = &charts[3];
+    assert_eq!(chart.chart_type(), ChartType::Pie);
+
+    let group = &chart.groups[0];
+    assert_eq!(group.first_slice_angle, Some(90));
+    assert_eq!(group.vary_colors, Some(true));
+
+    let series = chart.series().next().unwrap();
+    assert_eq!(series.points.len(), 2);
+    assert_eq!(series.points[0].index, 0);
+    assert_eq!(
+        series.points[0].format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0x44, 0x72, 0xC4)))
+    );
+    assert_eq!(series.points[1].index, 1);
+    assert_eq!(
+        series.points[1].format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0xED, 0x7D, 0x31)))
+    );
+
+    assert_eq!(
+        chart.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Right
+    );
+}
+
+#[test]
+fn test_chart_scatter_and_bubble() {
+    let charts = charts();
+
+    // Scatter uses xVal/yVal and two value axes.
+    let scatter = &charts[4];
+    let series = scatter.series().next().unwrap();
+    assert_eq!(
+        series.categories.as_ref().unwrap().formula.as_deref(),
+        Some("Sheet1!$B$2:$B$5")
+    );
+    assert_eq!(
+        series.values.as_ref().unwrap().formula.as_deref(),
+        Some("Sheet1!$C$2:$C$5")
+    );
+    assert_eq!(scatter.axes.len(), 2);
+    assert_eq!(scatter.x_axis().unwrap().id, Some(5001));
+    assert_eq!(scatter.y_axis().unwrap().id, Some(5002));
+
+    // Bubble sizes.
+    let bubble = &charts[7];
+    let series = bubble.series().next().unwrap();
+    let sizes = series.bubble_sizes.as_ref().unwrap();
+    assert_eq!(sizes.formula.as_deref(), Some("Sheet1!$D$2:$D$5"));
+    assert_eq!(
+        sizes.values,
+        vec![Float(1.), Float(2.), Float(3.), Float(4.)]
+    );
+    assert_eq!(bubble.groups[0].bubble_scale, Some(100));
+}
+
+#[test]
+fn test_chart_doughnut_hole() {
+    let charts = charts();
+    assert_eq!(charts[5].groups[0].hole_size, Some(60));
+}
+
+#[test]
+fn test_chart_3d_view() {
+    let charts = charts();
+
+    // 3D column.
+    let column3d = &charts[9];
+    assert_eq!(
+        column3d.title.as_ref().unwrap().text().as_deref(),
+        Some("3D Column")
+    );
+    let view = column3d.view_3d.as_ref().unwrap();
+    assert_eq!(view.rot_x, Some(15));
+    assert_eq!(view.rot_y, Some(20));
+    assert_eq!(view.depth_percent, Some(100));
+    assert_eq!(view.right_angle_axes, Some(true));
+    assert_eq!(view.perspective, None);
+    assert_eq!(column3d.groups[0].gap_depth, Some(80));
+    // Clustered 3D bar/column writes the third axis id as 0.
+    assert_eq!(column3d.groups[0].axis_ids, vec![10001, 10002, 0]);
+
+    // 3D pie: perspective is stored as 2x degrees in the file (60 -> 30).
+    let pie3d = &charts[10];
+    let view = pie3d.view_3d.as_ref().unwrap();
+    assert_eq!(view.rot_x, Some(30));
+    assert_eq!(view.right_angle_axes, Some(false));
+    assert_eq!(view.perspective, Some(30));
+}
+
+#[test]
+fn test_chart_3d_series_axis() {
+    let charts = charts();
+
+    // 3D line has a series (depth) axis.
+    let line3d = &charts[11];
+    assert_eq!(line3d.axes.len(), 3);
+    let ser_ax = line3d.series_axis().unwrap();
+    assert_eq!(ser_ax.axis_type, ChartAxisType::Series);
+    assert_eq!(ser_ax.id, Some(12003));
+    assert_eq!(line3d.groups[0].gap_depth, Some(100));
+
+    // Surface3D also plots along a series axis.
+    let surface = &charts[12];
+    assert_eq!(surface.chart_type(), ChartType::Surface3D);
+    assert_eq!(surface.axes.len(), 3);
+    assert_eq!(surface.series().count(), 2);
+
+    // Contour is a surfaceChart with a top-down 3D view.
+    let contour = &charts[13];
+    assert_eq!(contour.chart_type(), ChartType::ContourWireframe);
+    assert_eq!(contour.view_3d.as_ref().unwrap().rot_x, Some(90));
+}
+
+#[test]
+fn test_chart_combo_gradient_and_fonts() {
+    let charts = charts();
+    let combo = &charts[14];
+
+    // Two plot groups sharing axes.
+    assert_eq!(combo.groups.len(), 2);
+    assert_eq!(combo.groups[0].chart_type, ChartType::Column);
+    assert_eq!(combo.groups[1].chart_type, ChartType::Line);
+    assert_eq!(combo.groups[0].axis_ids, combo.groups[1].axis_ids);
+    assert_eq!(combo.series().count(), 2);
+
+    // Gradient fill on the column series, with its linear angle.
+    let bar_format = combo.groups[0].series[0].format.as_ref().unwrap();
+    match bar_format.fill.as_ref().unwrap() {
+        ChartFill::Gradient(stops) => {
+            assert_eq!(stops.len(), 2);
+            assert_eq!(stops[0].position, 0.0);
+            assert_eq!(stops[0].color, Color::rgb(0xFF, 0x00, 0x00));
+            assert_eq!(stops[1].position, 100.0);
+            assert_eq!(stops[1].color, Color::rgb(0x00, 0x00, 0xFF));
+        }
+        other => panic!("expected gradient fill, got {other:?}"),
+    }
+    assert_eq!(bar_format.gradient_angle, Some(90.0)); // 5400000 / 60000
+
+    // Rich text title formatting.
+    let title = combo.title.as_ref().unwrap();
+    assert_eq!(title.text().as_deref(), Some("Combo"));
+    let font = title.font.as_ref().unwrap();
+    assert!(font.is_bold());
+    assert_eq!(font.size, Some(18.0));
+    assert_eq!(font.color, Some(Color::rgb(0xC0, 0x00, 0x00)));
+    assert_eq!(font.name.as_deref(), Some("Arial"));
+
+    // Axis label font and text rotation (-2700000 / 60000 = -45 deg).
+    let x = combo.x_axis().unwrap();
+    assert_eq!(x.font.as_ref().unwrap().size, Some(9.0));
+    assert_eq!(x.text_rotation, Some(-45.0));
+
+    // Legend at the top.
+    assert_eq!(
+        combo.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Top
+    );
+}
+
+#[test]
+fn test_chart_stock_and_scheme_color() {
+    let charts = charts();
+    let stock = &charts[15];
+    assert_eq!(stock.chart_type(), ChartType::Stock);
+    assert_eq!(stock.series().count(), 3);
+
+    // schemeClr accent1 resolves against the default theme palette.
+    let line = stock.groups[0].series[0]
+        .format
+        .as_ref()
+        .unwrap()
+        .line
+        .as_ref()
+        .unwrap();
+    assert_eq!(line.color, Some(Color::rgb(79, 129, 189)));
+}
+
+#[test]
+fn test_chart_by_sheet_index_and_missing_sheet() {
+    let mut xlsx: Xlsx<_> = wb("charts.xlsx");
+    let charts = xlsx.worksheet_charts_at(0).unwrap().unwrap();
+    assert_eq!(charts.len(), 23);
+    assert!(xlsx.worksheet_charts_at(99).is_none());
+    assert!(xlsx.worksheet_charts("NoSuchSheet").is_err());
+
+    // A workbook without drawings returns an empty vector.
+    let mut plain: Xlsx<_> = wb("temperature.xlsx");
+    assert_eq!(plain.worksheet_charts("Sheet1").unwrap().len(), 0);
+}
+
+#[test]
+fn test_chart_excel_generated_chartsheet() {
+    // issue438.xlsx contains a real Excel-generated pie chart on a chartsheet.
+    let mut xlsx: Xlsx<_> = wb("issue438.xlsx");
+    let charts = xlsx.worksheet_charts("Chart1").unwrap();
+    assert_eq!(charts.len(), 1);
+
+    let chart = &charts[0];
+    assert_eq!(chart.chart_type(), ChartType::Pie);
+    assert_eq!(chart.name.as_deref(), Some("Chart 1"));
+
+    let series: Vec<_> = chart.series().collect();
+    assert_eq!(series.len(), 2);
+    assert_eq!(series[0].name_text(), Some("x"));
+    assert_eq!(series[1].name_text(), Some("y"));
+    let values = series[0].values.as_ref().unwrap();
+    assert_eq!(values.formula.as_deref(), Some("Sheet1!$A$2:$A$5"));
+    assert_eq!(
+        values.values,
+        vec![Float(1.), Float(2.), Float(3.), Float(4.)]
+    );
+    assert_eq!(
+        chart.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Bottom
+    );
+}
+
+#[test]
+fn test_chart_data_labels() {
+    let charts = charts();
+
+    // Column series: value labels outside end with number format and font.
+    let labels = charts[0]
+        .series()
+        .next()
+        .unwrap()
+        .data_labels
+        .as_ref()
+        .unwrap();
+    assert!(labels.show_value);
+    assert!(!labels.show_category_name);
+    assert_eq!(labels.position, Some(ChartDataLabelPosition::OutsideEnd));
+    assert_eq!(labels.number_format.as_deref(), Some("#,##0"));
+    let font = labels.font.as_ref().unwrap();
+    assert!(font.is_bold());
+    assert_eq!(font.size, Some(8.0));
+
+    // Pie series: category name + percentage, best fit.
+    let labels = charts[3]
+        .series()
+        .next()
+        .unwrap()
+        .data_labels
+        .as_ref()
+        .unwrap();
+    assert!(labels.show_category_name);
+    assert!(labels.show_percent);
+    assert!(!labels.show_value);
+    assert_eq!(labels.position, Some(ChartDataLabelPosition::BestFit));
+}
+
+#[test]
+fn test_chart_trendlines() {
+    let charts = charts();
+
+    // Linear trendline with name, forecast and R² / equation display.
+    let series = charts[0].series().next().unwrap();
+    assert_eq!(series.trendlines.len(), 1);
+    let trend = &series.trendlines[0];
+    assert_eq!(trend.trendline_type, ChartTrendlineType::Linear);
+    assert_eq!(trend.name.as_deref(), Some("North trend"));
+    assert_eq!(trend.forward, Some(2.0));
+    assert_eq!(trend.backward, Some(0.5));
+    assert!(trend.display_equation);
+    assert!(trend.display_r_squared);
+    let line = trend.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(line.color, Some(Color::rgb(0x70, 0x30, 0xA0)));
+    assert_eq!(line.dash_type, Some(ChartLineDashType::SystemDot));
+
+    // Moving average trendline on the line chart.
+    let series = charts[2].series().next().unwrap();
+    assert_eq!(series.trendlines.len(), 1);
+    let trend = &series.trendlines[0];
+    assert_eq!(trend.trendline_type, ChartTrendlineType::MovingAverage);
+    assert_eq!(trend.period, Some(2));
+}
+
+#[test]
+fn test_chart_error_bars() {
+    let charts = charts();
+    let series = charts[2].series().next().unwrap();
+    assert_eq!(series.error_bars.len(), 1);
+    let bars = &series.error_bars[0];
+    assert_eq!(bars.direction, Some(ChartErrorBarsDirection::Y));
+    assert_eq!(bars.error_type, ChartErrorBarsType::Both);
+    assert_eq!(bars.value_type, ChartErrorBarsValueType::StandardError);
+    assert!(!bars.no_end_cap);
+}
+
+#[test]
+fn test_chart_axis_options() {
+    let charts = charts();
+    let chart = &charts[0];
+
+    let x = chart.x_axis().unwrap();
+    assert_eq!(x.major_tick_mark, Some(ChartTickMark::Outside));
+    assert_eq!(x.minor_tick_mark, Some(ChartTickMark::None));
+    assert_eq!(x.tick_label_position, Some(ChartTickLabelPosition::NextTo));
+    assert_eq!(x.crosses, Some(ChartAxisCrosses::AutoZero));
+    assert_eq!(x.label_offset, Some(100));
+    assert_eq!(x.tick_label_skip, Some(1));
+    assert_eq!(x.tick_mark_skip, Some(2));
+
+    let y = chart.y_axis().unwrap();
+    assert_eq!(y.major_tick_mark, Some(ChartTickMark::Cross));
+    assert_eq!(y.tick_label_position, Some(ChartTickLabelPosition::High));
+    assert_eq!(y.crosses, Some(ChartAxisCrosses::At));
+    assert_eq!(y.crosses_at, Some(1.0));
+    assert_eq!(y.cross_between, Some(ChartCrossBetween::Between));
+    assert_eq!(y.display_units, Some(ChartDisplayUnits::Thousands));
+    assert!(y.display_units_label);
+
+    // Chart-level blank handling.
+    assert_eq!(chart.display_blanks_as, Some(ChartDisplayBlanksAs::Gap));
+}
+
+#[test]
+fn test_chart_group_lines_and_bars() {
+    let charts = charts();
+
+    // Drop lines on the line chart.
+    let line_group = &charts[2].groups[0];
+    assert_eq!(line_group.show_marker, Some(true));
+    let drop = line_group.drop_lines.as_ref().unwrap();
+    let drop_line = drop.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(drop_line.color, Some(Color::rgb(0x80, 0x80, 0x80)));
+
+    // High-low lines and up/down bars on the stock chart.
+    let stock_group = &charts[15].groups[0];
+    let hi_low = stock_group.hi_low_lines.as_ref().unwrap();
+    let hi_low_line = hi_low.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(hi_low_line.color, Some(Color::rgb(0x33, 0x33, 0x33)));
+
+    let bars = stock_group.up_down_bars.as_ref().unwrap();
+    assert_eq!(bars.gap_width, Some(150));
+    assert_eq!(
+        bars.up_format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0x00, 0xB0, 0x50)))
+    );
+    assert_eq!(
+        bars.down_format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0xFF, 0x00, 0x00)))
+    );
+}
+
+#[test]
+fn test_chart_pie_of_pie_split() {
+    let charts = charts();
+    let chart = &charts[16];
+    assert_eq!(chart.chart_type(), ChartType::PieOfPie);
+
+    let group = &chart.groups[0];
+    assert_eq!(group.split_type, Some(ChartOfPieSplitType::Position));
+    assert_eq!(group.split_position, Some(2.0));
+    assert_eq!(group.second_pie_size, Some(75));
+    assert_eq!(group.gap_width, Some(100));
+    assert!(group.series_lines.is_some());
+}
+
+#[test]
+fn test_chart_bubble_and_3d_options() {
+    let charts = charts();
+
+    // Bubble options.
+    let bubble_group = &charts[7].groups[0];
+    assert_eq!(
+        bubble_group.size_represents,
+        Some(ChartSizeRepresents::Width)
+    );
+    assert_eq!(bubble_group.show_negative_bubbles, Some(false));
+    assert_eq!(charts[7].series().next().unwrap().bubble_3d, Some(true));
+
+    // 3D column bar shape.
+    assert_eq!(
+        charts[9].groups[0].shape,
+        Some(ChartBar3dShape::Cylinder)
+    );
+
+    // Pie slice explosion.
+    assert_eq!(charts[3].series().next().unwrap().explosion, Some(25));
+}
+
+#[test]
+fn test_chart_data_table() {
+    let charts = charts();
+    let table = charts[14].data_table.as_ref().unwrap();
+    assert!(table.show_horizontal_border);
+    assert!(table.show_vertical_border);
+    assert!(table.show_outline);
+    assert!(table.show_legend_keys);
+}
+
+#[test]
+fn test_chartex_funnel() {
+    let charts = charts();
+    let funnel = &charts[18];
+    assert_eq!(funnel.chart_type(), ChartType::Funnel);
+    assert_eq!(funnel.name.as_deref(), Some("ChartEx 1"));
+    assert_eq!(
+        funnel.title.as_ref().unwrap().text().as_deref(),
+        Some("Funnel")
+    );
+
+    let series: Vec<_> = funnel.series().collect();
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].name_text(), Some("North"));
+
+    let cats = series[0].categories.as_ref().unwrap();
+    assert_eq!(cats.formula.as_deref(), Some("Sheet1!$A$2:$A$5"));
+    assert_eq!(
+        cats.values,
+        vec![
+            String("Apples".to_string()),
+            String("Pears".to_string()),
+            String("Grapes".to_string()),
+            String("Bananas".to_string()),
+        ]
+    );
+    let vals = series[0].values.as_ref().unwrap();
+    assert_eq!(vals.formula.as_deref(), Some("Sheet1!$B$2:$B$5"));
+    assert_eq!(
+        vals.values,
+        vec![Float(10.), Float(15.), Float(20.), Float(25.)]
+    );
+
+    assert_eq!(
+        funnel.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Bottom
+    );
+}
+
+#[test]
+fn test_chartex_pareto() {
+    let charts = charts();
+    let pareto = &charts[19];
+    // clusteredColumn + paretoLine series resolve to a Pareto chart.
+    assert_eq!(pareto.chart_type(), ChartType::Pareto);
+    assert_eq!(pareto.groups.len(), 2);
+    assert_eq!(pareto.groups[0].chart_type, ChartType::Pareto);
+    assert_eq!(pareto.groups[1].chart_type, ChartType::Pareto);
+
+    // The histogram bars reference the shared literal data.
+    let bars = &pareto.groups[0].series[0];
+    assert_eq!(
+        bars.values.as_ref().unwrap().values,
+        vec![Float(10.), Float(15.), Float(20.), Float(25.)]
+    );
+
+    // The chart-ex axes are parsed with inferred types.
+    assert_eq!(pareto.axes.len(), 2);
+    assert_eq!(pareto.axes[0].axis_type, ChartAxisType::Category);
+    assert_eq!(pareto.axes[1].axis_type, ChartAxisType::Value);
+    assert_eq!(pareto.axes[1].min, Some(0.0));
+    assert_eq!(pareto.axes[1].max, Some(100.0));
+    assert!(pareto.axes[1].major_gridlines);
+}
+
+#[test]
+fn test_theme_colors() {
+    // charts.xlsx has no theme part: the default Office palette applies.
+    let mut xlsx: Xlsx<_> = wb("charts.xlsx");
+    let theme = xlsx.theme_colors();
+    assert_eq!(theme, ThemeColors::default());
+    assert_eq!(theme.accent1, Color::rgb(79, 129, 189));
+    assert_eq!(theme.accents()[0], theme.accent1);
+    assert_eq!(theme.accents()[5], theme.accent6);
+
+    // issue438.xlsx carries a real Excel theme.
+    let mut xlsx: Xlsx<_> = wb("issue438.xlsx");
+    let theme = xlsx.theme_colors();
+    assert_eq!(theme.dark1, Color::rgb(0x00, 0x00, 0x00));
+    assert_eq!(theme.light1, Color::rgb(0xFF, 0xFF, 0xFF));
+    assert_eq!(theme.dark2, Color::rgb(0x0E, 0x28, 0x41));
+    assert_eq!(theme.light2, Color::rgb(0xE8, 0xE8, 0xE8));
+    assert_eq!(theme.accent1, Color::rgb(0x15, 0x60, 0x82));
+    assert_eq!(theme.accent2, Color::rgb(0xE9, 0x71, 0x32));
+    assert_eq!(theme.accent6, Color::rgb(0x4E, 0xA7, 0x2E));
+    assert_eq!(theme.hyperlink, Color::rgb(0x46, 0x78, 0x86));
+    assert_eq!(theme.followed_hyperlink, Color::rgb(0x96, 0x60, 0x7D));
+    // The cached palette returns the same result on a second call.
+    assert_eq!(xlsx.theme_colors(), theme);
+}
+
+#[test]
+fn test_chart_axis_crossing_partner() {
+    let charts = charts();
+    let chart = &charts[0];
+    let x = chart.x_axis().unwrap();
+    let y = chart.y_axis().unwrap();
+    assert_eq!(x.id, Some(1001));
+    assert_eq!(x.crosses_axis_id, Some(1002));
+    assert_eq!(y.id, Some(1002));
+    assert_eq!(y.crosses_axis_id, Some(1001));
+}
+
+#[test]
+fn test_chart_multi_level_categories() {
+    let charts = charts();
+
+    // The stacked bar chart uses a two-level multiLvlStrCache.
+    let cats = charts[1]
+        .series()
+        .next()
+        .unwrap()
+        .categories
+        .as_ref()
+        .unwrap();
+    assert_eq!(cats.formula.as_deref(), Some("Sheet1!$A$2:$B$5"));
+    assert_eq!(cats.levels.len(), 2);
+    // The innermost (leaf) level is mirrored into values.
+    assert_eq!(cats.values, cats.levels[0]);
+    assert_eq!(
+        cats.levels[0],
+        vec![
+            String("Apples".to_string()),
+            String("Pears".to_string()),
+            String("Grapes".to_string()),
+            String("Bananas".to_string()),
+        ]
+    );
+    // The outer level is sparse; omitted points are Empty.
+    assert_eq!(
+        cats.levels[1],
+        vec![
+            String("Fruit".to_string()),
+            Empty,
+            String("Tropical".to_string()),
+            Empty,
+        ]
+    );
+
+    // Single-level sources keep levels empty.
+    let cats = charts[0]
+        .series()
+        .next()
+        .unwrap()
+        .categories
+        .as_ref()
+        .unwrap();
+    assert!(cats.levels.is_empty());
+}
+
+#[test]
+fn test_chartex_treemap_hierarchy_and_labels() {
+    let charts = charts();
+    let treemap = &charts[20];
+    assert_eq!(treemap.chart_type(), ChartType::Treemap);
+
+    let series = treemap.series().next().unwrap();
+    let cats = series.categories.as_ref().unwrap();
+    assert_eq!(cats.levels.len(), 2);
+    assert_eq!(cats.values, cats.levels[0]);
+    assert_eq!(
+        cats.levels[1],
+        vec![
+            String("Fruit".to_string()),
+            Empty,
+            String("Tropical".to_string()),
+            Empty,
+        ]
+    );
+
+    let layout = series.chart_ex.as_ref().unwrap();
+    assert_eq!(
+        layout.parent_label_layout,
+        Some(ChartExParentLabelLayout::Banner)
+    );
+}
+
+#[test]
+fn test_chartex_layout_options() {
+    let charts = charts();
+
+    // Pareto histogram bars: binning.
+    let bars = &charts[19].groups[0].series[0];
+    let layout = bars.chart_ex.as_ref().unwrap();
+    assert_eq!(layout.bin_count, Some(4));
+    assert_eq!(layout.bin_size, None);
+    assert_eq!(layout.overflow, Some(40.0));
+    assert_eq!(layout.underflow, Some(5.0));
+
+    // Waterfall: connector lines and subtotal points.
+    let waterfall = &charts[21];
+    assert_eq!(waterfall.chart_type(), ChartType::Waterfall);
+    let layout = waterfall
+        .series()
+        .next()
+        .unwrap()
+        .chart_ex
+        .as_ref()
+        .unwrap();
+    assert_eq!(layout.connector_lines, Some(true));
+    assert_eq!(layout.subtotals, vec![0, 3]);
+
+    // Box & whisker: statistics and element visibility.
+    let box_whisker = &charts[22];
+    assert_eq!(box_whisker.chart_type(), ChartType::BoxWhisker);
+    let layout = box_whisker
+        .series()
+        .next()
+        .unwrap()
+        .chart_ex
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        layout.quartile_method,
+        Some(ChartExQuartileMethod::Exclusive)
+    );
+    assert_eq!(layout.mean_line, Some(false));
+    assert_eq!(layout.mean_marker, Some(true));
+    assert_eq!(layout.non_outliers, Some(false));
+    assert_eq!(layout.outliers, Some(true));
+
+    // Classic chart series carry no chart-ex layout.
+    assert!(charts[0].series().next().unwrap().chart_ex.is_none());
+}
+
+#[test]
+fn test_chart_bar_of_pie_custom_split() {
+    let charts = charts();
+    let chart = &charts[17];
+    assert_eq!(chart.chart_type(), ChartType::BarOfPie);
+
+    let group = &chart.groups[0];
+    assert_eq!(group.split_type, Some(ChartOfPieSplitType::Custom));
+    assert_eq!(group.custom_split, vec![2, 3]);
+    assert_eq!(group.split_position, None);
+    assert_eq!(group.second_pie_size, Some(70));
+
+    // The pie-of-pie chart uses a positional split: no custom points.
+    assert!(charts[16].groups[0].custom_split.is_empty());
+}
+
+#[test]
+fn test_chart_per_point_data_labels() {
+    let charts = charts();
+    let labels = charts[0]
+        .series()
+        .next()
+        .unwrap()
+        .data_labels
+        .as_ref()
+        .unwrap();
+
+    assert_eq!(labels.point_labels.len(), 2);
+
+    // Point 1: label deleted.
+    let deleted = &labels.point_labels[0];
+    assert_eq!(deleted.index, 1);
+    assert!(deleted.delete);
+    assert_eq!(deleted.text, None);
+
+    // Point 2: custom text and position override.
+    let custom = &labels.point_labels[1];
+    assert_eq!(custom.index, 2);
+    assert!(!custom.delete);
+    assert_eq!(custom.text.as_deref(), Some("Peak"));
+    assert_eq!(custom.position, Some(ChartDataLabelPosition::InsideEnd));
+}
+
+#[test]
+fn test_chart_space_flags() {
+    let charts = charts();
+
+    let chart = &charts[0];
+    assert_eq!(chart.plot_visible_only, Some(true));
+    assert_eq!(chart.show_data_labels_over_max, Some(false));
+    assert_eq!(chart.date_1904, Some(false));
+    assert_eq!(chart.auto_title_deleted, None);
+
+    // The pie chart deleted its automatic title.
+    assert_eq!(charts[3].auto_title_deleted, Some(true));
+    assert!(charts[3].title.is_none());
+}

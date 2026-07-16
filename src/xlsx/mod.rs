@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod cells_reader;
+mod chart_parser;
 mod style_parser;
 
 use std::collections::{BTreeMap, HashMap};
@@ -24,6 +25,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::attrs::{decode_attr, local_name_matches, RawAttributes};
+use crate::chart::Chart;
 use crate::conditional_format::{
     CfOperator, CfTextOperator, CfValueObject, CfValueObjectType, ConditionalFormatRule,
     ConditionalFormatRuleType, ConditionalFormatting, IconSetType, TimePeriodType,
@@ -32,7 +34,7 @@ use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::style::{
     Color, ColumnWidth, Font, FontStyle, FontWeight, NumberFormat, RichText, RowHeight, StyleRange,
-    TextRun, UnderlineStyle, WorksheetLayout,
+    TextRun, ThemeColors, UnderlineStyle, WorksheetLayout,
 };
 use crate::utils::{
     build_zip_path_cache, cached_zip_path, unescape_entity_to_buffer, unescape_xml,
@@ -288,6 +290,10 @@ pub struct Xlsx<RS> {
     options: XlsxOptions,
     /// Cached ZIP path lookups (lowercased normalized -> original).
     zip_path_cache: HashMap<String, String>,
+    /// Cached theme palette in theme-index order (lt1, dk1, lt2, dk2,
+    /// accent1-6, hlink, folHlink), parsed once from
+    /// `xl/theme/theme1.xml`.
+    theme_palette: Option<Vec<Color>>,
 }
 
 /// Xlsx reader options
@@ -391,10 +397,44 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     fn read_theme_colors(&mut self) -> Vec<Color> {
-        match xml_reader(&mut self.zip, "xl/theme/theme1.xml", &self.zip_path_cache) {
-            Some(Ok(mut xml)) => style_parser::read_theme_colors(&mut xml),
-            _ => style_parser::default_theme_colors(),
+        if let Some(palette) = &self.theme_palette {
+            return palette.clone();
         }
+        let palette =
+            match xml_reader(&mut self.zip, "xl/theme/theme1.xml", &self.zip_path_cache) {
+                Some(Ok(mut xml)) => style_parser::read_theme_colors(&mut xml),
+                _ => style_parser::default_theme_colors(),
+            };
+        self.theme_palette = Some(palette.clone());
+        palette
+    }
+
+    /// Get the workbook theme color palette (`xl/theme/theme1.xml`).
+    ///
+    /// Excel colors unstyled chart series by cycling through the theme
+    /// accent colors, so consumers rendering charts read from
+    /// [`worksheet_charts`](Self::worksheet_charts) need this palette to
+    /// reproduce the default series colors: explicit scheme colors are
+    /// already resolved during parsing, but a series with no `c:spPr`
+    /// carries no color at all.
+    ///
+    /// If the workbook has no readable theme part this returns the
+    /// default Office palette; it never fails. The parsed palette is
+    /// cached, and reused by chart, style and conditional formatting
+    /// parsing.
+    ///
+    /// ```
+    /// use calamine::{Reader, Xlsx};
+    ///
+    /// # fn main() -> Result<(), calamine::XlsxError> {
+    /// let mut workbook: Xlsx<_> = calamine::open_workbook("tests/charts.xlsx")?;
+    /// let theme = workbook.theme_colors();
+    /// let series_color = theme.accents()[0]; // color of an unstyled first series
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn theme_colors(&mut self) -> ThemeColors {
+        ThemeColors::from_indexed(&self.read_theme_colors())
     }
 
     fn read_styles(&mut self) -> Result<(), XlsxError> {
@@ -2899,6 +2939,177 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
         Some(self.worksheet_conditional_formatting(&name))
     }
+
+    /// Get the charts embedded in a worksheet (or chartsheet) by name.
+    ///
+    /// Walks the sheet's drawing relationships to the chart parts
+    /// (`xl/charts/chartN.xml`) and parses each one into a [`Chart`],
+    /// including its plot groups, series with cached values, axes, title,
+    /// legend, 3D view settings and shape formatting. Returns an empty
+    /// vector if the sheet has no charts.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet or chartsheet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{Reader, Xlsx};
+    ///
+    /// fn main() -> Result<(), calamine::XlsxError> {
+    ///     let path = format!("{}/tests/charts.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook: Xlsx<_> = calamine::open_workbook(path)?;
+    ///
+    ///     let charts = workbook.worksheet_charts("Sheet1")?;
+    ///
+    ///     for chart in &charts {
+    ///         println!("{:?}: {} series", chart.chart_type(), chart.series().count());
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn worksheet_charts(&mut self, name: &str) -> Result<Vec<Chart>, XlsxError> {
+        let theme_colors = self.read_theme_colors();
+
+        let (_, sheet_path) = self
+            .sheets
+            .iter()
+            .find(|&(n, _)| n == name)
+            .ok_or_else(|| XlsxError::WorksheetNotFound(name.into()))?;
+        let sheet_path = sheet_path.clone();
+
+        let last_slash = sheet_path.rfind('/').unwrap_or(0);
+        let base_folder = &sheet_path[..last_slash];
+        let file_name = &sheet_path[last_slash..];
+        let rel_path = format!("{base_folder}/_rels{file_name}.rels");
+
+        // Sheet rels -> drawing parts.
+        let mut drawing_paths: Vec<String> = Vec::new();
+        {
+            let mut xml = match xml_reader(&mut self.zip, &rel_path, &self.zip_path_cache) {
+                None => return Ok(Vec::new()),
+                Some(x) => x?,
+            };
+            let mut buf = Vec::with_capacity(64);
+            loop {
+                buf.clear();
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
+                        let (rel_type, target) =
+                            get_attrs!(e, b"Type" => typ, b"Target" => target)?;
+                        if rel_type.is_some_and(|t| t.ends_with(b"/drawing")) {
+                            if let Some(target) = target {
+                                let target = decode_attr(&xml.decoder(), target)?;
+                                if !target.is_empty() {
+                                    drawing_paths.push(resolve_path(base_folder, &target));
+                                }
+                            }
+                        }
+                    }
+                    Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
+                    Ok(Event::Eof) | Err(_) => break,
+                    _ => (),
+                }
+            }
+        }
+
+        let mut charts = Vec::new();
+        for drawing_path in drawing_paths {
+            let draw_last_slash = drawing_path.rfind('/').unwrap_or(0);
+            let draw_base = &drawing_path[..draw_last_slash];
+            let draw_file = &drawing_path[draw_last_slash..];
+            let draw_rel_path = format!("{draw_base}/_rels{draw_file}.rels");
+
+            // Drawing rels: rId -> (chart part path, is chart-ex part).
+            let mut rid_to_chart: HashMap<String, (String, bool)> = HashMap::new();
+            {
+                let mut xml =
+                    match xml_reader(&mut self.zip, &draw_rel_path, &self.zip_path_cache) {
+                        None => continue,
+                        Some(x) => x?,
+                    };
+                let mut buf = Vec::with_capacity(64);
+                loop {
+                    buf.clear();
+                    match xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
+                            let (id, target, rel_type) =
+                                get_attrs!(e, b"Id" => id, b"Target" => target, b"Type" => typ)?;
+                            let is_chart = rel_type.is_some_and(|t| t.ends_with(b"/chart"));
+                            let is_chart_ex = rel_type.is_some_and(|t| t.ends_with(b"/chartEx"));
+                            if is_chart || is_chart_ex {
+                                if let (Some(id), Some(target)) = (id, target) {
+                                    let id = decode_attr(&xml.decoder(), id)?;
+                                    let target = decode_attr(&xml.decoder(), target)?;
+                                    if !id.is_empty() && !target.is_empty() {
+                                        rid_to_chart.insert(
+                                            id,
+                                            (resolve_path(draw_base, &target), is_chart_ex),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
+                        Ok(Event::Eof) | Err(_) => break,
+                        _ => (),
+                    }
+                }
+            }
+            if rid_to_chart.is_empty() {
+                continue;
+            }
+
+            // Drawing XML: anchors with embedded chart references.
+            let chart_refs = {
+                let mut xml = match xml_reader(&mut self.zip, &drawing_path, &self.zip_path_cache)
+                {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                chart_parser::drawing_chart_refs(&mut xml)?
+            };
+
+            for chart_ref in chart_refs {
+                let Some((chart_path, is_chart_ex)) = rid_to_chart.get(&chart_ref.rel_id) else {
+                    continue;
+                };
+                let mut xml = match xml_reader(&mut self.zip, chart_path, &self.zip_path_cache) {
+                    None => continue,
+                    Some(x) => x?,
+                };
+                let mut chart = if *is_chart_ex {
+                    chart_parser::parse_chartex_space(&mut xml, &theme_colors)?
+                } else {
+                    chart_parser::parse_chart_space(&mut xml, &theme_colors)?
+                };
+                chart.name = chart_ref.name;
+                chart.position = Some(chart_ref.position);
+                charts.push(chart);
+            }
+        }
+
+        Ok(charts)
+    }
+
+    /// Get the charts embedded in a worksheet (or chartsheet) by sheet
+    /// index.
+    ///
+    /// See [`worksheet_charts`](Self::worksheet_charts) for details.
+    pub fn worksheet_charts_at(
+        &mut self,
+        sheet_index: usize,
+    ) -> Option<Result<Vec<Chart>, XlsxError>> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(sheet_index)
+            .map(|sheet| sheet.name.clone())?;
+
+        Some(self.worksheet_charts(&name))
+    }
 }
 
 /// A hyperlink declared on an XLSX worksheet.
@@ -3227,6 +3438,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            theme_palette: None,
         };
         xlsx.read_package_relationships()?;
         xlsx.read_shared_strings()?;
@@ -3403,7 +3615,6 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
 // Resolve a relative path `target` against a `base` folder path.
 // E.g. base="xl/worksheets", target="../drawings/drawing1.xml" -> "xl/drawings/drawing1.xml".
 // Only handles one level of ".."; standard Excel files don't use deeper relative paths.
-#[cfg(feature = "picture")]
 fn resolve_path(base: &str, target: &str) -> String {
     if let Some(stripped) = target.strip_prefix('/') {
         stripped.to_string()
@@ -6102,6 +6313,7 @@ mod tests {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            theme_palette: None,
         };
 
         assert!(xlsx.read_shared_strings().is_ok());

@@ -69,6 +69,102 @@ impl fmt::Display for Color {
     }
 }
 
+/// The workbook theme color palette (`a:clrScheme` in
+/// `xl/theme/theme1.xml`).
+///
+/// Excel uses this palette wherever a color is given as a theme
+/// reference rather than an explicit RGB value — most notably the
+/// accent colors, which Excel cycles through (`accent1`..`accent6`,
+/// then repeating with tint variations) to color chart series that
+/// have no explicit formatting.
+///
+/// The [`Default`] value is the standard Office palette, which is also
+/// returned when a workbook has no readable theme part.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThemeColors {
+    /// The primary dark (text) color (`dk1`).
+    pub dark1: Color,
+    /// The primary light (background) color (`lt1`).
+    pub light1: Color,
+    /// The secondary dark color (`dk2`).
+    pub dark2: Color,
+    /// The secondary light color (`lt2`).
+    pub light2: Color,
+    /// Accent color 1.
+    pub accent1: Color,
+    /// Accent color 2.
+    pub accent2: Color,
+    /// Accent color 3.
+    pub accent3: Color,
+    /// Accent color 4.
+    pub accent4: Color,
+    /// Accent color 5.
+    pub accent5: Color,
+    /// Accent color 6.
+    pub accent6: Color,
+    /// The hyperlink color (`hlink`).
+    pub hyperlink: Color,
+    /// The followed-hyperlink color (`folHlink`).
+    pub followed_hyperlink: Color,
+}
+
+impl ThemeColors {
+    /// The six accent colors in order, as Excel cycles through them for
+    /// unstyled chart series.
+    pub fn accents(&self) -> [Color; 6] {
+        [
+            self.accent1,
+            self.accent2,
+            self.accent3,
+            self.accent4,
+            self.accent5,
+            self.accent6,
+        ]
+    }
+
+    /// Build from the internal indexed palette (theme-index order:
+    /// lt1, dk1, lt2, dk2, accent1-6, hlink, folHlink). Missing entries
+    /// fall back to the default Office palette.
+    pub(crate) fn from_indexed(colors: &[Color]) -> Self {
+        let default = Self::default();
+        let get = |i: usize, fallback: Color| colors.get(i).copied().unwrap_or(fallback);
+        Self {
+            light1: get(0, default.light1),
+            dark1: get(1, default.dark1),
+            light2: get(2, default.light2),
+            dark2: get(3, default.dark2),
+            accent1: get(4, default.accent1),
+            accent2: get(5, default.accent2),
+            accent3: get(6, default.accent3),
+            accent4: get(7, default.accent4),
+            accent5: get(8, default.accent5),
+            accent6: get(9, default.accent6),
+            hyperlink: get(10, default.hyperlink),
+            followed_hyperlink: get(11, default.followed_hyperlink),
+        }
+    }
+}
+
+impl Default for ThemeColors {
+    /// The default Office theme palette.
+    fn default() -> Self {
+        Self {
+            dark1: Color::rgb(0, 0, 0),
+            light1: Color::rgb(255, 255, 255),
+            dark2: Color::rgb(31, 73, 125),
+            light2: Color::rgb(238, 236, 225),
+            accent1: Color::rgb(79, 129, 189),
+            accent2: Color::rgb(192, 80, 77),
+            accent3: Color::rgb(155, 187, 89),
+            accent4: Color::rgb(128, 100, 162),
+            accent5: Color::rgb(75, 172, 198),
+            accent6: Color::rgb(247, 150, 70),
+            hyperlink: Color::rgb(0, 0, 255),
+            followed_hyperlink: Color::rgb(128, 0, 128),
+        }
+    }
+}
+
 /// Border style enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum BorderStyle {

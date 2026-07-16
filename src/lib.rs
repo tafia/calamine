@@ -83,6 +83,7 @@ mod utils;
 mod attrs;
 mod auto;
 mod cfb;
+pub mod chart;
 pub mod conditional_format;
 mod datatype;
 mod formats;
@@ -107,6 +108,17 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 
 pub use crate::auto::{open_workbook_auto, open_workbook_auto_from_rs, Sheets};
+pub use crate::chart::{
+    Chart, ChartAxis, ChartAxisCrosses, ChartAxisPosition, ChartAxisType, ChartBar3dShape,
+    ChartCellAnchor, ChartCrossBetween, ChartDataLabel, ChartDataLabelPosition, ChartDataLabels,
+    ChartDataPoint, ChartDataSource, ChartDataTable, ChartDisplayBlanksAs, ChartDisplayUnits,
+    ChartEditAs, ChartErrorBars, ChartErrorBarsDirection, ChartErrorBarsType,
+    ChartErrorBarsValueType, ChartExLayout, ChartExParentLabelLayout, ChartExQuartileMethod,
+    ChartFill, ChartFormat, ChartGradientStop, ChartGroup, ChartLegend, ChartLegendPosition,
+    ChartLine, ChartLineDashType, ChartLines, ChartMarker, ChartMarkerType, ChartOfPieSplitType,
+    ChartPosition, ChartSeries, ChartSizeRepresents, ChartTickLabelPosition, ChartTickMark,
+    ChartTitle, ChartTrendline, ChartTrendlineType, ChartType, ChartUpDownBars, ChartView3d,
+};
 pub use crate::conditional_format::{
     CfOperator, CfTextOperator, CfValueObject, CfValueObjectType, ConditionalFormatRule,
     ConditionalFormatRuleType, ConditionalFormatting, IconSetType, TimePeriodType,
@@ -120,7 +132,8 @@ pub use crate::ods::{Ods, OdsError};
 pub use crate::style::{
     Alignment, Border, BorderStyle, Borders, Color, ColumnWidth, Fill, FillPattern, Font,
     FontStyle, FontWeight, HorizontalAlignment, NumberFormat, Protection, RichText, RowHeight,
-    Style, StyleRange, TextRotation, TextRun, UnderlineStyle, VerticalAlignment, WorksheetLayout,
+    Style, StyleRange, TextRotation, TextRun, ThemeColors, UnderlineStyle, VerticalAlignment,
+    WorksheetLayout,
 };
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
