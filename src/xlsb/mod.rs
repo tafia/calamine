@@ -340,7 +340,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     }
                 }
                 0x0090 => break, // BrtEndBundleShs
-                _ => (),
+                _ => {
+                    // Consume the body of any unmatched workbook-global record
+                    // to avoid reading its trailing bytes in the next read.
+                    let _ = iter.fill_buffer(&mut buf)?;
+                }
             }
             buf.clear();
         }
