@@ -3587,3 +3587,38 @@ fn too_small_xls() {
 fn test_xlsx_strict_iso_paths() {
     let _: Xlsx<_> = wb("strict_iso_paths.xlsx");
 }
+
+#[test]
+fn test_xlsx_workbook_properties() {
+    let excel: Xlsx<_> = wb("workbook_properties.xlsx");
+    let props = excel.metadata().workbook_properties();
+
+    assert_eq!(props.creator.as_deref(), Some("Test Creator"));
+    assert_eq!(props.last_modified_by.as_deref(), Some("Last Modifier"));
+    assert_eq!(props.created.as_deref(), Some("2024-01-15T08:30:00Z"));
+    assert_eq!(props.modified.as_deref(), Some("2024-06-20T14:22:00Z"));
+    assert_eq!(props.title.as_deref(), Some("Workbook Title"));
+    assert_eq!(props.subject.as_deref(), Some("Test Subject"));
+    assert_eq!(props.description.as_deref(), Some("A test workbook"));
+    assert_eq!(props.keywords.as_deref(), Some("test, calamine"));
+    assert_eq!(props.category.as_deref(), Some("Testing"));
+    assert_eq!(props.content_status.as_deref(), Some("Draft"));
+    assert_eq!(props.revision.as_deref(), Some("3"));
+    assert_eq!(props.version.as_deref(), Some("1.2"));
+    assert_eq!(props.application.as_deref(), Some("Microsoft Excel"));
+    assert_eq!(props.app_version.as_deref(), Some("16.0300"));
+    assert_eq!(props.company.as_deref(), Some("Contoso"));
+    assert_eq!(props.template.as_deref(), Some("Book.xltx"));
+    assert_eq!(props.manager.as_deref(), Some("Jane Doe"));
+}
+
+#[test]
+fn test_xlsx_workbook_properties_missing() {
+    let excel: Xlsx<_> = wb("workbook_properties_missing.xlsx");
+    let props = excel.metadata().workbook_properties();
+
+    assert!(props.creator.is_none());
+    assert!(props.last_modified_by.is_none());
+    assert!(props.application.is_none());
+    assert!(props.company.is_none());
+}
