@@ -32,7 +32,7 @@ use crate::vba::VbaProject;
 use crate::Picture;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    SheetType, SheetVisible, Table, WorkbookProperties,
 };
 pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
@@ -544,6 +544,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
         }
         self.metadata.names = defined_names;
+        Ok(())
+    }
+
+    fn read_properties(&mut self) -> Result<(), XlsxError> {
+        let mut core = WorkbookProperties::default();
+        read_core_properties(&mut self.zip, &mut core, &self.zip_path_cache)?;
+        read_app_properties(&mut self.zip, &mut core, &self.zip_path_cache)?;
+        self.metadata.workbook_properties = core;
         Ok(())
     }
 
@@ -2563,6 +2571,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         xlsx.read_styles()?;
         let relationships = xlsx.read_relationships()?;
         xlsx.read_workbook(&relationships)?;
+        xlsx.read_properties()?;
         #[cfg(feature = "picture")]
         xlsx.read_pictures()?;
 
@@ -4581,4 +4590,154 @@ mod tests {
         assert_eq!("String 2", &xlsx.strings[1]);
         assert_eq!("String 3", &xlsx.strings[2]);
     }
+}
+
+/// Read the package core properties (`docProps/core.xml`).
+fn read_core_properties<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    props: &mut WorkbookProperties,
+    cache: &HashMap<String, String>,
+) -> Result<(), XlsxError> {
+    let Some(xml) = xml_reader(zip, "docProps/core.xml", cache) else {
+        return Ok(());
+    };
+    let mut xml = xml?;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut current = None;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.local_name();
+                let name_ref = name.as_ref();
+                current = match name_ref {
+                    b"creator" => Some(PropField::Creator),
+                    b"lastModifiedBy" => Some(PropField::LastModifiedBy),
+                    b"created" => Some(PropField::Created),
+                    b"modified" => Some(PropField::Modified),
+                    b"title" => Some(PropField::Title),
+                    b"subject" => Some(PropField::Subject),
+                    b"description" => Some(PropField::Description),
+                    b"keywords" => Some(PropField::Keywords),
+                    b"category" => Some(PropField::Category),
+                    b"contentStatus" => Some(PropField::ContentStatus),
+                    b"revision" => Some(PropField::Revision),
+                    b"version" => Some(PropField::Version),
+                    b"Application" => Some(PropField::Application),
+                    b"AppVersion" => Some(PropField::AppVersion),
+                    b"Company" => Some(PropField::Company),
+                    b"Template" => Some(PropField::Template),
+                    b"Manager" => Some(PropField::Manager),
+                    _ => None,
+                };
+            }
+            Ok(Event::Text(t)) => {
+                if let Some(field) = current {
+                    let value = t.xml10_content()?;
+                    match field {
+                        PropField::Creator => props.creator = Some(value.into_owned()),
+                        PropField::LastModifiedBy => {
+                            props.last_modified_by = Some(value.into_owned());
+                        }
+                        PropField::Created => props.created = Some(value.into_owned()),
+                        PropField::Modified => props.modified = Some(value.into_owned()),
+                        PropField::Title => props.title = Some(value.into_owned()),
+                        PropField::Subject => props.subject = Some(value.into_owned()),
+                        PropField::Description => props.description = Some(value.into_owned()),
+                        PropField::Keywords => props.keywords = Some(value.into_owned()),
+                        PropField::Category => props.category = Some(value.into_owned()),
+                        PropField::ContentStatus => props.content_status = Some(value.into_owned()),
+                        PropField::Revision => props.revision = Some(value.into_owned()),
+                        PropField::Version => props.version = Some(value.into_owned()),
+                        PropField::Application => props.application = Some(value.into_owned()),
+                        PropField::AppVersion => props.app_version = Some(value.into_owned()),
+                        PropField::Company => props.company = Some(value.into_owned()),
+                        PropField::Template => props.template = Some(value.into_owned()),
+                        PropField::Manager => props.manager = Some(value.into_owned()),
+                    }
+                    current = None;
+                }
+            }
+            Ok(Event::End(_)) => current = None,
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+/// Read the package extended properties (`docProps/app.xml`).
+fn read_app_properties<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    props: &mut WorkbookProperties,
+    cache: &HashMap<String, String>,
+) -> Result<(), XlsxError> {
+    let Some(xml) = xml_reader(zip, "docProps/app.xml", cache) else {
+        return Ok(());
+    };
+    let mut xml = xml?;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut current = None;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.local_name();
+                let name_ref = name.as_ref();
+                current = match name_ref {
+                    b"Application" => Some(PropField::Application),
+                    b"AppVersion" => Some(PropField::AppVersion),
+                    b"Company" => Some(PropField::Company),
+                    b"Template" => Some(PropField::Template),
+                    b"Manager" => Some(PropField::Manager),
+                    _ => None,
+                };
+            }
+            Ok(Event::Text(t)) => {
+                if let Some(field) = current {
+                    let value = t.xml10_content()?;
+                    match field {
+                        PropField::Application => props.application = Some(value.into_owned()),
+                        PropField::AppVersion => props.app_version = Some(value.into_owned()),
+                        PropField::Company => props.company = Some(value.into_owned()),
+                        PropField::Template => props.template = Some(value.into_owned()),
+                        PropField::Manager => props.manager = Some(value.into_owned()),
+                        _ => {}
+                    }
+                    current = None;
+                }
+            }
+            Ok(Event::End(_)) => current = None,
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum PropField {
+    Creator,
+    LastModifiedBy,
+    Created,
+    Modified,
+    Title,
+    Subject,
+    Description,
+    Keywords,
+    Category,
+    ContentStatus,
+    Revision,
+    Version,
+    Application,
+    AppVersion,
+    Company,
+    Template,
+    Manager,
 }

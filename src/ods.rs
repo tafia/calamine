@@ -206,6 +206,7 @@ where
         let metadata = Metadata {
             sheets: sheets_metadata,
             names: defined_names,
+            workbook_properties: crate::WorkbookProperties::default(),
         };
 
         Ok(Ods {
