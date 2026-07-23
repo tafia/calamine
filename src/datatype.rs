@@ -727,6 +727,12 @@ impl ExcelDateTime {
         self.value
     }
 
+    /// True if the workbook uses the 1904 date system, false for the 1900
+    /// date system
+    pub fn is_1904(&self) -> bool {
+        self.is_1904
+    }
+
     /// Convert an Excel serial datetime to standard date components.
     ///
     /// Datetimes in Excel are serial dates with days counted from an epoch
