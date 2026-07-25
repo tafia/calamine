@@ -1141,6 +1141,35 @@ impl<RS: Read + Seek> Xlsx<RS> {
         self.is_1904
     }
 
+    /// Get the workbook's shared-strings table.
+    ///
+    /// XLSX files store every distinct cell string once, in a shared-strings
+    /// table, and cells reference entries by index. The table is resolved when
+    /// the workbook is opened, and each
+    /// [`DataRef::SharedString`](crate::DataRef::SharedString) borrows from
+    /// one of its entries. Exposing the table lets consumers that re-serialize
+    /// cells, such as a server streaming a worksheet over RPC, send each
+    /// string once and reference it by index instead of repeating string
+    /// bodies per cell.
+    ///
+    /// The table can be empty: workbooks that only use inline strings do not
+    /// have one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let workbook: Xlsx<_> = open_workbook("tests/issues.xlsx")?;
+    ///     println!("{} distinct strings", workbook.shared_strings().len());
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn shared_strings(&self) -> &[String] {
+        &self.strings
+    }
+
     /// Get all Pivot Tables in a workbook.
     ///
     /// # Note

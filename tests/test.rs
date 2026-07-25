@@ -3616,3 +3616,39 @@ fn xls_empty_string() {
     let range = wb.worksheet_range("Sheet1").unwrap();
     assert_eq!(range.get_value((0, 0)), Some(&String("".to_string())));
 }
+
+#[test]
+fn test_xlsx_shared_strings() {
+    let mut excel: Xlsx<_> = wb("issues.xlsx");
+    let table = excel.shared_strings().to_vec();
+    assert!(!table.is_empty());
+    let mut seen = 0;
+    for name in excel.sheet_names() {
+        let range = excel.worksheet_range_ref(&name).unwrap();
+        for (_, _, cell) in range.used_cells() {
+            if let DataRef::SharedString(s) = cell {
+                assert!(table.iter().any(|t| t == s), "{s:?} not in the table");
+                seen += 1;
+            }
+        }
+    }
+    assert!(seen > 0);
+}
+
+#[test]
+fn test_xlsb_shared_strings() {
+    let mut excel: Xlsb<_> = wb("issues.xlsb");
+    let table = excel.shared_strings().to_vec();
+    assert!(!table.is_empty());
+    let mut seen = 0;
+    for name in excel.sheet_names() {
+        let range = excel.worksheet_range_ref(&name).unwrap();
+        for (_, _, cell) in range.used_cells() {
+            if let DataRef::SharedString(s) = cell {
+                assert!(table.iter().any(|t| t == s), "{s:?} not in the table");
+                seen += 1;
+            }
+        }
+    }
+    assert!(seen > 0);
+}
