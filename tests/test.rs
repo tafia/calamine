@@ -3587,3 +3587,11 @@ fn too_small_xls() {
 fn test_xlsx_strict_iso_paths() {
     let _: Xlsx<_> = wb("strict_iso_paths.xlsx");
 }
+
+#[test]
+fn xls_empty_string() {
+    // Empty strings should be retained, not converted to None. See issue #678
+    let mut wb: Xls<_> = wb("empty-string.xls");
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.get_value((0, 0)), Some(&String("".to_string())));
+}

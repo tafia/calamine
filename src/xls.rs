@@ -1052,12 +1052,10 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
     if let Some(s) = strings.get(i) {
-        if !s.is_empty() {
-            return Ok(Some(Cell::new(
-                (row as u32, col as u32),
-                Data::String(s.clone()),
-            )));
-        }
+        return Ok(Some(Cell::new(
+            (row as u32, col as u32),
+            Data::String(s.clone()),
+        )));
     }
     Ok(None)
 }
