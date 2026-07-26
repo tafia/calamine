@@ -3567,6 +3567,27 @@ fn test_whitespace_trim_shared_strings() {
     );
 }
 
+// An unmatched workbook-global record whose body is left unconsumed desyncs the
+// BIFF12 record stream: the next `read_type()` misreads the record's size-varint
+// bytes as the next record id. Both fixtures hold a single "Sheet1" worksheet
+// preceded by such a record; without consuming its body the sheet is either lost
+// or the reader panics. See issue #666.
+#[test]
+fn test_xlsb_unmatched_workbook_record_does_not_lose_sheet() {
+    // The unmatched record's body size varint starts with `0x90`, which the
+    // desynced reader misreads as `BrtEndBundleShs` and stops before any sheet.
+    let xlsb: Xlsb<_> = wb("issue_666_lost_sheets.xlsb");
+    assert_eq!(xlsb.sheet_names(), vec!["Sheet1".to_string()]);
+}
+
+#[test]
+fn test_xlsb_unmatched_workbook_record_does_not_panic() {
+    // The unmatched record's body size varint starts with `0x9C`, which the
+    // desynced reader misreads as `BrtBundleSh` and decodes from an empty buffer.
+    let xlsb: Xlsb<_> = wb("issue_666_panic.xlsb");
+    assert_eq!(xlsb.sheet_names(), vec!["Sheet1".to_string()]);
+}
+
 #[test]
 fn too_small_xls() {
     let path = test_path("too_small.xls");
