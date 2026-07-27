@@ -2789,18 +2789,21 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
             end: parts[0],
         }),
         2 => {
-            let rows = parts[1].0 - parts[0].0;
-            let columns = parts[1].1 - parts[0].1;
-            if rows > MAX_ROWS {
-                warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
+            // The `ref` may be in reversed order like `C5:A1`.
+            let dim = Dimensions::new(parts[0], parts[1]);
+            if dim.end.0 > MAX_ROWS {
+                warn!(
+                    "xlsx has more than maximum number of rows ({} > {MAX_ROWS})",
+                    dim.end.0
+                );
             }
-            if columns > MAX_COLUMNS {
-                warn!("xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})");
+            if dim.end.1 > MAX_COLUMNS {
+                warn!(
+                    "xlsx has more than maximum number of columns ({} > {MAX_COLUMNS})",
+                    dim.end.1
+                );
             }
-            Ok(Dimensions {
-                start: parts[0],
-                end: parts[1],
-            })
+            Ok(dim)
         }
         len => Err(XlsxError::DimensionCount(len)),
     }
@@ -4008,6 +4011,48 @@ mod tests {
             get_dimension(b"A1:XFD1048576").unwrap().len(),
             17_179_869_184
         );
+    }
+
+    #[test]
+    fn test_reversed_dimension_is_normalised() {
+        // A reversed `ref` such as `C5:A1` gives the same `Dimensions` as `A1:C5`.
+        let reversed = get_dimension(b"C5:A1").unwrap();
+        assert_eq!(
+            reversed,
+            Dimensions {
+                start: (0, 0),
+                end: (4, 2),
+            }
+        );
+        assert_eq!(reversed, get_dimension(b"A1:C5").unwrap());
+        assert_eq!(reversed.len(), 15);
+
+        // Reversed on one axis only.
+        assert_eq!(
+            get_dimension(b"A5:C1").unwrap(),
+            get_dimension(b"A1:C5").unwrap()
+        );
+        assert_eq!(
+            get_dimension(b"C1:A5").unwrap(),
+            get_dimension(b"A1:C5").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_dimensions_new_normalises_order() {
+        let dim = Dimensions::new((4, 2), (0, 0));
+        assert_eq!(
+            dim,
+            Dimensions {
+                start: (0, 0),
+                end: (4, 2),
+            }
+        );
+        assert_eq!(dim.len(), 15);
+        // A single cell is still one cell, and a full-width axis does not
+        // overflow the `+ 1`.
+        assert_eq!(Dimensions::new((7, 7), (7, 7)).len(), 1);
+        assert_eq!(Dimensions::new((0, 0), (u32::MAX, 0)).len(), 4_294_967_296);
     }
 
     #[test]
