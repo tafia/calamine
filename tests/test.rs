@@ -2848,6 +2848,40 @@ fn test_oom_allocation() {
     );
 }
 
+#[test]
+#[should_panic(expected = "cannot densify")]
+fn from_sparse_oversized_extent_panics_rather_than_aborting() {
+    // A `Range` is dense, so the extent implied by the cell positions decides
+    // the allocation, not the number of cells supplied. `A1` together with
+    // `XFD1048576` is 17_179_869_184 cells, which used to reach
+    // `handle_alloc_error` and abort the process without unwinding, so a caller
+    // could not catch it at all.
+    let cells = vec![
+        calamine::Cell::new((0, 0), Float(1.0)),
+        calamine::Cell::new((1_048_575, 16_383), Float(2.0)),
+    ];
+    let _ = Range::from_sparse(cells);
+}
+
+#[test]
+fn from_sparse_keeps_working_for_a_sparse_but_sane_extent() {
+    // The guard must not disturb ordinary sparse input. Two cells 1000 rows and
+    // 100 columns apart densify to 100_000 cells, which is fine.
+    let range = Range::from_sparse(vec![
+        calamine::Cell::new((0, 0), Float(1.0)),
+        calamine::Cell::new((999, 99), Float(2.0)),
+    ]);
+    assert_eq!((range.height(), range.width()), (1000, 100));
+    assert_eq!(range.get((0, 0)), Some(&Float(1.0)));
+    assert_eq!(range.get((999, 99)), Some(&Float(2.0)));
+
+    // issue_174.xlsx declares the whole grid (A1:XFD1048576) but holds only a
+    // handful of cells, so it densifies to 2x11 and must keep loading.
+    let mut xlsx: Xlsx<_> = wb("issue_174.xlsx");
+    let range = xlsx.worksheet_range_at(0).unwrap().unwrap();
+    assert_eq!((range.height(), range.width()), (2, 11));
+}
+
 // Test for issue #548. The SST table in the test file has an incorrect unique
 // string count.
 #[test]

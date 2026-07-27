@@ -917,6 +917,15 @@ impl<T: CellType> Range<T> {
     ///
     /// - `cells`: A vector of [`Cell`] elements.
     ///
+    /// # Panics
+    ///
+    /// The resulting `Range` is dense, so it holds
+    /// `(max_row - min_row + 1) * (max_col - min_col + 1)` cells regardless of
+    /// how many were supplied. Two cells at opposite corners of a worksheet
+    /// therefore imply a very large allocation: `A1` together with
+    /// `XFD1048576` is 17,179,869,184 cells. This function panics if that
+    /// allocation cannot be satisfied, rather than aborting the process.
+    ///
     /// # Examples
     ///
     /// An example of creating a new calamine `Range` for a sparse vector of
@@ -955,10 +964,31 @@ impl<T: CellType> Range<T> {
             col_start = min(c, col_start);
             col_end = max(c, col_end);
         }
-        let cols = (col_end - col_start + 1) as usize;
-        let rows = (row_end - row_start + 1) as usize;
-        let len = cols.saturating_mul(rows);
-        let mut v = vec![T::default(); len];
+        // Widened before the `+ 1`: an extent spanning a full `u32` axis would
+        // overflow otherwise, and `usize` is 32 bits on wasm32.
+        let width = u64::from(col_end - col_start) + 1;
+        let height = u64::from(row_end - row_start) + 1;
+        let size = width.saturating_mul(height);
+
+        // The extent comes from the cell positions in the file, so two cells
+        // far apart imply an allocation nobody asked for: a sheet holding only
+        // `A1` and `XFD1048576` densifies to 17_179_869_184 cells. Reserve
+        // fallibly, because a plain `vec![T::default(); len]` that cannot be
+        // satisfied calls `handle_alloc_error`, which aborts the process
+        // without unwinding and so cannot be caught by the caller at all.
+        let mut v = Vec::new();
+        let len = match usize::try_from(size) {
+            Ok(len) if v.try_reserve_exact(len).is_ok() => len,
+            _ => panic!(
+                "calamine: cannot densify a {height} x {width} range \
+                 ({size} cells of {} bytes). This extent is derived from the \
+                 positions of the cells in the file, not from its declared \
+                 dimension, so a sheet with very few cells can still reach it.",
+                std::mem::size_of::<T>()
+            ),
+        };
+        v.resize(len, T::default());
+        let cols = width as usize;
         v.shrink_to_fit();
         for c in cells {
             let row = (c.pos.0 - row_start) as usize;
