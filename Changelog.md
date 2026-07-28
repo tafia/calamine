@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.36.1] - 2026-07-27
+
+### Fixed
+
+- Fixed a regression in 0.36.0 that broke Strict OOXML (ISO/IEC 29500)
+  `_rels/.rels` links.
+
+  [PR #681]: https://github.com/tafia/calamine/pull/681
+
+- Fixed XLS string handling to preserve empty strings instead of discarding
+  them. [PR #679].
+
+  [PR #679]: https://github.com/tafia/calamine/pull/679
+
+- Fixed XLSB workbook parsing to consume the body of unhandled workbook-global
+  records. A leftover body was misread as the next record id, which either
+  silently dropped the worksheet or panicked from an empty buffer. [PR #675].
+
+  [PR #675]: https://github.com/tafia/calamine/pull/675
+
+
 ## [0.36.0] - 2026-07-06
 
 ### Added
