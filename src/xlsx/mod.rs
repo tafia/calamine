@@ -4613,23 +4613,23 @@ fn read_core_properties<RS: Read + Seek>(
                 let name = e.local_name();
                 let name_ref = name.as_ref();
                 current = match name_ref {
-                    b"creator" => Some(PropField::Creator),
-                    b"lastModifiedBy" => Some(PropField::LastModifiedBy),
-                    b"created" => Some(PropField::Created),
-                    b"modified" => Some(PropField::Modified),
-                    b"title" => Some(PropField::Title),
-                    b"subject" => Some(PropField::Subject),
-                    b"description" => Some(PropField::Description),
-                    b"keywords" => Some(PropField::Keywords),
-                    b"category" => Some(PropField::Category),
-                    b"contentStatus" => Some(PropField::ContentStatus),
-                    b"revision" => Some(PropField::Revision),
-                    b"version" => Some(PropField::Version),
-                    b"Application" => Some(PropField::Application),
-                    b"AppVersion" => Some(PropField::AppVersion),
-                    b"Company" => Some(PropField::Company),
-                    b"Template" => Some(PropField::Template),
-                    b"Manager" => Some(PropField::Manager),
+                    b"creator" => Some(DocProperty::Creator),
+                    b"lastModifiedBy" => Some(DocProperty::LastModifiedBy),
+                    b"created" => Some(DocProperty::Created),
+                    b"modified" => Some(DocProperty::Modified),
+                    b"title" => Some(DocProperty::Title),
+                    b"subject" => Some(DocProperty::Subject),
+                    b"description" => Some(DocProperty::Description),
+                    b"keywords" => Some(DocProperty::Keywords),
+                    b"category" => Some(DocProperty::Category),
+                    b"contentStatus" => Some(DocProperty::ContentStatus),
+                    b"revision" => Some(DocProperty::Revision),
+                    b"version" => Some(DocProperty::Version),
+                    b"Application" => Some(DocProperty::Application),
+                    b"AppVersion" => Some(DocProperty::AppVersion),
+                    b"Company" => Some(DocProperty::Company),
+                    b"Template" => Some(DocProperty::Template),
+                    b"Manager" => Some(DocProperty::Manager),
                     _ => None,
                 };
             }
@@ -4637,25 +4637,25 @@ fn read_core_properties<RS: Read + Seek>(
                 if let Some(field) = current {
                     let value = t.xml10_content()?;
                     match field {
-                        PropField::Creator => props.creator = Some(value.into_owned()),
-                        PropField::LastModifiedBy => {
+                        DocProperty::Creator => props.creator = Some(value.into_owned()),
+                        DocProperty::LastModifiedBy => {
                             props.last_modified_by = Some(value.into_owned());
                         }
-                        PropField::Created => props.created = Some(value.into_owned()),
-                        PropField::Modified => props.modified = Some(value.into_owned()),
-                        PropField::Title => props.title = Some(value.into_owned()),
-                        PropField::Subject => props.subject = Some(value.into_owned()),
-                        PropField::Description => props.description = Some(value.into_owned()),
-                        PropField::Keywords => props.keywords = Some(value.into_owned()),
-                        PropField::Category => props.category = Some(value.into_owned()),
-                        PropField::ContentStatus => props.content_status = Some(value.into_owned()),
-                        PropField::Revision => props.revision = Some(value.into_owned()),
-                        PropField::Version => props.version = Some(value.into_owned()),
-                        PropField::Application => props.application = Some(value.into_owned()),
-                        PropField::AppVersion => props.app_version = Some(value.into_owned()),
-                        PropField::Company => props.company = Some(value.into_owned()),
-                        PropField::Template => props.template = Some(value.into_owned()),
-                        PropField::Manager => props.manager = Some(value.into_owned()),
+                        DocProperty::Created => props.created = Some(value.into_owned()),
+                        DocProperty::Modified => props.modified = Some(value.into_owned()),
+                        DocProperty::Title => props.title = Some(value.into_owned()),
+                        DocProperty::Subject => props.subject = Some(value.into_owned()),
+                        DocProperty::Description => props.description = Some(value.into_owned()),
+                        DocProperty::Keywords => props.keywords = Some(value.into_owned()),
+                        DocProperty::Category => props.category = Some(value.into_owned()),
+                        DocProperty::ContentStatus => props.content_status = Some(value.into_owned()),
+                        DocProperty::Revision => props.revision = Some(value.into_owned()),
+                        DocProperty::Version => props.version = Some(value.into_owned()),
+                        DocProperty::Application => props.application = Some(value.into_owned()),
+                        DocProperty::AppVersion => props.app_version = Some(value.into_owned()),
+                        DocProperty::Company => props.company = Some(value.into_owned()),
+                        DocProperty::Template => props.template = Some(value.into_owned()),
+                        DocProperty::Manager => props.manager = Some(value.into_owned()),
                     }
                     current = None;
                 }
@@ -4690,11 +4690,11 @@ fn read_app_properties<RS: Read + Seek>(
                 let name = e.local_name();
                 let name_ref = name.as_ref();
                 current = match name_ref {
-                    b"Application" => Some(PropField::Application),
-                    b"AppVersion" => Some(PropField::AppVersion),
-                    b"Company" => Some(PropField::Company),
-                    b"Template" => Some(PropField::Template),
-                    b"Manager" => Some(PropField::Manager),
+                    b"Application" => Some(DocProperty::Application),
+                    b"AppVersion" => Some(DocProperty::AppVersion),
+                    b"Company" => Some(DocProperty::Company),
+                    b"Template" => Some(DocProperty::Template),
+                    b"Manager" => Some(DocProperty::Manager),
                     _ => None,
                 };
             }
@@ -4702,11 +4702,11 @@ fn read_app_properties<RS: Read + Seek>(
                 if let Some(field) = current {
                     let value = t.xml10_content()?;
                     match field {
-                        PropField::Application => props.application = Some(value.into_owned()),
-                        PropField::AppVersion => props.app_version = Some(value.into_owned()),
-                        PropField::Company => props.company = Some(value.into_owned()),
-                        PropField::Template => props.template = Some(value.into_owned()),
-                        PropField::Manager => props.manager = Some(value.into_owned()),
+                        DocProperty::Application => props.application = Some(value.into_owned()),
+                        DocProperty::AppVersion => props.app_version = Some(value.into_owned()),
+                        DocProperty::Company => props.company = Some(value.into_owned()),
+                        DocProperty::Template => props.template = Some(value.into_owned()),
+                        DocProperty::Manager => props.manager = Some(value.into_owned()),
                         _ => {}
                     }
                     current = None;
@@ -4722,7 +4722,7 @@ fn read_app_properties<RS: Read + Seek>(
 }
 
 #[derive(Clone, Copy)]
-enum PropField {
+enum DocProperty {
     Creator,
     LastModifiedBy,
     Created,

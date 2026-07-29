@@ -3642,6 +3642,7 @@ fn test_xlsx_workbook_properties_missing() {
     assert!(props.last_modified_by.is_none());
     assert!(props.application.is_none());
     assert!(props.company.is_none());
+}
 
 #[test]
 fn xls_empty_string() {

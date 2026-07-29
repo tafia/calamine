@@ -243,36 +243,52 @@ pub struct Metadata {
 pub struct WorkbookProperties {
     /// Core property: creator (dc:creator).
     pub creator: Option<String>,
+
     /// Core property: last modifier (cp:lastModifiedBy).
     pub last_modified_by: Option<String>,
+
     /// Core property: creation date (dcterms:created).
     pub created: Option<String>,
+
     /// Core property: modification date (dcterms:modified).
     pub modified: Option<String>,
+
     /// Core property: title (dc:title).
     pub title: Option<String>,
+
     /// Core property: subject (dc:subject).
     pub subject: Option<String>,
+
     /// Core property: description/comments (dc:description).
     pub description: Option<String>,
+
     /// Core property: keywords (dc:keywords).
     pub keywords: Option<String>,
+
     /// Core property: category (dc:category).
     pub category: Option<String>,
+
     /// Core property: content status (cp:contentStatus).
     pub content_status: Option<String>,
+
     /// Core property: revision (cp:revision).
     pub revision: Option<String>,
+
     /// Core property: version (cp:version).
     pub version: Option<String>,
+
     /// Extended property: application name (ap:Application).
     pub application: Option<String>,
+
     /// Extended property: application version (ap:AppVersion).
     pub app_version: Option<String>,
+
     /// Extended property: company (ap:Company).
     pub company: Option<String>,
+
     /// Extended property: template (ap:Template).
     pub template: Option<String>,
+
     /// Extended property: manager (ap:Manager).
     pub manager: Option<String>,
 }
