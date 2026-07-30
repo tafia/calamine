@@ -3645,6 +3645,24 @@ fn test_xlsx_workbook_properties_missing() {
 }
 
 #[test]
+fn test_xlsb_workbook_properties() {
+    let excel: Xlsb<_> = wb("issues.xlsb");
+    let props = excel.metadata().workbook_properties();
+
+    assert_eq!(
+        props.creator.as_deref(),
+        Some("Johann Tuffe (jtuffe010814)")
+    );
+    assert_eq!(
+        props.last_modified_by.as_deref(),
+        Some("Johann Tuffe (jtuffe010814)")
+    );
+    assert_eq!(props.application.as_deref(), Some("Microsoft Excel"));
+    assert_eq!(props.app_version.as_deref(), Some("16.0300"));
+    assert_eq!(props.company.as_deref(), Some("SOCIETE GENERALE"));
+}
+
+#[test]
 fn xls_empty_string() {
     // Empty strings should be retained, not converted to None. See issue #678
     let mut wb: Xls<_> = wb("empty-string.xls");

@@ -2760,7 +2760,7 @@ fn col_from_cell_ref(cell_ref: &[u8]) -> u32 {
     col.saturating_sub(1)
 }
 
-fn xml_reader<'a, RS: Read + Seek>(
+pub(crate) fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
     cache: &HashMap<String, String>,
@@ -4593,7 +4593,7 @@ mod tests {
 }
 
 /// Read the package core properties (`docProps/core.xml`).
-fn read_core_properties<RS: Read + Seek>(
+pub(crate) fn read_core_properties<RS: Read + Seek>(
     zip: &mut ZipArchive<RS>,
     props: &mut WorkbookProperties,
     cache: &HashMap<String, String>,
@@ -4648,7 +4648,9 @@ fn read_core_properties<RS: Read + Seek>(
                         DocProperty::Description => props.description = Some(value.into_owned()),
                         DocProperty::Keywords => props.keywords = Some(value.into_owned()),
                         DocProperty::Category => props.category = Some(value.into_owned()),
-                        DocProperty::ContentStatus => props.content_status = Some(value.into_owned()),
+                        DocProperty::ContentStatus => {
+                            props.content_status = Some(value.into_owned())
+                        }
                         DocProperty::Revision => props.revision = Some(value.into_owned()),
                         DocProperty::Version => props.version = Some(value.into_owned()),
                         DocProperty::Application => props.application = Some(value.into_owned()),
@@ -4670,7 +4672,7 @@ fn read_core_properties<RS: Read + Seek>(
 }
 
 /// Read the package extended properties (`docProps/app.xml`).
-fn read_app_properties<RS: Read + Seek>(
+pub(crate) fn read_app_properties<RS: Read + Seek>(
     zip: &mut ZipArchive<RS>,
     props: &mut WorkbookProperties,
     cache: &HashMap<String, String>,
