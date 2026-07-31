@@ -3619,11 +3619,8 @@ fn xls_empty_string() {
 
 #[test]
 fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
-    // An embedded chart is a nested substream inside the worksheet substream. When
-    // its series reference ANOTHER sheet, the chart's cached values used to be
-    // parsed as cells of the hosting sheet starting at A1, filling empty cells and
-    // overwriting populated ones. "Report"!A1 really holds a string; the chart on
-    // that sheet plots Data!A1:B8.
+    // Regression test: the chart on "Report" is a nested substream whose cached
+    // series values (Data!A1:B8) must not leak into the hosting sheet.
     let mut excel: Xls<_> = wb("xls_cross_sheet_chart.xls");
     let range = excel.worksheet_range("Report").unwrap();
 

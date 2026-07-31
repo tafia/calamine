@@ -609,11 +609,8 @@ impl<RS: Read + Seek> Xls<RS> {
             let mut formulas = Vec::new();
             let mut fmla_pos = (0, 0);
             let mut merge_cells = Vec::new();
-            // A worksheet substream can contain nested substreams — most commonly
-            // an embedded chart, which carries cached series values encoded with
-            // the same record types as cells. Without tracking the nesting those
-            // records are appended as cells of the hosting sheet, overwriting real
-            // content near A1. The first BOF belongs to the worksheet itself.
+            // Nested substreams (embedded charts) carry cell-like records; skip them.
+            // The first BOF belongs to the worksheet itself.
             let mut seen_sheet_bof = false;
             let mut substream_depth = 0usize;
             for record in records {
