@@ -3340,14 +3340,9 @@ pub(crate) fn column_number_to_name(num: u32, buf: &mut Vec<u8>) -> Result<(), X
     if num >= MAX_COLUMNS {
         return Err(XlsxError::ColumnNumberOverflow);
     }
-    let start = buf.len();
-    let mut num = num + 1;
-    while num > 0 {
-        let integer = ((num - 1) % 26 + 65) as u8;
-        buf.push(integer);
-        num = (num - 1) / 26;
-    }
-    buf[start..].reverse();
+    let mut digits = [0u8; 6];
+    let len = crate::utils::column_name_digits(num, &mut digits);
+    buf.extend_from_slice(&digits[..len]);
     Ok(())
 }
 
