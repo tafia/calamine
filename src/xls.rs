@@ -1753,11 +1753,27 @@ fn parse_formula(
                     write!(&mut formula, "${row_last}").unwrap();
                     rgce = &rgce[6..];
                 } else {
-                    formula.push('$');
-                    push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                    write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
-                    push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                    write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
+                    // columnFirst/columnLast are ColRelU: 14-bit column + fColRel/fRwRel flags.
+                    let col_first = read_u16(&[rgce[4], rgce[5] & 0x3F]);
+                    let col_last = read_u16(&[rgce[6], rgce[7] & 0x3F]);
+                    let row_first = read_u16(&rgce[0..2]) as u32 + 1;
+                    let row_last = read_u16(&rgce[2..4]) as u32 + 1;
+                    if rgce[5] & 0x80 != 0x80 {
+                        formula.push('$');
+                    }
+                    push_column(col_first as u32, &mut formula);
+                    if rgce[5] & 0x40 != 0x40 {
+                        formula.push('$');
+                    }
+                    write!(&mut formula, "{row_first}:").unwrap();
+                    if rgce[7] & 0x80 != 0x80 {
+                        formula.push('$');
+                    }
+                    push_column(col_last as u32, &mut formula);
+                    if rgce[7] & 0x40 != 0x40 {
+                        formula.push('$');
+                    }
+                    write!(&mut formula, "{row_last}").unwrap();
                     rgce = &rgce[8..];
                 }
             }
