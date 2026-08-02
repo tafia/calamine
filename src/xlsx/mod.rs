@@ -2793,13 +2793,13 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
             let dim = Dimensions::new(parts[0], parts[1]);
             if dim.end.0 > MAX_ROWS {
                 warn!(
-                    "xlsx has more than maximum number of rows ({} > {MAX_ROWS})",
+                    "file has more than maximum supported number of rows ({} > {MAX_ROWS})",
                     dim.end.0
                 );
             }
             if dim.end.1 > MAX_COLUMNS {
                 warn!(
-                    "xlsx has more than maximum number of columns ({} > {MAX_COLUMNS})",
+                    "file has more than maximum supported number of columns ({} > {MAX_COLUMNS})",
                     dim.end.1
                 );
             }
@@ -4049,8 +4049,7 @@ mod tests {
             }
         );
         assert_eq!(dim.len(), 15);
-        // A single cell is still one cell, and a full-width axis does not
-        // overflow the `+ 1`.
+        // A single cell is one cell; a full-width axis does not overflow.
         assert_eq!(Dimensions::new((7, 7), (7, 7)).len(), 1);
         assert_eq!(Dimensions::new((0, 0), (u32::MAX, 0)).len(), 4_294_967_296);
     }
