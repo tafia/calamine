@@ -419,30 +419,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// Get the workbook's shared-strings table.
-    ///
-    /// XLSB files store every distinct cell string once, in a shared-strings
-    /// table, and cells reference entries by index. The table is resolved when
-    /// the workbook is opened, and each
-    /// [`DataRef::SharedString`](crate::DataRef::SharedString) borrows from
-    /// one of its entries. Exposing the table lets consumers that re-serialize
-    /// cells, such as a server streaming a worksheet over RPC, send each
-    /// string once and reference it by index instead of repeating string
-    /// bodies per cell.
-    ///
-    /// The table can be empty: workbooks that only use inline strings do not
-    /// have one.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use calamine::{open_workbook, Error, Xlsb};
-    ///
-    /// fn main() -> Result<(), Error> {
-    ///     let workbook: Xlsb<_> = open_workbook("tests/date_1904.xlsb")?;
-    ///     println!("{} distinct strings", workbook.shared_strings().len());
-    ///     Ok(())
-    /// }
-    /// ```
+    #[doc(hidden)]
     pub fn shared_strings(&self) -> &[String] {
         &self.strings
     }
