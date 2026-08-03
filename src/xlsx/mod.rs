@@ -31,8 +31,8 @@ use crate::vba::VbaProject;
 #[cfg(feature = "picture")]
 use crate::Picture;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, RangeError, Reader,
+    ReaderRef, Sheet, SheetType, SheetVisible, Table,
 };
 pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
@@ -152,6 +152,9 @@ pub enum XlsxError {
 
     /// Specified Pivot Table was not found on worksheet.
     PivotTableNotFound(String),
+
+    /// A worksheet range could not be allocated from its cells.
+    Range(RangeError),
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -162,6 +165,7 @@ from_err!(std::num::ParseFloatError, XlsxError, ParseFloat);
 from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 from_err!(quick_xml::encoding::EncodingError, XlsxError, Encoding);
 from_err!(quick_xml::events::attributes::AttrError, XlsxError, XmlAttr);
+from_err!(RangeError, XlsxError, Range);
 
 impl std::fmt::Display for XlsxError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -209,6 +213,7 @@ impl std::fmt::Display for XlsxError {
             XlsxError::PivotTableNotFound(pt) => {
                 write!(f, "Pivot Table '{pt}' was not found on worksheet")
             }
+            XlsxError::Range(e) => write!(f, "{e}"),
         }
     }
 }
@@ -224,6 +229,7 @@ impl std::error::Error for XlsxError {
             XlsxError::ParseInt(e) => Some(e),
             XlsxError::ParseFloat(e) => Some(e),
             XlsxError::Encoding(e) => Some(e),
+            XlsxError::Range(e) => Some(e),
             _ => None,
         }
     }
@@ -2617,7 +2623,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
                 cells.push(cell);
             }
         }
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
@@ -2717,7 +2723,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
             }
         }
 
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 }
 
