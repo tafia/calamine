@@ -226,15 +226,12 @@ pub struct Metadata {
     sheets: Vec<Sheet>,
     /// Map of sheet names/sheet path within zip archive
     names: Vec<(String, String)>,
-    /// Workbook properties (core and extended)
-    pub(crate) workbook_properties: WorkbookProperties,
 }
 
 /// Workbook document properties.
 ///
-/// These properties correspond to the core document properties
-/// (`docProps/core.xml`) and extended file properties
-/// (`docProps/app.xml`) found in XLSX packages.
+/// Depending on the file format, these fields may be read from workbook-level
+/// document property parts.
 ///
 /// Most fields are optional because they depend on the file format and
 /// whether the producing application wrote them.
@@ -291,13 +288,6 @@ pub struct WorkbookProperties {
 
     /// Extended property: manager (ap:Manager).
     pub manager: Option<String>,
-}
-
-impl Metadata {
-    /// Returns the workbook document properties.
-    pub fn workbook_properties(&self) -> &WorkbookProperties {
-        &self.workbook_properties
-    }
 }
 
 /// Type of sheet.

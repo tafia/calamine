@@ -3611,8 +3611,8 @@ fn test_xlsx_strict_iso_paths() {
 
 #[test]
 fn test_xlsx_workbook_properties() {
-    let excel: Xlsx<_> = wb("workbook_properties.xlsx");
-    let props = excel.metadata().workbook_properties();
+    let mut excel: Xlsx<_> = wb("workbook_properties.xlsx");
+    let props = excel.workbook_properties().expect("workbook properties");
 
     assert_eq!(props.creator.as_deref(), Some("Test Creator"));
     assert_eq!(props.last_modified_by.as_deref(), Some("Last Modifier"));
@@ -3635,8 +3635,8 @@ fn test_xlsx_workbook_properties() {
 
 #[test]
 fn test_xlsx_workbook_properties_missing() {
-    let excel: Xlsx<_> = wb("workbook_properties_missing.xlsx");
-    let props = excel.metadata().workbook_properties();
+    let mut excel: Xlsx<_> = wb("workbook_properties_missing.xlsx");
+    let props = excel.workbook_properties().expect("workbook properties");
 
     assert!(props.creator.is_none());
     assert!(props.last_modified_by.is_none());
@@ -3646,8 +3646,8 @@ fn test_xlsx_workbook_properties_missing() {
 
 #[test]
 fn test_xlsb_workbook_properties() {
-    let excel: Xlsb<_> = wb("issues.xlsb");
-    let props = excel.metadata().workbook_properties();
+    let mut excel: Xlsb<_> = wb("issues.xlsb");
+    let props = excel.workbook_properties().expect("workbook properties");
 
     assert_eq!(
         props.creator.as_deref(),

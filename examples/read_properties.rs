@@ -19,7 +19,7 @@
 //!   company: Some("SOCIETE GENERALE")
 //! ```
 
-use calamine::{open_workbook_auto, Reader};
+use calamine::open_workbook_auto;
 use std::env;
 use std::process::exit;
 
@@ -31,7 +31,7 @@ fn main() {
     }
 
     let path = &args[1];
-    let excel = match open_workbook_auto(path) {
+    let mut excel = match open_workbook_auto(path) {
         Ok(excel) => excel,
         Err(e) => {
             eprintln!("Cannot open {path}: {e}");
@@ -39,7 +39,13 @@ fn main() {
         }
     };
 
-    let props = excel.metadata().workbook_properties();
+    let props = match excel.workbook_properties() {
+        Ok(props) => props,
+        Err(e) => {
+            eprintln!("Cannot read workbook properties from {path}: {e}");
+            exit(1);
+        }
+    };
 
     println!("Core / Extended properties:");
     println!("  creator: {:?}", props.creator);

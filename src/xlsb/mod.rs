@@ -162,6 +162,8 @@ pub struct Xlsb<RS> {
     formats: Vec<CellFormat>,
     is_1904: bool,
     metadata: Metadata,
+    /// Workbook document properties, parsed lazily on first access.
+    workbook_properties: Option<Box<WorkbookProperties>>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
     options: XlsbOptions,
@@ -440,14 +442,22 @@ impl<RS: Read + Seek> Xlsb<RS> {
         )
     }
 
-    fn read_properties(&mut self) -> Result<(), XlsbError> {
-        let mut props = WorkbookProperties::default();
-        read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)
-            .map_err(xlsx_error_to_xlsb)?;
-        read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)
-            .map_err(xlsx_error_to_xlsb)?;
-        self.metadata.workbook_properties = props;
-        Ok(())
+    /// Get workbook document properties.
+    ///
+    /// Missing fields are returned as `None`.
+    pub fn workbook_properties(&mut self) -> Result<&WorkbookProperties, XlsbError> {
+        if self.workbook_properties.is_none() {
+            let mut props = WorkbookProperties::default();
+            read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)
+                .map_err(xlsx_error_to_xlsb)?;
+            read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)
+                .map_err(xlsx_error_to_xlsb)?;
+            self.workbook_properties = Some(Box::new(props));
+        }
+        Ok(self
+            .workbook_properties
+            .as_deref()
+            .expect("workbook properties are initialized above"))
     }
 
     #[cfg(feature = "picture")]
@@ -495,6 +505,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             formats: Vec::new(),
             is_1904: false,
             metadata: Metadata::default(),
+            workbook_properties: None,
             #[cfg(feature = "picture")]
             pictures: None,
             options: XlsbOptions::default(),
@@ -504,7 +515,6 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         xlsb.read_styles()?;
         let relationships = xlsb.read_relationships()?;
         xlsb.read_workbook(&relationships)?;
-        xlsb.read_properties()?;
         #[cfg(feature = "picture")]
         xlsb.read_pictures()?;
 
