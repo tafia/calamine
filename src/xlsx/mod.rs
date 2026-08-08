@@ -2830,12 +2830,31 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
 
     // Column: accumulate base-26 from letters
     // (eg: A=1, B=2, ..., Z=26, AA=27, ..., AZ=52, ..., etc)
+    //
+    // A well-formed range never needs more than ~7 letters/digits to reach
+    // u32::MAX, but a crafted file can supply an arbitrarily long run of
+    // either. Unlike `Reference::parse` (which wraps and relies on a
+    // separate `validate()` bounds check afterward), this function's callers
+    // (`get_dimension`, `get_row_column`, `get_row`) don't do a follow-up
+    // bounds check, so checked arithmetic that fails at the overflow site
+    // itself is the more self-contained fix here — reusing the existing
+    // `ColumnNumberOverflow`/`RowNumberOverflow` errors.
     let mut col: u32 = 0;
     let mut row: u32 = 0;
     while i < len {
         match range[i] {
-            c @ b'A'..=b'Z' => col = col * 26 + (c - b'A') as u32 + 1,
-            c @ b'a'..=b'z' => col = col * 26 + (c - b'a') as u32 + 1,
+            c @ b'A'..=b'Z' => {
+                col = col
+                    .checked_mul(26)
+                    .and_then(|v| v.checked_add((c - b'A') as u32 + 1))
+                    .ok_or(XlsxError::ColumnNumberOverflow)?;
+            }
+            c @ b'a'..=b'z' => {
+                col = col
+                    .checked_mul(26)
+                    .and_then(|v| v.checked_add((c - b'a') as u32 + 1))
+                    .ok_or(XlsxError::ColumnNumberOverflow)?;
+            }
             c @ b'0'..=b'9' => {
                 // on first digit, capture it and transition to the row loop
                 row = (c - b'0') as u32;
@@ -2850,7 +2869,12 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
     // Row: accumulate base-10 from remaining digits (1-based in source)
     while i < len {
         match range[i] {
-            c @ b'0'..=b'9' => row = row * 10 + (c - b'0') as u32,
+            c @ b'0'..=b'9' => {
+                row = row
+                    .checked_mul(10)
+                    .and_then(|r| r.checked_add((c - b'0') as u32))
+                    .ok_or(XlsxError::RowNumberOverflow)?;
+            }
             c => return Err(XlsxError::Alphanumeric(c)),
         }
         i += 1;
@@ -4298,6 +4322,38 @@ mod tests {
         // Row references
         check_row_err(b"1048577");
         check_row_err(b"$1048577");
+    }
+
+    // Regression test: `get_row_and_optional_column` (used by `get_dimension`,
+    // `get_row_column`, `get_row` — the worksheet-dimension and merged-region
+    // parsing paths, not `Reference::parse`) used raw `*`/`+` to accumulate
+    // the column/row value, so a range string with an implausibly long run of
+    // letters or digits overflowed `u32` and panicked (`attempt to multiply
+    // with overflow`) instead of returning a clean error. A crafted XLSX
+    // whose `<dimension>` or a merged-cell reference contains such a string
+    // aborts the whole parse. Found via fuzzing anydoc's xlsx target.
+    #[test]
+    fn test_get_row_and_optional_column_overflow() {
+        // 20 letters: `col` would overflow u32 during accumulation, long
+        // before any length- or MAX_COLUMNS-based check could reject it.
+        assert!(matches!(
+            get_row_column(b"AAAAAAAAAAAAAAAAAAAA1"),
+            Err(XlsxError::ColumnNumberOverflow)
+        ));
+        assert!(matches!(
+            get_row(b"AAAAAAAAAAAAAAAAAAAA1"),
+            Err(XlsxError::ColumnNumberOverflow)
+        ));
+
+        // 20 digits: same overflow in the row-accumulation loop.
+        assert!(matches!(
+            get_row_column(b"A99999999999999999999"),
+            Err(XlsxError::RowNumberOverflow)
+        ));
+
+        // A merged-cell-style range built from one overflowing endpoint must
+        // not panic when it reaches `get_dimension`.
+        assert!(get_dimension(b"A1:AAAAAAAAAAAAAAAAAAAA1").is_err());
     }
 
     #[test]
