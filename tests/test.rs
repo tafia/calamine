@@ -3246,6 +3246,18 @@ fn biff5_formula_ptg_ref_643() {
 }
 
 #[test]
+fn test_xls_truncated_ptgexp() {
+    // Test for xls file with a truncated PtgExp token (array/shared formula)
+    // with 2 bytes instead of 4.
+    let mut excel: Xls<_> = wb("ptgexp-truncated-operand.xls");
+    let range = excel.worksheet_range("Tab 1").unwrap();
+    assert_eq!(range.get_size(), (23, 10));
+
+    let formulas = excel.worksheet_formula("Tab 1").unwrap();
+    assert_eq!(formulas.used_cells().count(), 22);
+}
+
+#[test]
 fn biff5_rich_text_string() {
     // This file uses RSTRING records, apparently produced by ABBYY FineReader.
     let mut wb: Xls<_> = wb("biff5-rich-text-string.xls");
