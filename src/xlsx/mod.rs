@@ -515,10 +515,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     self.sheets.push((name, path));
                 }
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"workbookPr" => {
-                    self.is_1904 = match e.raw_attr(b"date1904")? {
-                        Some(v) => v == b"1" || v == b"true",
-                        None => false,
-                    };
+                    // Set the 1904 date flag, if present. The attribute is
+                    // optional here because `<x15:workbookPr>` inside `<extLst>`
+                    // shares this local name and never carries `date1904`.
+                    if let Some(v) = e.raw_attr(b"date1904")? {
+                        self.is_1904 = v == b"1" || v == b"true";
+                    }
                 }
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"definedName" => {
                     if let Some(val) = e.raw_attr(b"name")? {
