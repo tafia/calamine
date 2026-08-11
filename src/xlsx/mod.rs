@@ -515,10 +515,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     self.sheets.push((name, path));
                 }
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"workbookPr" => {
-                    self.is_1904 = match e.raw_attr(b"date1904")? {
-                        Some(v) => v == b"1" || v == b"true",
-                        None => false,
-                    };
+                    // Only update the flag when the attribute is present. The
+                    // namespaced extension element `<x15:workbookPr>` (written by
+                    // modern Excel inside `<extLst>`) also matches this local name
+                    // but never carries `date1904`, so blindly assigning would
+                    // reset a `date1904="1"` read from the real element. See #706.
+                    if let Some(v) = e.raw_attr(b"date1904")? {
+                        self.is_1904 = v == b"1" || v == b"true";
+                    }
                 }
                 Ok(Event::Start(e)) if e.local_name().as_ref() == b"definedName" => {
                     if let Some(val) = e.raw_attr(b"name")? {
