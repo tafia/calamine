@@ -2858,13 +2858,15 @@ fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxE
         i += 1;
     }
 
-    // Convert from 1-based to 0-based (col=0 means no column found)
+    // Reject references outside the maximum grid size.
     if row > MAX_ROWS {
         return Err(XlsxError::RowNumberOverflow);
     }
     if col > MAX_COLUMNS {
         return Err(XlsxError::ColumnNumberOverflow);
     }
+
+    // Convert from 1-based to 0-based (col=0 means no column found)
     let row = row
         .checked_sub(1)
         .ok_or(XlsxError::RangeWithoutRowComponent)?;
