@@ -4049,8 +4049,9 @@ mod tests {
             }
         );
         assert_eq!(dim.len(), 15);
-        // A single cell is one cell; a full-width axis does not overflow.
         assert_eq!(Dimensions::new((7, 7), (7, 7)).len(), 1);
+
+        // A full axis must not overflow the `+ 1` in `len()`.
         assert_eq!(Dimensions::new((0, 0), (u32::MAX, 0)).len(), 4_294_967_296);
     }
 
