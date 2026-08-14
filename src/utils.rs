@@ -65,20 +65,27 @@ pub fn read_f64(s: &[u8]) -> f64 {
     f64::from_le_bytes(s[..8].try_into().unwrap())
 }
 
-/// Push literal column into a String buffer
-pub fn push_column(mut col: u32, buf: &mut String) {
-    if col < 26 {
-        buf.push((b'A' + col as u8) as char);
-    } else {
-        let mut rev = String::new();
-        while col >= 26 {
-            let c = col % 26;
-            rev.push((b'A' + c as u8) as char);
-            col -= c;
-            col /= 26;
-        }
-        buf.extend(rev.chars().rev());
+/// Convert a 0-based column index to an Excel column name (0 -> "A", 26 -> "AA").
+pub fn push_column(col: u32, buf: &mut String) {
+    let mut digits = [0u8; 6];
+    let len = column_name_digits(col, &mut digits);
+    for &d in &digits[..len] {
+        buf.push(d as char);
     }
+}
+
+/// Write the Excel letters for a 0-based column index into `out` (most
+/// significant first) and return how many were written.
+pub(crate) fn column_name_digits(col: u32, out: &mut [u8]) -> usize {
+    let mut num = col + 1;
+    let mut n = 0;
+    while num > 0 {
+        out[n] = b'A' + ((num - 1) % 26) as u8;
+        n += 1;
+        num = (num - 1) / 26;
+    }
+    out[..n].reverse();
+    n
 }
 
 // Utility function to unescape standard XML entities or character references
@@ -1164,6 +1171,24 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_push_column() {
+        let check = |col: u32, expected: &str| {
+            let mut got = String::new();
+            push_column(col, &mut got);
+            assert_eq!(got, expected, "push_column({col})");
+        };
+        check(0, "A");
+        check(25, "Z");
+        check(26, "AA");
+        check(27, "AB");
+        check(51, "AZ");
+        check(53, "BB");
+        check(701, "ZZ");
+        check(702, "AAA");
+        check(16383, "XFD");
+    }
 
     #[test]
     fn sound_to_u32() {

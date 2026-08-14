@@ -3618,6 +3618,18 @@ fn xls_empty_string() {
 }
 
 #[test]
+fn xls_formula_columns_beyond_z() {
+    // Formula column references at/after column AA (index 26) exercise the
+    // column-name rendering and the BIFF8 PtgArea column masking.
+    let mut wb: Xls<_> = wb("xls_formula_columns_beyond_z.xls");
+    let formula = wb.worksheet_formula("Sheet1").unwrap();
+    let mut rows = formula.rows();
+    assert_eq!(rows.next(), Some(&["SUM(AA1:AA3)".to_owned()][..]));
+    assert_eq!(rows.next(), Some(&["AA1+AB1".to_owned()][..]));
+    assert_eq!(rows.next(), None);
+}
+
+#[test]
 fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
     // Regression test: the chart on "Report" is a nested substream whose cached
     // series values (Data!A1:B8) must not leak into the hosting sheet.
