@@ -3616,3 +3616,25 @@ fn xls_empty_string() {
     let range = wb.worksheet_range("Sheet1").unwrap();
     assert_eq!(range.get_value((0, 0)), Some(&String("".to_string())));
 }
+
+#[test]
+fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
+    // Regression test: the chart on "Report" is a nested substream whose cached
+    // series values (Data!A1:B8) must not leak into the hosting sheet.
+    let mut excel: Xls<_> = wb("xls_cross_sheet_chart.xls");
+    let range = excel.worksheet_range("Report").unwrap();
+
+    assert_eq!(
+        range.get((0, 0)),
+        Some(&Data::String("HEADER TEXT A1".to_string())),
+        "A1 was overwritten by the embedded chart's cached series"
+    );
+    assert_eq!(
+        range.get((5, 0)),
+        Some(&Data::String("LABEL A6".to_string()))
+    );
+    assert_eq!(
+        range.get((5, 2)),
+        Some(&Data::String("VALUE C6".to_string()))
+    );
+}
