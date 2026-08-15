@@ -1532,6 +1532,15 @@ fn parse_formula(
                 // PtgExp: array/shared formula, ignore
                 debug!("ignoring PtgExp array/shared formula");
                 stack.push(formula.len());
+                // Ensure PtgExp carries a 4-byte operand for the row/column
+                // of the array or shared formula it points at.
+                if rgce.len() < 4 {
+                    return Err(XlsError::Len {
+                        expected: 4,
+                        found: rgce.len(),
+                        typ: "PtgExp",
+                    });
+                }
                 rgce = &rgce[4..];
             }
             0x03..=0x11 => {
