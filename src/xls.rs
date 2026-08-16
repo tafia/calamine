@@ -1588,12 +1588,39 @@ fn parse_formula(
                 stack.push(formula.len());
             }
             0x17 => {
+                // PtgStr [MS-XLS 2.5.198.89]. In BIFF8 the literal is a
+                // ShortXLUnicodeString: cch, a 1-byte grbit, then the
+                // characters. Before BIFF8 it is a ShortByteString: cch
+                // immediately followed by cch bytes, with no grbit. Reading
+                // the BIFF8 layout out of a pre-BIFF8 stream consumes one byte
+                // too many, which desynchronises the rest of the token stream
+                // and panics on the slice when the literal ends the rgce.
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
-                formula.push('\"');
-                rgce = &rgce[2 + cch..];
+                if is_pre_biff8 {
+                    if rgce.len() < 1 + cch {
+                        return Err(XlsError::Len {
+                            typ: "PtgStr",
+                            expected: 1 + cch,
+                            found: rgce.len(),
+                        });
+                    }
+                    encoding.decode_to(&rgce[1..1 + cch], cch, &mut formula, None);
+                    formula.push('\"');
+                    rgce = &rgce[1 + cch..];
+                } else {
+                    if rgce.len() < 2 + cch {
+                        return Err(XlsError::Len {
+                            typ: "PtgStr",
+                            expected: 2 + cch,
+                            found: rgce.len(),
+                        });
+                    }
+                    read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
+                    formula.push('\"');
+                    rgce = &rgce[2 + cch..];
+                }
             }
             0x18 => {
                 rgce = &rgce[5..];
@@ -2007,5 +2034,40 @@ mod tests {
     fn test_parse_string() {
         let enc = XlsEncoding::from_codepage(1252).unwrap();
         parse_string(&[0, 1], &enc, Biff::Biff8).unwrap_err();
+    }
+
+    /// A pre-BIFF8 PtgStr carries no grbit byte: `cch` is directly followed by
+    /// `cch` bytes. Decoding it as BIFF8 used to read one byte past the end of
+    /// the token stream and panic.
+    #[test]
+    fn test_parse_formula_ptgstr_biff5() {
+        let enc = XlsEncoding::from_codepage(1252).unwrap();
+        // cce = 8, then PtgStr(0x17) cch=6 "SCHUCH" — the literal ends the rgce.
+        let mut rgce = vec![8u8, 0, 0x17, 6];
+        rgce.extend_from_slice(b"SCHUCH");
+        let f = parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5).unwrap();
+        assert_eq!(f, "\"SCHUCH\"");
+    }
+
+    /// The BIFF8 layout keeps its grbit byte.
+    #[test]
+    fn test_parse_formula_ptgstr_biff8() {
+        // BIFF8 workbooks declare code page 1200 (UTF-16LE).
+        let enc = XlsEncoding::from_codepage(1200).unwrap();
+        // cce = 9, then PtgStr(0x17) cch=6, grbit=0 (compressed), "SCHUCH".
+        let mut rgce = vec![9u8, 0, 0x17, 6, 0];
+        rgce.extend_from_slice(b"SCHUCH");
+        let f = parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff8).unwrap();
+        assert_eq!(f, "\"SCHUCH\"");
+    }
+
+    /// A truncated literal is an error, never a panic.
+    #[test]
+    fn test_parse_formula_ptgstr_truncated() {
+        let enc = XlsEncoding::from_codepage(1252).unwrap();
+        // cce = 5 covers the whole token stream, but cch claims 6 bytes.
+        let mut rgce = vec![5u8, 0, 0x17, 6];
+        rgce.extend_from_slice(b"SCH");
+        parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5).unwrap_err();
     }
 }
