@@ -16,6 +16,8 @@ This directory contains some example of Calamine usage.
 - `read_hyperlinks.rs`: Reads the hyperlinks defined in an XLSX worksheet,
   either by sheet name or by sheet index.
 - `read_picture_data.rs`: Reads pictures and their metadata from an XLSX file.
+- `read_row_and_column_dimensions.rs`: Reads the column widths and row heights
+  (the worksheet layout) from an XLSX file.
 
 ### Serialization examples
 
