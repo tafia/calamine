@@ -283,6 +283,50 @@ struct XlsxOptions {
     pub header_row: HeaderRow,
 }
 
+/// Document (core) properties of an xlsx workbook.
+///
+/// These are the metadata fields stored in the `docProps/core.xml` part of the
+/// package, such as the author of the file and the creation/modification dates.
+/// Every field is optional because a workbook may omit any of them, and files
+/// created by different applications populate different subsets.
+///
+/// The values are returned as they are stored in the file. In particular the
+/// `created`, `modified` and `last_printed` fields are ISO 8601 (W3CDTF) date
+/// strings, they are not parsed into a date type.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DocumentProperties {
+    /// The title of the document (`dc:title`).
+    pub title: Option<String>,
+    /// The subject of the document (`dc:subject`).
+    pub subject: Option<String>,
+    /// The author of the document (`dc:creator`).
+    pub creator: Option<String>,
+    /// The keywords associated with the document (`cp:keywords`).
+    pub keywords: Option<String>,
+    /// A description or comment for the document (`dc:description`).
+    pub description: Option<String>,
+    /// The user who last modified the document (`cp:lastModifiedBy`).
+    pub last_modified_by: Option<String>,
+    /// The revision number (`cp:revision`).
+    pub revision: Option<String>,
+    /// The creation date as an ISO 8601 string (`dcterms:created`).
+    pub created: Option<String>,
+    /// The last modification date as an ISO 8601 string (`dcterms:modified`).
+    pub modified: Option<String>,
+    /// The last printed date as an ISO 8601 string (`cp:lastPrinted`).
+    pub last_printed: Option<String>,
+    /// The categorization of the document (`cp:category`).
+    pub category: Option<String>,
+    /// The status of the document, e.g. "Draft" or "Final" (`cp:contentStatus`).
+    pub content_status: Option<String>,
+    /// The language of the document (`dc:language`).
+    pub language: Option<String>,
+    /// A unique identifier for the document (`dc:identifier`).
+    pub identifier: Option<String>,
+    /// The version number (`cp:version`).
+    pub version: Option<String>,
+}
+
 impl<RS: Read + Seek> Xlsx<RS> {
     fn read_package_relationships(&mut self) -> Result<(), XlsxError> {
         let mut xml = match xml_reader(&mut self.zip, "_rels/.rels", &self.zip_path_cache) {
@@ -1139,6 +1183,146 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// ```
     pub fn has_1904_epoch(&self) -> bool {
         self.is_1904
+    }
+
+    /// Get the document (core) properties of the workbook.
+    ///
+    /// This reads the `docProps/core.xml` part of the package and returns the
+    /// metadata fields it contains, such as the author (`creator`) and the
+    /// creation date. Any field that is missing from the file is returned as
+    /// `None`. A workbook without a core properties part yields a
+    /// [`DocumentProperties`] with all fields set to `None`.
+    ///
+    /// # Examples
+    ///
+    /// An example of reading the author of an Excel workbook.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/table-multiple.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Read the document properties.
+    ///     let properties = workbook.document_properties()?;
+    ///
+    ///     // Check the author.
+    ///     assert_eq!(properties.creator.as_deref(), Some("John"));
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsxError::Xml`].
+    /// - [`XlsxError::XmlEof`].
+    pub fn document_properties(&mut self) -> Result<DocumentProperties, XlsxError> {
+        let path = match self.core_properties_path()? {
+            Some(path) => path,
+            None => return Ok(DocumentProperties::default()),
+        };
+        self.read_core_properties(&path)
+    }
+
+    /// Find the path of the core properties part from the package relationships.
+    fn core_properties_path(&mut self) -> Result<Option<String>, XlsxError> {
+        let mut xml = match xml_reader(&mut self.zip, "_rels/.rels", &self.zip_path_cache) {
+            None => return Ok(None),
+            Some(x) => x?,
+        };
+
+        let mut buf = Vec::with_capacity(1024);
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"Relationship" => {
+                    let (rel_type, target) =
+                        get_attrs!(e, b"Type" => rel_type, b"Target" => target)?;
+                    let is_core = rel_type
+                        .map(|t| t.ends_with(b"/core-properties"))
+                        .unwrap_or(false);
+                    if is_core {
+                        if let Some(target) = target {
+                            let target = decode_attr(&xml.decoder(), target)?;
+                            let target = target.strip_prefix('/').unwrap_or(&target).to_string();
+                            return Ok(Some(target));
+                        }
+                    }
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"Relationships" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("Relationships")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Parse the core properties part at the given path.
+    fn read_core_properties(&mut self, path: &str) -> Result<DocumentProperties, XlsxError> {
+        let mut xml = match xml_reader(&mut self.zip, path, &self.zip_path_cache) {
+            None => return Ok(DocumentProperties::default()),
+            Some(x) => x?,
+        };
+
+        let mut props = DocumentProperties::default();
+        let mut buf = Vec::with_capacity(1024);
+        let mut val_buf = Vec::with_capacity(1024);
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => {
+                    let slot: Option<&mut Option<String>> = match e.local_name().as_ref() {
+                        b"title" => Some(&mut props.title),
+                        b"subject" => Some(&mut props.subject),
+                        b"creator" => Some(&mut props.creator),
+                        b"keywords" => Some(&mut props.keywords),
+                        b"description" => Some(&mut props.description),
+                        b"lastModifiedBy" => Some(&mut props.last_modified_by),
+                        b"revision" => Some(&mut props.revision),
+                        b"created" => Some(&mut props.created),
+                        b"modified" => Some(&mut props.modified),
+                        b"lastPrinted" => Some(&mut props.last_printed),
+                        b"category" => Some(&mut props.category),
+                        b"contentStatus" => Some(&mut props.content_status),
+                        b"language" => Some(&mut props.language),
+                        b"identifier" => Some(&mut props.identifier),
+                        b"version" => Some(&mut props.version),
+                        _ => None,
+                    };
+                    if let Some(slot) = slot {
+                        let end_name = e.name();
+                        let mut value = String::new();
+                        loop {
+                            val_buf.clear();
+                            match xml.read_event_into(&mut val_buf)? {
+                                Event::Text(t) => value.push_str(&t.xml10_content()?),
+                                Event::GeneralRef(r) => {
+                                    unescape_entity_to_buffer(&r, &mut value)?;
+                                }
+                                Event::End(end) if end.name() == end_name => break,
+                                Event::Eof => return Err(XlsxError::XmlEof("coreProperties")),
+                                _ => (),
+                            }
+                        }
+                        if !value.is_empty() {
+                            *slot = Some(value);
+                        }
+                    }
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"coreProperties" => break,
+                Ok(Event::Eof) => return Err(XlsxError::XmlEof("coreProperties")),
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+
+        Ok(props)
     }
 
     /// Get all Pivot Tables in a workbook.

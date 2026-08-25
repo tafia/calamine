@@ -5,9 +5,9 @@
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
+    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, DocumentProperties,
+    ExcelDateTime, ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -3661,4 +3661,43 @@ fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
         range.get((5, 2)),
         Some(&Data::String("VALUE C6".to_string()))
     );
+}
+
+#[test]
+fn xlsx_document_properties() {
+    let mut excel: Xlsx<_> = wb("table-multiple.xlsx");
+    let props = excel.document_properties().unwrap();
+
+    assert_eq!(props.creator.as_deref(), Some("John"));
+    assert_eq!(props.last_modified_by.as_deref(), Some("John"));
+    assert_eq!(props.created.as_deref(), Some("2025-07-07T22:15:34Z"));
+    assert_eq!(props.modified.as_deref(), Some("2025-07-08T23:00:40Z"));
+
+    // Fields absent from the file stay None.
+    assert_eq!(props.title, None);
+    assert_eq!(props.subject, None);
+}
+
+#[test]
+fn xlsx_document_properties_unicode_creator() {
+    // The creator is stored with non-ASCII characters and must round-trip.
+    let mut excel: Xlsx<_> = wb("any_sheets.xlsx");
+    let props = excel.document_properties().unwrap();
+
+    assert_eq!(props.creator.as_deref(), Some("Алена"));
+    assert_eq!(props.last_modified_by.as_deref(), Some("Алена"));
+}
+
+#[test]
+fn xlsx_document_properties_empty_values_are_none() {
+    // date.xlsx has a core.xml where dc:creator is present but empty.
+    let mut excel: Xlsx<_> = wb("date.xlsx");
+    let props = excel.document_properties().unwrap();
+
+    assert_eq!(props.creator, None);
+    assert_eq!(props.language.as_deref(), Some("en-US"));
+    assert!(props.created.is_some());
+
+    // A default value has every field unset.
+    assert_eq!(DocumentProperties::default().creator, None);
 }
