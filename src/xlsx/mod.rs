@@ -32,7 +32,7 @@ use crate::vba::VbaProject;
 use crate::Picture;
 use crate::{
     Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table,
+    SheetType, SheetVisible, Table, WorkbookProperties,
 };
 pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
@@ -265,6 +265,8 @@ pub struct Xlsx<RS> {
     is_1904: bool,
     /// Metadata
     metadata: Metadata,
+    /// Workbook document properties, parsed lazily on first access.
+    workbook_properties: Option<Box<WorkbookProperties>>,
     /// Pictures
     #[cfg(feature = "picture")]
     pictures: Option<Vec<Picture>>,
@@ -547,6 +549,22 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
         self.metadata.names = defined_names;
         Ok(())
+    }
+
+    /// Get workbook document properties.
+    ///
+    /// Missing fields are returned as `None`.
+    pub fn workbook_properties(&mut self) -> Result<&WorkbookProperties, XlsxError> {
+        if self.workbook_properties.is_none() {
+            let mut props = WorkbookProperties::default();
+            read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
+            read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
+            self.workbook_properties = Some(Box::new(props));
+        }
+        Ok(self
+            .workbook_properties
+            .as_deref()
+            .expect("workbook properties are initialized above"))
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, (String, String)>, XlsxError> {
@@ -2554,6 +2572,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             sheets: Vec::new(),
             tables: None,
             metadata: Metadata::default(),
+            workbook_properties: None,
             #[cfg(feature = "picture")]
             pictures: None,
             merged_regions: None,
@@ -2753,7 +2772,7 @@ fn col_from_cell_ref(cell_ref: &[u8]) -> u32 {
     col.saturating_sub(1)
 }
 
-fn xml_reader<'a, RS: Read + Seek>(
+pub(crate) fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
     cache: &HashMap<String, String>,
@@ -4565,6 +4584,7 @@ mod tests {
             formats: vec![],
             is_1904: false,
             metadata: Metadata::default(),
+            workbook_properties: None,
             #[cfg(feature = "picture")]
             pictures: None,
             merged_regions: None,
@@ -4578,4 +4598,156 @@ mod tests {
         assert_eq!("String 2", &xlsx.strings[1]);
         assert_eq!("String 3", &xlsx.strings[2]);
     }
+}
+
+/// Read the package core properties (`docProps/core.xml`).
+pub(crate) fn read_core_properties<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    props: &mut WorkbookProperties,
+    cache: &HashMap<String, String>,
+) -> Result<(), XlsxError> {
+    let Some(xml) = xml_reader(zip, "docProps/core.xml", cache) else {
+        return Ok(());
+    };
+    let mut xml = xml?;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut current = None;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.local_name();
+                let name_ref = name.as_ref();
+                current = match name_ref {
+                    b"creator" => Some(DocProperty::Creator),
+                    b"lastModifiedBy" => Some(DocProperty::LastModifiedBy),
+                    b"created" => Some(DocProperty::Created),
+                    b"modified" => Some(DocProperty::Modified),
+                    b"title" => Some(DocProperty::Title),
+                    b"subject" => Some(DocProperty::Subject),
+                    b"description" => Some(DocProperty::Description),
+                    b"keywords" => Some(DocProperty::Keywords),
+                    b"category" => Some(DocProperty::Category),
+                    b"contentStatus" => Some(DocProperty::ContentStatus),
+                    b"revision" => Some(DocProperty::Revision),
+                    b"version" => Some(DocProperty::Version),
+                    b"Application" => Some(DocProperty::Application),
+                    b"AppVersion" => Some(DocProperty::AppVersion),
+                    b"Company" => Some(DocProperty::Company),
+                    b"Template" => Some(DocProperty::Template),
+                    b"Manager" => Some(DocProperty::Manager),
+                    _ => None,
+                };
+            }
+            Ok(Event::Text(t)) => {
+                if let Some(field) = current {
+                    let value = t.xml10_content()?;
+                    match field {
+                        DocProperty::Creator => props.creator = Some(value.into_owned()),
+                        DocProperty::LastModifiedBy => {
+                            props.last_modified_by = Some(value.into_owned());
+                        }
+                        DocProperty::Created => props.created = Some(value.into_owned()),
+                        DocProperty::Modified => props.modified = Some(value.into_owned()),
+                        DocProperty::Title => props.title = Some(value.into_owned()),
+                        DocProperty::Subject => props.subject = Some(value.into_owned()),
+                        DocProperty::Description => props.description = Some(value.into_owned()),
+                        DocProperty::Keywords => props.keywords = Some(value.into_owned()),
+                        DocProperty::Category => props.category = Some(value.into_owned()),
+                        DocProperty::ContentStatus => {
+                            props.content_status = Some(value.into_owned())
+                        }
+                        DocProperty::Revision => props.revision = Some(value.into_owned()),
+                        DocProperty::Version => props.version = Some(value.into_owned()),
+                        DocProperty::Application => props.application = Some(value.into_owned()),
+                        DocProperty::AppVersion => props.app_version = Some(value.into_owned()),
+                        DocProperty::Company => props.company = Some(value.into_owned()),
+                        DocProperty::Template => props.template = Some(value.into_owned()),
+                        DocProperty::Manager => props.manager = Some(value.into_owned()),
+                    }
+                    current = None;
+                }
+            }
+            Ok(Event::End(_)) => current = None,
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+/// Read the package extended properties (`docProps/app.xml`).
+pub(crate) fn read_app_properties<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    props: &mut WorkbookProperties,
+    cache: &HashMap<String, String>,
+) -> Result<(), XlsxError> {
+    let Some(xml) = xml_reader(zip, "docProps/app.xml", cache) else {
+        return Ok(());
+    };
+    let mut xml = xml?;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut current = None;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.local_name();
+                let name_ref = name.as_ref();
+                current = match name_ref {
+                    b"Application" => Some(DocProperty::Application),
+                    b"AppVersion" => Some(DocProperty::AppVersion),
+                    b"Company" => Some(DocProperty::Company),
+                    b"Template" => Some(DocProperty::Template),
+                    b"Manager" => Some(DocProperty::Manager),
+                    _ => None,
+                };
+            }
+            Ok(Event::Text(t)) => {
+                if let Some(field) = current {
+                    let value = t.xml10_content()?;
+                    match field {
+                        DocProperty::Application => props.application = Some(value.into_owned()),
+                        DocProperty::AppVersion => props.app_version = Some(value.into_owned()),
+                        DocProperty::Company => props.company = Some(value.into_owned()),
+                        DocProperty::Template => props.template = Some(value.into_owned()),
+                        DocProperty::Manager => props.manager = Some(value.into_owned()),
+                        _ => {}
+                    }
+                    current = None;
+                }
+            }
+            Ok(Event::End(_)) => current = None,
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum DocProperty {
+    Creator,
+    LastModifiedBy,
+    Created,
+    Modified,
+    Title,
+    Subject,
+    Description,
+    Keywords,
+    Category,
+    ContentStatus,
+    Revision,
+    Version,
+    Application,
+    AppVersion,
+    Company,
+    Template,
+    Manager,
 }

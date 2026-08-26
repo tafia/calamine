@@ -27,8 +27,10 @@ use crate::utils::{
     read_usize,
 };
 use crate::vba::VbaProject;
+use crate::xlsx::{read_app_properties, read_core_properties};
 use crate::{
     Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    WorkbookProperties,
 };
 
 /// A Xlsb specific error
@@ -160,6 +162,8 @@ pub struct Xlsb<RS> {
     formats: Vec<CellFormat>,
     is_1904: bool,
     metadata: Metadata,
+    /// Workbook document properties, parsed lazily on first access.
+    workbook_properties: Option<Box<WorkbookProperties>>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
     options: XlsbOptions,
@@ -438,6 +442,24 @@ impl<RS: Read + Seek> Xlsb<RS> {
         )
     }
 
+    /// Get workbook document properties.
+    ///
+    /// Missing fields are returned as `None`.
+    pub fn workbook_properties(&mut self) -> Result<&WorkbookProperties, XlsbError> {
+        if self.workbook_properties.is_none() {
+            let mut props = WorkbookProperties::default();
+            read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)
+                .map_err(xlsx_error_to_xlsb)?;
+            read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)
+                .map_err(xlsx_error_to_xlsb)?;
+            self.workbook_properties = Some(Box::new(props));
+        }
+        Ok(self
+            .workbook_properties
+            .as_deref()
+            .expect("workbook properties are initialized above"))
+    }
+
     #[cfg(feature = "picture")]
     fn read_pictures(&mut self) -> Result<(), XlsbError> {
         let mut pics = Vec::new();
@@ -483,6 +505,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             formats: Vec::new(),
             is_1904: false,
             metadata: Metadata::default(),
+            workbook_properties: None,
             #[cfg(feature = "picture")]
             pictures: None,
             options: XlsbOptions::default(),
@@ -1052,4 +1075,17 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     }
 
     Ok(())
+}
+
+fn xlsx_error_to_xlsb(e: crate::xlsx::XlsxError) -> XlsbError {
+    use crate::xlsx::XlsxError;
+    match e {
+        XlsxError::Io(e) => XlsbError::Io(e),
+        XlsxError::Zip(e) => XlsbError::Zip(e),
+        XlsxError::Vba(e) => XlsbError::Vba(e),
+        XlsxError::Xml(e) => XlsbError::Xml(e),
+        XlsxError::XmlAttr(e) => XlsbError::XmlAttr(e),
+        XlsxError::Encoding(e) => XlsbError::Xml(e.into()),
+        e => XlsbError::FileNotFound(e.to_string()),
+    }
 }
