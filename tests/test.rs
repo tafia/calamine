@@ -962,6 +962,15 @@ fn date_xlsx_custom_format_with_quoted_text() {
 }
 
 #[test]
+fn date_xlsx_1904_extlst() {
+    // A 1904-system workbook whose extLst also contains an <x15:workbookPr>
+    // extension element (which shares the "workbookPr" local name but carries
+    // no date1904 attribute) must still be read on the 1904 epoch. See #706.
+    let xlsx: Xlsx<_> = wb("date_1904_extlst.xlsx");
+    assert!(xlsx.has_1904_epoch());
+}
+
+#[test]
 fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = wb("date_1904.xlsx");
     assert!(xls.has_1904_epoch());
