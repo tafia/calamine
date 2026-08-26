@@ -829,7 +829,9 @@ fn parse_extern_sheet(r: &Record<'_>, biff: Biff) -> Vec<Xti> {
             // Single record with cXTI count + array of 6-byte XTI structs
             let cxti = read_u16(r.data) as usize;
             r.data[2..]
-                .chunks_exact(6)
+                .as_chunks::<6>()
+                .0
+                .iter()
                 .take(cxti)
                 .map(|xti| Xti {
                     _isup_book: read_u16(&xti[..2]),
