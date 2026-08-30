@@ -3,7 +3,7 @@
 // Copyright 2016-2026, Johann Tuffe.
 
 use std::cmp::min;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
 
@@ -613,6 +613,9 @@ impl<RS: Read + Seek> Xls<RS> {
             // The first BOF belongs to the worksheet itself.
             let mut seen_sheet_bof = false;
             let mut substream_depth = 0usize;
+            // Shared and array formula definitions, and the cells awaiting them.
+            let mut shared_defs: Vec<(Dimensions, Vec<u8>)> = Vec::new();
+            let mut shared_members: Vec<(usize, (u32, u32))> = Vec::new();
             for record in records {
                 let r = record?;
                 if substream_depth > 0 {
@@ -674,26 +677,107 @@ impl<RS: Read + Seek> Xls<RS> {
                             // it will appear in 0x0207 record coming next
                             cells.push(Cell::new(fmla_pos, val));
                         }
-                        let fmla = parse_formula(
-                            &r.data[20..],
-                            &fmla_sheet_names,
-                            &defined_names,
-                            &xtis,
-                            &encoding,
-                            biff,
-                        )
-                        .unwrap_or_else(|e| {
-                            debug!("{e}");
-                            format!(
-                                "Unrecognised formula \
-                                 for cell ({row}, {col}): {e:?}"
+                        if is_shared_formula_member(&r.data[20..]) {
+                            // The tokens live in a ShrFmla or Array record that
+                            // may not have been read yet; resolve after the pass.
+                            shared_members.push((formulas.len(), fmla_pos));
+                            formulas.push(Cell::new(fmla_pos, String::new()));
+                        } else {
+                            let fmla = parse_formula(
+                                &r.data[20..],
+                                &fmla_sheet_names,
+                                &defined_names,
+                                &xtis,
+                                &encoding,
+                                biff,
+                                fmla_pos,
                             )
-                        });
-                        formulas.push(Cell::new(fmla_pos, fmla));
+                            .unwrap_or_else(|e| {
+                                debug!("{e}");
+                                format!(
+                                    "Unrecognised formula \
+                                     for cell ({row}, {col}): {e:?}"
+                                )
+                            });
+                            formulas.push(Cell::new(fmla_pos, fmla));
+                        }
+                    }
+                    // 1212: ShrFmla — refU(6) unused(1) cUse(1) then the formula.
+                    0x04BC => {
+                        if let Some(range) = parse_ref_u(r.data).filter(|_| r.data.len() > 8) {
+                            shared_defs.push((range, r.data[8..].to_vec()));
+                        }
+                    }
+                    // 545: Array — refU(6) flags(2) chn(4) then the formula.
+                    0x0221 => {
+                        if let Some(range) = parse_ref_u(r.data).filter(|_| r.data.len() > 12) {
+                            shared_defs.push((range, r.data[12..].to_vec()));
+                        }
                     }
                     _ => (),
                 }
             }
+            // A shared or array formula is stored once, over a range, and each
+            // cell in that range carries only a PtgExp back-reference. Decode
+            // the definition separately for every member, anchored at that
+            // member's own position, so each row gets its own references.
+            // Index definitions by column, so a member is matched by binary
+            // search rather than a scan of every group on the sheet: Excel
+            // splits a filled-down column into groups of about 64 rows, so a
+            // linear scan per member is quadratic. Groups are nearly always one
+            // column wide; wider ones stay in a short list scanned directly.
+            const WIDE_GROUP_COLS: u32 = 64;
+            let mut by_column: HashMap<u32, Vec<(u32, u32, usize)>> = HashMap::new();
+            let mut wide: Vec<usize> = Vec::new();
+            for (i, (range, _)) in shared_defs.iter().enumerate() {
+                if range.end.1.saturating_sub(range.start.1) >= WIDE_GROUP_COLS {
+                    wide.push(i);
+                    continue;
+                }
+                for col in range.start.1..=range.end.1 {
+                    by_column
+                        .entry(col)
+                        .or_default()
+                        .push((range.start.0, range.end.0, i));
+                }
+            }
+            for spans in by_column.values_mut() {
+                spans.sort_unstable();
+            }
+
+            for (index, pos) in shared_members {
+                let found = by_column.get(&pos.1).and_then(|spans| {
+                    // Groups in a column do not overlap, so the only candidate
+                    // is the last one starting at or before this row.
+                    let i = spans.partition_point(|&(start, _, _)| start <= pos.0);
+                    let &(_, end, def) = spans.get(i.checked_sub(1)?)?;
+                    (pos.0 <= end).then_some(def)
+                });
+                let Some(def_index) = found.or_else(|| {
+                    wide.iter().rev().copied().find(|&i| {
+                        let range = &shared_defs[i].0;
+                        pos.0 >= range.start.0
+                            && pos.0 <= range.end.0
+                            && pos.1 >= range.start.1
+                            && pos.1 <= range.end.1
+                    })
+                }) else {
+                    continue;
+                };
+                match parse_formula(
+                    &shared_defs[def_index].1,
+                    &fmla_sheet_names,
+                    &defined_names,
+                    &xtis,
+                    &encoding,
+                    biff,
+                    pos,
+                ) {
+                    Ok(f) => formulas[index] = Cell::new(pos, f),
+                    Err(e) => debug!("{e}"),
+                }
+            }
+
             let range = Range::from_sparse(cells);
             let formula = Range::from_sparse(formulas);
             sheets.insert(
@@ -1374,6 +1458,146 @@ fn write_absolute_cell_ref(f: &mut String, col: u32, row: u32) {
     write!(f, "${}", row + 1).unwrap();
 }
 
+/// Read a `RefU`: `rwFirst(2) rwLast(2) colFirst(1) colLast(1)`.
+///
+/// This is the range header on `ShrFmla` and `Array` records. Its columns are a
+/// single byte each, unlike the wider `Ref8U` used elsewhere, and it is not the
+/// shape of the `Dimensions` record either.
+fn parse_ref_u(r: &[u8]) -> Option<Dimensions> {
+    (r.len() >= 6).then(|| Dimensions {
+        start: (read_u16(&r[0..2]) as u32, r[4] as u32),
+        end: (read_u16(&r[2..4]) as u32, r[5] as u32),
+    })
+}
+
+/// Sign-extend the low `bits` of `v`.
+fn sign_extend(v: u32, bits: u32) -> i32 {
+    let shift = 32 - bits;
+    ((v << shift) as i32) >> shift
+}
+
+/// Decode an `N`-class reference operand.
+///
+/// Returns `(row, col, row_is_relative, col_is_relative, bytes_consumed)` with
+/// absolute zero-based indices. Relative components are stored as signed offsets
+/// from the cell that owns the formula: 16-bit row and 14-bit column in BIFF8,
+/// 14-bit row and 8-bit column before it.
+fn read_ref_n(
+    rgce: &[u8],
+    anchor: (u32, u32),
+    is_pre_biff8: bool,
+) -> Result<(u32, u32, bool, bool, usize), XlsError> {
+    let need = if is_pre_biff8 { 3 } else { 4 };
+    if rgce.len() < need {
+        return Err(XlsError::Len {
+            expected: need,
+            found: rgce.len(),
+            typ: "PtgRefN",
+        });
+    }
+
+    let (row_field, col_field, row_rel, col_rel, row_bits, col_bits) = if is_pre_biff8 {
+        // BIFF2-5: rw(2) carries the row in 14 bits with fRwRel = 0x8000 and
+        // fColRel = 0x4000; the column is a single byte.
+        let rw = read_u16(rgce) as u32;
+        (
+            rw & 0x3FFF,
+            rgce[2] as u32,
+            rw & 0x8000 != 0,
+            rw & 0x4000 != 0,
+            14,
+            8,
+        )
+    } else {
+        // BIFF8: rw(2) is the full row. grbitCol(2) is an RgceLocRel, whose
+        // column occupies only the low **8** bits -- this format has 256
+        // columns, not 16384 -- followed by six unused bits, then
+        // fColRel = 0x8000 and fRwRel = 0x4000. Masking 14 bits here instead
+        // would read a negative column offset such as 0xFF as +255.
+        let col = read_u16(&rgce[2..4]) as u32;
+        (
+            read_u16(rgce) as u32,
+            col & 0x00FF,
+            col & 0x4000 != 0,
+            col & 0x8000 != 0,
+            16,
+            8,
+        )
+    };
+
+    let row = if row_rel {
+        (anchor.0 as i32).wrapping_add(sign_extend(row_field, row_bits)) as u32
+    } else {
+        row_field
+    };
+    let col = if col_rel {
+        (anchor.1 as i32).wrapping_add(sign_extend(col_field, col_bits)) as u32
+    } else {
+        col_field
+    };
+
+    Ok((row, col, row_rel, col_rel, need))
+}
+
+/// Decode a `PtgAreaN` operand as its two corners.
+#[allow(clippy::type_complexity)]
+fn read_area_n(
+    rgce: &[u8],
+    anchor: (u32, u32),
+    is_pre_biff8: bool,
+) -> Result<(u32, u32, bool, bool, u32, u32, bool, bool, usize), XlsError> {
+    let need = if is_pre_biff8 { 6 } else { 8 };
+    if rgce.len() < need {
+        return Err(XlsError::Len {
+            expected: need,
+            found: rgce.len(),
+            typ: "PtgAreaN",
+        });
+    }
+    // Corners are stored grouped: both rows, then both columns. Re-pack each
+    // corner into the layout `read_ref_n` expects.
+    let (first, second, ref_len) = if is_pre_biff8 {
+        (
+            [rgce[0], rgce[1], rgce[4], 0],
+            [rgce[2], rgce[3], rgce[5], 0],
+            3,
+        )
+    } else {
+        (
+            [rgce[0], rgce[1], rgce[4], rgce[5]],
+            [rgce[2], rgce[3], rgce[6], rgce[7]],
+            4,
+        )
+    };
+    let (r1, c1, r1r, c1r, _) = read_ref_n(&first[..ref_len], anchor, is_pre_biff8)?;
+    let (r2, c2, r2r, c2r, _) = read_ref_n(&second[..ref_len], anchor, is_pre_biff8)?;
+    Ok((r1, c1, r1r, c1r, r2, c2, r2r, c2r, need))
+}
+
+/// Append an A1 reference, marking absolute components with `$`.
+fn push_a1(out: &mut String, row: u32, col: u32, row_rel: bool, col_rel: bool) {
+    if !col_rel {
+        out.push('$');
+    }
+    push_column(col, out);
+    if !row_rel {
+        out.push('$');
+    }
+    let _ = write!(out, "{}", row + 1);
+}
+
+/// Whether a cell-parsed formula is just a `PtgExp` pointing at a group.
+///
+/// Such a cell belongs to a shared or array formula whose tokens live in a
+/// separate `ShrFmla` or `Array` record, so it carries no formula of its own.
+fn is_shared_formula_member(rgce: &[u8]) -> bool {
+    if rgce.len() < 3 {
+        return false;
+    }
+    let cce = read_u16(rgce) as usize;
+    cce > 0 && rgce.len() >= 2 + cce && rgce[2] == 0x01
+}
+
 /// Formula parsing
 ///
 /// Does not implement ALL possibilities, only Area are parsed
@@ -1454,10 +1678,14 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
     };
     Ok(res)
 }
-
 /// Formula parsing
 ///
 /// `CellParsedFormula` [MS-XLS 2.5.198.3]
+///
+/// `anchor` is the cell owning the formula, as a zero-based `(row, col)`. The
+/// `N`-class tokens `PtgRefN` and `PtgAreaN`, which shared and array formulas
+/// are built from, store offsets from the evaluating cell rather than absolute
+/// positions, so they cannot be decoded without it.
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
@@ -1465,6 +1693,7 @@ fn parse_formula(
     xtis: &[Xti],
     encoding: &XlsEncoding,
     biff: Biff,
+    anchor: (u32, u32),
 ) -> Result<String, XlsError> {
     let is_pre_biff8 = matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5);
     let mut stack = Vec::new();
@@ -1559,8 +1788,8 @@ fn parse_formula(
                     0x09 => "<",
                     0x0A => "<=",
                     0x0B => "=",
-                    0x0C => ">",
-                    0x0D => ">=",
+                    0x0C => ">=",
+                    0x0D => ">",
                     0x0E => "<>",
                     0x0F => " ",
                     0x10 => ",",
@@ -1738,6 +1967,23 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(names.get(iname).map_or("#REF!", |n| &*n.0));
                 rgce = &rgce[4..];
+            }
+            0x2C | 0x4C | 0x6C => {
+                // PtgRefN: PtgRef whose relative parts are offsets from `anchor`.
+                let (row, col, row_rel, col_rel, len) = read_ref_n(rgce, anchor, is_pre_biff8)?;
+                stack.push(formula.len());
+                push_a1(&mut formula, row, col, row_rel, col_rel);
+                rgce = &rgce[len..];
+            }
+            0x2D | 0x4D | 0x6D => {
+                // PtgAreaN: the two-corner form of PtgRefN.
+                let (r1, c1, r1_rel, c1_rel, r2, c2, r2_rel, c2_rel, len) =
+                    read_area_n(rgce, anchor, is_pre_biff8)?;
+                stack.push(formula.len());
+                push_a1(&mut formula, r1, c1, r1_rel, c1_rel);
+                formula.push(':');
+                push_a1(&mut formula, r2, c2, r2_rel, c2_rel);
+                rgce = &rgce[len..];
             }
             0x24 | 0x44 | 0x64 => {
                 stack.push(formula.len());
@@ -2009,5 +2255,161 @@ mod tests {
     fn test_parse_string() {
         let enc = XlsEncoding::from_codepage(1252).unwrap();
         parse_string(&[0, 1], &enc, Biff::Biff8).unwrap_err();
+    }
+}
+
+#[cfg(test)]
+mod formula_tests {
+    use super::{is_shared_formula_member, parse_formula, read_ref_n, Biff};
+    use crate::cfb::XlsEncoding;
+
+    fn encoding() -> XlsEncoding {
+        XlsEncoding::from_codepage(1200).expect("utf-16 codepage")
+    }
+
+    /// Wrap token bytes in the `cce`-prefixed form `parse_formula` expects.
+    fn cell_formula(tokens: &[u8]) -> Vec<u8> {
+        let mut v = (tokens.len() as u16).to_le_bytes().to_vec();
+        v.extend_from_slice(tokens);
+        v
+    }
+
+    /// Build a BIFF8 `PtgRefN` token: `ptg + rw(2) + grbitCol(2)`.
+    ///
+    /// The column occupies only the low 8 bits: BIFF8 sheets are 256 columns
+    /// wide, so a negative offset such as -1 is written as `0xFF`.
+    fn ref_n_biff8(ptg: u8, row: i16, col: i8, row_rel: bool, col_rel: bool) -> Vec<u8> {
+        let mut v = vec![ptg];
+        v.extend_from_slice(&(row as u16).to_le_bytes());
+        let mut c = (col as u8) as u16;
+        if row_rel {
+            c |= 0x4000;
+        }
+        if col_rel {
+            c |= 0x8000;
+        }
+        v.extend_from_slice(&c.to_le_bytes());
+        v
+    }
+
+    fn parse(tokens: &[u8], anchor: (u32, u32), biff: Biff) -> String {
+        parse_formula(
+            &cell_formula(tokens),
+            &[],
+            &[],
+            &[],
+            &encoding(),
+            biff,
+            anchor,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn ptg_ref_n_resolves_relative_offsets_against_the_anchor() {
+        // One row up, same column, evaluated at C6 (row 5, col 2) -> C5.
+        let t = ref_n_biff8(0x4C, -1, 0, true, true);
+        assert_eq!(parse(&t, (5, 2), Biff::Biff8), "C5");
+
+        // One column left, same row -> B6.
+        let t = ref_n_biff8(0x4C, 0, -1, true, true);
+        assert_eq!(parse(&t, (5, 2), Biff::Biff8), "B6");
+    }
+
+    #[test]
+    fn ptg_ref_n_absolute_components_ignore_the_anchor() {
+        let t = ref_n_biff8(0x4C, 0, 0, false, false);
+        assert_eq!(parse(&t, (5, 2), Biff::Biff8), "$A$1");
+        assert_eq!(parse(&t, (99, 7), Biff::Biff8), "$A$1");
+    }
+
+    #[test]
+    fn ptg_ref_n_shifts_with_the_anchor() {
+        // One definition must serve a whole filled-down column.
+        let t = ref_n_biff8(0x4C, -1, 0, true, true);
+        let got: Vec<String> = (5..9).map(|r| parse(&t, (r, 2), Biff::Biff8)).collect();
+        assert_eq!(got, ["C5", "C6", "C7", "C8"]);
+    }
+
+    #[test]
+    fn ptg_ref_n_biff8_column_offset_is_eight_bits() {
+        // BIFF8 has 256 columns, so the column offset in an RgceLocRel is 8
+        // bits wide, not the 14 bits XLSB uses. Reading it as 14 bits turns the
+        // -1 written as 0xFF into +255, silently moving A to IW.
+        let t = ref_n_biff8(0x4C, 0, -1, true, true);
+        assert_eq!(parse(&t, (0, 1), Biff::Biff8), "A1");
+
+        // The same mistake widens a SUM range: J38 summing B38:I38 became
+        // IX38:JE38 before this was pinned down.
+        // PtgAreaN: rwFirst(2) rwLast(2) colFirst(2) colLast(2), both columns
+        // relative. Both flags set marks row and column relative.
+        const REL: u16 = 0xC000;
+        let mut area = vec![0x4Du8];
+        area.extend_from_slice(&0u16.to_le_bytes()); // rwFirst: same row
+        area.extend_from_slice(&0u16.to_le_bytes()); // rwLast:  same row
+        area.extend_from_slice(&(REL | 0x00F8).to_le_bytes()); // colFirst: -8
+        area.extend_from_slice(&(REL | 0x00FF).to_le_bytes()); // colLast:  -1
+        assert_eq!(parse(&area, (37, 9), Biff::Biff8), "B38:I38");
+    }
+
+    #[test]
+    fn ptg_ref_n_pre_biff8_layout() {
+        // BIFF2-5 packs the row in 14 bits with fRwRel = 0x8000, fColRel =
+        // 0x4000, and uses a single byte for the column.
+        let rw: u16 = ((-1i16 as u16) & 0x3FFF) | 0x8000 | 0x4000;
+        let mut t = vec![0x4Cu8];
+        t.extend_from_slice(&rw.to_le_bytes());
+        t.push(0); // column delta 0
+        assert_eq!(parse(&t, (5, 2), Biff::Biff5), "C5");
+    }
+
+    #[test]
+    fn read_ref_n_rejects_a_truncated_token() {
+        assert!(read_ref_n(&[0, 0], (0, 0), false).is_err());
+        assert!(read_ref_n(&[0, 0], (0, 0), true).is_err());
+    }
+
+    #[test]
+    fn comparison_operators_match_the_ptg_assignments() {
+        // MS-XLS assigns PtgGe = 0x0C and PtgGt = 0x0D.
+        let lhs = ref_n_biff8(0x4C, 0, 0, true, true);
+        let rhs = ref_n_biff8(0x4C, -1, 0, true, true);
+        let build = |op: u8| {
+            let mut t = lhs.clone();
+            t.extend_from_slice(&rhs);
+            t.push(op);
+            parse(&t, (5, 2), Biff::Biff8)
+        };
+        assert_eq!(build(0x0C), "C6>=C5");
+        assert_eq!(build(0x0D), "C6>C5");
+        assert_eq!(build(0x09), "C6<C5");
+        assert_eq!(build(0x0A), "C6<=C5");
+        assert_eq!(build(0x0B), "C6=C5");
+        assert_eq!(build(0x0E), "C6<>C5");
+    }
+
+    #[test]
+    fn ref_u_reads_single_byte_columns() {
+        // The range header on ShrFmla and Array records is a RefU, whose
+        // columns are one byte each. Reading it as the wider Ref8U yields
+        // plausible rows and nonsense columns, so no member ever matches.
+        let r = [0x00, 0x00, 0x03, 0x00, 0x01, 0x01];
+        let d = super::parse_ref_u(&r).expect("6 bytes is enough");
+        assert_eq!((d.start, d.end), ((0, 1), (3, 1)));
+        assert!(super::parse_ref_u(&r[..5]).is_none());
+    }
+
+    #[test]
+    fn ptg_exp_marks_a_shared_formula_member() {
+        // A lone PtgExp with its row/col operand.
+        assert!(is_shared_formula_member(&cell_formula(&[
+            0x01, 0x09, 0x00, 0x0C, 0x00
+        ])));
+        // An ordinary reference is not a member.
+        assert!(!is_shared_formula_member(&cell_formula(&ref_n_biff8(
+            0x4C, 0, 0, true, true
+        ))));
+        assert!(!is_shared_formula_member(&[]));
+        assert!(!is_shared_formula_member(&[0x00, 0x00]));
     }
 }
