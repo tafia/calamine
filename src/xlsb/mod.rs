@@ -23,8 +23,8 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{
-    build_zip_path_cache, cached_zip_path, push_column, read_f64, read_i32, read_u16, read_u32,
-    read_usize,
+    build_zip_path_cache, cached_zip_path, push_column, push_sheet_name, read_f64, read_i32,
+    read_u16, read_u32, read_usize,
 };
 use crate::vba::VbaProject;
 use crate::{
@@ -749,7 +749,7 @@ fn parse_formula(
                 // PtgRef3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                push_sheet_name(&sheets[ixti as usize], &mut formula);
                 formula.push('!');
                 // TODO: check with relative columns
                 formula.push('$');
@@ -762,7 +762,7 @@ fn parse_formula(
                 // PtgArea3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                push_sheet_name(&sheets[ixti as usize], &mut formula);
                 formula.push('!');
                 // TODO: check with relative columns
                 formula.push('$');
@@ -780,7 +780,7 @@ fn parse_formula(
                 // PtfRefErr3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                push_sheet_name(&sheets[ixti as usize], &mut formula);
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[8..];
@@ -789,7 +789,7 @@ fn parse_formula(
                 // PtgAreaErr3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(&sheets[ixti as usize]);
+                push_sheet_name(&sheets[ixti as usize], &mut formula);
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[14..];
