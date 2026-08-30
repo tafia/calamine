@@ -724,6 +724,33 @@ fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, Xlsb
     Ok(UTF_16LE.decode(s).0)
 }
 
+/// Split an `RgceLoc` column field into its parts.
+///
+/// The low 14 bits are the column — XLSB sheets have 16,384 of them — and the
+/// top two are relativity flags: `0x8000` for the column, `0x4000` for the row.
+/// Reading the field whole is not a display bug but a wrong reference: a
+/// relative column 2 is stored as `0x4002`, which taken as a column index is
+/// 16,386, two past Excel's last and printed as `XFF`.
+fn read_loc_col(field: u16) -> (u32, bool, bool) {
+    (
+        u32::from(field & 0x3FFF),
+        field & 0x8000 == 0x8000,
+        field & 0x4000 == 0x4000,
+    )
+}
+
+/// Append an A1 reference, marking absolute components with `$`.
+fn push_a1(out: &mut String, row: u32, col: u32, row_rel: bool, col_rel: bool) {
+    if !col_rel {
+        out.push('$');
+    }
+    push_column(col, out);
+    if !row_rel {
+        out.push('$');
+    }
+    out.push_str(&format!("{}", row + 1));
+}
+
 /// Formula parsing
 ///
 /// [MS-XLSB 2.2.2]
@@ -751,11 +778,8 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(&sheets[ixti as usize]);
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[2..6]) + 1));
+                let (col, col_rel, row_rel) = read_loc_col(read_u16(&rgce[6..8]));
+                push_a1(&mut formula, read_u32(&rgce[2..6]), col, row_rel, col_rel);
                 rgce = &rgce[8..];
             }
             0x3b | 0x5b | 0x7b => {
@@ -764,16 +788,12 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(&sheets[ixti as usize]);
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[10..12]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[2..6]) + 1));
+                // ixti(2) rwFirst(4) rwLast(4) colFirst(2) colLast(2).
+                let (c1, c1_rel, r1_rel) = read_loc_col(read_u16(&rgce[10..12]));
+                let (c2, c2_rel, r2_rel) = read_loc_col(read_u16(&rgce[12..14]));
+                push_a1(&mut formula, read_u32(&rgce[2..6]), c1, r1_rel, c1_rel);
                 formula.push(':');
-                formula.push('$');
-                push_column(read_u16(&rgce[12..14]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[6..10]) + 1));
+                push_a1(&mut formula, read_u32(&rgce[6..10]), c2, r2_rel, c2_rel);
                 rgce = &rgce[14..];
             }
             0x3c | 0x5c | 0x7c => {
@@ -970,31 +990,20 @@ fn parse_formula(
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {
-                let row = read_u32(rgce) + 1;
-                let col = [rgce[4], rgce[5] & 0x3F];
-                let col = read_u16(&col);
+                // PtgRef
+                let (col, col_rel, row_rel) = read_loc_col(read_u16(&rgce[4..6]));
                 stack.push(formula.len());
-                if rgce[5] & 0x80 != 0x80 {
-                    formula.push('$');
-                }
-                push_column(col as u32, &mut formula);
-                if rgce[5] & 0x40 != 0x40 {
-                    formula.push('$');
-                }
-                formula.push_str(&format!("{row}"));
+                push_a1(&mut formula, read_u32(rgce), col, row_rel, col_rel);
                 rgce = &rgce[6..];
             }
             0x25 | 0x45 | 0x65 => {
+                // PtgArea: rwFirst(4) rwLast(4) colFirst(2) colLast(2).
+                let (c1, c1_rel, r1_rel) = read_loc_col(read_u16(&rgce[8..10]));
+                let (c2, c2_rel, r2_rel) = read_loc_col(read_u16(&rgce[10..12]));
                 stack.push(formula.len());
-                formula.push('$');
-                push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[0..4]) + 1));
+                push_a1(&mut formula, read_u32(&rgce[0..4]), c1, r1_rel, c1_rel);
                 formula.push(':');
-                formula.push('$');
-                push_column(read_u16(&rgce[10..12]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[4..8]) + 1));
+                push_a1(&mut formula, read_u32(&rgce[4..8]), c2, r2_rel, c2_rel);
                 rgce = &rgce[12..];
             }
             0x2A | 0x4A | 0x6A => {
@@ -1052,4 +1061,100 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod formula_tests {
+    use super::{parse_formula, read_loc_col};
+
+    /// Build an `RgceLoc` column field: 14 bits of column, two of relativity.
+    fn loc_col(col: u16, row_rel: bool, col_rel: bool) -> u16 {
+        let mut field = col & 0x3FFF;
+        if row_rel {
+            field |= 0x4000;
+        }
+        if col_rel {
+            field |= 0x8000;
+        }
+        field
+    }
+
+    /// Build a `PtgRef` token: `row(4) col(2)`.
+    fn ptg_ref(ptg: u8, row: u32, col: u16, row_rel: bool, col_rel: bool) -> Vec<u8> {
+        let mut v = vec![ptg];
+        v.extend_from_slice(&row.to_le_bytes());
+        v.extend_from_slice(&loc_col(col, row_rel, col_rel).to_le_bytes());
+        v
+    }
+
+    /// Build a `PtgArea` token: `rwFirst(4) rwLast(4) colFirst(2) colLast(2)`.
+    fn ptg_area(ptg: u8, first: (u32, u16), last: (u32, u16), rel: bool) -> Vec<u8> {
+        let mut v = vec![ptg];
+        v.extend_from_slice(&first.0.to_le_bytes());
+        v.extend_from_slice(&last.0.to_le_bytes());
+        v.extend_from_slice(&loc_col(first.1, rel, rel).to_le_bytes());
+        v.extend_from_slice(&loc_col(last.1, rel, rel).to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn a_relative_flag_is_never_read_as_part_of_the_column() {
+        // The whole defect in one assertion: column 2 marked relative is
+        // stored as 0x4002, and taken whole that is 16,386 — two past Excel's
+        // last column, printed as `XFF`.
+        assert_eq!(read_loc_col(0x4002), (2, false, true));
+        assert_eq!(read_loc_col(0xC003), (3, true, true));
+        assert_eq!(read_loc_col(0x3FFF), (16383, false, false));
+    }
+
+    #[test]
+    fn ptg_ref_marks_each_component_by_its_own_flag() {
+        let cases = [
+            (true, true, "C2"),
+            (false, false, "$C$2"),
+            (true, false, "$C2"),
+            (false, true, "C$2"),
+        ];
+        for (row_rel, col_rel, want) in cases {
+            let rgce = ptg_ref(0x44, 1, 2, row_rel, col_rel);
+            assert_eq!(parse_formula(&rgce, &[], &[]).unwrap(), want);
+        }
+    }
+
+    #[test]
+    fn ptg_area_reads_both_corners_within_the_sheet() {
+        // `D4:H4`, which before the fix decoded as `$BTRO$4:$BTRT$4` — columns
+        // three times the width of a worksheet.
+        let rgce = ptg_area(0x45, (3, 3), (3, 7), true);
+        assert_eq!(parse_formula(&rgce, &[], &[]).unwrap(), "D4:H4");
+
+        let rgce = ptg_area(0x45, (0, 0), (1048575, 16383), false);
+        assert_eq!(
+            parse_formula(&rgce, &[], &[]).unwrap(),
+            "$A$1:$XFD$1048576",
+            "the last cell of a worksheet is still inside it"
+        );
+    }
+
+    #[test]
+    fn a_three_d_reference_keeps_its_sheet_and_its_column() {
+        let sheets = ["Summary".to_string(), "Data".to_string()];
+
+        // PtgRef3d: ixti(2) rw(4) col(2).
+        let mut rgce = vec![0x5A, 0x00, 0x00];
+        rgce.extend_from_slice(&24u32.to_le_bytes());
+        rgce.extend_from_slice(&loc_col(3, true, true).to_le_bytes());
+        assert_eq!(parse_formula(&rgce, &sheets, &[]).unwrap(), "Summary!D25");
+
+        // PtgArea3d: ixti(2) rwFirst(4) rwLast(4) colFirst(2) colLast(2).
+        let mut rgce = vec![0x5B, 0x01, 0x00];
+        rgce.extend_from_slice(&0u32.to_le_bytes());
+        rgce.extend_from_slice(&1048575u32.to_le_bytes());
+        rgce.extend_from_slice(&loc_col(2, false, false).to_le_bytes());
+        rgce.extend_from_slice(&loc_col(9, false, false).to_le_bytes());
+        assert_eq!(
+            parse_formula(&rgce, &sheets, &[]).unwrap(),
+            "Data!$C$1:$J$1048576"
+        );
+    }
 }
