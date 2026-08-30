@@ -76,6 +76,15 @@ pub enum XlsbError {
         /// buffer length
         buf_len: usize,
     },
+    /// A formula token was shorter than its layout requires
+    Len {
+        /// token name
+        typ: &'static str,
+        /// bytes the token needs
+        expected: usize,
+        /// bytes available
+        found: usize,
+    },
     /// Unrecognized data
     Unrecognized {
         /// data type
@@ -117,6 +126,14 @@ impl std::fmt::Display for XlsbError {
             XlsbError::BErr(t) => write!(f, "Unsupported BErr {t:X}"),
             XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {t:X}"),
             XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {t:X}"),
+            XlsbError::Len {
+                typ,
+                expected,
+                found,
+            } => write!(
+                f,
+                "{typ} token needs {expected} bytes but only {found} are available"
+            ),
             XlsbError::WideStr { ws_len, buf_len } => write!(
                 f,
                 "Wide str length exceeds buffer length ({ws_len} > {buf_len})",
@@ -384,7 +401,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
                     let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
                     let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
-                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
+                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names, (0, 0))?;
                     defined_names.push((name, formula));
                 }
                 0x009D | 0x0225 | 0x018D | 0x0180 | 0x009A | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
@@ -530,12 +547,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     /// MS-XLSB 2.1.7.62
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsbError> {
         let mut cells_reader = self.worksheet_cells_reader(name)?;
-        let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
-        while let Some(cell) = cells_reader.next_formula()? {
-            if !cell.val.is_empty() {
-                cells.push(cell);
-            }
-        }
+        // `formulas` rather than a `next_formula` loop: shared and array formula
+        // members carry only a back-reference to a definition that may appear
+        // later in the sheet, so resolving them needs the two-pass read.
+        let cells = cells_reader.formulas()?;
         Ok(Range::from_sparse(cells))
     }
 
@@ -726,14 +741,112 @@ fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, Xlsb
 
 /// Formula parsing
 ///
+/// Decode a 6-byte `Loc` reference whose relative components are offsets.
+///
+/// Returns `(row, col, row_is_relative, col_is_relative)` with absolute
+/// zero-based indices. In the `N`-class tokens the stored row is a signed 32-bit
+/// delta and the stored column a signed 14-bit delta, both measured from the
+/// cell that owns the formula.
+fn read_ref_n(rgce: &[u8], anchor: (u32, u32)) -> Result<(u32, u32, bool, bool), XlsbError> {
+    if rgce.len() < 6 {
+        return Err(XlsbError::Len {
+            typ: "PtgRefN",
+            expected: 6,
+            found: rgce.len(),
+        });
+    }
+    let raw_row = read_u32(rgce);
+    let raw_col = read_u16(&[rgce[4], rgce[5]]);
+    let col_rel = rgce[5] & 0x80 == 0x80;
+    let row_rel = rgce[5] & 0x40 == 0x40;
+
+    let row = if row_rel {
+        anchor.0.wrapping_add(raw_row)
+    } else {
+        raw_row
+    };
+
+    let col_field = raw_col & 0x3FFF;
+    let col = if col_rel {
+        // Sign-extend the 14-bit delta before applying it.
+        let delta = ((col_field << 2) as i16 >> 2) as i32;
+        (anchor.1 as i32).wrapping_add(delta) as u32
+    } else {
+        col_field as u32
+    };
+
+    Ok((row & 0xF_FFFF, col & 0x3FFF, row_rel, col_rel))
+}
+
+/// Decode the first corner of a `PtgAreaN` token.
+///
+/// The token's layout is `rwFirst(4) rwLast(4) colFirst(2) colLast(2)`, so the
+/// first corner is `rwFirst` paired with `colFirst`.
+fn read_area_n_first(rgce: &[u8], anchor: (u32, u32)) -> Result<(u32, u32, bool, bool), XlsbError> {
+    if rgce.len() < 12 {
+        return Err(XlsbError::Len {
+            typ: "PtgAreaN",
+            expected: 12,
+            found: rgce.len(),
+        });
+    }
+    let first = [rgce[0], rgce[1], rgce[2], rgce[3], rgce[8], rgce[9]];
+    read_ref_n(&first, anchor)
+}
+
+/// Decode the second corner of a `PtgAreaN` token.
+fn read_area_n_second(
+    rgce: &[u8],
+    anchor: (u32, u32),
+) -> Result<(u32, u32, bool, bool), XlsbError> {
+    if rgce.len() < 12 {
+        return Err(XlsbError::Len {
+            typ: "PtgAreaN",
+            expected: 12,
+            found: rgce.len(),
+        });
+    }
+    // Layout is rwFirst(4) rwLast(4) colFirst(2) colLast(2); the second corner
+    // is therefore rwLast plus colLast.
+    let second = [rgce[4], rgce[5], rgce[6], rgce[7], rgce[10], rgce[11]];
+    read_ref_n(&second, anchor)
+}
+
+/// Append an A1 reference, marking absolute components with `$`.
+fn push_a1(out: &mut String, row: u32, col: u32, row_rel: bool, col_rel: bool) {
+    if !col_rel {
+        out.push('$');
+    }
+    push_column(col, out);
+    if !row_rel {
+        out.push('$');
+    }
+    out.push_str(&format!("{}", row + 1));
+}
+
+/// The row a `PtgExp` token points at, if `rgce` is a shared/array member.
+///
+/// A member of a shared or array formula group carries a single `PtgExp` token
+/// naming the group's first row; the group's actual token stream lives in a
+/// separate `BrtShrFmla` or `BrtArrFmla` record.
+pub(crate) fn shared_formula_anchor_row(rgce: &[u8]) -> Option<u32> {
+    (rgce.len() >= 5 && rgce[0] == 0x01).then(|| read_u32(&rgce[1..5]))
+}
+
 /// [MS-XLSB 2.2.2]
 /// [MS-XLSB 2.5.97]
 ///
 /// See Ptg [2.5.97.16]
+///
+/// `anchor` is the cell the formula belongs to, as a zero-based `(row, col)`.
+/// It is required because the `N`-class reference tokens `PtgRefN` and
+/// `PtgAreaN` — the ones shared and array formulas are built from — store
+/// *offsets from the cell being evaluated* rather than absolute positions.
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
     names: &[(String, String)],
+    anchor: (u32, u32),
 ) -> Result<String, XlsbError> {
     if rgce.is_empty() {
         return Ok(String::new());
@@ -815,8 +928,8 @@ fn parse_formula(
                     0x09 => "<",
                     0x0A => "<=",
                     0x0B => "=",
-                    0x0C => ">",
-                    0x0D => ">=",
+                    0x0C => ">=",
+                    0x0D => ">",
                     0x0E => "<>",
                     0x0F => " ",
                     0x10 => ",",
@@ -997,6 +1110,31 @@ fn parse_formula(
                 formula.push_str(&format!("{}", read_u32(&rgce[4..8]) + 1));
                 rgce = &rgce[12..];
             }
+            0x2C | 0x4C | 0x6C => {
+                // PtgRefN: like PtgRef, but relative components are signed
+                // offsets from `anchor` rather than absolute indices.
+                let (row, col, row_rel, col_rel) = read_ref_n(rgce, anchor)?;
+                stack.push(formula.len());
+                if !col_rel {
+                    formula.push('$');
+                }
+                push_column(col, &mut formula);
+                if !row_rel {
+                    formula.push('$');
+                }
+                formula.push_str(&format!("{}", row + 1));
+                rgce = &rgce[6..];
+            }
+            0x2D | 0x4D | 0x6D => {
+                // PtgAreaN: the two-corner form of PtgRefN.
+                let (r1, c1, r1_rel, c1_rel) = read_area_n_first(rgce, anchor)?;
+                let (r2, c2, r2_rel, c2_rel) = read_area_n_second(rgce, anchor)?;
+                stack.push(formula.len());
+                push_a1(&mut formula, r1, c1, r1_rel, c1_rel);
+                formula.push(':');
+                push_a1(&mut formula, r2, c2, r2_rel, c2_rel);
+                rgce = &rgce[12..];
+            }
             0x2A | 0x4A | 0x6A => {
                 stack.push(formula.len());
                 formula.push_str("#REF!");
@@ -1010,7 +1148,7 @@ fn parse_formula(
             0x29 | 0x49 | 0x69 => {
                 let cce = read_u16(rgce) as usize;
                 rgce = &rgce[2..];
-                let f = parse_formula(&rgce[..cce], sheets, names)?;
+                let f = parse_formula(&rgce[..cce], sheets, names, anchor)?;
                 stack.push(formula.len());
                 formula.push_str(&f);
                 rgce = &rgce[cce..];
@@ -1052,4 +1190,105 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod formula_tests {
+    use super::{parse_formula, read_ref_n, shared_formula_anchor_row};
+
+    /// Build a `PtgRefN`-class reference token.
+    ///
+    /// `row` is a signed row delta when `row_rel`, otherwise an absolute index;
+    /// likewise `col`. This is the encoding shared and array formulas use.
+    fn ref_n(ptg: u8, row: i32, col: i16, row_rel: bool, col_rel: bool) -> Vec<u8> {
+        let mut v = vec![ptg];
+        v.extend_from_slice(&(row as u32).to_le_bytes());
+        let mut c = (col as u16) & 0x3FFF;
+        if row_rel {
+            c |= 0x4000;
+        }
+        if col_rel {
+            c |= 0x8000;
+        }
+        v.extend_from_slice(&c.to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn ptg_ref_n_resolves_relative_offsets_against_the_anchor() {
+        // One row up, same column, evaluated at C6 (row 5, col 2) -> C5.
+        let rgce = ref_n(0x4C, -1, 0, true, true);
+        let f = parse_formula(&rgce, &[], &[], (5, 2)).unwrap();
+        assert_eq!(f, "C5");
+
+        // One column left, same row -> B6.
+        let rgce = ref_n(0x4C, 0, -1, true, true);
+        assert_eq!(parse_formula(&rgce, &[], &[], (5, 2)).unwrap(), "B6");
+    }
+
+    #[test]
+    fn ptg_ref_n_absolute_components_ignore_the_anchor() {
+        let rgce = ref_n(0x4C, 0, 0, false, false);
+        // Absolute row 0, column 0, regardless of where the formula lives.
+        assert_eq!(parse_formula(&rgce, &[], &[], (5, 2)).unwrap(), "$A$1");
+        assert_eq!(parse_formula(&rgce, &[], &[], (99, 7)).unwrap(), "$A$1");
+    }
+
+    #[test]
+    fn ptg_ref_n_mixed_absoluteness() {
+        // Absolute column A, row relative one up.
+        let rgce = ref_n(0x4C, -1, 0, true, false);
+        assert_eq!(parse_formula(&rgce, &[], &[], (5, 2)).unwrap(), "$A5");
+    }
+
+    #[test]
+    fn ptg_ref_n_shifts_with_the_anchor() {
+        // The same token decoded at successive rows must walk down the sheet,
+        // which is what makes one shared definition serve a whole column.
+        let rgce = ref_n(0x4C, -1, 0, true, true);
+        let got: Vec<String> = (5..9)
+            .map(|row| parse_formula(&rgce, &[], &[], (row, 2)).unwrap())
+            .collect();
+        assert_eq!(got, ["C5", "C6", "C7", "C8"]);
+    }
+
+    #[test]
+    fn read_ref_n_rejects_a_truncated_token() {
+        assert!(read_ref_n(&[0, 0, 0], (0, 0)).is_err());
+    }
+
+    #[test]
+    fn comparison_operators_match_the_ptg_assignments() {
+        // MS-XLSB assigns PtgGe = 0x0C and PtgGt = 0x0D.
+        let lhs = ref_n(0x4C, 0, 0, true, true);
+        let rhs = ref_n(0x4C, -1, 0, true, true);
+        let build = |op: u8| {
+            let mut v = lhs.clone();
+            v.extend_from_slice(&rhs);
+            v.push(op);
+            parse_formula(&v, &[], &[], (5, 2)).unwrap()
+        };
+        assert_eq!(build(0x0C), "C6>=C5");
+        assert_eq!(build(0x0D), "C6>C5");
+        assert_eq!(build(0x09), "C6<C5");
+        assert_eq!(build(0x0A), "C6<=C5");
+        assert_eq!(build(0x0B), "C6=C5");
+        assert_eq!(build(0x0E), "C6<>C5");
+    }
+
+    #[test]
+    fn ptg_exp_is_recognised_as_a_group_member() {
+        // PtgExp carries the first row of the group it belongs to.
+        let rgce = [0x01u8, 0x02, 0x00, 0x00, 0x00];
+        assert_eq!(shared_formula_anchor_row(&rgce), Some(2));
+
+        // An ordinary reference is not a member.
+        assert_eq!(
+            shared_formula_anchor_row(&ref_n(0x4C, 0, 0, true, true)),
+            None
+        );
+        assert_eq!(shared_formula_anchor_row(&[]), None);
+        // Too short to carry a row.
+        assert_eq!(shared_formula_anchor_row(&[0x01, 0x00]), None);
+    }
 }
