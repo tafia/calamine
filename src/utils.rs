@@ -76,6 +76,60 @@ pub fn push_column(col: u32, buf: &mut String) {
     }
 }
 
+/// Write a sheet name into a formula, quoting it if Excel requires quotes.
+///
+/// `'My Sheet'!A1` is one reference; `My Sheet!A1` is not valid formula syntax
+/// and reads as a reference to a sheet called `Sheet`. Excel needs the quotes
+/// whenever the name is not a plain identifier, and an apostrophe inside a
+/// quoted name is doubled.
+pub fn push_sheet_name(name: &str, buf: &mut String) {
+    if !sheet_name_needs_quotes(name) {
+        buf.push_str(name);
+        return;
+    }
+    buf.push('\'');
+    for c in name.chars() {
+        if c == '\'' {
+            buf.push('\'');
+        }
+        buf.push(c);
+    }
+    buf.push('\'');
+}
+
+/// Whether a sheet name must be quoted to appear in a formula.
+fn sheet_name_needs_quotes(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        // An empty name cannot be written bare at all.
+        return true;
+    };
+    // A leading digit would read as a number, and a leading `.` is not a legal
+    // start for an identifier.
+    if !(first.is_alphabetic() || first == '_') {
+        return true;
+    }
+    if chars.any(|c| !(c.is_alphanumeric() || c == '_' || c == '.')) {
+        return true;
+    }
+    // A name shaped like a cell reference must be quoted, or `Q1!A1` would
+    // read as the cell `Q1` of the current sheet. `R` and `C` alone collide
+    // with R1C1 notation the same way.
+    looks_like_reference(name)
+}
+
+/// Whether a name would parse as a cell reference, e.g. `Q1` or `XFD9`.
+fn looks_like_reference(name: &str) -> bool {
+    if name.eq_ignore_ascii_case("r") || name.eq_ignore_ascii_case("c") {
+        return true;
+    }
+    let letters = name.bytes().take_while(|b| b.is_ascii_alphabetic()).count();
+    if letters == 0 || letters > 3 || letters == name.len() {
+        return false;
+    }
+    name[letters..].bytes().all(|b| b.is_ascii_digit())
+}
+
 /// Write the Excel letters for a 0-based column index into `out` (most
 /// significant first) and return how many were written.
 pub(crate) fn column_name_digits(col: u32, out: &mut [u8]) -> usize {
@@ -1173,6 +1227,41 @@ pub const FTAB_ARGC: [u8; FTAB_LEN] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_push_sheet_name() {
+        let check = |name: &str, expected: &str| {
+            let mut got = String::new();
+            push_sheet_name(name, &mut got);
+            assert_eq!(got, expected, "push_sheet_name({name:?})");
+        };
+
+        // A plain identifier is written as it stands.
+        check("Sheet1", "Sheet1");
+        check("_hidden", "_hidden");
+        check("Sales.2024", "Sales.2024");
+        check("Ünicode", "Ünicode");
+
+        // Anything else needs quotes, or the name runs into the `!`.
+        check("My Sheet", "'My Sheet'");
+        check("BP136-6-WORK DOC", "'BP136-6-WORK DOC'");
+        check("2024", "'2024'");
+        check("", "''");
+
+        // An apostrophe inside a quoted name is doubled.
+        check("Bob's Sheet", "'Bob''s Sheet'");
+
+        // A name shaped like a cell reference would otherwise read as one.
+        check("Q1", "'Q1'");
+        check("XFD9", "'XFD9'");
+        check("R", "'R'");
+        check("C", "'C'");
+
+        // But a name that only looks similar does not.
+        check("Q", "Q");
+        check("Quarter1", "Quarter1");
+        check("ABCD1", "ABCD1");
+    }
 
     #[test]
     fn test_push_column() {
