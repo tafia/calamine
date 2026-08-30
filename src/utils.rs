@@ -98,10 +98,10 @@ pub(crate) fn unescape_entity_to_buffer(
     entity: &BytesRef,
     buffer: &mut String,
 ) -> Result<(), quick_xml::Error> {
-    let decoded = entity.decode()?;
+    let decoded = entity.as_ref();
 
     // Handle standard XML entities directly.
-    if let Some(unescaped_xml_entity) = resolve_xml_entity(&decoded) {
+    if let Some(unescaped_xml_entity) = resolve_xml_entity(decoded) {
         buffer.push_str(unescaped_xml_entity);
         return Ok(());
     }

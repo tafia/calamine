@@ -208,17 +208,17 @@ where
             buf.clear();
             match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
                 Event::Start(e) => match e.local_name().as_ref() {
-                    b"dimension" => {
-                        if let Some(rdim) = e.raw_attr(b"ref")? {
-                            dimensions = get_dimension(rdim)?;
+                    "dimension" => {
+                        if let Some(rdim) = e.raw_attr("ref")? {
+                            dimensions = get_dimension(rdim.as_bytes())?;
                             continue 'xml;
                         }
                         return Err(XlsxError::UnexpectedNode("dimension"));
                     }
-                    b"sheetData" => break,
+                    "sheetData" => break,
                     typ => {
                         if sh_type.is_none() {
-                            sh_type = Some(xml.decoder().decode(typ)?.to_string());
+                            sh_type = Some(typ.to_string());
                         }
                     }
                 },
@@ -257,20 +257,20 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
-                    if let Some(r) = row_element.raw_attr(b"r")? {
-                        self.row_index = get_row(r)?;
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
+                    if let Some(r) = row_element.raw_attr("r")? {
+                        self.row_index = get_row(r.as_bytes())?;
                     }
                 }
-                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
                     let (pos_attr, style_attr, type_attr) =
-                        get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
+                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
                     let pos = if let Some(range) = pos_attr {
-                        let (row, col) = get_row_column(range)?;
+                        let (row, col) = get_row_column(range.as_bytes())?;
                         self.col_index = col;
                         (row, col)
                     } else {
@@ -295,7 +295,7 @@ where
                                     &mut self.value_bufs,
                                 )?;
                             }
-                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == "c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -304,7 +304,7 @@ where
                     self.col_index += 1;
                     return Ok(Some(Cell::new(pos, value)));
                 }
-                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == "sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -323,10 +323,10 @@ where
     ) -> Result<Option<FormulaMetadata>, XlsxError> {
         let formula = read_formula(xml, e)?;
 
-        let (t_attr, si_attr, ref_attr) = get_attrs!(e, b"t" => t, b"si" => si, b"ref" => ref_)?;
-        if t_attr == Some(b"shared".as_slice()) {
+        let (t_attr, si_attr, ref_attr) = get_attrs!(e, "t" => t, "si" => si, "ref" => ref_)?;
+        if t_attr == Some("shared") {
             let shared_index = match si_attr {
-                Some(res) => match atoi_simd::parse::<usize, true, false>(res) {
+                Some(res) => match atoi_simd::parse::<usize, true, false>(res.as_bytes()) {
                     Ok(res) => res,
                     Err(_) => return Err(XlsxError::Unexpected("si attribute must be a number")),
                 },
@@ -339,7 +339,7 @@ where
 
             return match ref_attr {
                 Some(res) => {
-                    let range = get_dimension(res)?;
+                    let range = get_dimension(res.as_bytes())?;
                     let formula = formula.unwrap_or_default();
                     if expand_shared_derived {
                         if formulas.len() <= shared_index {
@@ -418,20 +418,20 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
-                    if let Some(r) = row_element.raw_attr(b"r")? {
-                        self.row_index = get_row(r)?;
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
+                    if let Some(r) = row_element.raw_attr("r")? {
+                        self.row_index = get_row(r.as_bytes())?;
                     }
                 }
-                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
                     let (pos_attr, style_attr, type_attr) =
-                        get_attrs!(c_element, b"r" => r, b"s" => s, b"t" => t)?;
+                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
                     let pos = if let Some(range) = pos_attr {
-                        let (row, col) = get_row_column(range)?;
+                        let (row, col) = get_row_column(range.as_bytes())?;
                         self.col_index = col;
                         (row, col)
                     } else {
@@ -442,7 +442,7 @@ where
                     loop {
                         self.cell_buf.clear();
                         match self.xml.read_event_into(&mut self.cell_buf) {
-                            Ok(Event::Start(e)) if e.local_name().as_ref() == b"f" => {
+                            Ok(Event::Start(e)) if e.local_name().as_ref() == "f" => {
                                 formula = Self::read_formula_record(
                                     &mut self.xml,
                                     &mut self.formulas,
@@ -466,7 +466,7 @@ where
                                     &mut self.value_bufs,
                                 )?;
                             }
-                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == "c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -479,7 +479,7 @@ where
                         formula,
                     }));
                 }
-                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == "sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -494,18 +494,18 @@ where
         loop {
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
-                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == b"row" => {
-                    if let Some(r) = row_element.raw_attr(b"r")? {
-                        self.row_index = get_row(r)?;
+                Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
+                    if let Some(r) = row_element.raw_attr("r")? {
+                        self.row_index = get_row(r.as_bytes())?;
                     }
                 }
-                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == b"row" => {
+                Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
                     self.row_index += 1;
                     self.col_index = 0;
                 }
-                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == b"c" => {
-                    let pos = if let Some(r) = c_element.raw_attr(b"r")? {
-                        let (row, col) = get_row_column(r)?;
+                Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
+                    let pos = if let Some(r) = c_element.raw_attr("r")? {
+                        let (row, col) = get_row_column(r.as_bytes())?;
                         self.col_index = col;
                         (row, col)
                     } else {
@@ -529,7 +529,7 @@ where
                                     value = Some(formula_text);
                                 }
                             }
-                            Ok(Event::End(e)) if e.local_name().as_ref() == b"c" => break,
+                            Ok(Event::End(e)) if e.local_name().as_ref() == "c" => break,
                             Ok(Event::Eof) => return Err(XlsxError::XmlEof("c")),
                             Err(e) => return Err(XlsxError::Xml(e)),
                             _ => (),
@@ -538,7 +538,7 @@ where
                     self.col_index += 1;
                     return Ok(Some(Cell::new(pos, value.unwrap_or_default())));
                 }
-                Ok(Event::End(e)) if e.local_name().as_ref() == b"sheetData" => {
+                Ok(Event::End(e)) if e.local_name().as_ref() == "sheetData" => {
                     return Ok(None);
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
@@ -555,33 +555,33 @@ fn read_value<'s, RS>(
     ctx: &WorkbookContext<'s>,
     xml: &mut XlReader<'_, RS>,
     e: &BytesStart<'_>,
-    style_attr: Option<&[u8]>,
-    type_attr: Option<&[u8]>,
+    style_attr: Option<&str>,
+    type_attr: Option<&str>,
     bufs: &mut ValueBufs,
 ) -> Result<DataRef<'s>, XlsxError>
 where
     RS: Read + Seek,
 {
     Ok(match e.local_name().as_ref() {
-        b"is" => {
+        "is" => {
             // inlineStr
             read_string_with_bufs(xml, e.name(), &mut bufs.xml, &mut bufs.str_inner)?
                 .map_or(DataRef::Empty, DataRef::String)
         }
         // Ignore <v> for inlineStr cells since it is redundant. The value is in
         // the <is> element, which is handled above.
-        b"v" if matches!(type_attr, Some(b"inlineStr") | Some(b"is")) => {
+        "v" if matches!(type_attr, Some("inlineStr") | Some("is")) => {
             bufs.xml.clear();
             xml.read_to_end_into(e.name(), &mut bufs.xml)?;
             DataRef::Empty
         }
-        b"v" => match type_attr {
-            Some(b"n") | Some(b"s") | Some(b"b") | Some(b"e") | None => {
+        "v" => match type_attr {
+            Some("n") | Some("s") | Some("b") | Some("e") | None => {
                 // These types are always plain ASCII (no CR/LF or entities), so we can
                 // parse directly from raw bytes, skipping `xml10_content()` + String
                 bufs.xml.clear();
                 let val = match xml.read_event_into(&mut bufs.xml)? {
-                    Event::Text(t) => read_v(ctx, &t, style_attr, type_attr)?,
+                    Event::Text(t) => read_v(ctx, t.as_ref(), style_attr, type_attr)?,
                     Event::End(end) if end.name() == e.name() => return Ok(DataRef::Empty),
                     Event::Eof => return Err(XlsxError::XmlEof("v")),
                     _ => DataRef::Empty,
@@ -596,17 +596,17 @@ where
                 loop {
                     bufs.xml.clear();
                     match xml.read_event_into(&mut bufs.xml)? {
-                        Event::Text(t) => bufs.value.push_str(&t.xml10_content()?),
+                        Event::Text(t) => bufs.value.push_str(&t.xml10_content()),
                         Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut bufs.value)?,
                         Event::End(end) if end.name() == e.name() => break,
                         Event::Eof => return Err(XlsxError::XmlEof("v")),
                         _ => (),
                     }
                 }
-                read_v(ctx, bufs.value.as_bytes(), style_attr, type_attr)?
+                read_v(ctx, &bufs.value, style_attr, type_attr)?
             }
         },
-        b"f" => {
+        "f" => {
             bufs.xml.clear();
             xml.read_to_end_into(e.name(), &mut bufs.xml)?;
             DataRef::Empty
@@ -615,32 +615,27 @@ where
     })
 }
 
-/// Convert raw `<v>` bytes to a `&str`, returning an error on invalid UTF-8.
-fn v_as_str(v: &[u8]) -> Result<&str, XlsxError> {
-    std::str::from_utf8(v).map_err(|_| XlsxError::Unexpected("invalid UTF-8 in cell value"))
-}
-
-/// Parse a `<v>` cell value from raw bytes with pre-extracted
+/// Parse a `<v>` cell value from raw text with pre-extracted
 /// `s` (style) and `t` (type) attributes.
 fn read_v<'s>(
     ctx: &WorkbookContext<'s>,
-    v: &[u8],
-    style_attr: Option<&[u8]>,
-    type_attr: Option<&[u8]>,
+    v: &str,
+    style_attr: Option<&str>,
+    type_attr: Option<&str>,
 ) -> Result<DataRef<'s>, XlsxError> {
     let cell_format = match style_attr {
         Some(style) => {
-            let id = atoi_simd::parse::<usize, true, false>(style).unwrap_or(0);
+            let id = atoi_simd::parse::<usize, true, false>(style.as_bytes()).unwrap_or(0);
             ctx.formats.get(id)
         }
         None => Some(&CellFormat::Other),
     };
     match type_attr {
-        Some(b"s") => {
+        Some("s") => {
             if v.is_empty() {
                 return Ok(DataRef::Empty);
             }
-            let idx = atoi_simd::parse::<usize, true, false>(v).unwrap_or(0);
+            let idx = atoi_simd::parse::<usize, true, false>(v.as_bytes()).unwrap_or(0);
             ctx.strings
                 .get(idx)
                 .map(|s| DataRef::SharedString(s))
@@ -648,33 +643,28 @@ fn read_v<'s>(
                     "Cell string index not found in shared strings table",
                 ))
         }
-        Some(b"b") => Ok(DataRef::Bool(v != b"0")),
-        Some(b"d") => Ok(DataRef::DateTimeIso(v_as_str(v)?.to_string())),
-        Some(b"e") => Ok(DataRef::Error(v_as_str(v)?.parse()?)),
-        Some(b"str") => Ok(DataRef::String(v_as_str(v)?.to_string())),
-        Some(b"n") | None => {
+        Some("b") => Ok(DataRef::Bool(v != "0")),
+        Some("d") => Ok(DataRef::DateTimeIso(v.to_string())),
+        Some("e") => Ok(DataRef::Error(v.parse()?)),
+        Some("str") => Ok(DataRef::String(v.to_string())),
+        Some("n") | None => {
             if v.is_empty() {
                 return Ok(DataRef::Empty);
             }
             // If type is not known, we try to parse as Float for utility, but fall back to
             // String if this fails.
-            fast_float2::parse::<f64, _>(v)
+            fast_float2::parse::<f64, _>(v.as_bytes())
                 .map(|n| format_excel_f64_ref(n, cell_format, ctx.is_1904))
                 .or_else(|_| {
                     if type_attr.is_none() {
                         // No explicit type: fall back to String if not a valid float
-                        Ok(DataRef::String(v_as_str(v)?.to_string()))
+                        Ok(DataRef::String(v.to_string()))
                     } else {
-                        Err(XlsxError::ParseFloat(
-                            v_as_str(v)?.parse::<f64>().unwrap_err(),
-                        ))
+                        Err(XlsxError::ParseFloat(v.parse::<f64>().unwrap_err()))
                     }
                 })
         }
-        Some(t) => {
-            let t = std::str::from_utf8(t).unwrap_or("<utf8 error>").to_string();
-            Err(XlsxError::CellTAttribute(t))
-        }
+        Some(t) => Err(XlsxError::CellTAttribute(t.to_string())),
     }
 }
 
@@ -683,16 +673,16 @@ where
     RS: Read + Seek,
 {
     match e.local_name().as_ref() {
-        b"is" | b"v" => {
+        "is" | "v" => {
             xml.read_to_end_into(e.name(), &mut Vec::new())?;
             Ok(None)
         }
-        b"f" => {
+        "f" => {
             let mut f_buf = Vec::with_capacity(512);
             let mut f = String::new();
             loop {
                 match xml.read_event_into(&mut f_buf)? {
-                    Event::Text(t) => f.push_str(&t.xml10_content()?),
+                    Event::Text(t) => f.push_str(&t.xml10_content()),
                     Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut f)?,
                     Event::End(end) if end.name() == e.name() => break,
                     Event::Eof => return Err(XlsxError::XmlEof("f")),

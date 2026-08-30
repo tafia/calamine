@@ -302,10 +302,10 @@ fn check_for_password_protected<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Re
     let mut inner = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) if e.name() == QName(b"manifest:file-entry") => {
+            Ok(Event::Start(e)) if e.name() == QName("manifest:file-entry") => {
                 loop {
                     match reader.read_event_into(&mut inner) {
-                        Ok(Event::Start(e)) if e.name() == QName(b"manifest:encryption-data") => {
+                        Ok(Event::Start(e)) if e.name() == QName("manifest:encryption-data") => {
                             return Err(OdsError::Password)
                         }
                         Ok(Event::Eof) => break,
@@ -348,18 +348,15 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut style_name: Option<String> = None;
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) if e.name() == QName(b"style:style") => {
-                style_name = e
-                    .raw_attr(b"style:name")?
-                    .map(|v| decode_attr(&reader.decoder(), v))
-                    .transpose()?;
+            Ok(Event::Start(e)) if e.name() == QName("style:style") => {
+                style_name = e.raw_attr("style:name")?.map(decode_attr).transpose()?;
             }
             Ok(Event::Start(e))
-                if style_name.is_some() && e.name() == QName(b"style:table-properties") =>
+                if style_name.is_some() && e.name() == QName("style:table-properties") =>
             {
-                let visible = match e.raw_attr(b"table:display")? {
+                let visible = match e.raw_attr("table:display")? {
                     Some(v) => {
-                        if decode_attr(&reader.decoder(), v)?.parse()? {
+                        if decode_attr(v)?.parse()? {
                             SheetVisible::Visible
                         } else {
                             SheetVisible::Hidden
@@ -369,17 +366,17 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                 };
                 styles.insert(style_name.clone(), visible);
             }
-            Ok(Event::Start(e)) if e.name() == QName(b"table:table") => {
+            Ok(Event::Start(e)) if e.name() == QName("table:table") => {
                 let visible = styles
                     .get(
-                        &e.raw_attr(b"table:style-name")?
-                            .map(|v| decode_attr(&reader.decoder(), v))
+                        &e.raw_attr("table:style-name")?
+                            .map(decode_attr)
                             .transpose()?,
                     )
                     .cloned()
                     .unwrap_or(SheetVisible::Visible);
-                if let Some(v) = e.raw_attr(b"table:name")? {
-                    let name = decode_attr(&reader.decoder(), v)?;
+                if let Some(v) = e.raw_attr("table:name")? {
+                    let name = decode_attr(v)?;
                     let (range, formulas) = read_table(&mut reader)?;
                     sheets_metadata.push(Sheet {
                         name: name.clone(),
@@ -389,7 +386,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     sheets.insert(name, (range, formulas));
                 }
             }
-            Ok(Event::Start(e)) if e.name() == QName(b"table:named-expressions") => {
+            Ok(Event::Start(e)) if e.name() == QName("table:named-expressions") => {
                 defined_names = read_named_expressions(&mut reader)?;
             }
             Ok(Event::Eof) => break,
@@ -420,9 +417,9 @@ where
     cols.push(0);
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) if e.name() == QName(b"table:table-row") => {
-                let row_repeats = match e.raw_attr(b"table:number-rows-repeated")? {
-                    Some(v) => decode_attr(&reader.decoder(), v)?.parse()?,
+            Ok(Event::Start(e)) if e.name() == QName("table:table-row") => {
+                let row_repeats = match e.raw_attr("table:number-rows-repeated")? {
+                    Some(v) => decode_attr(v)?.parse()?,
                     None => 1,
                 };
 
@@ -446,7 +443,7 @@ where
                 cols.push(cells.len());
                 rows_repeats.push(capped_repeats);
             }
-            Ok(Event::End(e)) if e.name() == QName(b"table:table") => break,
+            Ok(Event::End(e)) if e.name() == QName("table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
         }
@@ -593,11 +590,11 @@ where
         row_buf.clear();
         match reader.read_event_into(row_buf) {
             Ok(Event::Start(e))
-                if e.name() == QName(b"table:table-cell")
-                    || e.name() == QName(b"table:covered-table-cell") =>
+                if e.name() == QName("table:table-cell")
+                    || e.name() == QName("table:covered-table-cell") =>
             {
-                let repeats = match e.raw_attr(b"table:number-columns-repeated")? {
-                    Some(v) => reader.decoder().decode(v)?.parse()?,
+                let repeats = match e.raw_attr("table:number-columns-repeated")? {
+                    Some(v) => v.parse()?,
                     None => 1,
                 };
 
@@ -641,7 +638,7 @@ where
                     reader.read_to_end_into(e.name(), cell_buf)?;
                 }
             }
-            Ok(Event::End(e)) if e.name() == QName(b"table:table-row") => break,
+            Ok(Event::End(e)) if e.name() == QName("table:table-row") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {
@@ -672,33 +669,31 @@ where
     for attr in e.iter_raw_attrs() {
         let (key, value) = attr?;
         match key {
-            b"office:value" if !is_value_set => {
-                let v = reader.decoder().decode(value)?;
+            "office:value" if !is_value_set => {
+                let v = value;
                 val = Data::Float(
                     fast_float2::parse(v.as_bytes())
                         .map_err(|_| OdsError::ParseFloat(v.parse::<f64>().unwrap_err()))?,
                 );
                 is_value_set = true;
             }
-            b"office:string-value" | b"office:date-value" | b"office:time-value"
-                if !is_value_set =>
-            {
-                let attr = decode_attr(&reader.decoder(), value)?;
+            "office:string-value" | "office:date-value" | "office:time-value" if !is_value_set => {
+                let attr = decode_attr(value)?;
                 val = match key {
-                    b"office:date-value" => Data::DateTimeIso(attr),
-                    b"office:time-value" => Data::DurationIso(attr),
+                    "office:date-value" => Data::DateTimeIso(attr),
+                    "office:time-value" => Data::DurationIso(attr),
                     _ => Data::String(attr),
                 };
                 is_value_set = true;
             }
-            b"office:boolean-value" if !is_value_set => {
-                let b = value == b"TRUE" || value == b"true";
+            "office:boolean-value" if !is_value_set => {
+                let b = value == "TRUE" || value == "true";
                 val = Data::Bool(b);
                 is_value_set = true;
             }
-            b"office:value-type" if !is_value_set => is_string = value == b"string",
-            b"table:formula" => {
-                formula = decode_attr(&reader.decoder(), value)?;
+            "office:value-type" if !is_value_set => is_string = value == "string",
+            "table:formula" => {
+                formula = decode_attr(value)?;
             }
             _ => (),
         }
@@ -712,36 +707,36 @@ where
             buf.clear();
             match reader.read_event_into(buf) {
                 Ok(Event::Text(t)) => {
-                    s.push_str(&t.xml10_content()?);
+                    s.push_str(&t.xml10_content());
                 }
                 Ok(Event::GeneralRef(e)) => {
                     unescape_entity_to_buffer(&e, &mut s)?;
                 }
                 Ok(Event::End(e))
-                    if e.name() == QName(b"table:table-cell")
-                        || e.name() == QName(b"table:covered-table-cell") =>
+                    if e.name() == QName("table:table-cell")
+                        || e.name() == QName("table:covered-table-cell") =>
                 {
                     return Ok((Data::String(s), formula, true));
                 }
-                Ok(Event::Start(e)) if e.name() == QName(b"office:annotation") => loop {
+                Ok(Event::Start(e)) if e.name() == QName("office:annotation") => loop {
                     match reader.read_event_into(buf) {
-                        Ok(Event::End(e)) if e.name() == QName(b"office:annotation") => {
+                        Ok(Event::End(e)) if e.name() == QName("office:annotation") => {
                             break;
                         }
                         Err(e) => return Err(OdsError::Xml(e)),
                         _ => (),
                     }
                 },
-                Ok(Event::Start(e)) if e.name() == QName(b"text:p") => {
+                Ok(Event::Start(e)) if e.name() == QName("text:p") => {
                     if first_paragraph {
                         first_paragraph = false;
                     } else {
                         s.push('\n');
                     }
                 }
-                Ok(Event::Start(e)) if e.name() == QName(b"text:s") => {
-                    let count = match e.raw_attr(b"text:c")? {
-                        Some(v) => decode_attr(&reader.decoder(), v)?.parse()?,
+                Ok(Event::Start(e)) if e.name() == QName("text:s") => {
+                    let count = match e.raw_attr("text:c")? {
+                        Some(v) => decode_attr(v)?.parse()?,
                         None => 1,
                     };
                     for _ in 0..count {
@@ -770,19 +765,19 @@ where
         buf.clear();
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e))
-                if e.name() == QName(b"table:named-range")
-                    || e.name() == QName(b"table:named-expression") =>
+                if e.name() == QName("table:named-range")
+                    || e.name() == QName("table:named-expression") =>
             {
                 let mut name = String::new();
                 let mut formula = String::new();
                 for attr in e.iter_raw_attrs() {
                     let (key, value) = attr?;
                     match key {
-                        b"table:name" => {
-                            name = decode_attr(&reader.decoder(), value)?;
+                        "table:name" => {
+                            name = decode_attr(value)?;
                         }
-                        b"table:cell-range-address" | b"table:expression" => {
-                            formula = decode_attr(&reader.decoder(), value)?;
+                        "table:cell-range-address" | "table:expression" => {
+                            formula = decode_attr(value)?;
                         }
                         _ => (),
                     }
@@ -790,9 +785,9 @@ where
                 defined_names.push((name, formula));
             }
             Ok(Event::End(e))
-                if e.name() == QName(b"table:named-range")
-                    || e.name() == QName(b"table:named-expression") => {}
-            Ok(Event::End(e)) if e.name() == QName(b"table:named-expressions") => break,
+                if e.name() == QName("table:named-range")
+                    || e.name() == QName("table:named-expression") => {}
+            Ok(Event::End(e)) if e.name() == QName("table:named-expressions") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {

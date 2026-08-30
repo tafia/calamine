@@ -182,11 +182,10 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
                 loop {
                     match xml.read_event_into(&mut buf) {
-                        Ok(Event::Start(e)) if e.name() == QName(b"Relationship") => {
-                            let (id, target) = get_attrs!(e, b"Id" => id, b"Target" => target)?;
+                        Ok(Event::Start(e)) if e.name() == QName("Relationship") => {
+                            let (id, target) = get_attrs!(e, "Id" => id, "Target" => target)?;
                             if let (Some(id), Some(target)) = (id, target) {
-                                relationships
-                                    .insert(id.to_vec(), decode_attr(&xml.decoder(), target)?);
+                                relationships.insert(id.as_bytes().to_vec(), decode_attr(target)?);
                             }
                         }
                         Ok(Event::Eof) => break,
