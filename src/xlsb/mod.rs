@@ -150,10 +150,24 @@ struct XlsbOptions {
     pub header_row: HeaderRow,
 }
 
+/// One entry of a workbook's supporting-book table.
+///
+/// Only the distinction matters here: an `Xti` gives a sheet index, and that
+/// index means a sheet of *this* workbook or of another one depending on which
+/// supporting book it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupBook {
+    SelfBook,
+    Other,
+}
+
 /// A Xlsb reader
 pub struct Xlsb<RS> {
     zip: ZipArchive<RS>,
     extern_sheets: Vec<String>,
+    /// Supporting books in the order they are declared, so that an `Xti` naming
+    /// one by position can be told from this workbook.
+    supbooks: Vec<SupBook>,
     sheets: Vec<(String, String)>,
     strings: Vec<String>,
     /// Cell (number) formats
@@ -354,6 +368,19 @@ impl<RS: Read + Seek> Xlsb<RS> {
         loop {
             let typ = iter.read_type()?;
             match typ {
+                // A supporting book. They appear in order before BrtExternSheet
+                // and an `Xti` names one by position, so all that is needed
+                // here is which position is this workbook itself.
+                0x0163 => {
+                    // BrtSupBookSrc: another workbook, named by a relationship.
+                    let _ = iter.fill_buffer(&mut buf)?;
+                    self.supbooks.push(SupBook::Other);
+                }
+                0x0165 => {
+                    // BrtSupSelf: this workbook.
+                    let _ = iter.fill_buffer(&mut buf)?;
+                    self.supbooks.push(SupBook::SelfBook);
+                }
                 0x016A => {
                     // BrtExternSheet
                     let _len = iter.fill_buffer(&mut buf)?;
@@ -362,16 +389,19 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         self.extern_sheets.reserve(cxti);
                     }
                     let sheets = &self.sheets;
+                    let this_book = self
+                        .supbooks
+                        .iter()
+                        .position(|b| matches!(b, SupBook::SelfBook));
                     let extern_sheets = buf[4..]
                         .chunks(12)
                         .map(|xti| {
-                            match read_i32(&xti[4..8]) {
-                                -2 => "#ThisWorkbook",
-                                -1 => "#InvalidWorkSheet",
-                                p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
-                                _ => "#Unknown",
-                            }
-                            .to_string()
+                            xti_sheet(
+                                read_i32(&xti[0..4]),
+                                read_i32(&xti[4..8]),
+                                this_book,
+                                sheets,
+                            )
                         })
                         .take(cxti)
                         .collect();
@@ -480,6 +510,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
             sheets: Vec::new(),
             strings: Vec::new(),
             extern_sheets: Vec::new(),
+            supbooks: Vec::new(),
             formats: Vec::new(),
             is_1904: false,
             metadata: Metadata::default(),
@@ -722,6 +753,32 @@ fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, Xlsb
     *str_len = 4 + len * 2;
     let s = &buf[4..*str_len];
     Ok(UTF_16LE.decode(s).0)
+}
+
+/// Name the sheet an `Xti` points at.
+///
+/// `book` indexes the workbook's supporting books and `tab` indexes the sheets
+/// *of that book*, so a tab index means one of `sheets` only when the reference
+/// is into this workbook. Resolving one that is not would name a real sheet of
+/// ours and record a real dependency, on the wrong sheet — a workbook linking
+/// to last year's copy of itself has every sheet index land somewhere
+/// plausible.
+///
+/// `this_book` is the position of the `BrtSupSelf` record, or `None` for a
+/// workbook that declares no supporting books at all, where every reference is
+/// necessarily local.
+fn xti_sheet(book: i32, tab: i32, this_book: Option<usize>, sheets: &[(String, String)]) -> String {
+    let is_this_book = this_book.is_none_or(|i| book == i as i32);
+    match tab {
+        -2 => "#ThisWorkbook".to_string(),
+        -1 => "#InvalidWorkSheet".to_string(),
+        p if is_this_book && p >= 0 && (p as usize) < sheets.len() => sheets[p as usize].0.clone(),
+        // Written the way an external reference is written, so a reader can
+        // tell that it is one. The sheet's own name lives in the other
+        // workbook, which is not open.
+        p if !is_this_book && p >= 0 => format!("[{book}]#Sheet{}", p + 1),
+        _ => "#Unknown".to_string(),
+    }
 }
 
 /// Formula parsing
@@ -1052,4 +1109,50 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod xti_tests {
+    use super::xti_sheet;
+
+    fn sheets() -> Vec<(String, String)> {
+        ["Summary", "Data", "Rates"]
+            .iter()
+            .map(|n| (n.to_string(), String::new()))
+            .collect()
+    }
+
+    #[test]
+    fn a_tab_of_this_workbook_is_named() {
+        assert_eq!(xti_sheet(0, 1, Some(0), &sheets()), "Data");
+        // The self record need not come first.
+        assert_eq!(xti_sheet(2, 2, Some(2), &sheets()), "Rates");
+    }
+
+    #[test]
+    fn a_tab_of_another_workbook_is_never_named_from_ours() {
+        // The defect in one assertion: supporting book 1, sheet 2 of *that*
+        // book. Resolved against our sheets it is `Rates`, which exists, is
+        // wrong, and looks like every other dependency in the graph.
+        assert_eq!(xti_sheet(1, 2, Some(0), &sheets()), "[1]#Sheet3");
+        assert_eq!(xti_sheet(3, 25, Some(0), &sheets()), "[3]#Sheet26");
+    }
+
+    #[test]
+    fn the_sentinels_outrank_the_book() {
+        assert_eq!(xti_sheet(0, -2, Some(0), &sheets()), "#ThisWorkbook");
+        assert_eq!(xti_sheet(1, -1, Some(0), &sheets()), "#InvalidWorkSheet");
+    }
+
+    #[test]
+    fn a_tab_past_our_last_sheet_is_still_unknown() {
+        assert_eq!(xti_sheet(0, 9, Some(0), &sheets()), "#Unknown");
+    }
+
+    #[test]
+    fn a_workbook_with_no_supporting_books_resolves_everything_locally() {
+        // Nothing declares a self record, so there is nothing to be external
+        // to, and the old behaviour is the right one.
+        assert_eq!(xti_sheet(0, 1, None, &sheets()), "Data");
+    }
 }
