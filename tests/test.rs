@@ -3671,3 +3671,33 @@ fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
         Some(&Data::String("VALUE C6".to_string()))
     );
 }
+
+#[test]
+fn sheet_name_with_a_space_is_quoted_in_a_formula() {
+    // A sheet name that is not a plain identifier must be quoted, or the `!`
+    // runs straight into the last word: `EIM New Deals!AK$12` parses as a
+    // reference to a sheet called `Deals`, and a workbook that also has a
+    // sheet by that name has its dependency attributed to the wrong one with
+    // nothing to see.
+    let mut excel: Xls<_> = wb("OOM_alloc.xls");
+    let formula = excel.worksheet_formula("Data").unwrap();
+    let referencing: Vec<&str> = formula
+        .used_cells()
+        .filter(|(_, _, f)| f.contains("New Deals"))
+        .map(|(_, _, f)| f.as_str())
+        .collect();
+    assert!(
+        !referencing.is_empty(),
+        "fixture should reference the sheet with a space in its name"
+    );
+    assert_eq!(
+        referencing[0],
+        "+'EIM New Deals'!AK$12+'EIM New Deals'!$AO12+'EIM New Deals'!AK$28+'EIM New Deals'!$AO28"
+    );
+    for f in &referencing {
+        assert!(
+            !f.contains("EIM New Deals!"),
+            "unquoted sheet name in {f:?}"
+        );
+    }
+}
