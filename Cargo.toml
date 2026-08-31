@@ -34,6 +34,10 @@ env_logger = "0.11"
 serde_derive = "1.0"
 rstest = { version = "0.26", default-features = false }
 criterion = { version = "0.7", features = ["html_reports"] }
+# For authoring a headerless/totals-row table fixture on the fly: no
+# open-source tool writes XLSB, but XLSX table XML is plain OOXML, and this
+# writer supports `set_header_row(false)`/`set_total_row(true)` directly.
+rust_xlsxwriter = "0.91"
 
 [[bench]]
 name = "basic"
