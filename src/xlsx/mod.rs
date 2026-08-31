@@ -420,7 +420,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 CellFormat::Other,
                                 |val| match number_formats.get(val) {
                                     Some(fmt) => detect_custom_number_format(fmt),
-                                    None => builtin_format_by_id(val.as_bytes()),
+                                    None => builtin_format_by_id(val),
                                 },
                             ));
                         }
@@ -441,7 +441,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
 
     fn read_workbook(
         &mut self,
-        relationships: &HashMap<Vec<u8>, (String, String)>,
+        relationships: &HashMap<String, (String, String)>,
     ) -> Result<(), XlsxError> {
         let path = format!("{}workbook.xml", self.xl_path);
         let mut xml = match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
@@ -456,7 +456,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             match xml.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == "sheet" => {
                     let mut name = String::new();
-                    let mut rel_id = Vec::new();
+                    let mut rel_id = "";
                     let mut visible = SheetVisible::Visible;
                     for attr in e.iter_raw_attrs() {
                         let (key, val) = attr?;
@@ -479,13 +479,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                             }
                             // Ignore the "r:id" attribute namespace and match on the "id" name.
                             key if local_name_matches(key, "id") => {
-                                rel_id = val.as_bytes().to_vec();
+                                rel_id = val;
                             }
                             _ => {}
                         }
                     }
                     let (r, rel_type) = relationships
-                        .get(&rel_id)
+                        .get(rel_id)
                         .ok_or(XlsxError::RelationshipNotFound)?;
                     // target may be absolute or relative path;
                     let path = if let Some(abs_path) = r.strip_prefix("/") {
@@ -546,7 +546,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, (String, String)>, XlsxError> {
+    fn read_relationships(&mut self) -> Result<HashMap<String, (String, String)>, XlsxError> {
         let rels_path = format!("{}_rels/workbook.xml.rels", self.xl_path);
         let mut xml = match xml_reader(&mut self.zip, rels_path.as_ref(), &self.zip_path_cache) {
             None => {
@@ -565,7 +565,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     if let Some(id) = id {
                         let rel_type = rel_type.map(ToOwned::to_owned).unwrap_or_default();
                         let target = target.map(ToOwned::to_owned).unwrap_or_default();
-                        relationships.insert(id.as_bytes().to_vec(), (target, rel_type));
+                        relationships.insert(id.to_string(), (target, rel_type));
                     }
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == "Relationships" => break,
@@ -669,7 +669,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         _ => (),
                     }
                 }
-                let mut dims = get_dimension(table_meta.ref_cells.as_bytes())?;
+                let mut dims = get_dimension(&table_meta.ref_cells)?;
                 if table_meta.header_row_count != 0 {
                     dims.start.0 += table_meta.header_row_count;
                 }
@@ -1087,8 +1087,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 if let Some(media_path) = idx_to_media.get(img_idx) {
                                     if !media_path.is_empty() {
                                         if let Some((ext, data)) = media.get(media_path) {
-                                            let col =
-                                                r.map_or(0, |r| col_from_cell_ref(r.as_bytes()));
+                                            let col = r.map_or(0, col_from_cell_ref);
                                             seen.insert(media_path.clone());
                                             pics.push(Picture {
                                                 extension: ext.clone(),
@@ -1238,7 +1237,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     match xml.read_event_into(&mut buf) {
                         Ok(Event::Start(e)) if e.local_name().as_ref() == "mergeCell" => {
                             if let Some(val) = e.raw_attr("ref")? {
-                                let dimension = get_dimension(val.as_bytes())?;
+                                let dimension = get_dimension(val)?;
                                 regions.push((
                                     sheet_name.to_string(),
                                     sheet_path.to_string(),
@@ -2435,7 +2434,7 @@ where
                     let (key, val) = attr?;
                     match key {
                         "ref" => {
-                            range = Some(get_dimension(val.as_bytes())?);
+                            range = Some(get_dimension(val)?);
                         }
                         "location" => {
                             location = Some(unescape_xml(val).into_owned());
@@ -2724,12 +2723,11 @@ fn resolve_path(base: &str, target: &str) -> String {
     }
 }
 
-// Parse the 0-based column index from the raw bytes of an A1-style cell
-// reference like `B2`.
+// Parse the 0-based column index from an A1-style cell reference like `B2`.
 #[cfg(feature = "picture")]
-fn col_from_cell_ref(cell_ref: &[u8]) -> u32 {
+fn col_from_cell_ref(cell_ref: &str) -> u32 {
     let mut col: u32 = 0;
-    for &b in cell_ref {
+    for &b in cell_ref.as_bytes() {
         if b.is_ascii_alphabetic() {
             col = col * 26 + (b.to_ascii_uppercase() - b'A') as u32 + 1;
         } else {
@@ -2764,9 +2762,9 @@ fn xml_reader<'a, RS: Read + Seek>(
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
 /// - top left (row, column),
 /// - bottom right (row, column)
-pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
+pub(crate) fn get_dimension(dimension: &str) -> Result<Dimensions, XlsxError> {
     let parts: Vec<_> = dimension
-        .split(|c| *c == b':')
+        .split(':')
         .map(get_row_column)
         .collect::<Result<Vec<_>, XlsxError>>()?;
 
@@ -2796,7 +2794,7 @@ pub(crate) fn get_dimension(dimension: &[u8]) -> Result<Dimensions, XlsxError> {
 
 /// Converts a text range name into its position (row, column) (0 based index).
 /// If the row or column component in the range is missing, an Error is returned.
-pub(crate) fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
+pub(crate) fn get_row_column(range: &str) -> Result<(u32, u32), XlsxError> {
     let (row, col) = get_row_and_optional_column(range)?;
     let col = col.ok_or(XlsxError::RangeWithoutColumnComponent)?;
     Ok((row, col))
@@ -2805,14 +2803,17 @@ pub(crate) fn get_row_column(range: &[u8]) -> Result<(u32, u32), XlsxError> {
 /// Converts a text row name into its position (0 based index).
 /// If the row component in the range is missing, an Error is returned.
 /// If the text row name also contains a column component, it is ignored.
-pub(crate) fn get_row(range: &[u8]) -> Result<u32, XlsxError> {
+pub(crate) fn get_row(range: &str) -> Result<u32, XlsxError> {
     get_row_and_optional_column(range).map(|(row, _)| row)
 }
 
 /// Converts a text-based range name into its `(row, column)` position (0-based index).
 /// If the column component of the range is missing, a None is returned (for the column).
 /// If the row component of the range is missing, an Error is returned.
-fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxError> {
+fn get_row_and_optional_column(range: &str) -> Result<(u32, Option<u32>), XlsxError> {
+    // Cell references are ASCII; scan the bytes directly. Any non-ASCII byte
+    // falls through to the `Alphanumeric` error arms below.
+    let range = range.as_bytes();
     let len = range.len();
     let mut i = 0;
 
@@ -2944,7 +2945,7 @@ where
         match xml.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) if event.local_name().as_ref() == "mergeCell" => {
                 if let Some(val) = event.raw_attr("ref")? {
-                    merge_cells.push(get_dimension(val.as_bytes())?);
+                    merge_cells.push(get_dimension(val)?);
                 }
             }
             Ok(Event::End(event)) if event.local_name().as_ref() == "mergeCells" => {
@@ -3943,17 +3944,17 @@ mod tests {
 
     #[test]
     fn test_dimensions() {
-        assert_eq!(get_row_column(b"A1").unwrap(), (0, 0));
-        assert_eq!(get_row_column(b"C107").unwrap(), (106, 2));
+        assert_eq!(get_row_column("A1").unwrap(), (0, 0));
+        assert_eq!(get_row_column("C107").unwrap(), (106, 2));
         assert_eq!(
-            get_dimension(b"C2:D35").unwrap(),
+            get_dimension("C2:D35").unwrap(),
             Dimensions {
                 start: (1, 2),
                 end: (34, 3)
             }
         );
         assert_eq!(
-            get_dimension(b"A1:XFD1048576").unwrap(),
+            get_dimension("A1:XFD1048576").unwrap(),
             Dimensions {
                 start: (0, 0),
                 end: (1_048_575, 16_383),
@@ -3963,9 +3964,9 @@ mod tests {
 
     #[test]
     fn test_dimension_length() {
-        assert_eq!(get_dimension(b"A1:Z99").unwrap().len(), 2_574);
+        assert_eq!(get_dimension("A1:Z99").unwrap().len(), 2_574);
         assert_eq!(
-            get_dimension(b"A1:XFD1048576").unwrap().len(),
+            get_dimension("A1:XFD1048576").unwrap().len(),
             17_179_869_184
         );
     }

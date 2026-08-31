@@ -670,10 +670,9 @@ where
         let (key, value) = attr?;
         match key {
             "office:value" if !is_value_set => {
-                let v = value;
                 val = Data::Float(
-                    fast_float2::parse(v.as_bytes())
-                        .map_err(|_| OdsError::ParseFloat(v.parse::<f64>().unwrap_err()))?,
+                    fast_float2::parse(value.as_bytes())
+                        .map_err(|_| OdsError::ParseFloat(value.parse::<f64>().unwrap_err()))?,
                 );
                 is_value_set = true;
             }

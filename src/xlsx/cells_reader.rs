@@ -210,7 +210,7 @@ where
                 Event::Start(e) => match e.local_name().as_ref() {
                     "dimension" => {
                         if let Some(rdim) = e.raw_attr("ref")? {
-                            dimensions = get_dimension(rdim.as_bytes())?;
+                            dimensions = get_dimension(rdim)?;
                             continue 'xml;
                         }
                         return Err(XlsxError::UnexpectedNode("dimension"));
@@ -259,7 +259,7 @@ where
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
                     if let Some(r) = row_element.raw_attr("r")? {
-                        self.row_index = get_row(r.as_bytes())?;
+                        self.row_index = get_row(r)?;
                     }
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
@@ -270,7 +270,7 @@ where
                     let (pos_attr, style_attr, type_attr) =
                         get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
                     let pos = if let Some(range) = pos_attr {
-                        let (row, col) = get_row_column(range.as_bytes())?;
+                        let (row, col) = get_row_column(range)?;
                         self.col_index = col;
                         (row, col)
                     } else {
@@ -339,7 +339,7 @@ where
 
             return match ref_attr {
                 Some(res) => {
-                    let range = get_dimension(res.as_bytes())?;
+                    let range = get_dimension(res)?;
                     let formula = formula.unwrap_or_default();
                     if expand_shared_derived {
                         if formulas.len() <= shared_index {
@@ -420,7 +420,7 @@ where
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
                     if let Some(r) = row_element.raw_attr("r")? {
-                        self.row_index = get_row(r.as_bytes())?;
+                        self.row_index = get_row(r)?;
                     }
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
@@ -431,7 +431,7 @@ where
                     let (pos_attr, style_attr, type_attr) =
                         get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
                     let pos = if let Some(range) = pos_attr {
-                        let (row, col) = get_row_column(range.as_bytes())?;
+                        let (row, col) = get_row_column(range)?;
                         self.col_index = col;
                         (row, col)
                     } else {
@@ -496,7 +496,7 @@ where
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
                     if let Some(r) = row_element.raw_attr("r")? {
-                        self.row_index = get_row(r.as_bytes())?;
+                        self.row_index = get_row(r)?;
                     }
                 }
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
@@ -505,7 +505,7 @@ where
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
                     let pos = if let Some(r) = c_element.raw_attr("r")? {
-                        let (row, col) = get_row_column(r.as_bytes())?;
+                        let (row, col) = get_row_column(r)?;
                         self.col_index = col;
                         (row, col)
                     } else {

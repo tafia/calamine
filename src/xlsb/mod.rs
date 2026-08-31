@@ -168,7 +168,7 @@ pub struct Xlsb<RS> {
 
 impl<RS: Read + Seek> Xlsb<RS> {
     /// MS-XLSB
-    fn read_relationships(&mut self) -> Result<HashMap<Vec<u8>, String>, XlsbError> {
+    fn read_relationships(&mut self) -> Result<HashMap<String, String>, XlsbError> {
         let mut relationships = HashMap::new();
         match self.zip.by_name("xl/_rels/workbook.bin.rels") {
             Ok(f) => {
@@ -185,7 +185,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         Ok(Event::Start(e)) if e.name() == QName("Relationship") => {
                             let (id, target) = get_attrs!(e, "Id" => id, "Target" => target)?;
                             if let (Some(id), Some(target)) = (id, target) {
-                                relationships.insert(id.as_bytes().to_vec(), decode_attr(target)?);
+                                relationships.insert(id.to_string(), decode_attr(target)?);
                             }
                         }
                         Ok(Event::Eof) => break,
@@ -285,7 +285,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.61
-    fn read_workbook(&mut self, relationships: &HashMap<Vec<u8>, String>) -> Result<(), XlsbError> {
+    fn read_workbook(&mut self, relationships: &HashMap<String, String>) -> Result<(), XlsbError> {
         let mut iter =
             RecordIter::from_zip(&mut self.zip, "xl/workbook.bin", &self.zip_path_cache)?;
         let mut buf = Vec::with_capacity(1024);
@@ -305,7 +305,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         let relid = &buf[12..12 + rel_len];
                         // converts utf16le to utf8 for HashMap search
                         let relid = UTF_16LE.decode(relid).0;
-                        let path = format!("xl/{}", relationships[relid.as_bytes()]);
+                        let path = format!("xl/{}", relationships[&*relid]);
                         // ST_SheetState
                         let visible = match read_u32(&buf) {
                             0 => SheetVisible::Visible,
