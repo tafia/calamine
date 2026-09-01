@@ -1908,6 +1908,12 @@ pub struct Table<T> {
     pub(crate) sheet_name: String,
     pub(crate) columns: Vec<String>,
     pub(crate) data: Range<T>,
+    /// The table's own `headerRowCount`, as declared in its XML (0 or 1 in
+    /// every workbook Excel's UI can produce — "My table has headers"
+    /// unchecked is 0).
+    pub(crate) header_row_count: u32,
+    /// The table's own `totalsRowCount`, as declared in its XML.
+    pub(crate) totals_row_count: u32,
 }
 impl<T> Table<T> {
     /// Get the name of the table.
@@ -2062,6 +2068,51 @@ impl<T> Table<T> {
     ///
     pub fn data(&self) -> &Range<T> {
         &self.data
+    }
+
+    /// Whether the table declares a header row.
+    ///
+    /// Excel always writes `tableColumn` names, even for a table created with
+    /// "My table has headers" unchecked (it auto-names them `Column1`,
+    /// `Column2`, …), so a non-empty [`Table::columns`] is not the same
+    /// question — this is `headerRowCount != 0`, the table's own declaration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///     workbook.load_tables()?;
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///     assert!(table.has_header_row());
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn has_header_row(&self) -> bool {
+        self.header_row_count != 0
+    }
+
+    /// Whether the table declares a totals row.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = format!("{}/tests/inventory-table.xlsx", env!("CARGO_MANIFEST_DIR"));
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///     workbook.load_tables()?;
+    ///     let table = workbook.table_by_name("Table1")?;
+    ///     assert!(!table.has_totals_row());
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn has_totals_row(&self) -> bool {
+        self.totals_row_count != 0
     }
 }
 

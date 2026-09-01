@@ -2981,6 +2981,57 @@ fn test_xlsx_table_insertrow_attribute() {
     assert!(result.is_ok(), "Expected table_by_name to succeed");
 }
 
+// A table with `headerRowCount="0"` still declares `tableColumn` elements
+// (Excel auto-names them Column1, Column2, …), so their mere presence cannot
+// tell a caller whether the table actually has a header row — that is what
+// `Table::has_header_row()`/`has_totals_row()` exist to answer honestly.
+//
+// This also exercises the range-shifting fix at the end of `read_tables()`:
+// with a totals row and no header row, the old code subtracted
+// `header_row_count` (0, so nothing happened) instead of `totals_row_count`
+// (1), leaving the fabricated totals row inside `table.data()`.
+#[test]
+fn test_headerless_table_with_totals_row() {
+    use calamine::open_workbook_from_rs;
+    use rust_xlsxwriter::{Table, TableColumn, TableFunction, Workbook};
+
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    worksheet.write_column(0, 0, [1.0, 2.0, 3.0]).unwrap();
+    worksheet.write_column(0, 1, [10.0, 20.0, 30.0]).unwrap();
+
+    let columns = vec![
+        TableColumn::new(),
+        TableColumn::new().set_total_function(TableFunction::Sum),
+    ];
+    let table = Table::new()
+        .set_name("Headerless")
+        .set_header_row(false)
+        .set_total_row(true)
+        .set_columns(&columns);
+    // Rows 0..=2 are data, row 3 is the totals row Excel adds; no header row.
+    worksheet.add_table(0, 0, 3, 1, &table).unwrap();
+
+    let bytes = workbook.save_to_buffer().unwrap();
+    let mut xlsx: Xlsx<_> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
+    xlsx.load_tables().unwrap();
+    let table = xlsx
+        .table_by_name("Headerless")
+        .expect("parsing the table should not error");
+
+    assert!(!table.has_header_row(), "headerRowCount was set to 0");
+    assert!(table.has_totals_row(), "totalsRowCount was set to 1");
+
+    let data = table.data();
+    assert_eq!(
+        data.height(),
+        3,
+        "the totals row must not be counted as data"
+    );
+    assert_eq!(data.get((0, 0)), Some(&Float(1.0)));
+    assert_eq!(data.get((2, 0)), Some(&Float(3.0)));
+}
+
 // Test for issue #594: ODS DoS protection via repeat limits.
 // This test verifies that the ODS parser correctly caps malicious repeat values
 // that would otherwise cause memory exhaustion.
