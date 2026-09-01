@@ -117,7 +117,10 @@ where
                         format_excel_f64_ref(v, cell_format(self.formats, &self.buf), self.is_1904)
                     }
                 }
-                0x0003 => {
+                0x0003 | 0x000B => {
+                    // BrtCellError, and BrtFmlaError — a formula whose cached
+                    // value is an error. The two records differ in what follows
+                    // the error byte, and nothing here reads past it.
                     let error = match self.buf[8] {
                         0x00 => CellErrorType::Null,
                         0x07 => CellErrorType::Div0,
@@ -129,7 +132,6 @@ where
                         0x2B => CellErrorType::GettingData,
                         c => return Err(XlsbError::CellError(c)),
                     };
-                    // BrtCellError
                     DataRef::Error(error)
                 }
                 0x0004 | 0x000A => DataRef::Bool(self.buf[8] != 0), // BrtCellBool or BrtFmlaBool
