@@ -19,8 +19,8 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible,
+    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, RangeError, Reader, Sheet,
+    SheetType, SheetVisible,
 };
 
 #[derive(Debug)]
@@ -82,11 +82,15 @@ pub enum XlsError {
         /// iFmt value, See 2.4.126 Format
         ifmt: u16,
     },
+
+    /// A worksheet range could not be allocated from its cells.
+    Range(RangeError),
 }
 
 from_err!(std::io::Error, XlsError, Io);
 from_err!(crate::cfb::CfbError, XlsError, Cfb);
 from_err!(crate::vba::VbaError, XlsError, Vba);
+from_err!(RangeError, XlsError, Range);
 
 impl std::fmt::Display for XlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -120,6 +124,7 @@ impl std::fmt::Display for XlsError {
             XlsError::Art(s) => write!(f, "Invalid art record '{s}'"),
             XlsError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
             XlsError::InvalidFormat { ifmt } => write!(f, "Invalid ifmt value: '{ifmt}'"),
+            XlsError::Range(e) => write!(f, "{e}"),
         }
     }
 }
@@ -130,6 +135,7 @@ impl std::error::Error for XlsError {
             XlsError::Io(e) => Some(e),
             XlsError::Cfb(e) => Some(e),
             XlsError::Vba(e) => Some(e),
+            XlsError::Range(e) => Some(e),
             _ => None,
         }
     }
@@ -694,8 +700,8 @@ impl<RS: Read + Seek> Xls<RS> {
                     _ => (),
                 }
             }
-            let range = Range::from_sparse(cells);
-            let formula = Range::from_sparse(formulas);
+            let range = Range::from_sparse(cells)?;
+            let formula = Range::from_sparse(formulas)?;
             sheets.insert(
                 name,
                 SheetData {

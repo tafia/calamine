@@ -2857,6 +2857,52 @@ fn test_oom_allocation() {
     );
 }
 
+#[test]
+fn from_sparse_oversized_extent_returns_an_error() {
+    // `A1` together with `XFD1048576` implies 17_179_869_184 cells, which
+    // cannot be allocated.
+    let cells = vec![
+        calamine::Cell::new((0, 0), Float(1.0)),
+        calamine::Cell::new((1_048_575, 16_383), Float(2.0)),
+    ];
+    let err = Range::from_sparse(cells).unwrap_err();
+    assert_eq!(err.width(), 16_384);
+    assert_eq!(err.height(), 1_048_576);
+    let msg = err.to_string();
+    assert!(msg.contains("1048576") && msg.contains("16384"), "{msg}");
+}
+
+#[test]
+fn from_sparse_keeps_working_for_a_sparse_but_sane_extent() {
+    // Two cells 1000 rows and 100 columns apart densify to 100_000 cells.
+    let range = Range::from_sparse(vec![
+        calamine::Cell::new((0, 0), Float(1.0)),
+        calamine::Cell::new((999, 99), Float(2.0)),
+    ])
+    .unwrap();
+    assert_eq!((range.height(), range.width()), (1000, 100));
+    assert_eq!(range.get((0, 0)), Some(&Float(1.0)));
+    assert_eq!(range.get((999, 99)), Some(&Float(2.0)));
+
+    // issue_174.xlsx declares the whole grid (A1:XFD1048576) but holds only a
+    // handful of cells, so it densifies to 2x11 and must keep loading.
+    let mut xlsx: Xlsx<_> = wb("issue_174.xlsx");
+    let range = xlsx.worksheet_range_at(0).unwrap().unwrap();
+    assert_eq!((range.height(), range.width()), (2, 11));
+}
+
+#[test]
+fn xlsx_oversized_extent_returns_a_range_error() {
+    // issue_693.xlsx holds only A1 and XFD1048576; the implied dense range
+    // cannot be allocated, so the reader must return an error.
+    let mut xlsx: Xlsx<_> = wb("issue_693.xlsx");
+    let res = xlsx.worksheet_range("Sheet1");
+    assert!(
+        matches!(res, Err(calamine::XlsxError::Range(_))),
+        "expected XlsxError::Range, got {res:?}"
+    );
+}
+
 // Test for issue #548. The SST table in the test file has an incorrect unique
 // string count.
 #[test]

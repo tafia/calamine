@@ -28,7 +28,8 @@ use crate::utils::{
 };
 use crate::vba::VbaProject;
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
+    Cell, Data, HeaderRow, Metadata, Range, RangeError, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible,
 };
 
 /// A Xlsb specific error
@@ -89,6 +90,9 @@ pub enum XlsbError {
     WorksheetNotFound(String),
     /// XML Encoding error
     Encoding(quick_xml::encoding::EncodingError),
+
+    /// A worksheet range could not be allocated from its cells.
+    Range(RangeError),
 }
 
 from_err!(std::io::Error, XlsbError, Io);
@@ -97,6 +101,7 @@ from_err!(quick_xml::Error, XlsbError, Xml);
 from_err!(quick_xml::events::attributes::AttrError, XlsbError, XmlAttr);
 from_err!(quick_xml::encoding::EncodingError, XlsbError, Encoding);
 from_err!(crate::vba::VbaError, XlsbError, Vba);
+from_err!(RangeError, XlsbError, Range);
 
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -127,6 +132,7 @@ impl std::fmt::Display for XlsbError {
             XlsbError::Password => write!(f, "Workbook is password protected"),
             XlsbError::WorksheetNotFound(name) => write!(f, "Worksheet '{name}' not found"),
             XlsbError::Encoding(e) => write!(f, "XML encoding error: {e}"),
+            XlsbError::Range(e) => write!(f, "{e}"),
         }
     }
 }
@@ -138,6 +144,7 @@ impl std::error::Error for XlsbError {
             XlsbError::Zip(e) => Some(e),
             XlsbError::Xml(e) => Some(e),
             XlsbError::Vba(e) => Some(e),
+            XlsbError::Range(e) => Some(e),
             _ => None,
         }
     }
@@ -535,7 +542,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
                 cells.push(cell);
             }
         }
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 
     /// MS-XLSB 2.1.7.62
@@ -620,7 +627,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
             }
         }
 
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 }
 
