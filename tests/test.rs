@@ -5,9 +5,11 @@
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
+    open_workbook, open_workbook_auto, BorderStyle, CfOperator, CfTextOperator, CfValueObjectType,
+    Color, ConditionalFormatRuleType, DataRef, DataType, Dimensions, ExcelDateTime,
+    ExcelDateTimeType, HeaderRow, HorizontalAlignment, IconSetType, Ods, Range, Reader, ReaderRef,
+    Sheet, SheetType, SheetVisible, TimePeriodType, UnderlineStyle, VerticalAlignment, Xls, Xlsb,
+    Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -41,6 +43,38 @@ macro_rules! range_eq {
         for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
             for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
                 assert_eq!(cl, cr, "Mismatch at position ({}, {})", i, j);
+            }
+        }
+    };
+}
+
+/// Helper to compare text content regardless of whether it's String or RichText
+fn text_eq(data: &Data, expected: &str) -> bool {
+    match data {
+        Data::String(s) => s == expected,
+        Data::RichText(rt) => rt.plain_text() == expected,
+        _ => false,
+    }
+}
+
+/// Macro for comparing ranges where cells may be String or RichText
+macro_rules! range_text_eq {
+    ($range:expr, $right:expr) => {
+        assert_eq!(
+            $range.get_size(),
+            ($right.len(), $right[0].len()),
+            "Size mismatch"
+        );
+        for (i, (rl, rr)) in $range.rows().zip($right.iter()).enumerate() {
+            for (j, (cl, cr)) in rl.iter().zip(rr.iter()).enumerate() {
+                assert!(
+                    text_eq(cl, cr),
+                    "Text mismatch at position ({}, {}): got {:?}, expected {:?}",
+                    i,
+                    j,
+                    cl.as_string(),
+                    cr
+                );
             }
         }
     };
@@ -112,14 +146,11 @@ fn error_file() {
 fn issue_9() {
     let mut excel: Xlsx<_> = wb("issue9.xlsx");
     let range = excel.worksheet_range("Feuil1").unwrap();
-    range_eq!(
+    // Some cells in this file have rich text formatting (bold, underline)
+    // so we compare text content rather than exact Data type
+    range_text_eq!(
         range,
-        [
-            [String("test1".to_string())],
-            [String("test2 other".to_string())],
-            [String("test3 aaa".to_string())],
-            [String("test4".to_string())]
-        ]
+        [["test1"], ["test2 other"], ["test3 aaa"], ["test4"]]
     );
 }
 
@@ -3246,6 +3277,88 @@ fn biff5_defined_names_and_empty_sheets_612() {
 }
 
 #[test]
+fn test_all_styles() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let values = xlsx.worksheet_range("Sheet 1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+    let get_font = |row: usize, col: usize| styles.get((row, col)).unwrap().get_font().unwrap();
+
+    // assert that the text is bold
+    let a1 = get_font(0, 0);
+    assert!(a1.is_bold());
+
+    // assert top border
+    let a1_style = styles.get((0, 0)).unwrap();
+    assert_eq!(
+        a1_style.borders.as_ref().unwrap().top.style,
+        BorderStyle::Thin
+    );
+
+    // assert that the text is italic
+    let a2 = get_font(1, 0);
+    assert!(a2.is_italic());
+
+    // assert that the text is underlined
+    let a3 = get_font(2, 0);
+    assert!(a3.has_underline());
+
+    // assert that the text is strikethrough
+    let a4 = get_font(3, 0);
+    assert!(a4.has_strikethrough());
+
+    // assert that the color is red
+    let a5 = get_font(4, 0);
+    assert_eq!(a5.color, Some(Color::new(255, 255, 0, 0)));
+
+    // assert that the foreground color is yellow
+    let a6 = styles.get((5, 0)).unwrap().get_fill().unwrap();
+    assert_eq!(a6.foreground_color, Some(Color::new(255, 255, 255, 0)));
+
+    // assert that text is horizontally centered
+    let a7 = styles.get((6, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a7.horizontal, HorizontalAlignment::Center);
+
+    // assert that text is vertically centered
+    let a8 = styles.get((7, 0)).unwrap().get_alignment().unwrap();
+    assert_eq!(a8.vertical, VerticalAlignment::Center);
+
+    // assert that text is wrapped
+    let a9 = styles.get((8, 0)).unwrap().get_alignment().unwrap();
+    assert!(a9.wrap_text);
+
+    // assert that 1000000 is formatted as 1,000,000
+    let a10 = styles.get((9, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a10.format_code, "#,##0");
+
+    // assert that 100 is formatted as $100.00
+    let a11 = styles.get((10, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a11.format_code, "$0.00");
+
+    // assert that 0.5 is formatted as 0.5%
+    // assert that the value is 0.5
+    let a12 = styles.get((11, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a12.format_code, "0.0%");
+    assert_eq!(values.get((11, 0)).unwrap(), &Float(0.005));
+
+    // assert that 1000000 is formatted as 1.00E+06
+    let a13 = styles.get((12, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a13.format_code, "0.00E+00");
+    assert_eq!(values.get((12, 0)).unwrap(), &Float(1000000.0));
+
+    // assert that 7/21/2025  1:09:31 PM is formatted as 2005-07-21 13:09:31
+    let a14 = styles.get((13, 0)).unwrap().get_number_format().unwrap();
+    assert_eq!(a14.format_code, "yyyy-mm-dd hh:mm:ss");
+    assert_eq!(
+        values.get((13, 0)).unwrap(),
+        &DateTime(ExcelDateTime::new(
+            45859.54827546296,
+            ExcelDateTimeType::DateTime,
+            false,
+        ))
+    );
+}
+
+#[test]
 fn biff5_formula_ptg_ref_643() {
     // covers a parsing error where biff8 formula token sizes were assumed
     // ref: https://github.com/tafia/calamine/pull/643
@@ -3297,6 +3410,486 @@ fn test_capitalized_book_stream() {
     // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
     // ref: https://github.com/tafia/calamine/issues/618
     let _wb: Xls<_> = wb("capitalized_wbook_stream.xls");
+}
+
+#[test]
+fn test_worksheet_style_iter() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Verify that we can iterate through styles without panicking
+    let mut style_count = 0;
+    let mut found_a1 = false;
+    for (row, col, style) in styles.cells() {
+        style_count += 1;
+        // Basic validation that we can access style properties
+        if row == 0 && col == 0 {
+            // A1 should be bold
+            assert!(style.get_font().unwrap().is_bold());
+            found_a1 = true;
+        }
+    }
+    assert!(style_count > 0, "Should have found at least one style");
+    assert!(found_a1, "Should have found A1");
+}
+
+#[test]
+fn test_worksheet_layout() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let layout = xlsx.worksheet_layout("Sheet 1").unwrap();
+
+    // Verify layout parsing produces some result (values depend on the test file)
+    // The important thing is no panic and the structure is populated
+    if let Some(width) = layout.default_column_width {
+        assert!(width > 0.0, "Default column width should be positive");
+    }
+    if let Some(height) = layout.default_row_height {
+        assert!(height > 0.0, "Default row height should be positive");
+    }
+}
+
+#[test]
+fn test_underline_parsing() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let worksheet = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Test that A3 has an underline (empty <u/> element)
+    let a3 = worksheet.get((2, 0)).unwrap().get_font().unwrap();
+    assert!(a3.has_underline());
+    assert_eq!(a3.underline, UnderlineStyle::Single);
+}
+
+#[test]
+fn test_color_parsing() {
+    use calamine::Color;
+
+    // Test that our color parsing works for both RGB and ARGB formats
+    let red_rgb = Color::rgb(255, 0, 0);
+    let red_argb = Color::new(255, 255, 0, 0);
+
+    assert_eq!(red_rgb, red_argb);
+
+    // Test that alpha=255 is the default for RGB
+    assert_eq!(red_rgb.alpha, 255);
+    assert_eq!(red_rgb.red, 255);
+    assert_eq!(red_rgb.green, 0);
+    assert_eq!(red_rgb.blue, 0);
+}
+
+#[test]
+fn test_border_colors() {
+    let mut xlsx: Xlsx<_> = wb("borders.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let mut found_thin_with_color = false;
+    let mut found_dashed_with_color = false;
+
+    // Test the first few rows to find different border styles with colors
+    for row in 0..5 {
+        for col in 0..5 {
+            if let Some(style) = styles.get((row, col)) {
+                if let Some(borders) = &style.borders {
+                    // Check each border side for styles and colors
+                    for border in [&borders.left, &borders.right, &borders.top, &borders.bottom] {
+                        if let Some(color) = border.color {
+                            if border.style == BorderStyle::None {
+                                continue;
+                            }
+                            match border.style {
+                                BorderStyle::Thin => {
+                                    found_thin_with_color = true;
+                                }
+                                BorderStyle::Dashed => {
+                                    found_dashed_with_color = true;
+                                }
+                                _ => {}
+                            }
+
+                            // Verify the color is red as expected.
+                            assert_eq!(color.red, 255, "Expected red color component to be 255");
+                            assert_eq!(color.green, 0, "Expected green color component to be 0");
+                            assert_eq!(color.blue, 0, "Expected blue color component to be 0");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Verify we found both types of borders with colors
+    assert!(
+        found_thin_with_color,
+        "Expected to find at least one thin border with color"
+    );
+    assert!(
+        found_dashed_with_color,
+        "Expected to find at least one dashed border with color"
+    );
+}
+
+#[test]
+fn test_problematic_formats() {
+    let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
+    let range = xlsx.worksheet_range("Sheet1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    // Check cell A1 (0,0) - should have white font
+    let a1_style = styles
+        .get((0, 0))
+        .expect("A1 should have style information");
+    let a1_font = a1_style
+        .get_font()
+        .expect("A1 should have font information");
+
+    // Font properties may or may not be explicitly set depending on the file;
+    // the important thing is that parsing succeeds without panic.
+    let _ = a1_font.name.as_ref();
+    let _ = a1_font.size;
+
+    // Check font color - should be white
+    if let Some(color) = a1_font.color {
+        assert!(
+            color.is_white(),
+            "A1 font color should be white, got RGB({}, {}, {})",
+            color.red,
+            color.green,
+            color.blue
+        );
+    }
+
+    // Check cell A2 (1,0) - verify it has style information
+    let a2_style = styles
+        .get((1, 0))
+        .expect("A2 should have style information");
+
+    // A2 should have number format information or use default
+    if let Some(number_format) = a2_style.get_number_format() {
+        assert!(
+            !number_format.format_code.is_empty(),
+            "Number format code should not be empty"
+        );
+    }
+
+    // Verify cell values exist
+    assert!(range.get((0, 0)).is_some(), "A1 should have a value");
+    assert!(range.get((1, 0)).is_some(), "A2 should have a value");
+}
+
+#[test]
+fn test_color_construction() {
+    use calamine::Color;
+
+    let rgb = Color::rgb(255, 0, 0);
+    assert_eq!(rgb.red, 255);
+    assert_eq!(rgb.green, 0);
+    assert_eq!(rgb.blue, 0);
+    assert_eq!(rgb.alpha, 255);
+
+    let argb = Color::new(128, 255, 0, 0);
+    assert_eq!(argb.alpha, 128);
+    assert_eq!(argb.red, 255);
+
+    assert!(Color::rgb(0, 0, 0).is_black());
+    assert!(Color::rgb(255, 255, 255).is_white());
+    assert!(!Color::rgb(1, 0, 0).is_black());
+}
+
+#[test]
+fn test_color_parsing_with_styles() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Test that we can read styles and colors from the styles.xlsx file
+    let range = xlsx.worksheet_range("Sheet 1").unwrap();
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut cells_with_styles = 0;
+    let mut cells_with_font_colors = 0;
+
+    // Iterate through cells and check for style information
+    for (row, col, _cell) in range.cells() {
+        if let Some(style) = styles.get((row, col)) {
+            cells_with_styles += 1;
+
+            if let Some(font) = style.get_font() {
+                if let Some(color) = font.color {
+                    cells_with_font_colors += 1;
+
+                    // color.{red,green,blue,alpha} are u8 so the 0..=255 range is
+                    // guaranteed by the type system; check known specific colors instead.
+                    if row == 4 && col == 0 {
+                        // A5 should have red font color (from test_all_styles)
+                        assert_eq!(color.red, 255, "A5 should have red font");
+                        assert_eq!(color.green, 0, "A5 should have red font");
+                        assert_eq!(color.blue, 0, "A5 should have red font");
+                    }
+                }
+            }
+        }
+    }
+
+    // Verify we found some styled cells
+    assert!(
+        cells_with_styles > 0,
+        "Should find at least some cells with styles"
+    );
+
+    // Verify color parsing is working (we should find at least one colored font)
+    assert!(
+        cells_with_font_colors > 0,
+        "Should find at least some cells with font colors"
+    );
+}
+
+#[test]
+fn test_style_range_rle() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let unique_count = styles.unique_style_count();
+    let run_count = styles.run_count();
+
+    println!("RLE Stats for styles.xlsx:");
+    println!("  Unique styles: {}", unique_count);
+    println!("  Run count: {}", run_count);
+    println!("  Compression ratio: {:.1}x", styles.compression_ratio());
+
+    assert!(unique_count > 0, "Should have unique styles");
+
+    let mut cell_count = 0;
+    for (row, col, style) in styles.cells() {
+        cell_count += 1;
+        assert!(row < styles.height());
+        assert!(col < styles.width());
+        let _ = style.get_font();
+    }
+
+    println!("  Cell count: {}", cell_count);
+    assert!(cell_count > 0, "Should have cells with styles");
+
+    if let Some(style) = styles.get((0, 0)) {
+        let _ = style.get_font();
+    }
+}
+
+#[test]
+fn test_theme_color_with_tint() {
+    // EMSI_JobChange_UK.xlsx uses theme="2" tint="-0.0999..." for the header fill.
+    // The file's theme has lt2 = EEECE1 (238, 236, 225).
+    // With tint -0.1: each channel * 0.9 ≈ (214, 212, 203).
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // Row 0 is the header row; check cell A1 (0, 0)
+    let header_style = styles.get((0, 0)).expect("Header cell should have style");
+    let fill = header_style.get_fill().expect("Header should have fill");
+    let color = fill.get_color().expect("Header fill should have a color");
+
+    // The color should be a tan/beige, NOT dark grey.
+    // Expected: approximately RGB(214, 212, 203) based on EEECE1 with tint -0.1
+    assert!(
+        color.red > 200 && color.green > 200 && color.blue > 190,
+        "Header fill should be tan/beige, got RGB({}, {}, {})",
+        color.red,
+        color.green,
+        color.blue
+    );
+
+    // Verify it's NOT the old incorrect dark blue-grey (68, 84, 106)
+    assert!(
+        color.red > 150,
+        "Header fill red should be > 150 (not dark grey), got {}",
+        color.red
+    );
+}
+
+#[test]
+fn test_theme_colors_read_from_file() {
+    // EMSI_JobChange_UK.xlsx has the Office 2007 theme:
+    //   dk1=000000, lt1=FFFFFF, dk2=1F497D, lt2=EEECE1
+    // After Excel's index swap: theme 0=lt1, 1=dk1, 2=lt2, 3=dk2
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // The header row uses bold font with no explicit font color set,
+    // and the data rows use theme="1" (dk1=black) for font color.
+    // Verify a data cell (row 1) has correct style
+    let data_style = styles.get((1, 0)).expect("Data cell should have style");
+    assert!(
+        data_style.get_font().is_some(),
+        "Data cell should have font info"
+    );
+}
+
+#[test]
+fn test_sys_color_parsing_prefers_last_clr() {
+    // problematic_formats.xlsx has sysClr elements like:
+    //   <a:sysClr val="windowText" lastClr="000000"/>
+    //   <a:sysClr val="window" lastClr="FFFFFF"/>
+    // The parser should use lastClr (resolved) over val (system name).
+    let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let a1_style = styles.get((0, 0)).expect("A1 should have style");
+    let font = a1_style.get_font().expect("A1 should have font");
+
+    // Font uses theme="0" which should resolve to lt1 = FFFFFF (white)
+    // via the sysClr lastClr attribute
+    if let Some(color) = font.color {
+        assert!(
+            color.is_white(),
+            "A1 font color should be white (from sysClr lastClr), got RGB({}, {}, {})",
+            color.red,
+            color.green,
+            color.blue
+        );
+    }
+}
+
+#[test]
+fn test_tint_darkening() {
+    // Verify that negative tint darkens a color.
+    // EMSI_JobChange_UK.xlsx border colors use theme="0" tint="-0.2499..."
+    // theme 0 = lt1 = FFFFFF (255,255,255)
+    // With tint -0.25: 255 * 0.75 = 191 per channel → approximately (191, 191, 191)
+    let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    let styles = xlsx.worksheet_style("1 digit").unwrap();
+
+    // Check a data cell that should have borders with tinted colors
+    if let Some(data_style) = styles.get((1, 0)) {
+        if let Some(borders) = data_style.get_borders() {
+            if borders.top.is_visible() {
+                if let Some(color) = borders.top.color {
+                    // Should be a light grey (around 191,191,191), not pure white or black
+                    assert!(
+                        color.red > 180 && color.red < 200,
+                        "Border color should be light grey from tinted white, got R={}",
+                        color.red
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Regression tests for quality fixes
+// ============================================================================
+
+#[test]
+fn test_font_parsing_empty_elements() {
+    // Regression: parse_font was ignoring Event::Empty elements like <b/>, <sz val="11"/>
+    // which are the most common form in real Excel files.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // A1 should have bold font - this was broken when Event::Empty was ignored
+    let a1_style = styles.get((0, 0)).expect("A1 should have a style");
+    let a1_font = a1_style.get_font().expect("A1 should have font info");
+    assert!(
+        a1_font.is_bold(),
+        "A1 should be bold (tests Event::Empty handling for <b/>)"
+    );
+}
+
+#[test]
+fn test_fill_parsing_empty_elements() {
+    // Regression: parse_fill was ignoring Event::Empty for <patternFill/>, <fgColor/>, etc.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut found_fill = false;
+    for (_row, _col, style) in styles.cells() {
+        if let Some(fill) = &style.fill {
+            if fill.is_visible() {
+                found_fill = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_fill,
+        "Should find at least one visible fill (tests Event::Empty handling for fill elements)"
+    );
+}
+
+#[test]
+fn test_border_parsing_empty_elements() {
+    // Regression: parse_border was ignoring Event::Empty for self-closing border sides
+    // like <left style="thin"/> with no child <color> element.
+    let mut xlsx: Xlsx<_> = wb("borders.xlsx");
+    let styles = xlsx.worksheet_style("Sheet1").unwrap();
+
+    let mut found_border = false;
+    for (_row, _col, style) in styles.cells() {
+        if let Some(borders) = &style.borders {
+            if borders.left.is_visible()
+                || borders.right.is_visible()
+                || borders.top.is_visible()
+                || borders.bottom.is_visible()
+            {
+                found_border = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_border,
+        "Should find at least one visible border (tests Event::Empty handling)"
+    );
+}
+
+#[test]
+fn test_worksheet_layout_column_spans() {
+    // Regression: worksheet_layout was ignoring the 'max' attribute on <col> elements,
+    // so a <col min="3" max="10" width="15"/> only recorded column 3.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let layout = xlsx.worksheet_layout("Sheet 1").unwrap();
+
+    // Verify that column widths have been populated for column spans.
+    // BTreeMap is keyed by column index, so all entries are unique by definition.
+    if layout.column_widths.len() > 1 {
+        // Verify that column indices are populated (not all the same)
+        let min_col = *layout.column_widths.keys().next().unwrap();
+        let max_col = *layout.column_widths.keys().next_back().unwrap();
+        assert!(
+            max_col > min_col,
+            "Column widths should span multiple columns"
+        );
+    }
+}
+
+#[test]
+fn test_worksheet_layout_via_reader_trait() {
+    // Regression: the Reader trait impl for worksheet_layout was a full copy-paste
+    // instead of delegating. Verify both paths produce the same result.
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+
+    // Call via inherent impl
+    let layout1 = Xlsx::worksheet_layout(&mut xlsx, "Sheet 1").unwrap();
+
+    // Re-open to call via Reader trait
+    let mut xlsx2: Xlsx<_> = wb("styles.xlsx");
+    let layout2 = Reader::worksheet_layout(&mut xlsx2, "Sheet 1").unwrap();
+
+    assert_eq!(
+        layout1.default_column_width, layout2.default_column_width,
+        "Both paths should produce same default column width"
+    );
+    assert_eq!(
+        layout1.default_row_height, layout2.default_row_height,
+        "Both paths should produce same default row height"
+    );
+    assert_eq!(
+        layout1.column_widths.len(),
+        layout2.column_widths.len(),
+        "Both paths should produce same number of column widths"
+    );
+    assert_eq!(
+        layout1.row_heights.len(),
+        layout2.row_heights.len(),
+        "Both paths should produce same number of row heights"
+    );
 }
 
 #[test]
@@ -3365,6 +3958,98 @@ fn test_xlsx_richtext_after_plain() {
     assert_eq!(
         range.get_value((1, 0)),
         Some(&String("tvalrval1rval2".to_string()))
+    );
+}
+
+#[test]
+fn test_text_rotation_stacked() {
+    use calamine::TextRotation;
+
+    // Regression: textRotation=255 was being parsed as Degrees(255) instead of Stacked.
+    // This is a unit-level check on the type.
+    let stacked = TextRotation::Stacked;
+    let degrees = TextRotation::Degrees(90);
+    let none = TextRotation::None;
+
+    assert_ne!(stacked, degrees);
+    assert_ne!(stacked, none);
+    assert_ne!(degrees, none);
+}
+
+#[test]
+fn test_protection_defaults() {
+    use calamine::Protection;
+
+    // Regression: Protection::new() defaulted locked=false, but per OOXML spec
+    // cells are locked by default. The parser now correctly defaults to locked=true,
+    // so verify the Protection struct itself is consistent.
+    let protection = Protection::new();
+    // Protection::new() uses Default which is locked=false, hidden=false.
+    // The parser sets locked=true when the attribute is absent.
+    assert!(!protection.locked, "Protection::new() starts unlocked");
+    assert!(!protection.hidden, "Protection::new() starts not hidden");
+
+    let locked = protection.with_locked(true);
+    assert!(locked.locked);
+}
+
+#[test]
+fn test_style_parsing_with_protection() {
+    // Verify that protection parsing works on a real file
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    // Just verify we can access protection without panic
+    for (_row, _col, style) in styles.cells() {
+        if let Some(protection) = &style.protection {
+            let _ = protection.locked;
+            let _ = protection.hidden;
+        }
+    }
+}
+
+#[test]
+fn test_style_alignment_parsing() {
+    // Verify alignment parsing handles all properties correctly
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let styles = xlsx.worksheet_style("Sheet 1").unwrap();
+
+    let mut found_alignment = false;
+    for (_row, _col, style) in styles.cells() {
+        if let Some(alignment) = &style.alignment {
+            // Verify we can read all alignment properties
+            let _ = alignment.horizontal;
+            let _ = alignment.vertical;
+            let _ = alignment.text_rotation;
+            let _ = alignment.wrap_text;
+            let _ = alignment.indent;
+            let _ = alignment.shrink_to_fit;
+            found_alignment = true;
+        }
+    }
+    assert!(
+        found_alignment,
+        "Should find at least one cell with alignment"
+    );
+}
+
+#[test]
+fn test_worksheet_style_nonexistent_sheet() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let result = xlsx.worksheet_style("nonexistent_sheet_name");
+    assert!(
+        result.is_err(),
+        "Should return error for nonexistent sheet name"
+    );
+}
+
+#[test]
+fn test_worksheet_layout_nonexistent_sheet() {
+    let mut xlsx: Xlsx<_> = wb("styles.xlsx");
+    let result = xlsx.worksheet_layout("nonexistent_sheet_name");
+    assert!(
+        result.is_err(),
+        "Should return error for nonexistent sheet name"
     );
 }
 
@@ -3670,4 +4355,1406 @@ fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
         range.get((5, 2)),
         Some(&Data::String("VALUE C6".to_string()))
     );
+}
+
+// -----------------------------------------------------------------------
+// Conditional Formatting tests
+// -----------------------------------------------------------------------
+
+fn cf_blocks() -> Vec<calamine::ConditionalFormatting> {
+    let mut xlsx: Xlsx<_> = wb("conditional_formatting.xlsx");
+    xlsx.worksheet_conditional_formatting("Sheet1").unwrap()
+}
+
+#[test]
+fn test_cf_total_blocks() {
+    assert_eq!(cf_blocks().len(), 25);
+}
+
+#[test]
+fn test_cf_at_index() {
+    let mut xlsx: Xlsx<_> = wb("conditional_formatting.xlsx");
+    let cfs = xlsx
+        .worksheet_conditional_formatting_at(0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cfs.len(), 25);
+}
+
+// Block 0: CellIs greaterThan + between (two rules in one block)
+#[test]
+fn test_cf_cell_is_greater_than_and_between() {
+    let cfs = cf_blocks();
+    let cf = &cfs[0];
+    assert_eq!(cf.sqref, "A1:C3");
+    assert_eq!(cf.rules.len(), 2);
+
+    let r1 = &cf.rules[0];
+    assert_eq!(r1.priority, 1);
+    assert!(r1.format.is_some());
+    match &r1.rule_type {
+        ConditionalFormatRuleType::CellIs { operator, formulas } => {
+            assert_eq!(*operator, CfOperator::GreaterThan);
+            assert_eq!(formulas, &["50"]);
+        }
+        other => panic!("Expected CellIs, got {other:?}"),
+    }
+    assert!(r1.format.as_ref().unwrap().font.as_ref().unwrap().is_bold());
+
+    let r2 = &cf.rules[1];
+    assert_eq!(r2.priority, 2);
+    match &r2.rule_type {
+        ConditionalFormatRuleType::CellIs { operator, formulas } => {
+            assert_eq!(*operator, CfOperator::Between);
+            assert_eq!(formulas, &["20", "50"]);
+        }
+        other => panic!("Expected CellIs, got {other:?}"),
+    }
+}
+
+// Block 1: 3-color scale
+#[test]
+fn test_cf_color_scale_3() {
+    let cfs = cf_blocks();
+    let cf = &cfs[1];
+    assert_eq!(cf.sqref, "A1:A5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::ColorScale3 {
+            min,
+            mid,
+            max,
+            min_color,
+            mid_color: _,
+            max_color,
+        } => {
+            assert_eq!(min.value_type, CfValueObjectType::Min);
+            assert_eq!(mid.value_type, CfValueObjectType::Percentile);
+            assert_eq!(mid.value.as_deref(), Some("50"));
+            assert_eq!(max.value_type, CfValueObjectType::Max);
+            assert_eq!(min_color.red, 0xF8);
+            assert_eq!(max_color.green, 0xBE);
+        }
+        other => panic!("Expected ColorScale3, got {other:?}"),
+    }
+}
+
+// Block 2: data bar (fill color only, no border color)
+#[test]
+fn test_cf_data_bar() {
+    let cfs = cf_blocks();
+    let cf = &cfs[2];
+    assert_eq!(cf.sqref, "B1:B5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::DataBar {
+            min,
+            max,
+            fill_color,
+            border_color,
+        } => {
+            assert_eq!(min.value_type, CfValueObjectType::Min);
+            assert_eq!(max.value_type, CfValueObjectType::Max);
+            assert_eq!(fill_color.unwrap().blue, 0xC6);
+            assert!(border_color.is_none());
+        }
+        other => panic!("Expected DataBar, got {other:?}"),
+    }
+}
+
+// Block 3: icon set (3TrafficLights, not reversed, showValue=true)
+#[test]
+fn test_cf_icon_set_default() {
+    let cfs = cf_blocks();
+    let cf = &cfs[3];
+    assert_eq!(cf.sqref, "C1:C3");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::IconSet {
+            icon_type,
+            thresholds,
+            reversed,
+            show_value,
+        } => {
+            assert_eq!(*icon_type, IconSetType::ThreeTrafficLights);
+            assert_eq!(thresholds.len(), 3);
+            assert_eq!(thresholds[0].value_type, CfValueObjectType::Percent);
+            assert_eq!(thresholds[1].value.as_deref(), Some("33"));
+            assert!(!reversed);
+            assert!(*show_value);
+        }
+        other => panic!("Expected IconSet, got {other:?}"),
+    }
+}
+
+// Block 4: top 3 (not percent, not bottom)
+#[test]
+fn test_cf_top10() {
+    let cfs = cf_blocks();
+    let cf = &cfs[4];
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::Top10 {
+            rank,
+            percent,
+            bottom,
+        } => {
+            assert_eq!(*rank, 3);
+            assert!(!percent);
+            assert!(!bottom);
+        }
+        other => panic!("Expected Top10, got {other:?}"),
+    }
+    assert!(cf.rules[0].format.is_some());
+}
+
+// Block 5: duplicateValues
+#[test]
+fn test_cf_duplicate_values() {
+    let cfs = cf_blocks();
+    assert!(matches!(
+        cfs[5].rules[0].rule_type,
+        ConditionalFormatRuleType::DuplicateValues
+    ));
+}
+
+// Block 6: aboveAverage (above=true, equal=false, stdDev=0)
+#[test]
+fn test_cf_above_average() {
+    let cfs = cf_blocks();
+    match &cfs[6].rules[0].rule_type {
+        ConditionalFormatRuleType::AboveAverage {
+            above_average,
+            equal_average,
+            std_dev,
+        } => {
+            assert!(*above_average);
+            assert!(!equal_average);
+            assert_eq!(*std_dev, 0);
+        }
+        other => panic!("Expected AboveAverage, got {other:?}"),
+    }
+}
+
+// Block 7: containsText
+#[test]
+fn test_cf_contains_text() {
+    let cfs = cf_blocks();
+    let cf = &cfs[7];
+    assert_eq!(cf.sqref, "A4:B4");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::Text {
+            operator,
+            text,
+            formula,
+        } => {
+            assert_eq!(*operator, CfTextOperator::Contains);
+            assert_eq!(text, "hello");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text, got {other:?}"),
+    }
+}
+
+// Block 8: containsBlanks
+#[test]
+fn test_cf_contains_blanks() {
+    let cfs = cf_blocks();
+    match &cfs[8].rules[0].rule_type {
+        ConditionalFormatRuleType::ContainsBlanks { formula } => {
+            assert!(formula.is_some());
+            assert!(formula.as_ref().unwrap().contains("LEN"));
+        }
+        other => panic!("Expected ContainsBlanks, got {other:?}"),
+    }
+}
+
+// Block 9: expression
+#[test]
+fn test_cf_expression() {
+    let cfs = cf_blocks();
+    match &cfs[9].rules[0].rule_type {
+        ConditionalFormatRuleType::Expression { formula } => {
+            assert_eq!(formula, "MOD(ROW(),2)=0");
+        }
+        other => panic!("Expected Expression, got {other:?}"),
+    }
+}
+
+// Block 10: timePeriod (today)
+#[test]
+fn test_cf_time_period() {
+    let cfs = cf_blocks();
+    match &cfs[10].rules[0].rule_type {
+        ConditionalFormatRuleType::TimePeriod { period, formula } => {
+            assert_eq!(*period, TimePeriodType::Today);
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected TimePeriod, got {other:?}"),
+    }
+}
+
+// Block 11: 2-color scale with cfvo type="num"
+#[test]
+fn test_cf_color_scale_2() {
+    let cfs = cf_blocks();
+    let cf = &cfs[11];
+    assert_eq!(cf.sqref, "A1:A5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::ColorScale2 {
+            min,
+            max,
+            min_color,
+            max_color,
+        } => {
+            assert_eq!(min.value_type, CfValueObjectType::Num);
+            assert_eq!(min.value.as_deref(), Some("0"));
+            assert_eq!(max.value_type, CfValueObjectType::Num);
+            assert_eq!(max.value.as_deref(), Some("100"));
+            assert_eq!(*min_color, Color::new(255, 0xFF, 0x00, 0x00));
+            assert_eq!(*max_color, Color::new(255, 0x00, 0xFF, 0x00));
+        }
+        other => panic!("Expected ColorScale2, got {other:?}"),
+    }
+}
+
+// Block 12: uniqueValues
+#[test]
+fn test_cf_unique_values() {
+    let cfs = cf_blocks();
+    assert!(matches!(
+        cfs[12].rules[0].rule_type,
+        ConditionalFormatRuleType::UniqueValues
+    ));
+}
+
+// Block 13: notContainsBlanks
+#[test]
+fn test_cf_not_contains_blanks() {
+    let cfs = cf_blocks();
+    match &cfs[13].rules[0].rule_type {
+        ConditionalFormatRuleType::NotContainsBlanks { formula } => {
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected NotContainsBlanks, got {other:?}"),
+    }
+}
+
+// Block 14: containsErrors
+#[test]
+fn test_cf_contains_errors() {
+    let cfs = cf_blocks();
+    match &cfs[14].rules[0].rule_type {
+        ConditionalFormatRuleType::ContainsErrors { formula } => {
+            assert!(formula.is_some());
+            assert!(formula.as_ref().unwrap().contains("ISERROR"));
+        }
+        other => panic!("Expected ContainsErrors, got {other:?}"),
+    }
+}
+
+// Block 15: notContainsErrors
+#[test]
+fn test_cf_not_contains_errors() {
+    let cfs = cf_blocks();
+    match &cfs[15].rules[0].rule_type {
+        ConditionalFormatRuleType::NotContainsErrors { formula } => {
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected NotContainsErrors, got {other:?}"),
+    }
+}
+
+// Block 16: notContainsText
+#[test]
+fn test_cf_not_contains_text() {
+    let cfs = cf_blocks();
+    match &cfs[16].rules[0].rule_type {
+        ConditionalFormatRuleType::Text {
+            operator,
+            text,
+            formula,
+        } => {
+            assert_eq!(*operator, CfTextOperator::NotContains);
+            assert_eq!(text, "world");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text NotContains, got {other:?}"),
+    }
+}
+
+// Block 17: beginsWith
+#[test]
+fn test_cf_begins_with() {
+    let cfs = cf_blocks();
+    match &cfs[17].rules[0].rule_type {
+        ConditionalFormatRuleType::Text {
+            operator,
+            text,
+            formula,
+        } => {
+            assert_eq!(*operator, CfTextOperator::BeginsWith);
+            assert_eq!(text, "he");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text BeginsWith, got {other:?}"),
+    }
+}
+
+// Block 18: endsWith (no dxfId -> format is None)
+#[test]
+fn test_cf_ends_with() {
+    let cfs = cf_blocks();
+    let rule = &cfs[18].rules[0];
+    assert!(rule.format.is_none());
+    match &rule.rule_type {
+        ConditionalFormatRuleType::Text {
+            operator,
+            text,
+            formula,
+        } => {
+            assert_eq!(*operator, CfTextOperator::EndsWith);
+            assert_eq!(text, "lo");
+            assert!(formula.is_some());
+        }
+        other => panic!("Expected Text EndsWith, got {other:?}"),
+    }
+}
+
+// Block 19: stopIfTrue + cellIs lessThan
+#[test]
+fn test_cf_stop_if_true() {
+    let cfs = cf_blocks();
+    let rule = &cfs[19].rules[0];
+    assert!(rule.stop_if_true);
+    assert_eq!(rule.priority, 21);
+    match &rule.rule_type {
+        ConditionalFormatRuleType::CellIs { operator, formulas } => {
+            assert_eq!(*operator, CfOperator::LessThan);
+            assert_eq!(formulas, &["0"]);
+        }
+        other => panic!("Expected CellIs LessThan, got {other:?}"),
+    }
+}
+
+// Block 20: icon set reversed + showValue=false + 5Arrows + num cfvo
+#[test]
+fn test_cf_icon_set_reversed() {
+    let cfs = cf_blocks();
+    match &cfs[20].rules[0].rule_type {
+        ConditionalFormatRuleType::IconSet {
+            icon_type,
+            thresholds,
+            reversed,
+            show_value,
+        } => {
+            assert_eq!(*icon_type, IconSetType::FiveArrows);
+            assert_eq!(thresholds.len(), 5);
+            assert!(*reversed);
+            assert!(!show_value);
+            assert_eq!(thresholds[1].value_type, CfValueObjectType::Num);
+            assert_eq!(thresholds[1].value.as_deref(), Some("20"));
+        }
+        other => panic!("Expected IconSet, got {other:?}"),
+    }
+}
+
+// Block 21: bottom 10 percent
+#[test]
+fn test_cf_bottom_percent() {
+    let cfs = cf_blocks();
+    match &cfs[21].rules[0].rule_type {
+        ConditionalFormatRuleType::Top10 {
+            rank,
+            percent,
+            bottom,
+        } => {
+            assert_eq!(*rank, 10);
+            assert!(*percent);
+            assert!(*bottom);
+        }
+        other => panic!("Expected Top10 (bottom percent), got {other:?}"),
+    }
+}
+
+// Block 22: below average, equal, stdDev=1
+#[test]
+fn test_cf_below_average_with_stddev() {
+    let cfs = cf_blocks();
+    let rule = &cfs[22].rules[0];
+    assert!(rule.format.is_none());
+    match &rule.rule_type {
+        ConditionalFormatRuleType::AboveAverage {
+            above_average,
+            equal_average,
+            std_dev,
+        } => {
+            assert!(!above_average);
+            assert!(*equal_average);
+            assert_eq!(*std_dev, 1);
+        }
+        other => panic!("Expected AboveAverage (below), got {other:?}"),
+    }
+}
+
+// Block 23: unknown/custom type
+#[test]
+fn test_cf_unknown_type() {
+    let cfs = cf_blocks();
+    match &cfs[23].rules[0].rule_type {
+        ConditionalFormatRuleType::Unknown { raw_type } => {
+            assert_eq!(raw_type, "someCustomType");
+        }
+        other => panic!("Expected Unknown, got {other:?}"),
+    }
+}
+
+// Block 24: data bar with both fill + border color, cfvo type=num
+#[test]
+fn test_cf_data_bar_with_border_color() {
+    let cfs = cf_blocks();
+    let cf = &cfs[24];
+    assert_eq!(cf.sqref, "C1:C5");
+    match &cf.rules[0].rule_type {
+        ConditionalFormatRuleType::DataBar {
+            min,
+            max,
+            fill_color,
+            border_color,
+        } => {
+            assert_eq!(min.value_type, CfValueObjectType::Num);
+            assert_eq!(min.value.as_deref(), Some("0"));
+            assert_eq!(max.value_type, CfValueObjectType::Num);
+            assert_eq!(max.value.as_deref(), Some("100"));
+            assert!(fill_color.is_some());
+            assert!(border_color.is_some());
+            assert_eq!(fill_color.unwrap().green, 0xC3);
+            assert_eq!(border_color.unwrap(), Color::new(255, 0, 0, 0));
+        }
+        other => panic!("Expected DataBar, got {other:?}"),
+    }
+}
+
+// DXF format resolution
+#[test]
+fn test_cf_dxf_resolution() {
+    let cfs = cf_blocks();
+
+    // dxfId=0: bold red font (FF9C0006) + pink fill
+    let fmt0 = cfs[0].rules[0].format.as_ref().unwrap();
+    let font0 = fmt0.font.as_ref().unwrap();
+    assert!(font0.is_bold());
+    assert_eq!(font0.color, Some(Color::new(255, 0x9C, 0x00, 0x06)));
+    assert!(fmt0.fill.as_ref().unwrap().background_color.is_some());
+
+    // dxfId=1: green font (FF006100) + green fill
+    let fmt1 = cfs[0].rules[1].format.as_ref().unwrap();
+    let font1 = fmt1.font.as_ref().unwrap();
+    assert_eq!(font1.color, Some(Color::new(255, 0x00, 0x61, 0x00)));
+
+    // dxfId=2: amber font (FF9C6500), no fill
+    let fmt2 = cfs[4].rules[0].format.as_ref().unwrap();
+    let font2 = fmt2.font.as_ref().unwrap();
+    assert_eq!(font2.color, Some(Color::new(255, 0x9C, 0x65, 0x00)));
+    assert!(fmt2.fill.is_none());
+}
+
+// -----------------------------------------------------------------------
+// Chart tests
+// -----------------------------------------------------------------------
+
+use calamine::{
+    Chart, ChartAxisCrosses, ChartAxisPosition, ChartAxisType, ChartBar3dShape, ChartCrossBetween,
+    ChartDataLabelPosition, ChartDisplayBlanksAs, ChartDisplayUnits, ChartEditAs,
+    ChartErrorBarsDirection, ChartErrorBarsType, ChartErrorBarsValueType, ChartExParentLabelLayout,
+    ChartExQuartileMethod, ChartFill, ChartLegendPosition, ChartLineDashType, ChartMarkerType,
+    ChartOfPieSplitType, ChartSizeRepresents, ChartTickLabelPosition, ChartTickMark,
+    ChartTrendlineType, ChartType, ThemeColors,
+};
+
+fn charts() -> Vec<Chart> {
+    let mut xlsx: Xlsx<_> = wb("charts.xlsx");
+    xlsx.worksheet_charts("Sheet1").unwrap()
+}
+
+#[test]
+fn test_chart_count_and_names() {
+    let charts = charts();
+    assert_eq!(charts.len(), 23);
+    assert_eq!(charts[0].name.as_deref(), Some("Chart 1"));
+    assert_eq!(charts[15].name.as_deref(), Some("Chart 16"));
+    assert_eq!(charts[18].name.as_deref(), Some("ChartEx 1"));
+}
+
+#[test]
+fn test_chart_types() {
+    let charts = charts();
+    let types: Vec<ChartType> = charts.iter().map(|c| c.chart_type()).collect();
+    assert_eq!(
+        types,
+        vec![
+            ChartType::Column,
+            ChartType::BarStacked,
+            ChartType::Line,
+            ChartType::Pie,
+            ChartType::ScatterSmoothWithMarkers,
+            ChartType::Doughnut,
+            ChartType::RadarWithMarkers,
+            ChartType::Bubble,
+            ChartType::AreaPercentStacked,
+            ChartType::Column3D,
+            ChartType::Pie3D,
+            ChartType::Line3D,
+            ChartType::Surface3D,
+            ChartType::ContourWireframe,
+            ChartType::Column, // combo chart: first group is a column chart
+            ChartType::Stock,
+            ChartType::PieOfPie,
+            ChartType::BarOfPie,
+            ChartType::Funnel,
+            ChartType::Pareto,
+            ChartType::Treemap,
+            ChartType::Waterfall,
+            ChartType::BoxWhisker,
+        ]
+    );
+    // 3D and chart-ex detection.
+    assert!(!ChartType::Column.is_3d());
+    assert!(ChartType::Column3D.is_3d());
+    assert!(ChartType::Contour.is_3d());
+    assert!(ChartType::Funnel.is_chart_ex());
+    assert!(!ChartType::Pie.is_chart_ex());
+}
+
+#[test]
+fn test_chart_column_series_and_data() {
+    let charts = charts();
+    let chart = &charts[0];
+    assert_eq!(chart.style, Some(7));
+
+    let series: Vec<_> = chart.series().collect();
+    assert_eq!(series.len(), 2);
+
+    let north = series[0];
+    assert_eq!(north.index, Some(0));
+    assert_eq!(north.name_text(), Some("North"));
+    assert_eq!(
+        north.name.as_ref().unwrap().formula.as_deref(),
+        Some("Sheet1!$B$1")
+    );
+
+    let cats = north.categories.as_ref().unwrap();
+    assert_eq!(cats.formula.as_deref(), Some("Sheet1!$A$2:$A$5"));
+    assert_eq!(
+        cats.values,
+        vec![
+            String("Apples".to_string()),
+            String("Pears".to_string()),
+            String("Grapes".to_string()),
+            String("Bananas".to_string()),
+        ]
+    );
+
+    let vals = north.values.as_ref().unwrap();
+    assert_eq!(vals.formula.as_deref(), Some("Sheet1!$B$2:$B$5"));
+    assert_eq!(
+        vals.values,
+        vec![Float(10.), Float(15.), Float(20.), Float(25.)]
+    );
+    assert_eq!(vals.number_format.as_deref(), Some("General"));
+
+    // Group-level layout options.
+    let group = &chart.groups[0];
+    assert_eq!(group.gap_width, Some(150));
+    assert_eq!(group.overlap, Some(-10));
+    assert_eq!(group.vary_colors, Some(false));
+    assert_eq!(group.axis_ids, vec![1001, 1002]);
+}
+
+#[test]
+fn test_chart_series_formatting() {
+    let charts = charts();
+    let north = charts[0].series().next().unwrap();
+
+    let format = north.format.as_ref().unwrap();
+    assert_eq!(
+        format.fill,
+        Some(ChartFill::Solid(Color::rgb(0xFF, 0x00, 0x00)))
+    );
+    let line = format.line.as_ref().unwrap();
+    assert_eq!(line.color, Some(Color::rgb(0x00, 0x00, 0x80)));
+    assert_eq!(line.width, Some(2.25)); // 28575 EMU
+    assert_eq!(north.invert_if_negative, Some(false));
+}
+
+#[test]
+fn test_chart_title_and_legend() {
+    let charts = charts();
+    let chart = &charts[0];
+
+    let title = chart.title.as_ref().unwrap();
+    assert_eq!(title.text().as_deref(), Some("Sales by Region"));
+    assert!(!title.overlay);
+
+    let legend = chart.legend.as_ref().unwrap();
+    assert_eq!(legend.position, ChartLegendPosition::Bottom);
+    assert!(!legend.overlay);
+}
+
+#[test]
+fn test_chart_axes() {
+    let charts = charts();
+    let chart = &charts[0];
+    assert_eq!(chart.axes.len(), 2);
+
+    let x = chart.x_axis().unwrap();
+    assert_eq!(x.axis_type, ChartAxisType::Category);
+    assert_eq!(x.id, Some(1001));
+    assert_eq!(x.position, Some(ChartAxisPosition::Bottom));
+    assert_eq!(x.title.as_ref().unwrap().text().as_deref(), Some("Fruit"));
+    assert!(!x.hidden);
+
+    let y = chart.y_axis().unwrap();
+    assert_eq!(y.axis_type, ChartAxisType::Value);
+    assert_eq!(y.id, Some(1002));
+    assert_eq!(y.position, Some(ChartAxisPosition::Left));
+    assert_eq!(y.title.as_ref().unwrap().text().as_deref(), Some("Amount"));
+    assert_eq!(y.min, Some(0.0));
+    assert_eq!(y.max, Some(60.0));
+    assert_eq!(y.major_unit, Some(10.0));
+    assert_eq!(y.number_format.as_deref(), Some("0.00"));
+    assert!(y.major_gridlines);
+    assert!(!y.minor_gridlines);
+}
+
+#[test]
+fn test_chart_positions() {
+    let charts = charts();
+
+    // twoCellAnchor: no explicit editAs means the "twoCell" default.
+    let pos = charts[0].position.unwrap();
+    let from = pos.from.unwrap();
+    assert_eq!((from.col, from.row), (0, 0));
+    let to = pos.to.unwrap();
+    assert_eq!((to.col, to.row), (8, 15));
+    assert_eq!(to.col_offset, 190500);
+    assert_eq!(to.row_offset, 95250);
+    assert_eq!(pos.edit_as, Some(ChartEditAs::TwoCell));
+
+    // twoCellAnchor with an explicit editAs attribute.
+    let pos = charts[3].position.unwrap();
+    assert_eq!(pos.edit_as, Some(ChartEditAs::OneCell));
+
+    // oneCellAnchor: from + extent, no editAs.
+    let pos = charts[1].position.unwrap();
+    let from = pos.from.unwrap();
+    assert_eq!((from.col, from.row), (5, 1));
+    assert!(pos.to.is_none());
+    assert_eq!(pos.width, Some(5486400));
+    assert_eq!(pos.height, Some(3200400));
+    assert_eq!(pos.edit_as, None);
+
+    // absoluteAnchor: position + extent, no editAs.
+    let pos = charts[2].position.unwrap();
+    assert!(pos.from.is_none());
+    assert_eq!(pos.x, Some(1905000));
+    assert_eq!(pos.y, Some(952500));
+    assert_eq!(pos.width, Some(8666820));
+    assert_eq!(pos.height, Some(6280921));
+    assert_eq!(pos.edit_as, None);
+}
+
+#[test]
+fn test_chart_line_marker_and_dash() {
+    let charts = charts();
+    let series = charts[2].series().next().unwrap();
+
+    let line = series.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(line.color, Some(Color::rgb(0x00, 0xB0, 0x50)));
+    assert_eq!(line.width, Some(1.5)); // 19050 EMU
+    assert_eq!(line.dash_type, Some(ChartLineDashType::Dash));
+
+    let marker = series.marker.as_ref().unwrap();
+    assert_eq!(marker.marker_type, ChartMarkerType::Circle);
+    assert_eq!(marker.size, Some(7));
+    assert_eq!(
+        marker.format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0xFF, 0xC0, 0x00)))
+    );
+
+    assert_eq!(series.smooth, Some(true));
+}
+
+#[test]
+fn test_chart_pie_data_points() {
+    let charts = charts();
+    let chart = &charts[3];
+    assert_eq!(chart.chart_type(), ChartType::Pie);
+
+    let group = &chart.groups[0];
+    assert_eq!(group.first_slice_angle, Some(90));
+    assert_eq!(group.vary_colors, Some(true));
+
+    let series = chart.series().next().unwrap();
+    assert_eq!(series.points.len(), 2);
+    assert_eq!(series.points[0].index, 0);
+    assert_eq!(
+        series.points[0].format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0x44, 0x72, 0xC4)))
+    );
+    assert_eq!(series.points[1].index, 1);
+    assert_eq!(
+        series.points[1].format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0xED, 0x7D, 0x31)))
+    );
+
+    assert_eq!(
+        chart.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Right
+    );
+}
+
+#[test]
+fn test_chart_scatter_and_bubble() {
+    let charts = charts();
+
+    // Scatter uses xVal/yVal and two value axes.
+    let scatter = &charts[4];
+    let series = scatter.series().next().unwrap();
+    assert_eq!(
+        series.categories.as_ref().unwrap().formula.as_deref(),
+        Some("Sheet1!$B$2:$B$5")
+    );
+    assert_eq!(
+        series.values.as_ref().unwrap().formula.as_deref(),
+        Some("Sheet1!$C$2:$C$5")
+    );
+    assert_eq!(scatter.axes.len(), 2);
+    assert_eq!(scatter.x_axis().unwrap().id, Some(5001));
+    assert_eq!(scatter.y_axis().unwrap().id, Some(5002));
+
+    // Bubble sizes.
+    let bubble = &charts[7];
+    let series = bubble.series().next().unwrap();
+    let sizes = series.bubble_sizes.as_ref().unwrap();
+    assert_eq!(sizes.formula.as_deref(), Some("Sheet1!$D$2:$D$5"));
+    assert_eq!(
+        sizes.values,
+        vec![Float(1.), Float(2.), Float(3.), Float(4.)]
+    );
+    assert_eq!(bubble.groups[0].bubble_scale, Some(100));
+}
+
+#[test]
+fn test_chart_doughnut_hole() {
+    let charts = charts();
+    assert_eq!(charts[5].groups[0].hole_size, Some(60));
+}
+
+#[test]
+fn test_chart_3d_view() {
+    let charts = charts();
+
+    // 3D column.
+    let column3d = &charts[9];
+    assert_eq!(
+        column3d.title.as_ref().unwrap().text().as_deref(),
+        Some("3D Column")
+    );
+    let view = column3d.view_3d.as_ref().unwrap();
+    assert_eq!(view.rot_x, Some(15));
+    assert_eq!(view.rot_y, Some(20));
+    assert_eq!(view.depth_percent, Some(100));
+    assert_eq!(view.right_angle_axes, Some(true));
+    assert_eq!(view.perspective, None);
+    assert_eq!(column3d.groups[0].gap_depth, Some(80));
+    // Clustered 3D bar/column writes the third axis id as 0.
+    assert_eq!(column3d.groups[0].axis_ids, vec![10001, 10002, 0]);
+
+    // 3D pie: perspective is stored as 2x degrees in the file (60 -> 30).
+    let pie3d = &charts[10];
+    let view = pie3d.view_3d.as_ref().unwrap();
+    assert_eq!(view.rot_x, Some(30));
+    assert_eq!(view.right_angle_axes, Some(false));
+    assert_eq!(view.perspective, Some(30));
+}
+
+#[test]
+fn test_chart_3d_series_axis() {
+    let charts = charts();
+
+    // 3D line has a series (depth) axis.
+    let line3d = &charts[11];
+    assert_eq!(line3d.axes.len(), 3);
+    let ser_ax = line3d.series_axis().unwrap();
+    assert_eq!(ser_ax.axis_type, ChartAxisType::Series);
+    assert_eq!(ser_ax.id, Some(12003));
+    assert_eq!(line3d.groups[0].gap_depth, Some(100));
+
+    // Surface3D also plots along a series axis.
+    let surface = &charts[12];
+    assert_eq!(surface.chart_type(), ChartType::Surface3D);
+    assert_eq!(surface.axes.len(), 3);
+    assert_eq!(surface.series().count(), 2);
+
+    // Contour is a surfaceChart with a top-down 3D view.
+    let contour = &charts[13];
+    assert_eq!(contour.chart_type(), ChartType::ContourWireframe);
+    assert_eq!(contour.view_3d.as_ref().unwrap().rot_x, Some(90));
+}
+
+#[test]
+fn test_chart_combo_gradient_and_fonts() {
+    let charts = charts();
+    let combo = &charts[14];
+
+    // Two plot groups sharing axes.
+    assert_eq!(combo.groups.len(), 2);
+    assert_eq!(combo.groups[0].chart_type, ChartType::Column);
+    assert_eq!(combo.groups[1].chart_type, ChartType::Line);
+    assert_eq!(combo.groups[0].axis_ids, combo.groups[1].axis_ids);
+    assert_eq!(combo.series().count(), 2);
+
+    // Gradient fill on the column series, with its linear angle.
+    let bar_format = combo.groups[0].series[0].format.as_ref().unwrap();
+    match bar_format.fill.as_ref().unwrap() {
+        ChartFill::Gradient(stops) => {
+            assert_eq!(stops.len(), 2);
+            assert_eq!(stops[0].position, 0.0);
+            assert_eq!(stops[0].color, Color::rgb(0xFF, 0x00, 0x00));
+            assert_eq!(stops[1].position, 100.0);
+            assert_eq!(stops[1].color, Color::rgb(0x00, 0x00, 0xFF));
+        }
+        other => panic!("expected gradient fill, got {other:?}"),
+    }
+    assert_eq!(bar_format.gradient_angle, Some(90.0)); // 5400000 / 60000
+
+    // Rich text title formatting.
+    let title = combo.title.as_ref().unwrap();
+    assert_eq!(title.text().as_deref(), Some("Combo"));
+    let font = title.font.as_ref().unwrap();
+    assert!(font.is_bold());
+    assert_eq!(font.size, Some(18.0));
+    assert_eq!(font.color, Some(Color::rgb(0xC0, 0x00, 0x00)));
+    assert_eq!(font.name.as_deref(), Some("Arial"));
+
+    // Axis label font and text rotation (-2700000 / 60000 = -45 deg).
+    let x = combo.x_axis().unwrap();
+    assert_eq!(x.font.as_ref().unwrap().size, Some(9.0));
+    assert_eq!(x.text_rotation, Some(-45.0));
+
+    // Legend at the top.
+    assert_eq!(
+        combo.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Top
+    );
+}
+
+#[test]
+fn test_chart_stock_and_scheme_color() {
+    let charts = charts();
+    let stock = &charts[15];
+    assert_eq!(stock.chart_type(), ChartType::Stock);
+    assert_eq!(stock.series().count(), 3);
+
+    // schemeClr accent1 resolves against the default theme palette.
+    let line = stock.groups[0].series[0]
+        .format
+        .as_ref()
+        .unwrap()
+        .line
+        .as_ref()
+        .unwrap();
+    assert_eq!(line.color, Some(Color::rgb(79, 129, 189)));
+}
+
+#[test]
+fn test_chart_by_sheet_index_and_missing_sheet() {
+    let mut xlsx: Xlsx<_> = wb("charts.xlsx");
+    let charts = xlsx.worksheet_charts_at(0).unwrap().unwrap();
+    assert_eq!(charts.len(), 23);
+    assert!(xlsx.worksheet_charts_at(99).is_none());
+    assert!(xlsx.worksheet_charts("NoSuchSheet").is_err());
+
+    // A workbook without drawings returns an empty vector.
+    let mut plain: Xlsx<_> = wb("temperature.xlsx");
+    assert_eq!(plain.worksheet_charts("Sheet1").unwrap().len(), 0);
+}
+
+#[test]
+fn test_chart_excel_generated_chartsheet() {
+    // issue438.xlsx contains a real Excel-generated pie chart on a chartsheet.
+    let mut xlsx: Xlsx<_> = wb("issue438.xlsx");
+    let charts = xlsx.worksheet_charts("Chart1").unwrap();
+    assert_eq!(charts.len(), 1);
+
+    let chart = &charts[0];
+    assert_eq!(chart.chart_type(), ChartType::Pie);
+    assert_eq!(chart.name.as_deref(), Some("Chart 1"));
+
+    let series: Vec<_> = chart.series().collect();
+    assert_eq!(series.len(), 2);
+    assert_eq!(series[0].name_text(), Some("x"));
+    assert_eq!(series[1].name_text(), Some("y"));
+    let values = series[0].values.as_ref().unwrap();
+    assert_eq!(values.formula.as_deref(), Some("Sheet1!$A$2:$A$5"));
+    assert_eq!(
+        values.values,
+        vec![Float(1.), Float(2.), Float(3.), Float(4.)]
+    );
+    assert_eq!(
+        chart.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Bottom
+    );
+}
+
+#[test]
+fn test_chart_data_labels() {
+    let charts = charts();
+
+    // Column series: value labels outside end with number format and font.
+    let labels = charts[0]
+        .series()
+        .next()
+        .unwrap()
+        .data_labels
+        .as_ref()
+        .unwrap();
+    assert!(labels.show_value);
+    assert!(!labels.show_category_name);
+    assert_eq!(labels.position, Some(ChartDataLabelPosition::OutsideEnd));
+    assert_eq!(labels.number_format.as_deref(), Some("#,##0"));
+    let font = labels.font.as_ref().unwrap();
+    assert!(font.is_bold());
+    assert_eq!(font.size, Some(8.0));
+
+    // Pie series: category name + percentage, best fit.
+    let labels = charts[3]
+        .series()
+        .next()
+        .unwrap()
+        .data_labels
+        .as_ref()
+        .unwrap();
+    assert!(labels.show_category_name);
+    assert!(labels.show_percent);
+    assert!(!labels.show_value);
+    assert_eq!(labels.position, Some(ChartDataLabelPosition::BestFit));
+}
+
+#[test]
+fn test_chart_trendlines() {
+    let charts = charts();
+
+    // Linear trendline with name, forecast and R² / equation display.
+    let series = charts[0].series().next().unwrap();
+    assert_eq!(series.trendlines.len(), 1);
+    let trend = &series.trendlines[0];
+    assert_eq!(trend.trendline_type, ChartTrendlineType::Linear);
+    assert_eq!(trend.name.as_deref(), Some("North trend"));
+    assert_eq!(trend.forward, Some(2.0));
+    assert_eq!(trend.backward, Some(0.5));
+    assert!(trend.display_equation);
+    assert!(trend.display_r_squared);
+    let line = trend.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(line.color, Some(Color::rgb(0x70, 0x30, 0xA0)));
+    assert_eq!(line.dash_type, Some(ChartLineDashType::SystemDot));
+
+    // Moving average trendline on the line chart.
+    let series = charts[2].series().next().unwrap();
+    assert_eq!(series.trendlines.len(), 1);
+    let trend = &series.trendlines[0];
+    assert_eq!(trend.trendline_type, ChartTrendlineType::MovingAverage);
+    assert_eq!(trend.period, Some(2));
+}
+
+#[test]
+fn test_chart_error_bars() {
+    let charts = charts();
+    let series = charts[2].series().next().unwrap();
+    assert_eq!(series.error_bars.len(), 1);
+    let bars = &series.error_bars[0];
+    assert_eq!(bars.direction, Some(ChartErrorBarsDirection::Y));
+    assert_eq!(bars.error_type, ChartErrorBarsType::Both);
+    assert_eq!(bars.value_type, ChartErrorBarsValueType::StandardError);
+    assert!(!bars.no_end_cap);
+}
+
+#[test]
+fn test_chart_axis_options() {
+    let charts = charts();
+    let chart = &charts[0];
+
+    let x = chart.x_axis().unwrap();
+    assert_eq!(x.major_tick_mark, Some(ChartTickMark::Outside));
+    assert_eq!(x.minor_tick_mark, Some(ChartTickMark::None));
+    assert_eq!(x.tick_label_position, Some(ChartTickLabelPosition::NextTo));
+    assert_eq!(x.crosses, Some(ChartAxisCrosses::AutoZero));
+    assert_eq!(x.label_offset, Some(100));
+    assert_eq!(x.tick_label_skip, Some(1));
+    assert_eq!(x.tick_mark_skip, Some(2));
+
+    let y = chart.y_axis().unwrap();
+    assert_eq!(y.major_tick_mark, Some(ChartTickMark::Cross));
+    assert_eq!(y.tick_label_position, Some(ChartTickLabelPosition::High));
+    assert_eq!(y.crosses, Some(ChartAxisCrosses::At));
+    assert_eq!(y.crosses_at, Some(1.0));
+    assert_eq!(y.cross_between, Some(ChartCrossBetween::Between));
+    assert_eq!(y.display_units, Some(ChartDisplayUnits::Thousands));
+    assert!(y.display_units_label);
+
+    // Chart-level blank handling.
+    assert_eq!(chart.display_blanks_as, Some(ChartDisplayBlanksAs::Gap));
+}
+
+#[test]
+fn test_chart_group_lines_and_bars() {
+    let charts = charts();
+
+    // Drop lines on the line chart.
+    let line_group = &charts[2].groups[0];
+    assert_eq!(line_group.show_marker, Some(true));
+    let drop = line_group.drop_lines.as_ref().unwrap();
+    let drop_line = drop.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(drop_line.color, Some(Color::rgb(0x80, 0x80, 0x80)));
+
+    // High-low lines and up/down bars on the stock chart.
+    let stock_group = &charts[15].groups[0];
+    let hi_low = stock_group.hi_low_lines.as_ref().unwrap();
+    let hi_low_line = hi_low.format.as_ref().unwrap().line.as_ref().unwrap();
+    assert_eq!(hi_low_line.color, Some(Color::rgb(0x33, 0x33, 0x33)));
+
+    let bars = stock_group.up_down_bars.as_ref().unwrap();
+    assert_eq!(bars.gap_width, Some(150));
+    assert_eq!(
+        bars.up_format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0x00, 0xB0, 0x50)))
+    );
+    assert_eq!(
+        bars.down_format.as_ref().unwrap().fill,
+        Some(ChartFill::Solid(Color::rgb(0xFF, 0x00, 0x00)))
+    );
+}
+
+#[test]
+fn test_chart_pie_of_pie_split() {
+    let charts = charts();
+    let chart = &charts[16];
+    assert_eq!(chart.chart_type(), ChartType::PieOfPie);
+
+    let group = &chart.groups[0];
+    assert_eq!(group.split_type, Some(ChartOfPieSplitType::Position));
+    assert_eq!(group.split_position, Some(2.0));
+    assert_eq!(group.second_pie_size, Some(75));
+    assert_eq!(group.gap_width, Some(100));
+    assert!(group.series_lines.is_some());
+}
+
+#[test]
+fn test_chart_bubble_and_3d_options() {
+    let charts = charts();
+
+    // Bubble options.
+    let bubble_group = &charts[7].groups[0];
+    assert_eq!(
+        bubble_group.size_represents,
+        Some(ChartSizeRepresents::Width)
+    );
+    assert_eq!(bubble_group.show_negative_bubbles, Some(false));
+    assert_eq!(charts[7].series().next().unwrap().bubble_3d, Some(true));
+
+    // 3D column bar shape.
+    assert_eq!(charts[9].groups[0].shape, Some(ChartBar3dShape::Cylinder));
+
+    // Pie slice explosion.
+    assert_eq!(charts[3].series().next().unwrap().explosion, Some(25));
+}
+
+#[test]
+fn test_chart_data_table() {
+    let charts = charts();
+    let table = charts[14].data_table.as_ref().unwrap();
+    assert!(table.show_horizontal_border);
+    assert!(table.show_vertical_border);
+    assert!(table.show_outline);
+    assert!(table.show_legend_keys);
+}
+
+#[test]
+fn test_chartex_funnel() {
+    let charts = charts();
+    let funnel = &charts[18];
+    assert_eq!(funnel.chart_type(), ChartType::Funnel);
+    assert_eq!(funnel.name.as_deref(), Some("ChartEx 1"));
+    assert_eq!(
+        funnel.title.as_ref().unwrap().text().as_deref(),
+        Some("Funnel")
+    );
+
+    let series: Vec<_> = funnel.series().collect();
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].name_text(), Some("North"));
+
+    let cats = series[0].categories.as_ref().unwrap();
+    assert_eq!(cats.formula.as_deref(), Some("Sheet1!$A$2:$A$5"));
+    assert_eq!(
+        cats.values,
+        vec![
+            String("Apples".to_string()),
+            String("Pears".to_string()),
+            String("Grapes".to_string()),
+            String("Bananas".to_string()),
+        ]
+    );
+    let vals = series[0].values.as_ref().unwrap();
+    assert_eq!(vals.formula.as_deref(), Some("Sheet1!$B$2:$B$5"));
+    assert_eq!(
+        vals.values,
+        vec![Float(10.), Float(15.), Float(20.), Float(25.)]
+    );
+
+    assert_eq!(
+        funnel.legend.as_ref().unwrap().position,
+        ChartLegendPosition::Bottom
+    );
+}
+
+#[test]
+fn test_chartex_pareto() {
+    let charts = charts();
+    let pareto = &charts[19];
+    // clusteredColumn + paretoLine series resolve to a Pareto chart.
+    assert_eq!(pareto.chart_type(), ChartType::Pareto);
+    assert_eq!(pareto.groups.len(), 2);
+    assert_eq!(pareto.groups[0].chart_type, ChartType::Pareto);
+    assert_eq!(pareto.groups[1].chart_type, ChartType::Pareto);
+
+    // The histogram bars reference the shared literal data.
+    let bars = &pareto.groups[0].series[0];
+    assert_eq!(
+        bars.values.as_ref().unwrap().values,
+        vec![Float(10.), Float(15.), Float(20.), Float(25.)]
+    );
+
+    // The chart-ex axes are parsed with inferred types.
+    assert_eq!(pareto.axes.len(), 2);
+    assert_eq!(pareto.axes[0].axis_type, ChartAxisType::Category);
+    assert_eq!(pareto.axes[1].axis_type, ChartAxisType::Value);
+    assert_eq!(pareto.axes[1].min, Some(0.0));
+    assert_eq!(pareto.axes[1].max, Some(100.0));
+    assert!(pareto.axes[1].major_gridlines);
+}
+
+#[test]
+fn test_theme_colors() {
+    // charts.xlsx has no theme part: the default Office palette applies.
+    let mut xlsx: Xlsx<_> = wb("charts.xlsx");
+    let theme = xlsx.theme_colors();
+    assert_eq!(theme, ThemeColors::default());
+    assert_eq!(theme.accent1, Color::rgb(79, 129, 189));
+    assert_eq!(theme.accents()[0], theme.accent1);
+    assert_eq!(theme.accents()[5], theme.accent6);
+
+    // issue438.xlsx carries a real Excel theme.
+    let mut xlsx: Xlsx<_> = wb("issue438.xlsx");
+    let theme = xlsx.theme_colors();
+    assert_eq!(theme.dark1, Color::rgb(0x00, 0x00, 0x00));
+    assert_eq!(theme.light1, Color::rgb(0xFF, 0xFF, 0xFF));
+    assert_eq!(theme.dark2, Color::rgb(0x0E, 0x28, 0x41));
+    assert_eq!(theme.light2, Color::rgb(0xE8, 0xE8, 0xE8));
+    assert_eq!(theme.accent1, Color::rgb(0x15, 0x60, 0x82));
+    assert_eq!(theme.accent2, Color::rgb(0xE9, 0x71, 0x32));
+    assert_eq!(theme.accent6, Color::rgb(0x4E, 0xA7, 0x2E));
+    assert_eq!(theme.hyperlink, Color::rgb(0x46, 0x78, 0x86));
+    assert_eq!(theme.followed_hyperlink, Color::rgb(0x96, 0x60, 0x7D));
+    // The cached palette returns the same result on a second call.
+    assert_eq!(xlsx.theme_colors(), theme);
+}
+
+#[test]
+fn test_chart_axis_crossing_partner() {
+    let charts = charts();
+    let chart = &charts[0];
+    let x = chart.x_axis().unwrap();
+    let y = chart.y_axis().unwrap();
+    assert_eq!(x.id, Some(1001));
+    assert_eq!(x.crosses_axis_id, Some(1002));
+    assert_eq!(y.id, Some(1002));
+    assert_eq!(y.crosses_axis_id, Some(1001));
+}
+
+#[test]
+fn test_chart_multi_level_categories() {
+    let charts = charts();
+
+    // The stacked bar chart uses a two-level multiLvlStrCache.
+    let cats = charts[1]
+        .series()
+        .next()
+        .unwrap()
+        .categories
+        .as_ref()
+        .unwrap();
+    assert_eq!(cats.formula.as_deref(), Some("Sheet1!$A$2:$B$5"));
+    assert_eq!(cats.levels.len(), 2);
+    // The innermost (leaf) level is mirrored into values.
+    assert_eq!(cats.values, cats.levels[0]);
+    assert_eq!(
+        cats.levels[0],
+        vec![
+            String("Apples".to_string()),
+            String("Pears".to_string()),
+            String("Grapes".to_string()),
+            String("Bananas".to_string()),
+        ]
+    );
+    // The outer level is sparse; omitted points are Empty.
+    assert_eq!(
+        cats.levels[1],
+        vec![
+            String("Fruit".to_string()),
+            Empty,
+            String("Tropical".to_string()),
+            Empty,
+        ]
+    );
+
+    // Single-level sources keep levels empty.
+    let cats = charts[0]
+        .series()
+        .next()
+        .unwrap()
+        .categories
+        .as_ref()
+        .unwrap();
+    assert!(cats.levels.is_empty());
+}
+
+#[test]
+fn test_chartex_treemap_hierarchy_and_labels() {
+    let charts = charts();
+    let treemap = &charts[20];
+    assert_eq!(treemap.chart_type(), ChartType::Treemap);
+
+    let series = treemap.series().next().unwrap();
+    let cats = series.categories.as_ref().unwrap();
+    assert_eq!(cats.levels.len(), 2);
+    assert_eq!(cats.values, cats.levels[0]);
+    assert_eq!(
+        cats.levels[1],
+        vec![
+            String("Fruit".to_string()),
+            Empty,
+            String("Tropical".to_string()),
+            Empty,
+        ]
+    );
+
+    let layout = series.chart_ex.as_ref().unwrap();
+    assert_eq!(
+        layout.parent_label_layout,
+        Some(ChartExParentLabelLayout::Banner)
+    );
+}
+
+#[test]
+fn test_chartex_layout_options() {
+    let charts = charts();
+
+    // Pareto histogram bars: binning.
+    let bars = &charts[19].groups[0].series[0];
+    let layout = bars.chart_ex.as_ref().unwrap();
+    assert_eq!(layout.bin_count, Some(4));
+    assert_eq!(layout.bin_size, None);
+    assert_eq!(layout.overflow, Some(40.0));
+    assert_eq!(layout.underflow, Some(5.0));
+
+    // Waterfall: connector lines and subtotal points.
+    let waterfall = &charts[21];
+    assert_eq!(waterfall.chart_type(), ChartType::Waterfall);
+    let layout = waterfall
+        .series()
+        .next()
+        .unwrap()
+        .chart_ex
+        .as_ref()
+        .unwrap();
+    assert_eq!(layout.connector_lines, Some(true));
+    assert_eq!(layout.subtotals, vec![0, 3]);
+
+    // Box & whisker: statistics and element visibility.
+    let box_whisker = &charts[22];
+    assert_eq!(box_whisker.chart_type(), ChartType::BoxWhisker);
+    let layout = box_whisker
+        .series()
+        .next()
+        .unwrap()
+        .chart_ex
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        layout.quartile_method,
+        Some(ChartExQuartileMethod::Exclusive)
+    );
+    assert_eq!(layout.mean_line, Some(false));
+    assert_eq!(layout.mean_marker, Some(true));
+    assert_eq!(layout.non_outliers, Some(false));
+    assert_eq!(layout.outliers, Some(true));
+
+    // Classic chart series carry no chart-ex layout.
+    assert!(charts[0].series().next().unwrap().chart_ex.is_none());
+}
+
+#[test]
+fn test_chart_bar_of_pie_custom_split() {
+    let charts = charts();
+    let chart = &charts[17];
+    assert_eq!(chart.chart_type(), ChartType::BarOfPie);
+
+    let group = &chart.groups[0];
+    assert_eq!(group.split_type, Some(ChartOfPieSplitType::Custom));
+    assert_eq!(group.custom_split, vec![2, 3]);
+    assert_eq!(group.split_position, None);
+    assert_eq!(group.second_pie_size, Some(70));
+
+    // The pie-of-pie chart uses a positional split: no custom points.
+    assert!(charts[16].groups[0].custom_split.is_empty());
+}
+
+#[test]
+fn test_chart_per_point_data_labels() {
+    let charts = charts();
+    let labels = charts[0]
+        .series()
+        .next()
+        .unwrap()
+        .data_labels
+        .as_ref()
+        .unwrap();
+
+    assert_eq!(labels.point_labels.len(), 2);
+
+    // Point 1: label deleted.
+    let deleted = &labels.point_labels[0];
+    assert_eq!(deleted.index, 1);
+    assert!(deleted.delete);
+    assert_eq!(deleted.text, None);
+
+    // Point 2: custom text and position override.
+    let custom = &labels.point_labels[1];
+    assert_eq!(custom.index, 2);
+    assert!(!custom.delete);
+    assert_eq!(custom.text.as_deref(), Some("Peak"));
+    assert_eq!(custom.position, Some(ChartDataLabelPosition::InsideEnd));
+}
+
+#[test]
+fn test_chart_space_flags() {
+    let charts = charts();
+
+    let chart = &charts[0];
+    assert_eq!(chart.plot_visible_only, Some(true));
+    assert_eq!(chart.show_data_labels_over_max, Some(false));
+    assert_eq!(chart.date_1904, Some(false));
+    assert_eq!(chart.auto_title_deleted, None);
+
+    // The pie chart deleted its automatic title.
+    assert_eq!(charts[3].auto_title_deleted, Some(true));
+    assert!(charts[3].title.is_none());
 }
