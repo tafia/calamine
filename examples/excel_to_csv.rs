@@ -68,6 +68,7 @@ fn write_to_csv<W: Write>(output_file: &mut W, range: &Range<Data>) -> std::io::
                 Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => {
                     write!(output_file, "{s}")
                 }
+                Data::RichText(r) => write!(output_file, "{}", r.plain_text()),
             }?;
 
             // Write the field separator except for the last column.

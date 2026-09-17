@@ -39,6 +39,10 @@ criterion = { version = "0.7", features = ["html_reports"] }
 name = "basic"
 harness = false
 
+[[bench]]
+name = "style"
+harness = false
+
 # Example that requires the `picture` feature.
 [[example]]
 name = "read_picture_data"
