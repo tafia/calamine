@@ -3671,3 +3671,47 @@ fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
         Some(&Data::String("VALUE C6".to_string()))
     );
 }
+
+// Regression test for issue #714: the FAT and DIFAT sector counts in a CFB header were used
+// as an unchecked `Vec::with_capacity` hint before a single sector was read, so a 612-byte
+// file could request tens of gigabytes and abort the process rather than return an error.
+// Two independent sites did this — `fat_len` (the FAT vector) and the mis-read `difat_len`
+// (the DIFAT vector, read from bytes 62..66 instead of the correct 72..76) — and a fix for
+// only one leaves the other's reproduction working, so both are exercised here.
+
+#[test]
+fn issue_714_fat_sector_count_does_not_drive_allocation() {
+    // The reporter's own 612-byte file: `fat_len` (header bytes 44..48) is 0xFFFFFFFF,
+    // which used to request a 17,179,869,180-byte `Vec<u32>` before any sector was read.
+    let result = open_workbook::<Xls<_>, _>(test_path("fat-count.xlsx"));
+    assert!(
+        result.is_err(),
+        "a crafted FAT sector count must return an error, not allocate or panic"
+    );
+}
+
+#[test]
+fn issue_714_difat_sector_count_does_not_drive_allocation() {
+    // A minimal, hand-built 512-byte CFB header exercising the *other* site: `difat_len` is
+    // read from bytes 62..76 (`read_usize` only looks at the first four, i.e. 62..66) where
+    // the format actually puts it at 72..76 — a second bug in the same header, independent of
+    // the capacity issue. `fat_len` is left at 0 so this file isolates the DIFAT site; the
+    // sibling test above isolates the FAT site.
+    let mut buf = [0u8; 512];
+    buf[0..8].copy_from_slice(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"); // OLE signature
+    buf[30..32].copy_from_slice(&0x0009u16.to_le_bytes()); // sector shift: 512-byte sectors
+    buf[32..34].copy_from_slice(&0x0006u16.to_le_bytes()); // minisector shift (required exact)
+    buf[48..52].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes()); // dir_start = ENDOFCHAIN
+    buf[62..66].copy_from_slice(&u32::MAX.to_le_bytes()); // poisons the misread `difat_len`
+    buf[68..72].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes()); // difat_start = ENDOFCHAIN
+                                                                // dir_start and difat_start are both ENDOFCHAIN so this file, once past the header, fails
+                                                                // cleanly on an empty root directory instead of exercising the (separate, pre-existing,
+                                                                // out of scope here) sector-chain-following logic at all -- a minimal, isolated
+                                                                // reproduction of the `difat_len` misread alone, not a stress test of anything else.
+
+    let result = Xls::new(Cursor::new(buf.to_vec()));
+    assert!(
+        result.is_err(),
+        "a crafted DIFAT sector count must return an error, not allocate or panic"
+    );
+}
