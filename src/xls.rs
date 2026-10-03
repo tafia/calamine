@@ -1090,7 +1090,9 @@ fn parse_dimensions(r: &[u8]) -> Result<Dimensions, XlsError> {
             read_u16(&r[4..6]) as u32,
             read_u16(&r[6..8]) as u32,
         ),
-        14 => (
+        // The BIFF8 record is 14 bytes but some writers add 2 more, which are
+        // ignored.
+        14 | 16 => (
             read_u32(&r[0..4]),
             read_u32(&r[4..8]),
             read_u16(&r[8..10]) as u32,
