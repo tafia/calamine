@@ -5,8 +5,8 @@
 //! Zero-allocation XML attribute extraction utilities.
 //!
 //! These replace quick_xml's own `Attributes` iterator, avoiding its per-item
-//! `Cow`/`QName` newtypes, quote-type tracking, namespace bookkeeping, entity
-//! decoding, and UTF8 validation. We can do this as we have a constrained
+//! `Cow`/`QName` newtypes, quote-type tracking, namespace bookkeeping, and
+//! entity decoding. We can do this as we have a constrained
 //! set of keys that we access internally (all of them are simple ASCII).
 //!
 //! Like quick_xml, malformed attributes are reported as [`AttrError`] items rather
@@ -17,36 +17,36 @@
 use quick_xml::escape::unescape;
 use quick_xml::events::attributes::AttrError;
 use quick_xml::events::BytesStart;
-use quick_xml::Decoder;
 
-/// Zero-allocation iterator over raw XML attribute bytes, yielding
-/// `(key, value)` byte-slice pairs or an [`AttrError`] for malformed input.
+/// Zero-allocation iterator over raw XML attributes, yielding
+/// `(key, value)` string-slice pairs or an [`AttrError`] for malformed input.
 pub(crate) struct RawAttrIter<'a> {
-    raw: &'a [u8],
+    raw: &'a str,
     pos: usize,
 }
 
 impl<'a> RawAttrIter<'a> {
     #[inline]
-    fn new(raw: &'a [u8]) -> Self {
+    fn new(raw: &'a str) -> Self {
         Self { raw, pos: 0 }
     }
 }
 
 impl<'a> Iterator for RawAttrIter<'a> {
-    type Item = Result<(&'a [u8], &'a [u8]), AttrError>;
+    type Item = Result<(&'a str, &'a str), AttrError>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let raw = self.raw;
-        let len = raw.len();
+        let bytes = raw.as_bytes();
+        let len = bytes.len();
 
         // note: make "pos" local to ensure the compiler keeps it in
         // a register across the scan loops (struct field otherwise)
         let mut pos = self.pos;
 
         // skip whitespace before the key
-        while pos < len && raw[pos].is_ascii_whitespace() {
+        while pos < len && bytes[pos].is_ascii_whitespace() {
             pos += 1;
         }
         if pos >= len {
@@ -57,7 +57,7 @@ impl<'a> Iterator for RawAttrIter<'a> {
         // key: scan to '=' with a single comparison
         // per byte (handling whitespace around '=')
         let key_start = pos;
-        while pos < len && raw[pos] != b'=' {
+        while pos < len && bytes[pos] != b'=' {
             pos += 1;
         }
         if pos >= len {
@@ -70,13 +70,13 @@ impl<'a> Iterator for RawAttrIter<'a> {
         pos += 1; // skip '='
 
         // skip whitespace after '=' (normally none: loop exits immediately)
-        while pos < len && raw[pos].is_ascii_whitespace() {
+        while pos < len && bytes[pos].is_ascii_whitespace() {
             pos += 1;
         }
 
         // quoted value (XML mandates quotes; anything else, including a missing
         // value at end-of-input, is malformed)
-        let quote = raw.get(pos).copied();
+        let quote = bytes.get(pos).copied();
         if quote != Some(b'"') && quote != Some(b'\'') {
             self.pos = len;
             return Some(Err(AttrError::UnquotedValue(pos)));
@@ -84,7 +84,7 @@ impl<'a> Iterator for RawAttrIter<'a> {
         let quote = quote.unwrap();
         pos += 1; // skip opening quote
         let val_start = pos;
-        while pos < len && raw[pos] != quote {
+        while pos < len && bytes[pos] != quote {
             pos += 1;
         }
         let val = &raw[val_start..pos];
@@ -97,26 +97,26 @@ impl<'a> Iterator for RawAttrIter<'a> {
 }
 
 /// Compare an attribute key against a local name, ignoring any namespace
-/// prefix, eg: both `id` and `r:id` would match a `local_name` of `b"id"`.
+/// prefix, eg: both `id` and `r:id` would match a `local_name` of `"id"`.
 #[inline]
-pub(crate) fn local_name_matches(key: &[u8], local_name: &[u8]) -> bool {
+pub(crate) fn local_name_matches(key: &str, local_name: &str) -> bool {
     // exact match, or `<prefix>:<local>`
     key == local_name
         || key
             .strip_suffix(local_name) // compare on subslice to avoid allocation
-            .is_some_and(|prefix| prefix.last() == Some(&b':'))
+            .is_some_and(|prefix| prefix.as_bytes().last() == Some(&b':'))
 }
 
 /// Extension trait for fast/raw attribute access on XML elements.
 pub(crate) trait RawAttributes {
-    /// Iterate over attributes, yielding `(key, value)` byte-slice
+    /// Iterate over attributes, yielding `(key, value)` string-slice
     /// pairs (or an [`AttrError`] for malformed input).
     fn iter_raw_attrs(&self) -> RawAttrIter<'_>;
 
     /// Get a single attribute by exact key, returning `Ok(None)` if absent and
     /// an `Err` if a malformed attribute is encountered while scanning.
     #[inline]
-    fn raw_attr(&self, name: &[u8]) -> Result<Option<&[u8]>, AttrError> {
+    fn raw_attr(&self, name: &str) -> Result<Option<&str>, AttrError> {
         for item in self.iter_raw_attrs() {
             let (k, v) = item?;
             if k == name {
@@ -127,10 +127,10 @@ pub(crate) trait RawAttributes {
     }
 
     /// Like `raw_attr`, but matches on the attribute's *local* name, ignoring
-    /// any namespace prefix (so both `id` and `r:id` would match `b"id"`).
+    /// any namespace prefix (so both `id` and `r:id` would match `"id"`).
     #[allow(dead_code)] // note: currently only reached from `picture`-gated code
     #[inline] // but the function is general-purpose and will be useful elsewhere
-    fn raw_attr_local(&self, local_name: &[u8]) -> Result<Option<&[u8]>, AttrError> {
+    fn raw_attr_local(&self, local_name: &str) -> Result<Option<&str>, AttrError> {
         for item in self.iter_raw_attrs() {
             let (k, v) = item?;
             if local_name_matches(k, local_name) {
@@ -181,11 +181,10 @@ macro_rules! get_attrs {
     (@count_one $e:expr) => { 1u8 };
 }
 
-/// Decode raw attribute bytes into a `String`, with XML entity unescaping.
+/// Decode a raw attribute into a `String`, with XML entity unescaping.
 /// Only needed for values that can contain entities (eg: sheet names, table names, etc).
-pub(crate) fn decode_attr(decoder: &Decoder, val: &[u8]) -> Result<String, quick_xml::Error> {
-    let decoded = decoder.decode(val)?;
-    let unescaped = unescape(&decoded).map_err(quick_xml::Error::from)?;
+pub(crate) fn decode_attr(val: &str) -> Result<String, quick_xml::Error> {
+    let unescaped = unescape(val).map_err(quick_xml::Error::from)?;
     Ok(unescaped.into_owned())
 }
 
@@ -194,7 +193,7 @@ mod tests {
     use super::*;
 
     /// Collect well-formed attributes, panicking on any malformed item.
-    fn collect(raw: &[u8]) -> Vec<(&[u8], &[u8])> {
+    fn collect(raw: &str) -> Vec<(&str, &str)> {
         RawAttrIter::new(raw)
             .map(|r| r.expect("unexpected malformed attribute"))
             .collect()
@@ -202,80 +201,73 @@ mod tests {
 
     #[test]
     fn test_basic_attrs() {
-        let bytes = b"key1=\"val1\" key2='val2'";
-        let mut iter = RawAttrIter::new(bytes);
-        assert_eq!(iter.next(), Some(Ok((&b"key1"[..], &b"val1"[..]))));
-        assert_eq!(iter.next(), Some(Ok((&b"key2"[..], &b"val2"[..]))));
+        let raw = "key1=\"val1\" key2='val2'";
+        let mut iter = RawAttrIter::new(raw);
+        assert_eq!(iter.next(), Some(Ok(("key1", "val1"))));
+        assert_eq!(iter.next(), Some(Ok(("key2", "val2"))));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_whitespace_around_equals() {
-        let bytes = b"key = \"value\"";
-        let mut iter = RawAttrIter::new(bytes);
-        assert_eq!(iter.next(), Some(Ok((&b"key"[..], &b"value"[..]))));
+        let raw = "key = \"value\"";
+        let mut iter = RawAttrIter::new(raw);
+        assert_eq!(iter.next(), Some(Ok(("key", "value"))));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_empty_value() {
-        let bytes = b"key=\"\"";
-        let mut iter = RawAttrIter::new(bytes);
-        assert_eq!(iter.next(), Some(Ok((&b"key"[..], &b""[..]))));
+        let raw = "key=\"\"";
+        let mut iter = RawAttrIter::new(raw);
+        assert_eq!(iter.next(), Some(Ok(("key", ""))));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_no_trailing_space() {
-        let bytes = b"key=\"value\"";
-        let mut iter = RawAttrIter::new(bytes);
-        assert_eq!(iter.next(), Some(Ok((&b"key"[..], &b"value"[..]))));
+        let raw = "key=\"value\"";
+        let mut iter = RawAttrIter::new(raw);
+        assert_eq!(iter.next(), Some(Ok(("key", "value"))));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_no_attributes() {
-        assert_eq!(collect(b""), vec![]);
-        assert_eq!(collect(b"   "), vec![]);
+        assert_eq!(collect(""), vec![]);
+        assert_eq!(collect("   "), vec![]);
     }
 
     #[test]
     fn test_leading_and_trailing_whitespace() {
         // `attributes_raw()` yields a leading space; a self-closing tag can
         // leave a trailing one (e.g. `<c r="A1" />` -> ` r="A1" `).
-        assert_eq!(collect(b" r=\"A1\" "), vec![(&b"r"[..], &b"A1"[..])]);
+        assert_eq!(collect(" r=\"A1\" "), vec![("r", "A1")]);
     }
 
     #[test]
     fn test_mixed_whitespace_and_quotes() {
         // Whitespace around `=` combined with both quote styles, as a real
         // (if unusual) tag like `<row r = "50" spans = '1:4'>` would produce.
-        let bytes = b" r = \"50\" spans = '1:4'";
-        assert_eq!(
-            collect(bytes),
-            vec![(&b"r"[..], &b"50"[..]), (&b"spans"[..], &b"1:4"[..])]
-        );
+        let raw = " r = \"50\" spans = '1:4'";
+        assert_eq!(collect(raw), vec![("r", "50"), ("spans", "1:4")]);
     }
 
     #[test]
     fn test_value_containing_other_quote() {
         // A single-quoted value may contain double quotes and vice versa.
-        assert_eq!(collect(b"k='a\"b'"), vec![(&b"k"[..], &b"a\"b"[..])]);
-        assert_eq!(collect(b"k=\"a'b\""), vec![(&b"k"[..], &b"a'b"[..])]);
+        assert_eq!(collect("k='a\"b'"), vec![("k", "a\"b")]);
+        assert_eq!(collect("k=\"a'b\""), vec![("k", "a'b")]);
     }
 
     #[test]
     fn test_namespaced_attributes() {
         // Namespace declarations and prefixed names are yielded verbatim with
         // their prefix; call sites match the full raw key (see issue #632).
-        let bytes = b" xmlns:foo=\"bar\" foo:id=\"x\" r:id=\"rId1\"";
+        let raw = " xmlns:foo=\"bar\" foo:id=\"x\" r:id=\"rId1\"";
         assert_eq!(
-            collect(bytes),
-            vec![
-                (&b"xmlns:foo"[..], &b"bar"[..]),
-                (&b"foo:id"[..], &b"x"[..]),
-                (&b"r:id"[..], &b"rId1"[..]),
-            ]
+            collect(raw),
+            vec![("xmlns:foo", "bar"), ("foo:id", "x"), ("r:id", "rId1"),]
         );
     }
 
@@ -283,8 +275,8 @@ mod tests {
     fn test_malformed_unquoted_value_reports_error() {
         // Unquoted values are malformed: yield the valid attr,
         // then the UnquotedValue error, then stop.
-        let mut iter = RawAttrIter::new(b"good=\"1\" bad=2");
-        assert_eq!(iter.next(), Some(Ok((&b"good"[..], &b"1"[..]))));
+        let mut iter = RawAttrIter::new("good=\"1\" bad=2");
+        assert_eq!(iter.next(), Some(Ok(("good", "1"))));
         assert!(matches!(
             iter.next(),
             Some(Err(AttrError::UnquotedValue(_)))
@@ -295,12 +287,12 @@ mod tests {
     #[test]
     fn test_no_equals_reports_error() {
         // A bare name with no '=' is reported as ExpectedEq, then iteration ends.
-        let mut iter = RawAttrIter::new(b"disabled");
+        let mut iter = RawAttrIter::new("disabled");
         assert!(matches!(iter.next(), Some(Err(AttrError::ExpectedEq(_)))));
         assert_eq!(iter.next(), None);
 
         // Leading whitespace then a bare name behaves the same.
-        let mut iter = RawAttrIter::new(b"  spans  ");
+        let mut iter = RawAttrIter::new("  spans  ");
         assert!(matches!(iter.next(), Some(Err(AttrError::ExpectedEq(_)))));
         assert_eq!(iter.next(), None);
     }
@@ -309,8 +301,8 @@ mod tests {
     fn test_tabs_and_newlines_as_separators() {
         // Attributes may be split by tabs/newlines, not just spaces.
         assert_eq!(
-            collect(b"\tr=\"A1\"\n\ts=\"3\""),
-            vec![(&b"r"[..], &b"A1"[..]), (&b"s"[..], &b"3"[..])]
+            collect("\tr=\"A1\"\n\ts=\"3\""),
+            vec![("r", "A1"), ("s", "3")]
         );
     }
 
@@ -323,24 +315,24 @@ mod tests {
         let Event::Empty(e) = reader.read_event().unwrap() else {
             panic!("expected empty element");
         };
-        assert_eq!(e.raw_attr(b"r"), Ok(Some(&b"A1"[..])));
-        assert_eq!(e.raw_attr(b"s"), Ok(Some(&b"3"[..])));
-        assert_eq!(e.raw_attr(b"t"), Ok(Some(&b"s"[..])));
-        assert_eq!(e.raw_attr(b"missing"), Ok(None));
+        assert_eq!(e.raw_attr("r"), Ok(Some("A1")));
+        assert_eq!(e.raw_attr("s"), Ok(Some("3")));
+        assert_eq!(e.raw_attr("t"), Ok(Some("s")));
+        assert_eq!(e.raw_attr("missing"), Ok(None));
     }
 
     #[test]
     fn test_local_name_matches() {
         // match
-        assert!(local_name_matches(b"id", b"id"));
-        assert!(local_name_matches(b"r:id", b"id"));
-        assert!(local_name_matches(b"x:embed", b"embed"));
-        assert!(local_name_matches(b":id", b"id"));
+        assert!(local_name_matches("id", "id"));
+        assert!(local_name_matches("r:id", "id"));
+        assert!(local_name_matches("x:embed", "embed"));
+        assert!(local_name_matches(":id", "id"));
 
         // don't match
-        assert!(!local_name_matches(b"xmlid", b"id"));
-        assert!(!local_name_matches(b"rid", b"id"));
-        assert!(!local_name_matches(b"name", b"id"));
+        assert!(!local_name_matches("xmlid", "id"));
+        assert!(!local_name_matches("rid", "id"));
+        assert!(!local_name_matches("name", "id"));
     }
 
     #[test]
@@ -353,9 +345,9 @@ mod tests {
             panic!("expected empty element");
         };
         // namespaced key matched on local name, exact key still works
-        assert_eq!(e.raw_attr_local(b"embed"), Ok(Some(&b"rId1"[..])));
-        assert_eq!(e.raw_attr_local(b"cstate"), Ok(Some(&b"print"[..])));
-        assert_eq!(e.raw_attr_local(b"missing"), Ok(None));
+        assert_eq!(e.raw_attr_local("embed"), Ok(Some("rId1")));
+        assert_eq!(e.raw_attr_local("cstate"), Ok(Some("print")));
+        assert_eq!(e.raw_attr_local("missing"), Ok(None));
     }
 
     #[test]
@@ -368,9 +360,9 @@ mod tests {
         let Event::Empty(e) = reader.read_event().unwrap() else {
             panic!("expected empty element");
         };
-        let (r, s, t) = get_attrs!(e, b"r" => r, b"s" => s, b"t" => t).unwrap();
-        assert_eq!(r, Some(&b"A1"[..]));
+        let (r, s, t) = get_attrs!(e, "r" => r, "s" => s, "t" => t).unwrap();
+        assert_eq!(r, Some("A1"));
         assert_eq!(s, None);
-        assert_eq!(t, Some(&b"s"[..]));
+        assert_eq!(t, Some("s"));
     }
 }

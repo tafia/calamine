@@ -962,6 +962,15 @@ fn date_xlsx_custom_format_with_quoted_text() {
 }
 
 #[test]
+fn date_xlsx_1904_extlst() {
+    // A 1904-system workbook whose extLst also contains an <x15:workbookPr>
+    // extension element (which shares the "workbookPr" local name but carries
+    // no date1904 attribute) must still be read on the 1904 epoch. See #706.
+    let xlsx: Xlsx<_> = wb("date_1904_extlst.xlsx");
+    assert!(xlsx.has_1904_epoch());
+}
+
+#[test]
 fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = wb("date_1904.xlsx");
     assert!(xls.has_1904_epoch());
@@ -3246,6 +3255,18 @@ fn biff5_formula_ptg_ref_643() {
 }
 
 #[test]
+fn test_xls_truncated_ptgexp() {
+    // Test for xls file with a truncated PtgExp token (array/shared formula)
+    // with 2 bytes instead of 4.
+    let mut excel: Xls<_> = wb("ptgexp-truncated-operand.xls");
+    let range = excel.worksheet_range("Tab 1").unwrap();
+    assert_eq!(range.get_size(), (23, 10));
+
+    let formulas = excel.worksheet_formula("Tab 1").unwrap();
+    assert_eq!(formulas.used_cells().count(), 22);
+}
+
+#[test]
 fn biff5_rich_text_string() {
     // This file uses RSTRING records, apparently produced by ABBYY FineReader.
     let mut wb: Xls<_> = wb("biff5-rich-text-string.xls");
@@ -3628,7 +3649,7 @@ fn test_xlsx_workbook_properties() {
     assert_eq!(props.version.as_deref(), Some("1.2"));
     assert_eq!(props.application.as_deref(), Some("Microsoft Excel"));
     assert_eq!(props.app_version.as_deref(), Some("16.0300"));
-    assert_eq!(props.company.as_deref(), Some("Contoso"));
+    assert_eq!(props.company.as_deref(), Some("Contoso & Co"));
     assert_eq!(props.template.as_deref(), Some("Book.xltx"));
     assert_eq!(props.manager.as_deref(), Some("Jane Doe"));
 }
@@ -3668,4 +3689,38 @@ fn xls_empty_string() {
     let mut wb: Xls<_> = wb("empty-string.xls");
     let range = wb.worksheet_range("Sheet1").unwrap();
     assert_eq!(range.get_value((0, 0)), Some(&String("".to_string())));
+}
+
+#[test]
+fn xls_formula_columns_beyond_z() {
+    // Formula column references at/after column AA (index 26) exercise the
+    // column-name rendering and the BIFF8 PtgArea column masking.
+    let mut wb: Xls<_> = wb("xls_formula_columns_beyond_z.xls");
+    let formula = wb.worksheet_formula("Sheet1").unwrap();
+    let mut rows = formula.rows();
+    assert_eq!(rows.next(), Some(&["SUM(AA1:AA3)".to_owned()][..]));
+    assert_eq!(rows.next(), Some(&["AA1+AB1".to_owned()][..]));
+    assert_eq!(rows.next(), None);
+}
+
+#[test]
+fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
+    // Regression test: the chart on "Report" is a nested substream whose cached
+    // series values (Data!A1:B8) must not leak into the hosting sheet.
+    let mut excel: Xls<_> = wb("xls_cross_sheet_chart.xls");
+    let range = excel.worksheet_range("Report").unwrap();
+
+    assert_eq!(
+        range.get((0, 0)),
+        Some(&Data::String("HEADER TEXT A1".to_string())),
+        "A1 was overwritten by the embedded chart's cached series"
+    );
+    assert_eq!(
+        range.get((5, 0)),
+        Some(&Data::String("LABEL A6".to_string()))
+    );
+    assert_eq!(
+        range.get((5, 2)),
+        Some(&Data::String("VALUE C6".to_string()))
+    );
 }

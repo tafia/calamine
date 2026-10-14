@@ -49,32 +49,32 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
     CellFormat::Other
 }
 
-pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
+pub fn builtin_format_by_id(id: &str) -> CellFormat {
     match id {
         // mm-dd-yy
-        b"14" |
+        "14" |
         // d-mmm-yy
-        b"15" |
+        "15" |
         // d-mmm
-        b"16" |
+        "16" |
         // mmm-yy
-        b"17" |
+        "17" |
         // h:mm AM/PM
-        b"18" |
+        "18" |
         // h:mm:ss AM/PM
-        b"19" |
+        "19" |
         // h:mm
-        b"20" |
+        "20" |
         // h:mm:ss
-        b"21" |
+        "21" |
         // m/d/yy h:mm
-        b"22" |
+        "22" |
         // mm:ss
-        b"45" |
+        "45" |
         // mmss.0
-        b"47" => CellFormat::DateTime,
+        "47" => CellFormat::DateTime,
         // [h]:mm:ss
-        b"46" => CellFormat::TimeDelta,
+        "46" => CellFormat::TimeDelta,
         _ => CellFormat::Other
     }
 }

@@ -609,9 +609,29 @@ impl<RS: Read + Seek> Xls<RS> {
             let mut formulas = Vec::new();
             let mut fmla_pos = (0, 0);
             let mut merge_cells = Vec::new();
+            // Nested substreams (embedded charts) carry cell-like records; skip them.
+            // The first BOF belongs to the worksheet itself.
+            let mut seen_sheet_bof = false;
+            let mut substream_depth = 0usize;
             for record in records {
                 let r = record?;
+                if substream_depth > 0 {
+                    match r.typ {
+                        0x0809 => substream_depth += 1,
+                        0x000A => substream_depth -= 1,
+                        _ => (),
+                    }
+                    continue;
+                }
                 match r.typ {
+                    // BOF of a nested substream (embedded chart, macro sheet, ...)
+                    0x0809 => {
+                        if seen_sheet_bof {
+                            substream_depth += 1;
+                        } else {
+                            seen_sheet_bof = true;
+                        }
+                    }
                     // 512: Dimensions
                     0x0200 => {
                         let Dimensions { start, end } = parse_dimensions(r.data)?;
@@ -809,7 +829,9 @@ fn parse_extern_sheet(r: &Record<'_>, biff: Biff) -> Vec<Xti> {
             // Single record with cXTI count + array of 6-byte XTI structs
             let cxti = read_u16(r.data) as usize;
             r.data[2..]
-                .chunks_exact(6)
+                .as_chunks::<6>()
+                .0
+                .iter()
                 .take(cxti)
                 .map(|xti| Xti {
                     _isup_book: read_u16(&xti[..2]),
@@ -1512,6 +1534,15 @@ fn parse_formula(
                 // PtgExp: array/shared formula, ignore
                 debug!("ignoring PtgExp array/shared formula");
                 stack.push(formula.len());
+                // Ensure PtgExp carries a 4-byte operand for the row/column
+                // of the array or shared formula it points at.
+                if rgce.len() < 4 {
+                    return Err(XlsError::Len {
+                        expected: 4,
+                        found: rgce.len(),
+                        typ: "PtgExp",
+                    });
+                }
                 rgce = &rgce[4..];
             }
             0x03..=0x11 => {
@@ -1753,11 +1784,27 @@ fn parse_formula(
                     write!(&mut formula, "${row_last}").unwrap();
                     rgce = &rgce[6..];
                 } else {
-                    formula.push('$');
-                    push_column(read_u16(&rgce[4..6]) as u32, &mut formula);
-                    write!(&mut formula, "${}:$", read_u16(&rgce[0..2]) as u32 + 1).unwrap();
-                    push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                    write!(&mut formula, "${}", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
+                    // columnFirst/columnLast are ColRelU: 14-bit column + fColRel/fRwRel flags.
+                    let col_first = read_u16(&[rgce[4], rgce[5] & 0x3F]);
+                    let col_last = read_u16(&[rgce[6], rgce[7] & 0x3F]);
+                    let row_first = read_u16(&rgce[0..2]) as u32 + 1;
+                    let row_last = read_u16(&rgce[2..4]) as u32 + 1;
+                    if rgce[5] & 0x80 != 0x80 {
+                        formula.push('$');
+                    }
+                    push_column(col_first as u32, &mut formula);
+                    if rgce[5] & 0x40 != 0x40 {
+                        formula.push('$');
+                    }
+                    write!(&mut formula, "{row_first}:").unwrap();
+                    if rgce[7] & 0x80 != 0x80 {
+                        formula.push('$');
+                    }
+                    push_column(col_last as u32, &mut formula);
+                    if rgce[7] & 0x40 != 0x40 {
+                        formula.push('$');
+                    }
+                    write!(&mut formula, "{row_last}").unwrap();
                     rgce = &rgce[8..];
                 }
             }
