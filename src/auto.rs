@@ -31,7 +31,7 @@ pub enum Sheets<RS> {
 
 impl<RS: std::io::Read + std::io::Seek> Sheets<RS> {
     /// Get workbook document properties for formats that support them.
-    pub fn workbook_properties(&mut self) -> Result<&WorkbookProperties, Error> {
+    pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, Error> {
         match self {
             Sheets::Xlsx(e) => e.workbook_properties().map_err(Error::Xlsx),
             Sheets::Xlsb(e) => e.workbook_properties().map_err(Error::Xlsb),

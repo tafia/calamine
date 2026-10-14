@@ -551,7 +551,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Get workbook document properties.
     ///
     /// Missing fields are returned as `None`.
-    pub fn workbook_properties(&mut self) -> Result<&WorkbookProperties, XlsxError> {
+    pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, XlsxError> {
         if self.workbook_properties.is_none() {
             let mut props = WorkbookProperties::default();
             read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
@@ -561,6 +561,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(self
             .workbook_properties
             .as_deref()
+            .cloned()
             .expect("workbook properties are initialized above"))
     }
 
