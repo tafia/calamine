@@ -89,6 +89,14 @@ pub enum XlsbError {
     WorksheetNotFound(String),
     /// XML Encoding error
     Encoding(quick_xml::encoding::EncodingError),
+
+    /// File exceeds maximum cell count.
+    CellLimitExceeded {
+        /// Number of cells requested.
+        requested: usize,
+        /// Maximum allowed cells.
+        max: usize,
+    },
 }
 
 from_err!(std::io::Error, XlsbError, Io);
@@ -98,9 +106,24 @@ from_err!(quick_xml::events::attributes::AttrError, XlsbError, XmlAttr);
 from_err!(quick_xml::encoding::EncodingError, XlsbError, Encoding);
 from_err!(crate::vba::VbaError, XlsbError, Vba);
 
+impl From<crate::CellLimitExceeded> for XlsbError {
+    fn from(e: crate::CellLimitExceeded) -> Self {
+        XlsbError::CellLimitExceeded {
+            requested: e.requested,
+            max: e.max,
+        }
+    }
+}
+
 impl std::fmt::Display for XlsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            XlsbError::CellLimitExceeded { requested, max } => {
+                write!(
+                    f,
+                    "Cell limit exceeded ({requested} cells requested, max {max})"
+                )
+            }
             XlsbError::Io(e) => write!(f, "I/O error: {e}"),
             XlsbError::Zip(e) => write!(f, "Zip error: {e}"),
             XlsbError::Xml(e) => write!(f, "Xml error: {e}"),
@@ -535,7 +558,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
                 cells.push(cell);
             }
         }
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 
     /// MS-XLSB 2.1.7.62
@@ -620,7 +643,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsb<RS> {
             }
         }
 
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 }
 
