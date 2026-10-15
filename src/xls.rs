@@ -82,15 +82,38 @@ pub enum XlsError {
         /// iFmt value, See 2.4.126 Format
         ifmt: u16,
     },
+
+    /// File exceeds maximum cell count.
+    CellLimitExceeded {
+        /// Number of cells requested.
+        requested: usize,
+        /// Maximum allowed cells.
+        max: usize,
+    },
 }
 
 from_err!(std::io::Error, XlsError, Io);
 from_err!(crate::cfb::CfbError, XlsError, Cfb);
 from_err!(crate::vba::VbaError, XlsError, Vba);
 
+impl From<crate::CellLimitExceeded> for XlsError {
+    fn from(e: crate::CellLimitExceeded) -> Self {
+        XlsError::CellLimitExceeded {
+            requested: e.requested,
+            max: e.max,
+        }
+    }
+}
+
 impl std::fmt::Display for XlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            XlsError::CellLimitExceeded { requested, max } => {
+                write!(
+                    f,
+                    "Cell limit exceeded ({requested} cells requested, max {max})"
+                )
+            }
             XlsError::Io(e) => write!(f, "I/O error: {e}"),
             XlsError::Cfb(e) => write!(f, "Cfb error: {e}"),
             XlsError::Vba(e) => write!(f, "Vba error: {e}"),
@@ -694,8 +717,8 @@ impl<RS: Read + Seek> Xls<RS> {
                     _ => (),
                 }
             }
-            let range = Range::from_sparse(cells);
-            let formula = Range::from_sparse(formulas);
+            let range = Range::from_sparse(cells)?;
+            let formula = Range::from_sparse(formulas)?;
             sheets.insert(
                 name,
                 SheetData {

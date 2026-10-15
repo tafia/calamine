@@ -151,6 +151,14 @@ pub enum XlsxError {
 
     /// Specified Pivot Table was not found on worksheet.
     PivotTableNotFound(String),
+
+    /// File exceeds maximum cell count.
+    CellLimitExceeded {
+        /// Number of cells requested.
+        requested: usize,
+        /// Maximum allowed cells.
+        max: usize,
+    },
 }
 
 from_err!(std::io::Error, XlsxError, Io);
@@ -162,9 +170,24 @@ from_err!(std::num::ParseIntError, XlsxError, ParseInt);
 from_err!(quick_xml::encoding::EncodingError, XlsxError, Encoding);
 from_err!(quick_xml::events::attributes::AttrError, XlsxError, XmlAttr);
 
+impl From<crate::CellLimitExceeded> for XlsxError {
+    fn from(e: crate::CellLimitExceeded) -> Self {
+        XlsxError::CellLimitExceeded {
+            requested: e.requested,
+            max: e.max,
+        }
+    }
+}
+
 impl std::fmt::Display for XlsxError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            XlsxError::CellLimitExceeded { requested, max } => {
+                write!(
+                    f,
+                    "Cell limit exceeded ({requested} cells requested, max {max})"
+                )
+            }
             XlsxError::Io(e) => write!(f, "I/O error: {e}"),
             XlsxError::Zip(e) => write!(f, "Zip error: {e}"),
             XlsxError::Xml(e) => write!(f, "Xml error: {e}"),
@@ -2682,7 +2705,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
                 cells.push(cell);
             }
         }
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)> {
@@ -2782,7 +2805,7 @@ impl<RS: Read + Seek> ReaderRef<RS> for Xlsx<RS> {
             }
         }
 
-        Ok(Range::from_sparse(cells))
+        Ok(Range::from_sparse(cells)?)
     }
 }
 

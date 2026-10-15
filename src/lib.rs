@@ -612,7 +612,7 @@ impl CellType for usize {} // for tests
 /// ];
 ///
 /// // Create a Range from the cells.
-/// let range = Range::from_sparse(cells);
+/// let range = Range::from_sparse(cells).unwrap();
 ///
 /// // Iterate over the cells in the range.
 /// for (row, col, data) in range.cells() {
@@ -757,6 +757,42 @@ pub struct Range<T> {
     start: (u32, u32),
     end: (u32, u32),
     inner: Vec<T>,
+}
+
+/// Maximum number of cells in a [`Range`] built by [`Range::from_sparse()`].
+///
+/// Matches the limit used by the ODS reader.
+pub const MAX_CELLS: usize = 100_000_000;
+
+/// Error returned by [`Range::from_sparse()`] when the dense range implied by
+/// the cell positions exceeds [`MAX_CELLS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellLimitExceeded {
+    /// Number of cells the range would need.
+    pub requested: usize,
+    /// Maximum allowed cells.
+    pub max: usize,
+}
+
+impl std::fmt::Display for CellLimitExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Cell limit exceeded ({} cells requested, max {})",
+            self.requested, self.max
+        )
+    }
+}
+
+impl std::error::Error for CellLimitExceeded {}
+
+/// Returns the `(start, end)` corners covering all cells, or `None` if empty.
+fn sparse_bounds<T: CellType>(cells: &[Cell<T>]) -> Option<((u32, u32), (u32, u32))> {
+    let mut iter = cells.iter().map(|c| c.pos);
+    let first = iter.next()?;
+    Some(iter.fold((first, first), |(s, e), (r, c)| {
+        ((min(s.0, r), min(s.1, c)), (max(e.0, r), max(e.1, c)))
+    }))
 }
 
 impl<T: CellType> Range<T> {
@@ -990,6 +1026,11 @@ impl<T: CellType> Range<T> {
     ///
     /// - `cells`: A vector of [`Cell`] elements.
     ///
+    /// # Errors
+    ///
+    /// [`CellLimitExceeded`] if the dense range implied by the cell positions
+    /// would hold more than [`MAX_CELLS`] cells.
+    ///
     /// # Examples
     ///
     /// An example of creating a new calamine `Range` for a sparse vector of
@@ -1004,7 +1045,7 @@ impl<T: CellType> Range<T> {
     ///     Cell::new((9, 2), Data::Int(1)),
     /// ];
     ///
-    /// let range = Range::from_sparse(cells);
+    /// let range = Range::from_sparse(cells).unwrap();
     ///
     /// assert_eq!(range.width(), 1);
     /// assert_eq!(range.height(), 8);
@@ -1012,24 +1053,28 @@ impl<T: CellType> Range<T> {
     /// assert_eq!(range.used_cells().count(), 3);
     /// ```
     ///
-    pub fn from_sparse(cells: Vec<Cell<T>>) -> Range<T> {
-        if cells.is_empty() {
-            return Range::empty();
+    pub fn from_sparse(cells: Vec<Cell<T>>) -> Result<Range<T>, CellLimitExceeded> {
+        let (start, end) = match sparse_bounds(&cells) {
+            Some(bounds) => bounds,
+            None => return Ok(Range::empty()),
+        };
+        let rows = u64::from(end.0 - start.0) + 1;
+        let cols = u64::from(end.1 - start.1) + 1;
+        let requested = usize::try_from(rows * cols).unwrap_or(usize::MAX);
+        if requested > MAX_CELLS {
+            return Err(CellLimitExceeded {
+                requested,
+                max: MAX_CELLS,
+            });
         }
-        // cells do not always appear in (row, col) order
-        // search bounds
-        let mut row_start = u32::MAX;
-        let mut row_end = 0;
-        let mut col_start = u32::MAX;
-        let mut col_end = 0;
-        for (r, c) in cells.iter().map(|c| c.pos) {
-            row_start = min(r, row_start);
-            row_end = max(r, row_end);
-            col_start = min(c, col_start);
-            col_end = max(c, col_end);
-        }
-        let cols = (col_end - col_start + 1) as usize;
-        let rows = (row_end - row_start + 1) as usize;
+        Ok(Self::fill_sparse(cells, start, end))
+    }
+
+    fn fill_sparse(cells: Vec<Cell<T>>, start: (u32, u32), end: (u32, u32)) -> Range<T> {
+        let (row_start, col_start) = start;
+        let (row_end, col_end) = end;
+        let cols = (col_end - col_start) as usize + 1;
+        let rows = (row_end - row_start) as usize + 1;
         let len = cols.saturating_mul(rows);
         let mut v = vec![T::default(); len];
         v.shrink_to_fit();
@@ -1042,8 +1087,8 @@ impl<T: CellType> Range<T> {
             }
         }
         Range {
-            start: (row_start, col_start),
-            end: (row_end, col_end),
+            start,
+            end,
             inner: v,
         }
     }
@@ -1232,7 +1277,7 @@ impl<T: CellType> Range<T> {
     /// ];
     ///
     /// // Create a Range from the cells.
-    /// let range = Range::from_sparse(cells);
+    /// let range = Range::from_sparse(cells).unwrap();
     ///
     /// // Iterate over the rows of the range.
     /// for (row_num, row) in range.rows().enumerate() {
@@ -1288,7 +1333,7 @@ impl<T: CellType> Range<T> {
     /// ];
     ///
     /// // Create a Range from the cells.
-    /// let range = Range::from_sparse(cells);
+    /// let range = Range::from_sparse(cells).unwrap();
     ///
     /// // Iterate over the used cells in the range.
     /// for (row, col, data) in range.used_cells() {
@@ -1332,7 +1377,7 @@ impl<T: CellType> Range<T> {
     /// ];
     ///
     /// // Create a Range from the cells.
-    /// let range = Range::from_sparse(cells);
+    /// let range = Range::from_sparse(cells).unwrap();
     ///
     /// // Iterate over the cells in the range.
     /// for (row, col, data) in range.cells() {
@@ -1665,7 +1710,7 @@ impl<T: CellType> IndexMut<(usize, usize)> for Range<T> {
 /// ];
 ///
 /// // Create a Range from the cells.
-/// let range = Range::from_sparse(cells);
+/// let range = Range::from_sparse(cells).unwrap();
 ///
 /// // Use the Cells iterator returned by Range::cells().
 /// for (row, col, data) in range.cells() {
@@ -1734,7 +1779,7 @@ impl<'a, T: 'a + CellType> ExactSizeIterator for Cells<'a, T> {}
 /// ];
 ///
 /// // Create a Range from the cells.
-/// let range = Range::from_sparse(cells);
+/// let range = Range::from_sparse(cells).unwrap();
 ///
 /// // Use the UsedCells iterator returned by Range::used_cells().
 /// for (row, col, data) in range.used_cells() {
@@ -1805,7 +1850,7 @@ impl<'a, T: 'a + CellType> DoubleEndedIterator for UsedCells<'a, T> {
 /// ];
 ///
 /// // Create a Range from the cells.
-/// let range = Range::from_sparse(cells);
+/// let range = Range::from_sparse(cells).unwrap();
 ///
 /// // Use the Rows iterator returned by Range::rows().
 /// for (row_num, row) in range.rows().enumerate() {
