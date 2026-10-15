@@ -169,17 +169,21 @@ pub struct Dimensions {
 
 #[allow(clippy::len_without_is_empty)]
 impl Dimensions {
-    /// create dimensions info with start position and end position
+    /// Create a `Dimensions` instance with start and end cell positions.
     pub fn new(start: (u32, u32), end: (u32, u32)) -> Self {
-        Self { start, end }
+        Self {
+            start: (start.0.min(end.0), start.1.min(end.1)),
+            end: (start.0.max(end.0), start.1.max(end.1)),
+        }
     }
-    /// check if a position is in it
+    /// Check if a cell position is within the `Dimensions` range.
     pub fn contains(&self, row: u32, col: u32) -> bool {
         row >= self.start.0 && row <= self.end.0 && col >= self.start.1 && col <= self.end.1
     }
-    /// len
+    /// Get the `len()` of the `Dimensions` range, which is equivalent to the cell area.
     pub fn len(&self) -> u64 {
-        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+        // Widened before the `+ 1` so a full-width axis cannot overflow.
+        (u64::from(self.end.0 - self.start.0) + 1) * (u64::from(self.end.1 - self.start.1) + 1)
     }
 }
 
