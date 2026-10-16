@@ -176,8 +176,10 @@ pub(crate) fn unescape_xml(original: &str) -> Cow<'_, str> {
 pub fn build_zip_path_cache<RS: Read + Seek>(zip: &ZipArchive<RS>) -> HashMap<String, String> {
     let mut cache = HashMap::with_capacity(zip.len());
     for zip_path in zip.file_names() {
-        let normalized = zip_path.replace('\\', "/").to_ascii_lowercase();
-        cache.insert(normalized, zip_path.to_string());
+        if let Ok(zip_path) = zip_path {
+            let normalized = zip_path.replace('\\', "/").to_ascii_lowercase();
+            cache.insert(normalized, zip_path.to_string());
+        }
     }
     cache
 }
