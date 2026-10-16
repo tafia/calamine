@@ -442,7 +442,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
         let mut pics = Vec::new();
         for i in 0..self.zip.len() {
             let mut zfile = self.zip.by_index(i)?;
-            let zname = zfile.name();
+            let zname = zfile.name()?;
             if zname.starts_with("xl/media") {
                 if let Some(ext) = zname.split('.').next_back() {
                     if [

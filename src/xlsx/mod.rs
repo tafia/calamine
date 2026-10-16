@@ -696,7 +696,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let media_path = format!("{}media", self.xl_path);
         for i in 0..self.zip.len() {
             let mut zfile = self.zip.by_index(i)?;
-            let zname = zfile.name();
+            let zname = zfile.name()?;
             if zname.starts_with(&media_path) {
                 if let Some(ext) = zname.split('.').next_back() {
                     if [
