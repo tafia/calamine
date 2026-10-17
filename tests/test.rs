@@ -7,7 +7,7 @@ use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Flo
 use calamine::{
     open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
     ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, Xlsb, Xlsx, XlsxFormulaMetadata,
+    Xls, XlsError, Xlsb, Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -3788,4 +3788,13 @@ fn test_xls_dimensions_16_bytes() {
     assert_eq!(range.used_cells().count(), 232);
     assert_eq!(range.get_value((11, 1)), Some(&Float(167943.0)));
     assert_eq!(range.get_value((35, 0)), Some(&String("TOTAL".to_string())));
+}
+
+// Test that huge FAT and DIFAT sector counts in a CFB header return an error
+// instead of being used as allocation sizes and aborting the process. See
+// issue #714.
+#[test]
+fn test_xls_cfb_huge_sector_counts() {
+    let result = open_workbook::<Xls<_>, _>(test_path("issue_714.xls"));
+    assert!(matches!(result, Err(XlsError::Cfb(_))));
 }

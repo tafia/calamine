@@ -119,7 +119,7 @@ impl Cfb {
 
         // load the FATs
         debug!("load fat (len {})", h.fat_len);
-        let mut fats = Vec::with_capacity(h.fat_len);
+        let mut fats = Vec::new();
         for id in difat.into_iter().filter(|id| *id < DIFSECT) {
             fats.extend(to_u32(sectors.get(id, reader)?));
         }
@@ -255,9 +255,8 @@ impl Header {
         let mini_fat_start = read_u32(&buf[60..64]);
         let mini_fat_len = read_usize(&buf[64..68]);
         let difat_start = read_u32(&buf[68..72]);
-        let difat_len = read_usize(&buf[62..76]);
 
-        let mut difat = Vec::with_capacity(difat_len);
+        let mut difat = Vec::new();
         difat.extend(to_u32(&buf[76..512]));
 
         Ok((
