@@ -370,6 +370,15 @@ fn unescape_excel_xml() {
         range.get_value((0, 0)),
         Some(&String("ABC\r\nDEF".to_string()))
     );
+
+    // Test a file with a formula whose cached string result is escaped.
+    let mut excel: Xlsx<_> = wb("has_x000D_str.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&String("ABC\r\nDEF".to_string()))
+    );
 }
 
 #[test]

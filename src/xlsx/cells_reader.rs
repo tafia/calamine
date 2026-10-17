@@ -13,7 +13,7 @@ use crate::attrs::RawAttributes;
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
-    utils::unescape_entity_to_buffer,
+    utils::{unescape_entity_to_buffer, unescape_xml},
     Cell, XlsxError,
 };
 
@@ -646,7 +646,7 @@ fn read_v<'s>(
         Some("b") => Ok(DataRef::Bool(v != "0")),
         Some("d") => Ok(DataRef::DateTimeIso(v.to_string())),
         Some("e") => Ok(DataRef::Error(v.parse()?)),
-        Some("str") => Ok(DataRef::String(v.to_string())),
+        Some("str") => Ok(DataRef::String(unescape_xml(v).into_owned())),
         Some("n") | None => {
             if v.is_empty() {
                 return Ok(DataRef::Empty);
