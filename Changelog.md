@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Changed
+
+- `Xlsx::worksheet_range` now uses a parallel fast path for standard
+  (namespace-prefix-free) SpreadsheetML sheets: the sheet XML is streamed,
+  split into blocks at `<row>` boundaries and parsed concurrently, giving
+  roughly a 4x speedup on large files. Any structure the fast parser does not
+  handle (prefixed tags, unusual markup, malformed files) falls back to the
+  previous quick-xml implementation, so behavior is unchanged. Adds the
+  `rayon` and `memchr` dependencies.
+
 ## [0.36.1] - 2026-07-27
 
 ### Fixed
