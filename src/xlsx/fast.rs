@@ -1,4 +1,4 @@
-//! xlsx 快速路径：zip 流式解压 → 按 `<row` 边界切块 → rayon 并行解析 → 稀疏 [`Cell`] 列表。
+//! xlsx 快速路径：zip 流式解压 → 按 `<row` 边界切块 → rayon 并行解析 → 稠密 `Range`。
 //!
 //! 只处理无命名空间前缀的标准 SpreadsheetML。解析器是严格的：任何不认识的结构
 //! （带前缀的标签、`<v>` 里的注释/CDATA、单引号属性等）都返回 [`FastErr`]，
@@ -18,7 +18,7 @@ use zip::ZipArchive;
 use crate::datatype::Data;
 use crate::formats::{format_excel_f64, CellFormat};
 use crate::utils::{cached_zip_path, unescape_entity_to_buffer, unescape_xml};
-use crate::{Cell, CellErrorType, HeaderRow, Range};
+use crate::{CellErrorType, HeaderRow, Range};
 
 /// 任何 fast path 处理不了的情况：整体回退旧路径。
 #[derive(Debug)]
@@ -26,7 +26,7 @@ struct FastErr;
 
 type Res<T> = Result<T, FastErr>;
 
-const BLOCK_SIZE: usize = 4 * 1024 * 1024;
+const BLOCK_SIZE: usize = 1024 * 1024;
 /// 一直找不到 `<row` 切点时 carry 的上限，超过就放弃（防止带前缀的文档把内存吃爆）。
 const MAX_CARRY: usize = 64 * 1024 * 1024;
 
@@ -285,7 +285,17 @@ fn parse_inline_str(content: &[u8]) -> Res<String> {
                     pos += e + 4;
                     accumulate_text(inner, true, &mut buf)?;
                 }
-                let value = if preserve {
+                // 没有 _x00 转义时避免 unescape_xml 的整串复制；trim 是 no-op 时也直接复用
+                let value = if !buf.contains("_x00") {
+                    if preserve {
+                        buf
+                    } else {
+                        match buf.trim_matches([' ', '\t', '\r', '\n']) {
+                            t if t.len() == buf.len() => buf,
+                            t => t.to_owned(),
+                        }
+                    }
+                } else if preserve {
                     unescape_xml(&buf).into_owned()
                 } else {
                     // 只 trim ASCII 空白（NBSP 等保留）
@@ -376,6 +386,26 @@ fn process_cell_content(
     Ok(value)
 }
 
+/// 纯整数文本（可选 `-`，1–15 位数字）→ f64；超出 15 位的值交给浮点解析。
+/// 15 位以内整数小于 2^53，转换精确，结果与 `fast_float2` 一致。
+fn parse_int(v: &[u8]) -> Option<f64> {
+    let (neg, digits) = match v.first() {
+        Some(b'-') => (true, &v[1..]),
+        _ => (false, v),
+    };
+    if digits.is_empty() || digits.len() > 15 {
+        return None;
+    }
+    let mut n: u64 = 0;
+    for &b in digits {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        n = n * 10 + (b - b'0') as u64;
+    }
+    Some(if neg { -(n as f64) } else { n as f64 })
+}
+
 /// `<v>` 的文本 → 值，语义对齐 `read_v`。
 fn read_v(
     v: &[u8],
@@ -431,6 +461,10 @@ fn read_v(
                 None => v,
             };
             let s = std::str::from_utf8(v).map_err(|_| FastErr)?;
+            // 纯整数（≤15 位，f64 精确）走整数解析，比通用浮点解析快
+            if let Some(n) = parse_int(v) {
+                return Ok(format_excel_f64(n, cell_format, is_1904));
+            }
             match fast_float2::parse::<f64, _>(s.as_bytes()) {
                 Ok(n) => Ok(format_excel_f64(n, cell_format, is_1904)),
                 Err(_) => match t_attr {
@@ -448,8 +482,11 @@ fn read_v(
 /// 一块里解析出的行：行号属性（None = 无 r 属性）和单元格。
 struct BlockOut {
     rows: Vec<Option<u32>>,
-    /// (行引用, 列, 值)；Fixed 是 r 属性里的绝对行号，Local 是行下标（合并时解析）
-    cells: Vec<(CellRow, u32, Data)>,
+    /// 单元格坐标；Fixed 是 r 属性里的绝对行号，Local 是行下标（合并时解析）。
+    /// 与 `vals` 一一对应：位置单独存放，汇总扫描时缓存更友好。
+    pos: Vec<(CellRow, u32)>,
+    /// 单元格值，与 `pos` 一一对应
+    vals: Vec<Data>,
     /// 见到 `</sheetData>`，后面不用再解析
     done: bool,
 }
@@ -470,8 +507,10 @@ fn parse_block(
     is_1904: bool,
 ) -> Res<BlockOut> {
     let mut out = BlockOut {
-        rows: Vec::new(),
-        cells: Vec::new(),
+        rows: Vec::with_capacity(block.len() / 64),
+        // 单元格数按块大小粗估，避免每个块反复扩容
+        pos: Vec::with_capacity(block.len() / 32),
+        vals: Vec::with_capacity(block.len() / 32),
         done: false,
     };
     let mut pos = 0;
@@ -566,7 +605,8 @@ fn parse_block(
                 };
                 let val = process_cell_content(content, t_attr, s_attr, strings, formats, is_1904)?;
                 if !matches!(val, Data::Empty) {
-                    out.cells.push((cell_row, cell_col, val));
+                    out.pos.push((cell_row, cell_col));
+                    out.vals.push(val);
                 }
                 cur_col = cell_col.saturating_add(1);
             }
@@ -616,9 +656,9 @@ pub(crate) fn try_worksheet_range<RS: Read + Seek>(
     head.truncate(n);
     memmem::find(&head, b"<sheetData")?;
 
-    let batch = rayon::current_num_threads().clamp(2, 8);
+    let batch = rayon::current_num_threads().clamp(2, 16);
     let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(batch);
-    let mut cells: Vec<Cell<Data>> = Vec::new();
+    let mut blocks_out: Vec<BlockOut> = Vec::new();
     let mut failed = false;
     let mut done = false;
 
@@ -643,9 +683,6 @@ pub(crate) fn try_worksheet_range<RS: Read + Seek>(
             }
         });
 
-        // 行号语义对齐 legacy：行有 r 属性用之；没有就上一行 + 1
-        let mut next_row: u64 = 0;
-        let mut row_map: Vec<u32> = Vec::new();
         'outer: while let Ok(first) = rx.recv() {
             let mut raw = vec![first];
             while raw.len() < batch {
@@ -663,34 +700,8 @@ pub(crate) fn try_worksheet_range<RS: Read + Seek>(
                     failed = true;
                     break 'outer;
                 };
-                row_map.clear();
-                row_map.reserve(block_out.rows.len());
-                for r in &block_out.rows {
-                    let actual = match r {
-                        Some(r) => *r as u64,
-                        None => next_row,
-                    };
-                    if actual > u32::MAX as u64 {
-                        failed = true;
-                        break 'outer;
-                    }
-                    row_map.push(actual as u32);
-                    next_row = actual + 1;
-                }
-                for (row_ref, col, val) in block_out.cells {
-                    let row = match row_ref {
-                        CellRow::Fixed(r) => r,
-                        CellRow::Local(idx) => match row_map.get(idx as usize) {
-                            Some(row) => *row,
-                            None => {
-                                failed = true;
-                                break 'outer;
-                            }
-                        },
-                    };
-                    cells.push(Cell::new((row, col), val));
-                }
-                if block_out.done {
+                blocks_out.push(block_out);
+                if blocks_out.last().is_some_and(|b| b.done) {
                     done = true;
                     break 'outer;
                 }
@@ -701,24 +712,198 @@ pub(crate) fn try_worksheet_range<RS: Read + Seek>(
     if failed || !done {
         return None;
     }
-    Some(finish(cells, header_row))
+    build_range(blocks_out, header_row)
 }
 
-/// header_row 过滤 + `Range::from_sparse`，语义与 `worksheet_range_ref` 一致。
-fn finish(mut cells: Vec<Cell<Data>>, header_row: HeaderRow) -> Range<Data> {
-    match header_row {
-        HeaderRow::FirstNonEmptyRow => {}
-        HeaderRow::Row(idx) => {
-            cells.retain(|c| c.pos.0 >= idx);
-            if let Some(first) = cells.first() {
-                if first.pos.0 != idx {
-                    let col = first.pos.1;
-                    cells.insert(0, Cell::new((idx, col), Data::Empty));
+/// 块内保留单元格的首/末坐标（None = 这块没有保留下来的单元格）。
+type BlockSpan = Option<((u32, u32), (u32, u32))>;
+
+/// 每块的行汇总：块内保留单元格的坐标边界、块内首/末坐标和单元格数。
+struct BlockSummary {
+    min_row: u32,
+    max_row: u32,
+    min_col: u32,
+    max_col: u32,
+    first: (u32, u32),
+    last: (u32, u32),
+}
+
+/// 把各块的稀疏单元格一次性写进稠密 `Range`，语义与 `worksheet_range_ref` 一致。
+///
+/// 要求（过滤 header_row 后）单元格坐标按流序**严格递增**——每块内部递增、块与块
+/// 之间也递增。有了这个性质每个位置只写一次，就能并行填表；乱序/重叠的文档返回
+/// None 回退 legacy。header_row 的锚点空单元格只影响范围起点，这里直接修正边界。
+fn build_range(mut blocks: Vec<BlockOut>, header_row: HeaderRow) -> Option<Range<Data>> {
+    if blocks.is_empty() {
+        return Some(Range::empty());
+    }
+
+    // 1) 行号解析（顺序，只处理行，不碰单元格）：行有 r 属性用之，没有就上一行 + 1
+    let mut row_maps: Vec<Vec<u32>> = Vec::with_capacity(blocks.len());
+    let mut next_row: u64 = 0;
+    for b in &blocks {
+        let mut map = Vec::with_capacity(b.rows.len());
+        for r in &b.rows {
+            let actual = match r {
+                Some(r) => *r as u64,
+                None => next_row,
+            };
+            if actual > u32::MAX as u64 {
+                return None;
+            }
+            map.push(actual as u32);
+            next_row = actual + 1;
+        }
+        row_maps.push(map);
+    }
+
+    // 2) 并行：每块检查块内严格递增、算边界和首末坐标
+    let summaries: Vec<Result<Option<BlockSummary>, ()>> = blocks
+        .par_iter()
+        .zip(row_maps.par_iter())
+        .map(|(b, map)| {
+            let mut s: Option<BlockSummary> = None;
+            let mut prev: Option<(u32, u32)> = None;
+            for (row_ref, col) in &b.pos {
+                let row = match row_ref {
+                    CellRow::Fixed(r) => *r,
+                    CellRow::Local(i) => *map.get(*i as usize).ok_or(())?,
+                };
+                if let HeaderRow::Row(idx) = header_row {
+                    if row < idx {
+                        continue;
+                    }
                 }
+                if prev.is_some_and(|p| (row, *col) <= p) {
+                    return Err(()); // 乱序/重叠：回退
+                }
+                prev = Some((row, *col));
+                match &mut s {
+                    None => {
+                        s = Some(BlockSummary {
+                            min_row: row,
+                            max_row: row,
+                            min_col: *col,
+                            max_col: *col,
+                            first: (row, *col),
+                            last: (row, *col),
+                        })
+                    }
+                    Some(s) => {
+                        s.max_row = row;
+                        s.min_col = s.min_col.min(*col);
+                        s.max_col = s.max_col.max(*col);
+                        s.last = (row, *col);
+                    }
+                }
+            }
+            Ok(s)
+        })
+        .collect();
+
+    // 3) 顺序汇总：全局边界、块间顺序检查
+    let mut min_row = u32::MAX;
+    let mut max_row = 0u32;
+    let mut min_col = u32::MAX;
+    let mut max_col = 0u32;
+    let mut any = false;
+    let mut prev_last: Option<(u32, u32)> = None;
+    let mut spans: Vec<BlockSpan> = Vec::with_capacity(blocks.len());
+    for summary in summaries {
+        match summary.ok()? {
+            None => spans.push(None),
+            Some(s) => {
+                if prev_last.is_some_and(|p| s.first <= p) {
+                    return None;
+                }
+                prev_last = Some(s.last);
+                any = true;
+                min_row = min_row.min(s.min_row);
+                max_row = max_row.max(s.max_row);
+                min_col = min_col.min(s.min_col);
+                max_col = max_col.max(s.max_col);
+                spans.push(Some((s.first, s.last)));
             }
         }
     }
-    Range::from_sparse(cells)
+    if !any {
+        return Some(Range::empty());
+    }
+    // legacy 在 HeaderRow::Row(idx) 时插一个 (idx, 首格列) 的空锚点，范围起点因此是 idx
+    if let HeaderRow::Row(idx) = header_row {
+        min_row = idx;
+    }
+
+    let rows = (max_row - min_row + 1) as usize;
+    let cols = (max_col - min_col + 1) as usize;
+    let len = rows.checked_mul(cols)?;
+    let mut inner = vec![Data::Empty; len];
+
+    // 4) 坐标换成稠密下标，并按块顺序切成互不重叠的 &mut 段
+    let to_idx = |(r, c): (u32, u32)| (r - min_row) as usize * cols + (c - min_col) as usize;
+    let mut chunks: Vec<&mut [Data]> = Vec::with_capacity(blocks.len());
+    let mut rest = &mut inner[..];
+    let mut cur = 0usize;
+    for span in &spans {
+        let (start, end) = match span {
+            None => (cur, cur),
+            Some((first, last)) => {
+                let (s, e) = (to_idx(*first), to_idx(*last));
+                if s < cur || e < s {
+                    return None;
+                }
+                (s, e + 1)
+            }
+        };
+        let (_, tail) = rest.split_at_mut(start - cur);
+        let (chunk, tail) = tail.split_at_mut(end - start);
+        chunks.push(chunk);
+        rest = tail;
+        cur = end;
+    }
+
+    // 5) 并行填表：坐标严格递增保证每个位置只写一次，各块的段互不重叠
+    let mut starts: Vec<Option<usize>> = Vec::with_capacity(spans.len());
+    for span in &spans {
+        starts.push(span.map(|(first, _)| to_idx(first)));
+    }
+    let ok = blocks
+        .par_iter_mut()
+        .zip(chunks.into_par_iter())
+        .zip(row_maps.par_iter())
+        .zip(starts.par_iter())
+        .try_for_each(|(((b, chunk), map), start)| -> Result<(), ()> {
+            let Some(start) = *start else {
+                return Ok(()); // 这块没有保留下来的单元格
+            };
+            let pos = std::mem::take(&mut b.pos);
+            let vals = std::mem::take(&mut b.vals);
+            for ((row_ref, col), val) in pos.into_iter().zip(vals) {
+                let row = match row_ref {
+                    CellRow::Fixed(r) => r,
+                    CellRow::Local(i) => *map.get(i as usize).ok_or(())?,
+                };
+                if let HeaderRow::Row(idx) = header_row {
+                    if row < idx {
+                        continue; // header_row 过滤掉的单元格
+                    }
+                }
+                let idx = (row - min_row) as usize * cols + (col - min_col) as usize;
+                let slot = idx
+                    .checked_sub(start)
+                    .and_then(|i| chunk.get_mut(i))
+                    .ok_or(())?;
+                *slot = val;
+            }
+            Ok(())
+        });
+    ok.ok()?;
+
+    Some(Range {
+        start: (min_row, min_col),
+        end: (max_row, max_col),
+        inner,
+    })
 }
 
 #[cfg(test)]
@@ -833,6 +1018,14 @@ mod tests {
         parse_block(xml.as_bytes(), strings, formats, false).unwrap()
     }
 
+    fn cells(o: BlockOut) -> Vec<(CellRow, u32, Data)> {
+        o.pos
+            .into_iter()
+            .zip(o.vals)
+            .map(|((r, c), v)| (r, c, v))
+            .collect()
+    }
+
     #[test]
     fn rows_with_gaps_and_types() {
         let out = parse(
@@ -845,7 +1038,7 @@ mod tests {
         );
         assert_eq!(out.rows, vec![Some(0), Some(3)]);
         assert_eq!(
-            out.cells,
+            cells(out),
             vec![
                 (CellRow::Fixed(0), 0, Data::Float(1.0)),
                 (CellRow::Fixed(0), 2, Data::Float(2.5)),
@@ -863,7 +1056,7 @@ mod tests {
         );
         assert_eq!(out.rows, vec![None, None]);
         assert_eq!(
-            out.cells,
+            cells(out),
             vec![
                 (CellRow::Local(0), 0, Data::Float(1.0)),
                 (CellRow::Local(0), 1, Data::Float(2.0)),
@@ -880,7 +1073,7 @@ mod tests {
             &[],
             &[CellFormat::Other],
         );
-        assert_eq!(out.cells.len(), 2);
+        assert_eq!(out.pos.len(), 2);
     }
 
     #[test]
@@ -894,9 +1087,9 @@ mod tests {
             &[],
             &[CellFormat::Other],
         );
-        assert_eq!(out.cells[0].2, Data::String("spaced".into()));
-        assert_eq!(out.cells[1].2, Data::String("  kept  ".into()));
-        assert_eq!(out.cells[2].2, Data::String("foobar".into()));
+        assert_eq!(out.vals[0], Data::String("spaced".into()));
+        assert_eq!(out.vals[1], Data::String("  kept  ".into()));
+        assert_eq!(out.vals[2], Data::String("foobar".into()));
     }
 
     #[test]
@@ -911,10 +1104,10 @@ mod tests {
             &strings,
             &[CellFormat::Other],
         );
-        assert_eq!(out.cells[0].2, Data::String("a & b".into()));
-        assert_eq!(out.cells[1].2, Data::String("café".into()));
-        assert_eq!(out.cells[2].2, Data::String("<x>&A".into()));
-        assert_eq!(out.cells[3].2, Data::String("a&b".into()));
+        assert_eq!(out.vals[0], Data::String("a & b".into()));
+        assert_eq!(out.vals[1], Data::String("café".into()));
+        assert_eq!(out.vals[2], Data::String("<x>&A".into()));
+        assert_eq!(out.vals[3], Data::String("a&b".into()));
     }
 
     #[test]
@@ -927,10 +1120,10 @@ mod tests {
             &[],
             &[CellFormat::Other],
         );
-        assert_eq!(out.cells[0].2, Data::Float(42.0));
-        assert_eq!(out.cells[1].2, Data::Float(1e10));
-        assert_eq!(out.cells[2].2, Data::Error(CellErrorType::Div0));
-        assert_eq!(out.cells[3].2, Data::String("not-a-number".into()));
+        assert_eq!(out.vals[0], Data::Float(42.0));
+        assert_eq!(out.vals[1], Data::Float(1e10));
+        assert_eq!(out.vals[2], Data::Error(CellErrorType::Div0));
+        assert_eq!(out.vals[3], Data::String("not-a-number".into()));
     }
 
     #[test]
@@ -944,7 +1137,7 @@ mod tests {
             &[],
             &[CellFormat::Other],
         );
-        assert_eq!(out.cells, vec![(CellRow::Fixed(0), 2, Data::Float(7.0))]);
+        assert_eq!(cells(out), vec![(CellRow::Fixed(0), 2, Data::Float(7.0))]);
     }
 
     #[test]
