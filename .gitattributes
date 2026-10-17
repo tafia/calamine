@@ -1,0 +1,9 @@
+# Normalize line endings to LF for all text files. Git auto-detects binary
+# files, but the spreadsheet files are called out explicitly.
+* text=auto eol=lf
+
+*.xls  binary
+*.xlsx binary
+*.xlsm binary
+*.xlsb binary
+*.ods  binary
