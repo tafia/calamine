@@ -2405,9 +2405,10 @@ where
                 if is_hyperlink {
                     if let Some(id) = id.filter(|id| !id.is_empty()) {
                         let id = id.to_string();
-                        let target = target
-                            .map(|t| unescape_xml(t).into_owned())
-                            .unwrap_or_default();
+                        let target = match target {
+                            Some(t) => unescape_xml(&decode_attr(t)?).into_owned(),
+                            None => String::new(),
+                        };
                         rels.insert(id, target);
                     }
                 }
@@ -2456,13 +2457,13 @@ where
                             range = Some(get_dimension(val)?);
                         }
                         "location" => {
-                            location = Some(unescape_xml(val).into_owned());
+                            location = Some(unescape_xml(&decode_attr(val)?).into_owned());
                         }
                         "display" => {
-                            displayed_text = Some(unescape_xml(val).into_owned());
+                            displayed_text = Some(unescape_xml(&decode_attr(val)?).into_owned());
                         }
                         "tooltip" => {
-                            tooltip = Some(unescape_xml(val).into_owned());
+                            tooltip = Some(unescape_xml(&decode_attr(val)?).into_owned());
                         }
                         // Match on the local name; the namespace prefix
                         // for the relationships namespace is conventionally

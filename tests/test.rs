@@ -3506,6 +3506,33 @@ fn test_hyperlinks_xlsx() {
 }
 
 #[test]
+fn test_hyperlinks_xlsx_escaped_attributes() {
+    let mut excel: Xlsx<_> = wb("hyperlinks_escaped.xlsx");
+
+    let hyperlinks = excel
+        .hyperlinks_by_sheet_name("Links")
+        .expect("hyperlinks parse");
+
+    let by_range = |row, col| {
+        hyperlinks
+            .iter()
+            .find(|h| h.range == Dimensions::new((row, col), (row, col)))
+            .unwrap_or_else(|| panic!("no hyperlink at ({row}, {col})"))
+    };
+
+    assert_eq!(
+        by_range(0, 0).target.as_deref(),
+        Some("https://example.com/search?q=a&page=2")
+    );
+
+    let a2 = by_range(1, 0);
+    assert_eq!(a2.tooltip.as_deref(), Some("Rust & Cargo"));
+    assert_eq!(a2.displayed_text.as_deref(), Some("\"Rust\" <home> &amp;"));
+
+    assert_eq!(by_range(2, 0).location.as_deref(), Some("'R&D'!B5"));
+}
+
+#[test]
 fn test_whitespace_trim_inline_str() {
     // inlineStr cells: whitespace trimmed unless xml:space="preserve"
     let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
