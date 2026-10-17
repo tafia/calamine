@@ -10,6 +10,7 @@ use std::io::{Read, Seek};
 
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
 use zip::read::ZipArchive;
+use zip::result::ZipResult;
 
 const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _x00HH_.
 
@@ -173,13 +174,16 @@ pub(crate) fn unescape_xml(original: &str) -> Cow<'_, str> {
 }
 
 /// Build a lookup cache mapping lowercased normalized paths to original ZIP entry names.
-pub fn build_zip_path_cache<RS: Read + Seek>(zip: &ZipArchive<RS>) -> HashMap<String, String> {
+pub fn build_zip_path_cache<RS: Read + Seek>(
+    zip: &ZipArchive<RS>,
+) -> ZipResult<HashMap<String, String>> {
     let mut cache = HashMap::with_capacity(zip.len());
     for zip_path in zip.file_names() {
+        let zip_path = zip_path?;
         let normalized = zip_path.replace('\\', "/").to_ascii_lowercase();
         cache.insert(normalized, zip_path.to_string());
     }
-    cache
+    Ok(cache)
 }
 
 /// Look up a path in the cache, falling back to the path itself.
