@@ -608,6 +608,33 @@ fn formula_xls() {
 }
 
 #[test]
+fn formula_xls_relative_references_match_the_xlsx_they_were_written_from() {
+    // relative_references.xls was written by LibreOffice from the .xlsx, whose
+    // formula text is stored verbatim. It holds every mix of `$` in plain, area
+    // and 3-D references, and two filled-down columns LibreOffice stores as
+    // shared formulas, so their references are PtgRefN and PtgAreaN offsets.
+    let mut xls: Xls<_> = wb("relative_references.xls");
+    let mut xlsx: Xlsx<_> = wb("relative_references.xlsx");
+    let formula = xls.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(formula, xlsx.worksheet_formula("Sheet1").unwrap());
+
+    let at = |cell: &str| {
+        let (col, row) = cell.split_at(1);
+        let pos = (
+            row.parse::<u32>().unwrap() - 1,
+            col.as_bytes()[0] as u32 - 65,
+        );
+        formula.get_value(pos).unwrap().clone()
+    };
+    assert_eq!(at("F1"), "$A2+B$1");
+    assert_eq!(at("F3"), "SUM($A2:B$3)");
+    assert_eq!(at("F5"), "Data!$B2+Data!C$1");
+    assert_eq!(at("F6"), "SUM(Data!$A1:B$4)");
+    assert_eq!(at("H7"), "$A7*B$1+C7");
+    assert_eq!(at("I7"), "SUM(A$1:$B7)");
+}
+
+#[test]
 fn formula_ods() {
     let mut excel: Ods<_> = wb("issues.ods");
     for s in excel.sheet_names() {
