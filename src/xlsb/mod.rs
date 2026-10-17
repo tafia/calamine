@@ -473,7 +473,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         check_for_password_protected(&mut reader)?;
 
         let zip = ZipArchive::new(reader)?;
-        let zip_path_cache = build_zip_path_cache(&zip);
+        let zip_path_cache = build_zip_path_cache(&zip)?;
         let mut xlsb = Xlsb {
             zip,
             sheets: Vec::new(),

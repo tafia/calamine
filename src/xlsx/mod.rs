@@ -2529,7 +2529,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         check_for_password_protected(&mut reader)?;
 
         let zip = ZipArchive::new(reader)?;
-        let zip_path_cache = build_zip_path_cache(&zip);
+        let zip_path_cache = build_zip_path_cache(&zip)?;
         let mut xlsx = Xlsx {
             zip,
             xl_path: "xl/".to_string(),
@@ -4519,7 +4519,7 @@ mod tests {
         let zip_size = zip_writer.finish().unwrap().position() as usize;
 
         let zip = ZipArchive::new(std::io::Cursor::new(&buf[..zip_size])).unwrap();
-        let zip_path_cache = build_zip_path_cache(&zip);
+        let zip_path_cache = build_zip_path_cache(&zip).unwrap();
         let mut xlsx = Xlsx {
             zip,
             xl_path: "xl/".to_string(),
