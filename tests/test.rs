@@ -3776,3 +3776,16 @@ fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
         Some(&Data::String("VALUE C6".to_string()))
     );
 }
+
+// Test for an xls file with a 16 byte DIMENSIONS record instead of 14 bytes.
+// The file is from the govdocs1 corpus, via the Apache POI test files. See
+// issue #577.
+#[test]
+fn test_xls_dimensions_16_bytes() {
+    let mut excel: Xls<_> = wb("issue_577_dimensions_16_bytes.xls");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    assert_eq!(range.used_cells().count(), 232);
+    assert_eq!(range.get_value((11, 1)), Some(&Float(167943.0)));
+    assert_eq!(range.get_value((35, 0)), Some(&String("TOTAL".to_string())));
+}
