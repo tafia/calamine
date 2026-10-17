@@ -816,7 +816,9 @@ fn parse_lbl(
             // BIFF5 and earlier: plain byte string, no flags byte
             encoding.decode_to(&r.data[14..], cch, &mut name, None);
         }
-        Biff::Biff8 => read_unicode_string_no_cch(encoding, &r.data[14..], &cch, &mut name),
+        Biff::Biff8 => {
+            read_unicode_string_no_cch(encoding, &r.data[14..], cch, &mut name)?;
+        }
     }
     let rgce = &r.data[r.data.len() - cce..];
     let formula = parse_defined_names(rgce, biff)?;
@@ -1265,8 +1267,35 @@ fn read_dbcs(
     Ok(s)
 }
 
-fn read_unicode_string_no_cch(encoding: &XlsEncoding, buf: &[u8], len: &usize, s: &mut String) {
-    encoding.decode_to(&buf[1..=*len], *len, s, Some(buf[0] & 0x1 != 0));
+/// Reads an `XLUnicodeStringNoCch` of `len` characters and
+/// returns the number of bytes consumed.
+///
+/// The character data is 1 byte per character when `fHighByte` is 0, and
+/// 2 bytes per character (UTF-16LE) when `fHighByte` is 1.
+fn read_unicode_string_no_cch(
+    encoding: &XlsEncoding,
+    buf: &[u8],
+    len: usize,
+    s: &mut String,
+) -> Result<usize, XlsError> {
+    let Some(&flags) = buf.first() else {
+        return Err(XlsError::Len {
+            expected: 1,
+            found: 0,
+            typ: "XLUnicodeStringNoCch",
+        });
+    };
+    let high_byte = flags & 0x1 != 0;
+    let consumed = 1 + if high_byte { 2 * len } else { len };
+    if buf.len() < consumed {
+        return Err(XlsError::Len {
+            expected: consumed,
+            found: buf.len(),
+            typ: "XLUnicodeStringNoCch",
+        });
+    }
+    encoding.decode_to(&buf[1..consumed], len, s, Some(high_byte));
+    Ok(consumed)
 }
 
 struct Record<'a> {
@@ -1592,10 +1621,18 @@ fn parse_formula(
             0x17 => {
                 stack.push(formula.len());
                 formula.push('\"');
-                let cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
+                // PtgStr: cch (1 byte) followed by an XLUnicodeStringNoCch
+                let Some(&cch) = rgce.first() else {
+                    return Err(XlsError::Len {
+                        expected: 1,
+                        found: 0,
+                        typ: "PtgStr",
+                    });
+                };
+                let consumed =
+                    read_unicode_string_no_cch(encoding, &rgce[1..], cch as usize, &mut formula)?;
                 formula.push('\"');
-                rgce = &rgce[2 + cch..];
+                rgce = &rgce[1 + consumed..];
             }
             0x18 => {
                 rgce = &rgce[5..];

@@ -550,6 +550,22 @@ fn formula_xlsb() {
 }
 
 #[test]
+fn formula_xls_utf16_string() {
+    // PtgStr operands stored as UTF-16 (fHighByte = 1) take 2 bytes per
+    // character. "舗" (U+8217) is encoded as `17 82`, which used to be misread
+    // as another PtgStr (0x17) of 0x82 characters and panicked.
+    let mut excel: Xls<_> = wb("formula-utf16-string.xls");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [[String("店舗".to_string()), Float(100.), Float(100.)]]
+    );
+
+    let formula = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(formula, [["IF(A1=\"店舗\",B1,0)".to_string()]]);
+}
+
+#[test]
 fn formula_vals_xlsb() {
     let mut excel: Xlsb<_> = wb("issue_182.xlsb");
     let range = excel.worksheet_range("formula_vals").unwrap();
