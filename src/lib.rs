@@ -228,6 +228,68 @@ pub struct Metadata {
     names: Vec<(String, String)>,
 }
 
+/// Workbook document properties.
+///
+/// Depending on the file format, these fields may be read from workbook-level
+/// document property parts.
+///
+/// Most fields are optional because they depend on the file format and
+/// whether the producing application wrote them.
+#[derive(Debug, Default, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct WorkbookProperties {
+    /// Creator (dc:creator).
+    pub creator: Option<String>,
+
+    /// Last modifier (cp:lastModifiedBy).
+    pub last_modified_by: Option<String>,
+
+    /// Creation date (dcterms:created).
+    pub created: Option<String>,
+
+    /// Modification date (dcterms:modified).
+    pub modified: Option<String>,
+
+    /// Title (dc:title).
+    pub title: Option<String>,
+
+    /// Subject (dc:subject).
+    pub subject: Option<String>,
+
+    /// Description/comments (dc:description).
+    pub description: Option<String>,
+
+    /// Keywords (dc:keywords).
+    pub keywords: Option<String>,
+
+    /// Category (dc:category).
+    pub category: Option<String>,
+
+    /// Content status (cp:contentStatus).
+    pub content_status: Option<String>,
+
+    /// Revision (cp:revision).
+    pub revision: Option<String>,
+
+    /// Version (cp:version).
+    pub version: Option<String>,
+
+    /// Application name (ap:Application).
+    pub application: Option<String>,
+
+    /// Application version (ap:AppVersion).
+    pub app_version: Option<String>,
+
+    /// Company (ap:Company).
+    pub company: Option<String>,
+
+    /// Template (ap:Template).
+    pub template: Option<String>,
+
+    /// Manager (ap:Manager).
+    pub manager: Option<String>,
+}
+
 /// Type of sheet.
 ///
 /// Only Excel formats support this. Default value for ODS is
