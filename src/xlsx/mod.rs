@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod cells_reader;
+mod fast;
 
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
@@ -2576,6 +2577,22 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsxError> {
+        // 快速路径：无前缀的标准 SpreadsheetML 走流式切块 + 并行解析；
+        // 任何不确定的结构返回 None，回退到下面的 quick-xml 路径
+        if let Some((_, path)) = self.sheets.iter().find(|&(n, _)| n == name) {
+            let header_row = self.options.header_row;
+            if let Some(range) = fast::try_worksheet_range(
+                &mut self.zip,
+                &self.zip_path_cache,
+                path,
+                &self.strings,
+                &self.formats,
+                self.is_1904,
+                header_row,
+            ) {
+                return Ok(range);
+            }
+        }
         let rge = self.worksheet_range_ref(name)?;
         let inner = rge.inner.into_iter().map(|v| v.into()).collect();
         Ok(Range {
