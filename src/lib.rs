@@ -259,10 +259,10 @@ pub struct WorkbookProperties {
     /// Description/comments (dc:description).
     pub description: Option<String>,
 
-    /// Keywords (dc:keywords).
+    /// Keywords (cp:keywords).
     pub keywords: Option<String>,
 
-    /// Category (dc:category).
+    /// Category (cp:category).
     pub category: Option<String>,
 
     /// Content status (cp:contentStatus).
