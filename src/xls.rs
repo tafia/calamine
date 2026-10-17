@@ -1593,9 +1593,23 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push('\"');
                 let cch = rgce[0] as usize;
-                read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
-                formula.push('\"');
-                rgce = &rgce[2 + cch..];
+                if is_pre_biff8 {
+                    // Before BIFF8, PtgStr has no flags byte.
+                    if rgce.len() < 1 + cch {
+                        return Err(XlsError::Len {
+                            expected: 1 + cch,
+                            found: rgce.len(),
+                            typ: "PtgStr",
+                        });
+                    }
+                    encoding.decode_to(&rgce[1..1 + cch], cch, &mut formula, None);
+                    formula.push('\"');
+                    rgce = &rgce[1 + cch..];
+                } else {
+                    read_unicode_string_no_cch(encoding, &rgce[1..], &cch, &mut formula);
+                    formula.push('\"');
+                    rgce = &rgce[2 + cch..];
+                }
             }
             0x18 => {
                 rgce = &rgce[5..];

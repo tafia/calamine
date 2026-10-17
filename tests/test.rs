@@ -3264,6 +3264,10 @@ fn test_xls_truncated_ptgexp() {
 
     let formulas = excel.worksheet_formula("Tab 1").unwrap();
     assert_eq!(formulas.used_cells().count(), 22);
+    assert_eq!(
+        formulas.get_value((23, 0)).map(|s| s.as_str()),
+        Some("CELL(\"filename\")")
+    );
 }
 
 #[test]
