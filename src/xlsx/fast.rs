@@ -306,12 +306,147 @@ fn parse_inline_str(content: &[u8]) -> Res<String> {
                     None => rich = Some(value),
                 }
             }
-            // legacy 对 is 内不认识的开始标签一律忽略（只跳过标签本身）
-            _ => {}
+            // legacy 对 is 内不认识的开始标签一律忽略（只跳过标签本身）；
+            // 带前缀的标签回退，避免静默漏掉内容
+            _ => {
+                if tag.name.contains(&b':') {
+                    return Err(FastErr);
+                }
+            }
         }
     }
     // 内容由调用者截到 </is> 为止，扫完即结束；无 <t> 的空 <is> 是合法空字符串
     Ok(rich.unwrap_or_default())
+}
+
+// ---------------------------------------------------------------- sharedStrings.xml
+
+/// 并行解析 sharedStrings.xml；`None` 表示结构不认识，调用方回退 quick-xml。
+pub(crate) fn try_shared_strings<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    cache: &HashMap<String, String>,
+    path: &str,
+) -> Option<Vec<String>> {
+    let mut entry = zip.by_name(cached_zip_path(cache, path)).ok()?;
+    // 整份读入（字符串总量本来就和文件同量级）；异常大的交给流式路径
+    if entry.size() > 512 * 1024 * 1024 {
+        return None;
+    }
+    let mut data = Vec::with_capacity(entry.size() as usize);
+    entry.read_to_end(&mut data).ok()?;
+
+    let scan = si_ranges(&data)?;
+    if scan.unique_count.is_some_and(|n| n != scan.ranges.len()) {
+        return None; // 切分结果和声明的数量对不上：回退
+    }
+    let parsed: Result<Vec<String>, FastErr> = scan
+        .ranges
+        .par_iter()
+        .map(|&(s, e)| {
+            if s == EMPTY_SI {
+                Ok(String::new()) // <si/>
+            } else {
+                parse_inline_str(&data[s..e])
+            }
+        })
+        .collect();
+    parsed.ok()
+}
+
+/// 自闭合 `<si/>` 的占位标记
+const EMPTY_SI: usize = usize::MAX;
+
+/// sharedStrings.xml 的扫描结果。
+struct SiScan {
+    /// 每个 `<si>` 的内容范围；`EMPTY_SI` 标记自闭合的 `<si/>`
+    ranges: Vec<(usize, usize)>,
+    /// `<sst uniqueCount="...">` 声明的数量，用来校验切分
+    unique_count: Option<usize>,
+}
+
+/// 扫描出每个 `<si>...</si>` 的内容范围。
+/// 只接受简单结构（无命名空间前缀、无 DOCTYPE、标签配对）；其他情况返回 None。
+fn si_ranges(data: &[u8]) -> Option<SiScan> {
+    let mut ranges = Vec::new();
+    let mut unique_count = None;
+    let mut depth = 0usize;
+    let mut si_start: Option<usize> = None;
+    let mut saw_sst = false;
+    let mut pos = 0;
+    while let Some(i) = memchr(b'<', &data[pos..]) {
+        let rest = &data[pos + i..];
+        if rest.starts_with(b"<!--") {
+            let e = memmem::find(rest, b"-->")?;
+            pos += i + e + 3;
+            continue;
+        }
+        if rest.starts_with(b"<![CDATA[") {
+            let e = memmem::find(rest, b"]]>")?;
+            pos += i + e + 3;
+            continue;
+        }
+        if rest.starts_with(b"<?") {
+            let e = memmem::find(rest, b"?>")?;
+            pos += i + e + 2;
+            continue;
+        }
+        if rest.starts_with(b"<!") {
+            return None; // DOCTYPE 等
+        }
+        if rest.starts_with(b"</") {
+            let (name, used) = parse_end_tag(rest).ok()?;
+            if name.contains(&b':') {
+                return None;
+            }
+            if name == b"si" {
+                if depth != 2 {
+                    return None;
+                }
+                ranges.push((si_start.take()?, pos + i));
+            }
+            depth = depth.checked_sub(1)?;
+            pos += i + used;
+            continue;
+        }
+        let (tag, used) = parse_start_tag(rest).ok()?;
+        if tag.name.contains(&b':') {
+            return None;
+        }
+        if tag.name == b"sst" {
+            if depth != 0 {
+                return None;
+            }
+            saw_sst = true;
+            if let Some(raw) = attr(tag.attrs, b"uniqueCount") {
+                if let Ok(n) = atoi_simd::parse::<usize, true, false>(raw) {
+                    unique_count = Some(n);
+                }
+            }
+            if !tag.self_closing {
+                depth = 1;
+            }
+        } else if tag.name == b"si" {
+            if depth != 1 {
+                return None;
+            }
+            if tag.self_closing {
+                ranges.push((EMPTY_SI, EMPTY_SI));
+            } else {
+                depth = 2;
+                si_start = Some(pos + i + used);
+            }
+        } else if !tag.self_closing {
+            depth += 1;
+        }
+        pos += i + used;
+    }
+    if !saw_sst || depth != 0 || si_start.is_some() {
+        return None;
+    }
+    Some(SiScan {
+        ranges,
+        unique_count,
+    })
 }
 
 // ---------------------------------------------------------------- 单元格值
@@ -912,6 +1047,60 @@ mod tests {
     use super::*;
     use crate::{Reader, ReaderRef};
     use std::fs::File;
+
+    /// sharedStrings 快速路径与流式路径在全部 fixture 上一致
+    #[test]
+    fn fast_shared_strings_matches_legacy_on_fixtures() {
+        use std::io::BufReader;
+        let pattern = format!(
+            "{}/tests/*.xls*",
+            env!("CARGO_MANIFEST_DIR").replace('\\', "/")
+        );
+        let mut checked = 0;
+        for entry in glob::glob(&pattern).unwrap() {
+            let path = entry.unwrap();
+            let Ok(file) = File::open(&path) else {
+                continue;
+            };
+            let Ok(mut wb) = Xlsx::<BufReader<File>>::new(BufReader::new(file)) else {
+                continue;
+            };
+            if wb.strings.is_empty() {
+                continue;
+            }
+            let fast = std::mem::take(&mut wb.strings);
+            let legacy_path = format!("{}sharedStrings.xml", wb.xl_path);
+            wb.read_shared_strings_legacy(&legacy_path).unwrap();
+            assert_eq!(wb.strings, fast, "SST mismatch in {path:?}");
+            checked += 1;
+        }
+        assert!(
+            checked > 10,
+            "expected fixtures with shared strings, got {checked}"
+        );
+    }
+
+    #[test]
+    fn shared_string_ranges() {
+        let data = br#"<?xml version="1.0"?><sst uniqueCount="3"><si><t>a</t></si><si/><si><r><t>b</t></r><rPh><t>x</t></rPh></si></sst>"#;
+        let scan = si_ranges(data).unwrap();
+        assert_eq!(scan.unique_count, Some(3));
+        assert_eq!(scan.ranges.len(), 3);
+        let strings: Vec<String> = scan
+            .ranges
+            .iter()
+            .map(|&(s, e)| {
+                if s == EMPTY_SI {
+                    String::new()
+                } else {
+                    parse_inline_str(&data[s..e]).unwrap()
+                }
+            })
+            .collect();
+        assert_eq!(strings, vec!["a", "", "b"]);
+        // 带前缀的文档回退
+        assert!(si_ranges(br#"<x:sst><x:si><x:t>a</x:t></x:si></x:sst>"#).is_none());
+    }
 
     /// 对 tests/ 下所有 xlsx/xlsm fixture：fast path 能解析的，输出必须和
     /// legacy 路径（worksheet_range_ref）完全一致；处理不了的必须回退（None）。
