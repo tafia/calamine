@@ -954,6 +954,83 @@ fn date_xlsx() {
     }
 }
 
+// The first 19 rows use built-in formats 27-36 and 50-58 without explicit
+// definitions. Each row contains 45306, 0.5, and 45306.123456789; the XLS
+// fixture includes integer RK and floating NUMBER records.
+#[rstest]
+#[case("date_east_asian.xlsx", Float(45306.0))]
+#[case("date_east_asian.xls", Int(45306))]
+fn date_east_asian_builtin_formats(#[case] test_file: &str, #[case] general_value: Data) {
+    let mut workbook = open_workbook_auto(test_path(test_file)).unwrap();
+    let range = workbook.worksheet_range_at(0).unwrap().unwrap();
+    let serial_values = [45306.0, 0.5, 45306.123456789];
+
+    for (row, format_id) in (27..=36).chain(50..=58).enumerate() {
+        for (column, value) in serial_values.iter().enumerate() {
+            let expected = DateTime(ExcelDateTime::new(
+                *value,
+                ExcelDateTimeType::DateTime,
+                false,
+            ));
+            assert_eq!(
+                range.get_value((row as u32, column as u32)),
+                Some(&expected),
+                "{test_file}: built-in format {format_id}, column {column}"
+            );
+        }
+    }
+
+    // General and a custom numeric format must preserve ordinary numbers.
+    for row in [19, 27] {
+        assert_eq!(range.get_value((row, 0)), Some(&general_value));
+        assert_eq!(range.get_value((row, 1)), Some(&Float(0.5)));
+        assert_eq!(range.get_value((row, 2)), Some(&Float(45306.123456789)));
+    }
+
+    // Standard formats 14/20/22, Chinese custom dates, and custom clock time
+    // all use the existing DateTime category. Format 46 and [h]:mm:ss are durations.
+    for (row, datetime_type) in [
+        (20, ExcelDateTimeType::DateTime),  // Built-in 14: date.
+        (21, ExcelDateTimeType::DateTime),  // Built-in 20: clock time.
+        (22, ExcelDateTimeType::DateTime),  // Built-in 22: date and time.
+        (23, ExcelDateTimeType::TimeDelta), // Built-in 46: elapsed time.
+        (24, ExcelDateTimeType::DateTime),  // Chinese custom date.
+        (25, ExcelDateTimeType::TimeDelta), // Custom [h]:mm:ss.
+        (26, ExcelDateTimeType::DateTime),  // Custom hh:mm:ss.
+    ] {
+        for (column, value) in serial_values.iter().enumerate() {
+            let expected = DateTime(ExcelDateTime::new(*value, datetime_type, false));
+            assert_eq!(
+                range.get_value((row, column as u32)),
+                Some(&expected),
+                "{test_file}: control row {row}, column {column}"
+            );
+        }
+    }
+}
+
+#[test]
+fn date_east_asian_explicit_formats() {
+    let mut workbook: Xlsx<_> = wb("date_east_asian_explicit.xlsx");
+    let range = workbook.worksheet_range_at(0).unwrap().unwrap();
+
+    for (column, value) in [45306.0, 0.5, 45306.123456789].iter().enumerate() {
+        // Explicit General on ID 27 and numeric format on ID 14 take precedence.
+        for row in [0, 1] {
+            assert_eq!(range.get_value((row, column as u32)), Some(&Float(*value)));
+        }
+        // Explicit date on ID 0 and clock time on ID 32 also take precedence.
+        let expected = DateTime(ExcelDateTime::new(
+            *value,
+            ExcelDateTimeType::DateTime,
+            false,
+        ));
+        for row in [2, 3] {
+            assert_eq!(range.get_value((row, column as u32)), Some(&expected));
+        }
+    }
+}
+
 // Regression test: a custom number format whose `formatCode` contains
 // quoted literal text (e.g. `mmmm" "yyyy`) is stored in styles.xml with
 // `&quot;` XML entity references. The format detection must therefore
