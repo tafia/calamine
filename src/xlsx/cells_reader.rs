@@ -643,7 +643,7 @@ fn read_v<'s>(
                     "Cell string index not found in shared strings table",
                 ))
         }
-        Some("b") => Ok(DataRef::Bool(v != "0")),
+        Some("b") => read_bool(v),
         Some("d") => Ok(DataRef::DateTimeIso(v.to_string())),
         Some("e") => Ok(DataRef::Error(v.parse()?)),
         Some("str") => Ok(DataRef::String(unescape_xml(v).into_owned())),
@@ -693,5 +693,58 @@ where
             Ok(Some(f))
         }
         _ => Err(XlsxError::UnexpectedNode("v, f, or is")),
+    }
+}
+
+/// Parse the `<v>` value of a `t="b"` boolean cell.
+///
+/// Excel only writes `0` or `1` for booleans but the value is defined in an XML
+/// Schema boolean so `false` and `true` are also accepted. Any other value is
+/// an error.
+fn read_bool<'s>(v: &str) -> Result<DataRef<'s>, XlsxError> {
+    let value = v.trim();
+
+    if value.is_empty() {
+        Ok(DataRef::Empty)
+    } else if value == "0" || value.eq_ignore_ascii_case("false") {
+        Ok(DataRef::Bool(false))
+    } else if value == "1" || value.eq_ignore_ascii_case("true") {
+        Ok(DataRef::Bool(true))
+    } else {
+        Err(XlsxError::Unrecognized {
+            typ: "boolean cell value",
+            val: v.to_string(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test that boolean cell values accept the XML Schema boolean forms and
+    // reject anything else instead of decoding it as true. See issue #724.
+    #[test]
+    fn test_read_bool_cell_values() {
+        for value in ["0", "false", "FALSE", "False", " 0 "] {
+            assert_eq!(read_bool(value).unwrap(), DataRef::Bool(false), "{value:?}");
+        }
+
+        for value in ["1", "true", "TRUE", "True", " 1 "] {
+            assert_eq!(read_bool(value).unwrap(), DataRef::Bool(true), "{value:?}");
+        }
+
+        assert_eq!(read_bool("").unwrap(), DataRef::Empty);
+        assert_eq!(read_bool("  ").unwrap(), DataRef::Empty);
+
+        for value in ["00", "0.0", "-1", "2", "banana", "#REF!"] {
+            assert!(
+                matches!(
+                    read_bool(value),
+                    Err(XlsxError::Unrecognized { typ: "boolean cell value", ref val }) if val == value
+                ),
+                "{value:?}"
+            );
+        }
     }
 }

@@ -3875,3 +3875,32 @@ fn test_xls_cfb_huge_sector_counts() {
     let result = open_workbook::<Xls<_>, _>(test_path("issue_714.xls"));
     assert!(matches!(result, Err(XlsError::Cfb(_))));
 }
+
+// Test that boolean cells accept 0, 1, false and true, case-insensitively, and
+// that any other value is reported as an error instead of being decoded as
+// true. See issue #724.
+#[test]
+fn test_xlsx_bool_cell_values() {
+    let mut excel: Xlsx<_> = wb("issue_724.xlsx");
+
+    // Reading the range fails on the first invalid boolean, "00" in cell G1.
+    let result = excel.worksheet_range("Sheet1");
+    assert!(matches!(
+        result,
+        Err(calamine::XlsxError::Unrecognized { typ: "boolean cell value", ref val }) if val == "00"
+    ));
+
+    // The valid cells before it decode correctly.
+    let mut cells = excel.worksheet_cells_reader("Sheet1").unwrap();
+
+    for (col, expected) in [false, true, false, true, false, true].iter().enumerate() {
+        let cell = cells.next_cell().unwrap().unwrap();
+        assert_eq!(cell.get_position(), (0, col as u32));
+        assert_eq!(*cell.get_value(), DataRef::Bool(*expected));
+    }
+
+    assert!(matches!(
+        cells.next_cell(),
+        Err(calamine::XlsxError::Unrecognized { .. })
+    ));
+}
