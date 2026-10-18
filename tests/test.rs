@@ -260,41 +260,21 @@ fn ods_covered() {
     );
 }
 
-#[rstest]
-#[case(r#"office:string-value="" calcext:value-type="error""#, "#DIV/0!")]
-#[case(r#"calcext:value-type="error" office:string-value="""#, "#DIV/0!")]
-#[case(r#"office:string-value="""#, "")]
-#[case(r#"office:string-value="cached" calcext:value-type="error""#, "cached")]
-fn ods_cached_error_text(#[case] attributes: &str, #[case] expected: &str) {
-    use std::io::Write;
-    use zip::write::SimpleFileOptions;
-
-    let content = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-        <office:document-content
-            xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
-            xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
-            xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
-            xmlns:calcext="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0">
-          <office:body><office:spreadsheet><table:table table:name="Sheet1">
-            <table:table-row><table:table-cell office:value-type="string" table:formula="of:=1/0" {attributes}><text:p>#DIV/0!</text:p></table:table-cell></table:table-row>
-          </table:table></office:spreadsheet></office:body>
-        </office:document-content>"#
+#[test]
+fn ods_cached_error_text() {
+    let mut excel: Ods<_> = wb("cached_error_text.ods");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [
+            [String("#DIV/0!".to_string())],
+            [String("#DIV/0!".to_string())],
+            [String("".to_string())],
+            [String("cached".to_string())],
+        ]
     );
-    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    for (name, data) in [
-        ("mimetype", "application/vnd.oasis.opendocument.spreadsheet"),
-        ("META-INF/manifest.xml", "<manifest:manifest/>"),
-        ("content.xml", content.as_str()),
-    ] {
-        zip.start_file(name, SimpleFileOptions::default()).unwrap();
-        zip.write_all(data.as_bytes()).unwrap();
-    }
-    let mut ods = Ods::new(zip.finish().unwrap()).unwrap();
-    let range = ods.worksheet_range("Sheet1").unwrap();
-    assert_eq!(range.get_value((0, 0)), Some(&String(expected.to_string())));
-    let formulas = ods.worksheet_formula("Sheet1").unwrap();
-    assert_eq!(formulas.get_value((0, 0)).unwrap(), "of:=1/0");
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(formulas, [["of:=1/0"]; 4]);
 }
 
 #[test]
