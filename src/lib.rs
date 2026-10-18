@@ -235,6 +235,10 @@ pub struct Metadata {
 ///
 /// Most fields are optional because they depend on the file format and
 /// whether the producing application wrote them.
+///
+/// See [`Xlsx::workbook_properties()`](crate::Xlsx::workbook_properties)
+/// for an example.
+///
 #[derive(Debug, Default, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct WorkbookProperties {

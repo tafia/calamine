@@ -548,9 +548,61 @@ impl<RS: Read + Seek> Xlsx<RS> {
         Ok(())
     }
 
-    /// Get workbook document properties.
+    /// Get the workbook document properties.
     ///
-    /// Missing fields are returned as `None`.
+    /// Read the document properties, such as the creator, title, application
+    /// and company, from the `docProps/core.xml` and `docProps/app.xml` parts
+    /// of the workbook into a [`WorkbookProperties`] struct. Missing fields
+    /// are returned as `None`.
+    ///
+    /// # Examples
+    ///
+    /// An example of reading the document properties from an Excel workbook.
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsx};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/workbook_properties.xlsx";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
+    ///
+    ///     // Read the document properties.
+    ///     let props = workbook.workbook_properties()?;
+    ///
+    ///     println!("Workbook properties:");
+    ///     println!("  creator: {:?}", props.creator);
+    ///     println!("  last_modified_by: {:?}", props.last_modified_by);
+    ///     println!("  created: {:?}", props.created);
+    ///     println!("  modified: {:?}", props.modified);
+    ///     println!("  title: {:?}", props.title);
+    ///     println!("  application: {:?}", props.application);
+    ///     println!("  app_version: {:?}", props.app_version);
+    ///     println!("  company: {:?}", props.company);
+    ///     println!("  template: {:?}", props.template);
+    ///     println!("  manager: {:?}", props.manager);
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Workbook properties:
+    ///   creator: Some("Test Creator")
+    ///   last_modified_by: Some("Last Modifier")
+    ///   created: Some("2024-01-15T08:30:00Z")
+    ///   modified: Some("2024-06-20T14:22:00Z")
+    ///   title: Some("Workbook Title")
+    ///   application: Some("Microsoft Excel")
+    ///   app_version: Some("16.0300")
+    ///   company: Some("Contoso & Co")
+    ///   template: Some("Book.xltx")
+    ///   manager: Some("Jane Doe")
+    /// ```
+    ///
     pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, XlsxError> {
         if self.workbook_properties.is_none() {
             let mut props = WorkbookProperties::default();

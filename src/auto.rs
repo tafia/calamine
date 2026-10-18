@@ -30,7 +30,17 @@ pub enum Sheets<RS> {
 }
 
 impl<RS: std::io::Read + std::io::Seek> Sheets<RS> {
-    /// Get workbook document properties for formats that support them.
+    /// Get the workbook document properties.
+    ///
+    /// Read the document properties, such as the creator, title, application
+    /// and company, into a [`WorkbookProperties`] struct. Missing fields are
+    /// returned as `None`.
+    ///
+    /// Document properties are only supported for the [`Xlsx`] and [`Xlsb`]
+    /// readers. The [`Xls`] and [`Ods`] readers return an error.
+    ///
+    /// See [`Xlsx::workbook_properties()`] for an example.
+    ///
     pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, Error> {
         match self {
             Sheets::Xlsx(e) => e.workbook_properties().map_err(Error::Xlsx),

@@ -10,13 +10,19 @@
 //! Run the example like this:
 //!
 //! ```text
-//! $ cargo run -q --example read_properties -- tests/issues.xlsx
+//! $ cargo run -q --example read_properties -- tests/workbook_properties.xlsx
 //!
 //! Workbook properties:
-//!   creator: Some("Johann Tuffe")
-//!   last_modified_by: Some("Johann Tuffe")
+//!   creator: Some("Test Creator")
+//!   last_modified_by: Some("Last Modifier")
+//!   created: Some("2024-01-15T08:30:00Z")
+//!   modified: Some("2024-06-20T14:22:00Z")
+//!   title: Some("Workbook Title")
 //!   application: Some("Microsoft Excel")
-//!   company: Some("SOCIETE GENERALE")
+//!   app_version: Some("16.0300")
+//!   company: Some("Contoso & Co")
+//!   template: Some("Book.xltx")
+//!   manager: Some("Jane Doe")
 //! ```
 
 use calamine::open_workbook_auto;

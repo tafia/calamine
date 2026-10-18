@@ -6,6 +6,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.37.0] - 2026-10-18
+
+### Changed
+
+- Updated dependencies for release 0.37.0:
+
+  - `zip`: 8.6 to 9.0, since the 8.x releases were yanked upstream. `ZipError`
+    is part of the public error types, hence the minor version bump. [PR #741].
+  - `quick-xml`: 0.41 to 0.42. [PR #711].
+
+  [PR #741]: https://github.com/tafia/calamine/pull/741
+  [PR #711]: https://github.com/tafia/calamine/pull/711
+
+### Added
+
+- Added `workbook_properties()` methods to `Xlsx`, `Xlsb` and `Sheets` to read
+  the workbook document properties, such as creator, title, and creation date,
+  into a new `WorkbookProperties` struct. [Issue #677] and [PR #685].
+
+  [Issue #677]: https://github.com/tafia/calamine/issues/677
+  [PR #685]: https://github.com/tafia/calamine/pull/685
+
+### Fixed
+
+- Fixed an issue with XLS worksheets that contain nested substreams, such as an
+  embedded chart, leaking the chart cells into the worksheet. [PR #701].
+
+  [PR #701]: https://github.com/tafia/calamine/pull/701
+
+- Fixed an issue where the column letters beyond `Z` in formulas where
+  reconstructed incorrectly. [PR #699].
+
+  [PR #699]: https://github.com/tafia/calamine/pull/699
+
+  [PR #707]: https://github.com/tafia/calamine/pull/707
+
+- Fixed the XLSX 1904 date epoch flag being reset by an `<x15:workbookPr>`
+  extension element. [Issue #706].
+
+  [Issue #706]: https://github.com/tafia/calamine/issues/706
+
+- Fixed an issue to allow XLSX formula string results to decode Excel `_xHHHH_`
+  escapes, in the same way as shared and inline strings. [PR #727].
+
+  [PR #727]: https://github.com/tafia/calamine/pull/727
+
+- Fixed an issue to allow XLSX hyperlink attributes to decode XML entities, so
+  that `&` in a URL is no longer returned as `&amp;`. [PR #728].
+
+  [PR #728]: https://github.com/tafia/calamine/pull/728
+
+- Fixed an XLS panic on a `PtgExp` formula token with a truncated operand.
+  [PR #707].
+
+- Fixed XLS parsing of `PtgStr` formula tokens with UTF-16 string operands.
+  [PR #730].
+
+  [PR #730]: https://github.com/tafia/calamine/pull/730
+
+- Fixed XLS parsing to accept `DIMENSIONS` records with 2 extra trailing bytes.
+  [PR #735].
+
+  [PR #735]: https://github.com/tafia/calamine/pull/735
+
+- Fixed the CFB reader to check the header sector counts before allocating, to
+  avoid huge allocations on corrupt files. [PR #729].
+
+  [PR #729]: https://github.com/tafia/calamine/pull/729
+
+- Fixed the East Asian built-in number formats (ids 27-36 and 50-58) to be
+  recognized as dates and times instead of numbers. [PR #734].
+
+  [PR #734]: https://github.com/tafia/calamine/pull/734
+
+- Fixed a panic in `ExcelDateTime::to_ymd_hms_milli()` for very large serial
+  dates. Values are now limited to 9999-12-31. [Issue #722].
+
+  [Issue #722]: https://github.com/tafia/calamine/issues/722
+
+- Fixed XLSX boolean cells to only accept `0`, `1`, `false` and `true`. Any
+  other value is now an error instead of being read as `true`. [Issue #724].
+
+  [Issue #724]: https://github.com/tafia/calamine/issues/724
+
+
 ## [0.36.1] - 2026-07-27
 
 ### Fixed

@@ -441,9 +441,16 @@ impl<RS: Read + Seek> Xlsb<RS> {
         )
     }
 
-    /// Get workbook document properties.
+    /// Get the workbook document properties.
     ///
-    /// Missing fields are returned as `None`.
+    /// Read the document properties, such as the creator, title, application
+    /// and company, from the `docProps/core.xml` and `docProps/app.xml` parts
+    /// of the workbook into a [`WorkbookProperties`] struct. Missing fields
+    /// are returned as `None`.
+    ///
+    /// See [`Xlsx::workbook_properties()`](crate::Xlsx::workbook_properties)
+    /// for an example.
+    ///
     pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, XlsbError> {
         if self.workbook_properties.is_none() {
             let mut props = WorkbookProperties::default();
