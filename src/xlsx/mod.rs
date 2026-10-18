@@ -30,8 +30,8 @@ use crate::vba::VbaProject;
 #[cfg(feature = "picture")]
 use crate::Picture;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table, WorkbookProperties,
+    Cell, CellErrorType, CustomPropertyValue, Data, Dimensions, HeaderRow, Metadata, Range, Reader,
+    ReaderRef, Sheet, SheetType, SheetVisible, Table, WorkbookProperties,
 };
 pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
@@ -551,7 +551,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Get the workbook document properties.
     ///
     /// Read the document properties, such as the creator, title, application
-    /// and company, from the `docProps/core.xml` and `docProps/app.xml` parts
+    /// and company, and any custom document properties, from the
+    /// `docProps/core.xml`, `docProps/app.xml` and `docProps/custom.xml` parts
     /// of the workbook into a [`WorkbookProperties`] struct. Missing fields
     /// are returned as `None`.
     ///
@@ -608,6 +609,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let mut props = WorkbookProperties::default();
             read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
             read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
+            read_custom_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
             self.workbook_properties = Some(Box::new(props));
         }
         Ok(self
@@ -4786,4 +4788,129 @@ enum DocProperty {
     Company,
     Template,
     Manager,
+}
+
+/// Read the package custom properties (`docProps/custom.xml`).
+pub(crate) fn read_custom_properties<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    props: &mut WorkbookProperties,
+    cache: &HashMap<String, String>,
+) -> Result<(), XlsxError> {
+    let Some(xml) = xml_reader(zip, "docProps/custom.xml", cache) else {
+        return Ok(());
+    };
+    let mut xml = xml?;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut current = None;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.local_name();
+                let name_ref = name.as_ref();
+                if name_ref == "property" {
+                    let mut prop_name = None;
+                    let mut link_target = None;
+                    for attr in e.iter_raw_attrs() {
+                        let (key, val) = attr?;
+                        match key {
+                            "name" => {
+                                prop_name = Some(decode_attr(val)?);
+                            }
+                            "linkTarget" => {
+                                link_target = Some(decode_attr(val)?);
+                            }
+                            _ => {}
+                        }
+                    }
+                    current = Some(CustomPropState {
+                        name: prop_name,
+                        link_target,
+                        kind: None,
+                        value: String::new(),
+                    });
+                } else if let Some(state) = current.as_mut() {
+                    state.kind = match name_ref {
+                        "i4" => Some(CustomPropKind::Int),
+                        "r8" => Some(CustomPropKind::Float),
+                        "bool" => Some(CustomPropKind::Bool),
+                        "filetime" => Some(CustomPropKind::DateTime),
+                        "lpwstr" => Some(CustomPropKind::String),
+                        _ => state.kind,
+                    };
+                }
+            }
+            Ok(Event::Text(t)) => {
+                if let Some(state) = current.as_mut() {
+                    if state.kind.is_some() {
+                        state.value.push_str(&t.xml10_content());
+                    }
+                }
+            }
+            Ok(Event::GeneralRef(r)) => {
+                if let Some(state) = current.as_mut() {
+                    if state.kind.is_some() {
+                        unescape_entity_to_buffer(&r, &mut state.value)?;
+                    }
+                }
+            }
+            Ok(Event::End(e)) => {
+                let name = e.local_name();
+                if name.as_ref() == "property" {
+                    if let Some(mut state) = current.take() {
+                        if let Some(name) = state.name.take() {
+                            if let Some(value) = state.into_value() {
+                                props.custom_properties.insert(name, value);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(XlsxError::Xml(e)),
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+struct CustomPropState {
+    name: Option<String>,
+    link_target: Option<String>,
+    kind: Option<CustomPropKind>,
+    value: String,
+}
+
+impl CustomPropState {
+    fn into_value(self) -> Option<CustomPropertyValue> {
+        let value = self.value.trim();
+        match self.kind? {
+            CustomPropKind::Int => value.parse().ok().map(CustomPropertyValue::Int),
+            CustomPropKind::Float => value.parse().ok().map(CustomPropertyValue::Float),
+            CustomPropKind::Bool => Some(CustomPropertyValue::Bool(parse_bool(value))),
+            CustomPropKind::DateTime => Some(CustomPropertyValue::DateTime(value.to_string())),
+            CustomPropKind::String => {
+                if let Some(target) = self.link_target {
+                    Some(CustomPropertyValue::LinkTarget(target))
+                } else {
+                    Some(CustomPropertyValue::String(value.to_string()))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CustomPropKind {
+    Int,
+    Float,
+    Bool,
+    DateTime,
+    String,
+}
+
+fn parse_bool(value: &str) -> bool {
+    matches!(value, "true" | "1")
 }

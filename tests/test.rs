@@ -5,9 +5,9 @@
 use calamine::vba::Reference;
 use calamine::Data::{Bool, DateTime, DateTimeIso, DurationIso, Empty, Error, Float, Int, String};
 use calamine::{
-    open_workbook, open_workbook_auto, DataRef, DataType, Dimensions, ExcelDateTime,
-    ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    Xls, XlsError, Xlsb, Xlsx, XlsxFormulaMetadata,
+    open_workbook, open_workbook_auto, CustomPropertyValue, DataRef, DataType, Dimensions,
+    ExcelDateTime, ExcelDateTimeType, HeaderRow, Ods, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, Xls, XlsError, Xlsb, Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -3792,6 +3792,76 @@ fn test_xlsx_workbook_properties_missing() {
     assert!(props.last_modified_by.is_none());
     assert!(props.application.is_none());
     assert!(props.company.is_none());
+}
+
+#[test]
+fn test_xlsx_custom_properties() {
+    let mut excel: Xlsx<_> = wb("workbook_custom_properties.xlsx");
+    let props = excel.workbook_properties().expect("workbook properties");
+    let custom = &props.custom_properties;
+
+    assert_eq!(
+        custom.get("MyInt"),
+        Some(&CustomPropertyValue::Int(4)),
+        "Int property"
+    );
+    assert_eq!(
+        custom.get("MyFloat"),
+        Some(&CustomPropertyValue::Float(2.5)),
+        "Float property"
+    );
+    assert_eq!(
+        custom.get("MyBool"),
+        Some(&CustomPropertyValue::Bool(true)),
+        "Bool property"
+    );
+    assert_eq!(
+        custom.get("MyDateTime"),
+        Some(&CustomPropertyValue::DateTime(
+            "2020-08-24T20:19:22Z".to_string()
+        )),
+        "DateTime property"
+    );
+    assert_eq!(
+        custom.get("MyString"),
+        Some(&CustomPropertyValue::String("hello".to_string())),
+        "String property"
+    );
+    assert_eq!(
+        custom.get("MyLink"),
+        Some(&CustomPropertyValue::LinkTarget("SomeName".to_string())),
+        "LinkTarget property"
+    );
+
+    // Accessors / helpers.
+    assert_eq!(custom.get("MyInt").and_then(|v| v.as_i32()), Some(4));
+    assert!((custom.get("MyFloat").and_then(|v| v.as_f64()).unwrap() - 2.5).abs() < f64::EPSILON);
+    assert_eq!(custom.get("MyBool").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        custom.get("MyString").and_then(|v| v.as_str()),
+        Some("hello")
+    );
+    assert_eq!(custom.get("MyInt").map(|v| v.vt_type()), Some("vt:i4"));
+    assert_eq!(
+        custom.get("MyDateTime").map(|v| v.vt_type()),
+        Some("vt:filetime")
+    );
+    assert_eq!(custom.get("MyLink").map(|v| v.vt_type()), Some("vt:lpwstr"));
+    assert_eq!(
+        custom.get("MyString").map(|v| v.to_string()),
+        Some("hello".to_string())
+    );
+}
+
+#[test]
+fn test_xlsb_custom_properties() {
+    let mut excel: Xlsb<_> = wb("issue_182.xlsb");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(
+        props.custom_properties.get("FileName"),
+        Some(&CustomPropertyValue::String("".to_string()))
+    );
 }
 
 #[test]

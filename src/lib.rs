@@ -98,6 +98,7 @@ pub mod vba;
 
 use serde::de::{Deserialize, DeserializeOwned, Deserializer};
 use std::cmp::{max, min};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -292,6 +293,112 @@ pub struct WorkbookProperties {
 
     /// Manager (ap:Manager).
     pub manager: Option<String>,
+
+    /// Custom document properties.
+    pub custom_properties: HashMap<String, CustomPropertyValue>,
+}
+
+/// A custom document property value.
+///
+/// Custom properties are user-defined key/value pairs stored in a workbook.
+/// The supported value types correspond to the most common `vt:*` variants
+/// produced by Excel and other spreadsheet applications.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum CustomPropertyValue {
+    /// A 32-bit signed integer (`vt:i4`).
+    Int(i32),
+
+    /// A 64-bit floating point number (`vt:r8`).
+    Float(f64),
+
+    /// A boolean (`vt:bool`).
+    Bool(bool),
+
+    /// A file time / ISO 8601 date-time (`vt:filetime`).
+    ///
+    /// The raw string value is preserved. Use [`CustomPropertyValue::as_datetime`]
+    /// to parse it when the `chrono` feature is enabled.
+    DateTime(String),
+
+    /// A string (`vt:lpwstr`).
+    String(String),
+
+    /// A linked string value, represented by a self-closing `<vt:lpwstr />`
+    /// element inside a `<property linkTarget="...">` element.
+    LinkTarget(String),
+}
+
+impl CustomPropertyValue {
+    /// Returns the `vt:*` type name for this value.
+    pub fn vt_type(&self) -> &'static str {
+        match self {
+            CustomPropertyValue::Int(_) => "vt:i4",
+            CustomPropertyValue::Float(_) => "vt:r8",
+            CustomPropertyValue::Bool(_) => "vt:bool",
+            CustomPropertyValue::DateTime(_) => "vt:filetime",
+            CustomPropertyValue::String(_) | CustomPropertyValue::LinkTarget(_) => "vt:lpwstr",
+        }
+    }
+
+    /// Returns the value as a string slice, if it is a string-like variant.
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            CustomPropertyValue::String(s) | CustomPropertyValue::DateTime(s) => Some(s),
+            CustomPropertyValue::LinkTarget(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as an `i32`, if it is an integer.
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            CustomPropertyValue::Int(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as an `f64`, if it is a float.
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            CustomPropertyValue::Float(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as a `bool`, if it is a boolean.
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            CustomPropertyValue::Bool(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Parses a `vt:filetime` value into a Chrono `NaiveDateTime`.
+    ///
+    /// Only available when the `chrono` feature is enabled.
+    #[cfg(feature = "chrono")]
+    pub fn as_datetime(&self) -> Option<chrono::NaiveDateTime> {
+        match self {
+            CustomPropertyValue::DateTime(s) => chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.naive_utc()),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for CustomPropertyValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CustomPropertyValue::Int(v) => write!(f, "{v}"),
+            CustomPropertyValue::Float(v) => write!(f, "{v}"),
+            CustomPropertyValue::Bool(v) => write!(f, "{v}"),
+            CustomPropertyValue::DateTime(v)
+            | CustomPropertyValue::String(v)
+            | CustomPropertyValue::LinkTarget(v) => write!(f, "{v}"),
+        }
+    }
 }
 
 /// Type of sheet.
