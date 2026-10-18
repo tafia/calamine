@@ -20,6 +20,10 @@ const YEAR_DAYS_4: u64 = YEAR_DAYS * 4 + 1;
 const YEAR_DAYS_100: u64 = YEAR_DAYS * 100 + 25;
 const YEAR_DAYS_400: u64 = YEAR_DAYS * 400 + 97;
 
+// The maximum date supported by Excel, 9999-12-31, as a serial day number.
+const MAX_SERIAL_DAYS_1900: u64 = 2_958_465;
+const MAX_SERIAL_DAYS_1904: u64 = 2_957_003;
+
 #[cfg(feature = "chrono")]
 static EXCEL_EPOCH: OnceLock<chrono::NaiveDateTime> = OnceLock::new();
 
@@ -739,8 +743,10 @@ impl ExcelDateTime {
     /// 1904 epochs.
     ///
     /// This function always returns a date, even if the serial value is outside
-    /// of Excel's range of `0.0 <= datetime < 10000.0`. It also returns, as
-    /// Excel does, the invalid date 1900/02/29 due to the [Excel 1900 leap year
+    /// of Excel's supported range of `0.0 <= datetime < 2958466.0` (up to
+    /// 9999-12-31 23:59:59.999). Values below the range return the epoch date
+    /// and values above it return 9999-12-31. It also returns, as Excel does,
+    /// the invalid date 1900/02/29 due to the [Excel 1900 leap year
     /// bug](https://en.wikipedia.org/wiki/Leap_year_problem#Occurrences).
     ///
     /// Excel only supports millisecond precision and it also doesn't use or
@@ -834,8 +840,17 @@ impl ExcelDateTime {
     ) -> (u16, u8, u8, u8, u8, u8, u16) {
         let mut months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-        // Convert the seconds to a whole number of days.
-        let mut days = excel_datetime.floor() as u64;
+        // Convert the serial datetime to a whole number of days. The cast
+        // saturates, so negative, NaN and -inf values become day 0, the epoch.
+        let days = excel_datetime.floor() as u64;
+
+        // Set the upper date limit to avoid overflow for very large values.
+        let max_days = if is_1904 {
+            MAX_SERIAL_DAYS_1904
+        } else {
+            MAX_SERIAL_DAYS_1900
+        };
+        let mut days = days.min(max_days);
 
         // Move the epoch to 1600-01-01 to make the leap calculations easier.
         if is_1904 {
@@ -1565,6 +1580,53 @@ mod tests {
             let got = datetime.to_ymd_hms_milli();
             let got = (got.3, got.4, got.5, got.6); // Time parts only.
             assert_eq!(expected, got);
+        }
+    }
+
+    // Test serial values outside of Excel's supported range are limited to the
+    // epoch date or to 9999-12-31.
+    #[test]
+    fn test_datetime_out_of_range_values() {
+        // 1900 epoch.
+        let test_data = vec![
+            (-1.0, (1899, 12, 31, 0, 0, 0, 0)),
+            (f64::NEG_INFINITY, (1899, 12, 31, 0, 0, 0, 0)),
+            (f64::NAN, (1899, 12, 31, 0, 0, 0, 0)),
+            (2958465.5, (9999, 12, 31, 12, 0, 0, 0)),
+            (2958466.0, (9999, 12, 31, 0, 0, 0, 0)),
+            (1.8e19, (9999, 12, 31, 0, 0, 0, 0)),
+            (1.9e19, (9999, 12, 31, 0, 0, 0, 0)),
+            (f64::MAX, (9999, 12, 31, 0, 0, 0, 0)),
+            (f64::INFINITY, (9999, 12, 31, 0, 0, 0, 0)),
+        ];
+
+        for test in test_data {
+            let (excel_serial_datetime, expected) = test;
+            let datetime =
+                ExcelDateTime::new(excel_serial_datetime, ExcelDateTimeType::DateTime, false);
+            let got = datetime.to_ymd_hms_milli();
+
+            assert_eq!(expected, got, "serial {excel_serial_datetime}");
+        }
+
+        // 1904 epoch.
+        let test_data = vec![
+            (-1.0, (1904, 1, 1, 0, 0, 0, 0)),
+            (f64::NEG_INFINITY, (1904, 1, 1, 0, 0, 0, 0)),
+            (f64::NAN, (1904, 1, 1, 0, 0, 0, 0)),
+            (2957003.5, (9999, 12, 31, 12, 0, 0, 0)),
+            (2957004.0, (9999, 12, 31, 0, 0, 0, 0)),
+            (f64::MAX, (9999, 12, 31, 0, 0, 0, 0)),
+            (f64::INFINITY, (9999, 12, 31, 0, 0, 0, 0)),
+        ];
+
+        for test in test_data {
+            let (excel_serial_datetime, expected) = test;
+            let datetime =
+                ExcelDateTime::new(excel_serial_datetime, ExcelDateTimeType::DateTime, true);
+            let got = datetime.to_ymd_hms_milli();
+
+            assert_eq!(expected, got, "serial {excel_serial_datetime}");
         }
     }
 }
