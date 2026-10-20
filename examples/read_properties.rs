@@ -72,7 +72,7 @@ fn main() {
     } else {
         println!("\nCustom properties:");
         for (name, value) in &props.custom_properties {
-            println!("  {name}: {value} ({})", value.vt_type());
+            println!("  {name}: {value}");
         }
     }
 }
