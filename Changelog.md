@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed XLSX `_xHHHH_` escapes above U+00FF to decode as UTF-16 code units.
+  Surrogate pairs are joined, including across rich-text runs; lone surrogates
+  become U+FFFD. `_x005F_` and malformed escapes are unchanged.
+
+
 ## [0.37.0] - 2026-10-18
 
 ### Changed
