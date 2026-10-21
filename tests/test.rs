@@ -3498,6 +3498,17 @@ fn test_xlsx_minimal_package() {
 }
 
 #[test]
+fn test_xlsx_renamed_workbook_part() {
+    // The main part is `xl/workbook2.xml` with `xl/_rels/workbook2.xml.rels`,
+    // as named by `_rels/.rels`, instead of the usual `workbook.xml`.
+    let mut wb: Xlsx<_> = wb("renamed_workbook_part.xlsx");
+    assert_eq!(wb.sheet_names(), vec!["Sheet1"]);
+    let range = wb.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.get_value((0, 0)), Some(&String("name".to_string())));
+    assert_eq!(range.get_value((0, 1)), Some(&Float(42.0)));
+}
+
+#[test]
 fn test_hyperlinks_xlsx() {
     use calamine::Hyperlink;
 

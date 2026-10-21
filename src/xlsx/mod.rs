@@ -250,8 +250,10 @@ type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
 /// Xlsx, Xlsm, Xlam
 pub struct Xlsx<RS> {
     zip: ZipArchive<RS>,
-    /// Path to directory containing workbook.xml within zip archive (commonly "xl/")
+    /// Path to directory containing the main workbook part within zip archive (commonly "xl/")
     xl_path: String,
+    /// File name of the main workbook part within `xl_path` (commonly "workbook.xml")
+    workbook_name: String,
     /// Shared strings
     strings: Vec<String>,
     /// Sheets paths
@@ -325,12 +327,14 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
 
         if let Some(target) = document_target {
-            self.xl_path = target
-                .rfind('/')
-                .map(|i| &target[..=i])
-                .map(|p| p.strip_prefix('/').unwrap_or(p))
-                .unwrap_or("")
-                .to_string();
+            let (dir, name) = match target.rfind('/') {
+                Some(i) => target.split_at(i + 1),
+                None => ("", target.as_str()),
+            };
+            self.xl_path = dir.strip_prefix('/').unwrap_or(dir).to_string();
+            if !name.is_empty() {
+                self.workbook_name = name.to_string();
+            }
             Ok(())
         } else {
             Err(XlsxError::RelationshipNotFound)
@@ -445,7 +449,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         &mut self,
         relationships: &HashMap<String, (String, String)>,
     ) -> Result<(), XlsxError> {
-        let path = format!("{}workbook.xml", self.xl_path);
+        let path = format!("{}{}", self.xl_path, self.workbook_name);
         let mut xml = match xml_reader(&mut self.zip, path.as_ref(), &self.zip_path_cache) {
             None => return Ok(()),
             Some(x) => x?,
@@ -618,7 +622,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     }
 
     fn read_relationships(&mut self) -> Result<HashMap<String, (String, String)>, XlsxError> {
-        let rels_path = format!("{}_rels/workbook.xml.rels", self.xl_path);
+        let rels_path = format!("{}_rels/{}.rels", self.xl_path, self.workbook_name);
         let mut xml = match xml_reader(&mut self.zip, rels_path.as_ref(), &self.zip_path_cache) {
             None => {
                 return Err(XlsxError::FileNotFound(rels_path));
@@ -2605,6 +2609,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let mut xlsx = Xlsx {
             zip,
             xl_path: "xl/".to_string(),
+            workbook_name: "workbook.xml".to_string(),
             strings: Vec::new(),
             formats: Vec::new(),
             is_1904: false,
@@ -4596,6 +4601,7 @@ mod tests {
         let mut xlsx = Xlsx {
             zip,
             xl_path: "xl/".to_string(),
+            workbook_name: "workbook.xml".to_string(),
             strings: vec![],
             sheets: vec![],
             tables: None,
