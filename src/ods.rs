@@ -638,6 +638,9 @@ where
                     reader.read_to_end_into(e.name(), cell_buf)?;
                 }
             }
+            Ok(Event::Text(e))
+                if e.bytes()
+                    .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n')) => {}
             Ok(Event::End(e)) if e.name() == QName("table:table-row") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
