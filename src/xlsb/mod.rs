@@ -27,7 +27,7 @@ use crate::utils::{
     read_usize,
 };
 use crate::vba::VbaProject;
-use crate::xlsx::{read_app_properties, read_core_properties};
+use crate::xlsx::{read_app_properties, read_core_properties, read_custom_properties};
 use crate::{
     Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
     WorkbookProperties,
@@ -444,9 +444,8 @@ impl<RS: Read + Seek> Xlsb<RS> {
     /// Get the workbook document properties.
     ///
     /// Read the document properties, such as the creator, title, application
-    /// and company, from the `docProps/core.xml` and `docProps/app.xml` parts
-    /// of the workbook into a [`WorkbookProperties`] struct. Missing fields
-    /// are returned as `None`.
+    /// and company, and any custom document properties, into a
+    /// [`WorkbookProperties`] struct. Missing fields are returned as `None`.
     ///
     /// See [`Xlsx::workbook_properties()`](crate::Xlsx::workbook_properties)
     /// for an example.
@@ -457,6 +456,8 @@ impl<RS: Read + Seek> Xlsb<RS> {
             read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)
                 .map_err(xlsx_error_to_xlsb)?;
             read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)
+                .map_err(xlsx_error_to_xlsb)?;
+            read_custom_properties(&mut self.zip, &mut props, &self.zip_path_cache)
                 .map_err(xlsx_error_to_xlsb)?;
             self.workbook_properties = Some(Box::new(props));
         }

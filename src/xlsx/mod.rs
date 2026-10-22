@@ -555,9 +555,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Get the workbook document properties.
     ///
     /// Read the document properties, such as the creator, title, application
-    /// and company, from the `docProps/core.xml` and `docProps/app.xml` parts
-    /// of the workbook into a [`WorkbookProperties`] struct. Missing fields
-    /// are returned as `None`.
+    /// and company, and any custom document properties, into a
+    /// [`WorkbookProperties`] struct. Missing fields are returned as `None`.
     ///
     /// # Examples
     ///
@@ -612,6 +611,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             let mut props = WorkbookProperties::default();
             read_core_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
             read_app_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
+            read_custom_properties(&mut self.zip, &mut props, &self.zip_path_cache)?;
             self.workbook_properties = Some(Box::new(props));
         }
         Ok(self
@@ -4792,4 +4792,51 @@ enum DocProperty {
     Company,
     Template,
     Manager,
+}
+
+/// Read the package custom properties (`docProps/custom.xml`).
+pub(crate) fn read_custom_properties<RS: Read + Seek>(
+    zip: &mut ZipArchive<RS>,
+    props: &mut WorkbookProperties,
+    cache: &HashMap<String, String>,
+) -> Result<(), XlsxError> {
+    let Some(xml) = xml_reader(zip, "docProps/custom.xml", cache) else {
+        return Ok(());
+    };
+    let mut xml = xml?;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut name = None;
+    let mut value = String::new();
+    let mut in_value = false;
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(&mut buf)? {
+            Event::Start(e) if e.local_name().as_ref() == "property" => {
+                name = match e.raw_attr("name")? {
+                    Some(val) => Some(decode_attr(val)?),
+                    None => None,
+                };
+                value.clear();
+            }
+            // The value is the text of the `vt:*` element inside `<property>`.
+            Event::Start(_) => in_value = name.is_some(),
+            Event::Text(t) if in_value => value.push_str(&t.xml10_content()),
+            Event::GeneralRef(r) if in_value => unescape_entity_to_buffer(&r, &mut value)?,
+            Event::End(e) => {
+                in_value = false;
+                if e.local_name().as_ref() == "property" {
+                    if let Some(name) = name.take() {
+                        props
+                            .custom_properties
+                            .insert(name, std::mem::take(&mut value));
+                    }
+                }
+            }
+            Event::Eof => break,
+            _ => (),
+        }
+    }
+    Ok(())
 }

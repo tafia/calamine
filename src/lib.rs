@@ -98,6 +98,7 @@ pub mod vba;
 
 use serde::de::{Deserialize, DeserializeOwned, Deserializer};
 use std::cmp::{max, min};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -292,6 +293,12 @@ pub struct WorkbookProperties {
 
     /// Manager (ap:Manager).
     pub manager: Option<String>,
+
+    /// Custom document properties, keyed by name.
+    ///
+    /// Values are returned as the text stored in the file, for example `"4"`,
+    /// `"true"` or `"2020-08-24T20:19:22Z"`.
+    pub custom_properties: HashMap<String, String>,
 }
 
 /// Type of sheet.

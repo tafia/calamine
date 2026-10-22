@@ -3792,6 +3792,8 @@ fn test_xlsx_workbook_properties() {
     assert_eq!(props.company.as_deref(), Some("Contoso & Co"));
     assert_eq!(props.template.as_deref(), Some("Book.xltx"));
     assert_eq!(props.manager.as_deref(), Some("Jane Doe"));
+    assert_eq!(props.custom_properties["Department"], "Finance");
+    assert_eq!(props.custom_properties["Reviewed"], "true");
 }
 
 #[test]
@@ -3803,6 +3805,29 @@ fn test_xlsx_workbook_properties_missing() {
     assert!(props.last_modified_by.is_none());
     assert!(props.application.is_none());
     assert!(props.company.is_none());
+}
+
+#[test]
+fn test_xlsx_custom_properties() {
+    let mut excel: Xlsx<_> = wb("workbook_custom_properties.xlsx");
+    let props = excel.workbook_properties().expect("workbook properties");
+    let custom = &props.custom_properties;
+
+    assert_eq!(custom.len(), 6);
+    assert_eq!(custom["MyInt"], "4");
+    assert_eq!(custom["MyFloat"], "2.5");
+    assert_eq!(custom["MyBool"], "true");
+    assert_eq!(custom["MyDateTime"], "2020-08-24T20:19:22Z");
+    assert_eq!(custom["MyString"], "hello");
+    assert_eq!(custom["MyLink"], "");
+}
+
+#[test]
+fn test_xlsb_custom_properties() {
+    let mut excel: Xlsb<_> = wb("issue_182.xlsb");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(props.custom_properties["FileName"], "");
 }
 
 #[test]
