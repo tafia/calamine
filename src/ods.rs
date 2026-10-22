@@ -663,6 +663,7 @@ where
     RS: Read + Seek,
 {
     let mut is_string = false;
+    let mut is_error = false;
     let mut is_value_set = false;
     let mut val = Data::Empty;
     let mut formula = String::new();
@@ -691,15 +692,18 @@ where
                 is_value_set = true;
             }
             "office:value-type" if !is_value_set => is_string = value == "string",
+            "calcext:value-type" => is_error = value == "error",
             "table:formula" => {
                 formula = decode_attr(value)?;
             }
             _ => (),
         }
     }
-    if !is_value_set && is_string {
+    if (!is_value_set && is_string) || (is_error && matches!(&val, Data::String(s) if s.is_empty()))
+    {
         // If the value type is string and the office:string-value attribute
-        // is not present, the element content defines the value.
+        // is not present, the element content defines the value. LibreOffice
+        // also stores error text in the content with an empty string-value.
         let mut s = String::new();
         let mut first_paragraph = true;
         loop {
