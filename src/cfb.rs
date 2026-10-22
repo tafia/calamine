@@ -163,12 +163,18 @@ impl Cfb {
 
     /// Checks if directory exists
     pub fn has_directory(&self, name: &str) -> bool {
-        self.directories.iter().any(|d| &*d.name == name)
+        self.directories
+            .iter()
+            .any(|d| d.name.as_bytes().eq_ignore_ascii_case(name.as_bytes()))
     }
 
     /// Gets a stream by name out of directories
     pub fn get_stream<R: Read>(&mut self, name: &str, r: &mut R) -> Result<Vec<u8>, CfbError> {
-        match self.directories.iter().find(|d| &*d.name == name) {
+        match self
+            .directories
+            .iter()
+            .find(|d| d.name.as_bytes().eq_ignore_ascii_case(name.as_bytes()))
+        {
             None => Err(CfbError::StreamNotFound(name.to_string())),
             Some(d) => {
                 if d.len < 4096 {
