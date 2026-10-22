@@ -3781,6 +3781,8 @@ fn test_xlsx_workbook_properties() {
     assert_eq!(props.company.as_deref(), Some("Contoso & Co"));
     assert_eq!(props.template.as_deref(), Some("Book.xltx"));
     assert_eq!(props.manager.as_deref(), Some("Jane Doe"));
+    assert_eq!(props.custom_properties["Department"], "Finance");
+    assert_eq!(props.custom_properties["Reviewed"], "true");
 }
 
 #[test]

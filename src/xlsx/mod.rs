@@ -551,10 +551,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
     /// Get the workbook document properties.
     ///
     /// Read the document properties, such as the creator, title, application
-    /// and company, and any custom document properties, from the
-    /// `docProps/core.xml`, `docProps/app.xml` and `docProps/custom.xml` parts
-    /// of the workbook into a [`WorkbookProperties`] struct. Missing fields
-    /// are returned as `None`.
+    /// and company, and any custom document properties, into a
+    /// [`WorkbookProperties`] struct. Missing fields are returned as `None`.
     ///
     /// # Examples
     ///

@@ -24,7 +24,9 @@
 //!   template: Some("Book.xltx")
 //!   manager: Some("Jane Doe")
 //!
-//! No custom properties.
+//! Custom properties:
+//!   Department: Finance
+//!   Reviewed: true
 //! ```
 
 use calamine::open_workbook_auto;
