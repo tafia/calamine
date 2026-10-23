@@ -23,7 +23,10 @@ use zip::result::ZipError;
 use crate::attrs::{decode_attr, RawAttributes};
 use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
-use crate::{Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{
+    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+    WorkbookProperties,
+};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -36,6 +39,9 @@ const MAX_COLUMNS: u32 = 16_384;
 
 /// Maximum number of cells to prevent memory exhaustion from malicious files.
 const MAX_CELLS: usize = 100_000_000;
+
+/// Maximum size of the `meta.xml` document properties part.
+const MAX_META_XML_SIZE: u64 = 1024 * 1024;
 
 type OdsReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
 
@@ -167,8 +173,29 @@ pub struct Ods<RS> {
     marker: PhantomData<RS>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+    /// Raw `meta.xml` document properties, parsed on demand.
+    meta_xml: Option<Vec<u8>>,
     /// Reader options
     options: OdsOptions,
+}
+
+impl<RS> Ods<RS> {
+    /// Get the workbook document properties.
+    ///
+    /// Read the document properties, such as the creator, title and
+    /// application, and any custom document properties, into a
+    /// [`WorkbookProperties`] struct. Missing fields are returned as `None`.
+    ///
+    /// See [`Xlsx::workbook_properties()`](crate::Xlsx::workbook_properties)
+    /// for an example.
+    ///
+    pub fn workbook_properties(&self) -> Result<WorkbookProperties, OdsError> {
+        let mut props = WorkbookProperties::default();
+        if let Some(meta_xml) = &self.meta_xml {
+            read_meta_properties(meta_xml, &mut props)?;
+        }
+        Ok(props)
+    }
 }
 
 impl<RS> Reader<RS> for Ods<RS>
@@ -198,6 +225,8 @@ where
         #[cfg(feature = "picture")]
         let pictures = read_pictures(&mut zip)?;
 
+        let meta_xml = read_meta_xml(&mut zip);
+
         let Content {
             sheets,
             sheets_metadata,
@@ -214,6 +243,7 @@ where
             sheets,
             #[cfg(feature = "picture")]
             pictures,
+            meta_xml,
             options: OdsOptions::default(),
         })
     }
@@ -797,6 +827,107 @@ where
         }
     }
     Ok(defined_names)
+}
+
+/// Read the raw `meta.xml` part, if present.
+///
+/// The document properties don't affect the rest of the workbook, so a
+/// missing, oversized or unreadable part is ignored rather than preventing
+/// the workbook from being opened.
+fn read_meta_xml<RS: Read + Seek>(zip: &mut ZipArchive<RS>) -> Option<Vec<u8>> {
+    let mut f = match zip.by_name("meta.xml") {
+        Ok(f) => f,
+        Err(ZipError::FileNotFound) => return None,
+        Err(e) => {
+            warn!("ignoring document properties, 'meta.xml' could not be read: {e}");
+            return None;
+        }
+    };
+
+    let mut buf = Vec::new();
+    match f.by_ref().take(MAX_META_XML_SIZE + 1).read_to_end(&mut buf) {
+        Ok(len) if len as u64 > MAX_META_XML_SIZE => {
+            warn!(
+                "ignoring document properties, 'meta.xml' is larger than {MAX_META_XML_SIZE} bytes"
+            );
+            None
+        }
+        Ok(_) => Some(buf),
+        Err(e) => {
+            warn!("ignoring document properties, 'meta.xml' could not be read: {e}");
+            None
+        }
+    }
+}
+
+/// Read the document properties from the `meta.xml` part.
+fn read_meta_properties(meta_xml: &[u8], props: &mut WorkbookProperties) -> Result<(), OdsError> {
+    let mut reader = XmlReader::from_reader(meta_xml);
+    let config = reader.config_mut();
+    config.check_end_names = false;
+    config.trim_text(false);
+    config.check_comments = false;
+    config.expand_empty_elements = true;
+
+    let mut buf = Vec::with_capacity(256);
+    let mut keywords = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(e) => {
+                // ODF uses `dc:creator` for the last author of the document.
+                let field = match e.name().as_ref() {
+                    "meta:initial-creator" => &mut props.creator,
+                    "dc:creator" => &mut props.last_modified_by,
+                    "meta:creation-date" => &mut props.created,
+                    "dc:date" => &mut props.modified,
+                    "dc:title" => &mut props.title,
+                    "dc:subject" => &mut props.subject,
+                    "dc:description" => &mut props.description,
+                    "meta:editing-cycles" => &mut props.revision,
+                    "meta:generator" => &mut props.application,
+                    "meta:keyword" => {
+                        keywords.push(read_meta_text(&mut reader, &e)?);
+                        continue;
+                    }
+                    "meta:user-defined" => {
+                        if let Some(name) = e.raw_attr("meta:name")? {
+                            let name = decode_attr(name)?;
+                            let value = read_meta_text(&mut reader, &e)?;
+                            props.custom_properties.insert(name, value);
+                        }
+                        continue;
+                    }
+                    _ => continue,
+                };
+                *field = Some(read_meta_text(&mut reader, &e)?);
+            }
+            Event::Eof => break,
+            _ => (),
+        }
+    }
+
+    if !keywords.is_empty() {
+        props.keywords = Some(keywords.join(", "));
+    }
+    Ok(())
+}
+
+/// Read the text content of a `meta.xml` element.
+fn read_meta_text(reader: &mut XmlReader<&[u8]>, start: &BytesStart) -> Result<String, OdsError> {
+    let mut buf = Vec::new();
+    let mut value = String::new();
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Text(t) => value.push_str(&t.xml10_content()),
+            Event::GeneralRef(e) => unescape_entity_to_buffer(&e, &mut value)?,
+            Event::End(end) if end.name() == start.name() => break,
+            Event::Eof => return Err(OdsError::Eof("office:meta")),
+            _ => (),
+        }
+    }
+    Ok(value)
 }
 
 // Read pictures.

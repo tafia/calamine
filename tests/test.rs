@@ -3831,6 +3831,49 @@ fn test_xlsb_custom_properties() {
 }
 
 #[test]
+fn test_ods_workbook_properties() {
+    let excel: Ods<_> = wb("workbook_properties.ods");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(props.creator.as_deref(), Some("Test Creator"));
+    assert_eq!(props.last_modified_by.as_deref(), Some("Last Modifier"));
+    assert_eq!(props.created.as_deref(), Some("2024-01-15T08:30:00"));
+    assert_eq!(
+        props.modified.as_deref(),
+        Some("2024-06-20T14:22:00.123456789")
+    );
+    assert_eq!(props.title.as_deref(), Some("Workbook Title"));
+    assert_eq!(props.subject.as_deref(), Some("Test Subject"));
+    assert_eq!(props.description.as_deref(), Some("A test workbook"));
+    assert_eq!(props.keywords.as_deref(), Some("test, calamine"));
+    assert_eq!(props.revision.as_deref(), Some("3"));
+    assert!(props
+        .application
+        .as_deref()
+        .unwrap()
+        .starts_with("LibreOffice/24.2"));
+    assert!(props.company.is_none());
+    assert!(props.manager.is_none());
+    assert_eq!(props.custom_properties.len(), 2);
+    assert_eq!(props.custom_properties["Department"], "Finance & Ops");
+    assert_eq!(props.custom_properties["Reviewed"], "true");
+}
+
+#[test]
+fn test_ods_workbook_properties_auto() {
+    let mut excel =
+        open_workbook_auto(format!("{}/tests/issues.ods", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(
+        props.creator.as_deref(),
+        Some("Johann Tuffe (jtuffe010814)")
+    );
+    assert_eq!(props.created.as_deref(), Some("2016-10-18T10:19:50Z"));
+    assert!(props.custom_properties.is_empty());
+}
+
+#[test]
 fn test_xlsb_workbook_properties() {
     let mut excel: Xlsb<_> = wb("issues.xlsb");
     let props = excel.workbook_properties().expect("workbook properties");
