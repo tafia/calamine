@@ -3,7 +3,7 @@
 // Copyright 2016-2026, Johann Tuffe.
 
 use std::cmp::min;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write};
 use std::io::{Read, Seek, SeekFrom};
 
@@ -607,6 +607,10 @@ impl<RS: Read + Seek> Xls<RS> {
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
+            // raw tokens of every formula parsed so far on this sheet, keyed by
+            // cell: the replay source for the shared-formula slaves that point
+            // at them with a lone PtgExp token
+            let mut shared_tokens: HashMap<(u32, u32), &[u8]> = HashMap::new();
             let mut fmla_pos = (0, 0);
             let mut merge_cells = Vec::new();
             // Nested substreams (embedded charts) carry cell-like records; skip them.
@@ -674,21 +678,67 @@ impl<RS: Read + Seek> Xls<RS> {
                             // it will appear in 0x0207 record coming next
                             cells.push(Cell::new(fmla_pos, val));
                         }
-                        let fmla = parse_formula(
-                            &r.data[20..],
-                            &fmla_sheet_names,
-                            &defined_names,
-                            &xtis,
-                            &encoding,
-                            biff,
-                        )
-                        .unwrap_or_else(|e| {
-                            debug!("{e}");
-                            format!(
-                                "Unrecognised formula \
-                                 for cell ({row}, {col}): {e:?}"
+                        // A shared-formula slave stores a single PtgExp token
+                        // pointing back at the cell holding the group's real
+                        // tokens ([MS-XLS] 2.5.198.6). Replaying the master's
+                        // token stream with the slave's offset rebuilds the
+                        // formula; without it the slave came out blank and the
+                        // conversion dropped the formula entirely.
+                        let cce = read_u16(&r.data[20..]) as usize;
+                        let rgce = &r.data[22..(22 + cce).min(r.data.len())];
+                        let fmla = if rgce.len() == 5 && rgce[0] == 0x01 {
+                            let master = (
+                                read_u16(&rgce[1..3]) as u32,
+                                read_u16(&rgce[3..5]) as u32,
+                            );
+                            match shared_tokens.get(&master) {
+                                Some(tokens) => parse_formula(
+                                    tokens,
+                                    &fmla_sheet_names,
+                                    &defined_names,
+                                    &xtis,
+                                    &encoding,
+                                    biff,
+                                    Some((
+                                        row as i32 - master.0 as i32,
+                                        col as i32 - master.1 as i32,
+                                    )),
+                                )
+                                .unwrap_or_else(|e| {
+                                    debug!("{e}");
+                                    format!(
+                                        "Unrecognised formula \
+                                         for cell ({row}, {col}): {e:?}"
+                                    )
+                                }),
+                                None => {
+                                    debug!(
+                                        "shared formula ({row}, {col}) points at \
+                                         ({}, {}) which carries no tokens",
+                                        master.0, master.1
+                                    );
+                                    String::new()
+                                }
+                            }
+                        } else {
+                            shared_tokens.insert((row as u32, col as u32), &r.data[20..]);
+                            parse_formula(
+                                &r.data[20..],
+                                &fmla_sheet_names,
+                                &defined_names,
+                                &xtis,
+                                &encoding,
+                                biff,
+                                None,
                             )
-                        });
+                            .unwrap_or_else(|e| {
+                                debug!("{e}");
+                                format!(
+                                    "Unrecognised formula \
+                                     for cell ({row}, {col}): {e:?}"
+                                )
+                            })
+                        };
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
                     _ => (),
@@ -1489,6 +1539,16 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
 /// Formula parsing
 ///
 /// `CellParsedFormula` [MS-XLS 2.5.198.3]
+/// Shift one reference component of a shared formula. Only the components
+/// their own flag marks relative move when the master's tokens replay on a
+/// slave cell; `delta` is the slave's distance from the master.
+fn shift_relative(value: u32, relative: bool, delta: i32) -> u32 {
+    if !relative {
+        return value;
+    }
+    (value as i64 + delta as i64).clamp(0, u16::MAX as i64) as u32
+}
+
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
@@ -1496,6 +1556,7 @@ fn parse_formula(
     xtis: &[Xti],
     encoding: &XlsEncoding,
     biff: Biff,
+    offset: Option<(i32, i32)>,
 ) -> Result<String, XlsError> {
     let is_pre_biff8 = matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5);
     let mut stack = Vec::new();
@@ -1518,15 +1579,24 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(sh);
                 formula.push('!');
-                let col = colu << 2; // first 14 bits only
-                if colu & 2 != 0 {
+                // The column field is 14 bits of column plus two relative
+                // flags: bit 15 = row relative, bit 14 = column relative
+                // ([MS-XLS] 2.5.257 PtgRef3d).
+                let (row, col) = match offset {
+                    Some((dr, dc)) => (
+                        shift_relative(rowu as u32, colu & 0x8000 != 0, dr),
+                        shift_relative((colu & 0x3FFF) as u32, colu & 0x4000 != 0, dc),
+                    ),
+                    None => (rowu as u32, (colu & 0x3FFF) as u32),
+                };
+                if colu & 0x4000 == 0 {
                     formula.push('$');
                 }
-                push_column(col as u32, &mut formula);
-                if colu & 1 != 0 {
+                push_column(col, &mut formula);
+                if colu & 0x8000 == 0 {
                     formula.push('$');
                 }
-                write!(&mut formula, "{}", rowu + 1).unwrap();
+                write!(&mut formula, "{}", row + 1).unwrap();
                 rgce = &rgce[6..];
             }
             0x3b | 0x5b | 0x7b => {
@@ -1795,16 +1865,26 @@ fn parse_formula(
                     formula.push_str(&format!("{row}"));
                     rgce = &rgce[3..];
                 } else {
-                    let row = read_u16(rgce) + 1;
-                    let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
-                    if rgce[3] & 0x80 != 0x80 {
+                    // Same flag layout as PtgRef3d, on the second half of the
+                    // 4-byte token: the column field is 14 bits of column plus
+                    // bit 15 = row relative, bit 14 = column relative.
+                    let rowu = read_u16(rgce) as u32;
+                    let colu = read_u16(&rgce[2..4]);
+                    let (row, col) = match offset {
+                        Some((dr, dc)) => (
+                            shift_relative(rowu, colu & 0x8000 != 0, dr),
+                            shift_relative((colu & 0x3FFF) as u32, colu & 0x4000 != 0, dc),
+                        ),
+                        None => (rowu, (colu & 0x3FFF) as u32),
+                    };
+                    if colu & 0x4000 == 0 {
                         formula.push('$');
                     }
-                    push_column(col as u32, &mut formula);
-                    if rgce[3] & 0x40 != 0x40 {
+                    push_column(col, &mut formula);
+                    if colu & 0x8000 == 0 {
                         formula.push('$');
                     }
-                    formula.push_str(&format!("{row}"));
+                    formula.push_str(&format!("{}", row + 1));
                     rgce = &rgce[4..];
                 }
             }
@@ -1824,26 +1904,40 @@ fn parse_formula(
                     rgce = &rgce[6..];
                 } else {
                     // columnFirst/columnLast are ColRelU: 14-bit column + fColRel/fRwRel flags.
-                    let col_first = read_u16(&[rgce[4], rgce[5] & 0x3F]);
-                    let col_last = read_u16(&[rgce[6], rgce[7] & 0x3F]);
-                    let row_first = read_u16(&rgce[0..2]) as u32 + 1;
-                    let row_last = read_u16(&rgce[2..4]) as u32 + 1;
-                    if rgce[5] & 0x80 != 0x80 {
+                    let col_first_raw = read_u16(&rgce[4..6]);
+                    let col_last_raw = read_u16(&rgce[6..8]);
+                    let row_first = read_u16(&rgce[0..2]) as u32;
+                    let row_last = read_u16(&rgce[2..4]) as u32;
+                    let (row_first, col_first) = match offset {
+                        Some((dr, dc)) => (
+                            shift_relative(row_first, col_first_raw & 0x8000 != 0, dr),
+                            shift_relative((col_first_raw & 0x3FFF) as u32, col_first_raw & 0x4000 != 0, dc),
+                        ),
+                        None => (row_first, (col_first_raw & 0x3FFF) as u32),
+                    };
+                    let (row_last, col_last) = match offset {
+                        Some((dr, dc)) => (
+                            shift_relative(row_last, col_last_raw & 0x8000 != 0, dr),
+                            shift_relative((col_last_raw & 0x3FFF) as u32, col_last_raw & 0x4000 != 0, dc),
+                        ),
+                        None => (row_last, (col_last_raw & 0x3FFF) as u32),
+                    };
+                    if col_first_raw & 0x4000 == 0 {
                         formula.push('$');
                     }
-                    push_column(col_first as u32, &mut formula);
-                    if rgce[5] & 0x40 != 0x40 {
+                    push_column(col_first, &mut formula);
+                    if col_first_raw & 0x8000 == 0 {
                         formula.push('$');
                     }
-                    write!(&mut formula, "{row_first}:").unwrap();
-                    if rgce[7] & 0x80 != 0x80 {
+                    write!(&mut formula, "{}:", row_first + 1).unwrap();
+                    if col_last_raw & 0x4000 == 0 {
                         formula.push('$');
                     }
-                    push_column(col_last as u32, &mut formula);
-                    if rgce[7] & 0x40 != 0x40 {
+                    push_column(col_last, &mut formula);
+                    if col_last_raw & 0x8000 == 0 {
                         formula.push('$');
                     }
-                    write!(&mut formula, "{row_last}").unwrap();
+                    write!(&mut formula, "{}", row_last + 1).unwrap();
                     rgce = &rgce[8..];
                 }
             }
@@ -2048,5 +2142,90 @@ mod tests {
     fn test_parse_string() {
         let enc = XlsEncoding::from_codepage(1252).unwrap();
         parse_string(&[0, 1], &enc, Biff::Biff8).unwrap_err();
+    }
+}
+
+
+#[cfg(test)]
+mod formula_tests {
+    use super::*;
+
+    fn encoding() -> XlsEncoding {
+        XlsEncoding::from_codepage(1252).unwrap()
+    }
+
+    /// `parse_formula` reads the token length itself, so every fixture carries
+    /// the cce prefix its FORMULA record would hold.
+    fn parse(tokens: &[u8]) -> String {
+        parse_formula(tokens, &[], &[], &[], &encoding(), Biff::Biff8, None).unwrap()
+    }
+
+    fn cce(body: &[u8]) -> Vec<u8> {
+        let mut out = (body.len() as u16).to_le_bytes().to_vec();
+        out.extend_from_slice(body);
+        out
+    }
+
+    #[test]
+    fn relative_area_flags_live_in_the_column_fields() {
+        // A1:A4 with both corners row+col relative: the row fields are plain,
+        // the column fields carry 0xC000 | col (bit 15 row, bit 14 column).
+        let tokens = cce(&[0x25, 0x00, 0x00, 0x03, 0x00, 0x00, 0xC0, 0x00, 0xC0]);
+        assert_eq!(parse(&tokens), "A1:A4");
+    }
+
+    #[test]
+    fn absolute_area_keeps_its_dollars() {
+        // $B$1:$B$4 — column fields 0x0001/0x0001 carry no flag bits.
+        let tokens = cce(&[0x25, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x01, 0x00]);
+        assert_eq!(parse(&tokens), "$B$1:$B$4");
+    }
+
+    #[test]
+    fn mixed_area_flags_are_per_corner() {
+        // $C1:$D4 — first corner col-absolute/row-relative (0x8000|2),
+        // second corner col-relative/row-absolute (0x4000|3).
+        let tokens = cce(&[0x25, 0x00, 0x00, 0x03, 0x00, 0x82, 0x00, 0x43, 0x00]);
+        assert_eq!(parse(&tokens), "$C1:$D4");
+    }
+
+    #[test]
+    fn ref3d_targets_the_right_column_with_flags() {
+        let sheets = vec!["Data".to_string()];
+        let xtis = vec![Xti { _isup_book: 0, itab_first: 0, _itab_last: 0 }];
+        // Data!H8, relative
+        let tokens = cce(&[0x3A, 0x00, 0x00, 0x07, 0x00, 0x07, 0xC0]);
+        let parsed = parse_formula(
+            &tokens, &sheets, &[], &xtis, &encoding(), Biff::Biff8, None,
+        )
+        .unwrap();
+        assert_eq!(parsed, "Data!H8");
+        // Data!$H$8, absolute
+        let tokens = cce(&[0x3A, 0x00, 0x00, 0x07, 0x00, 0x07, 0x00]);
+        let parsed = parse_formula(
+            &tokens, &sheets, &[], &xtis, &encoding(), Biff::Biff8, None,
+        )
+        .unwrap();
+        assert_eq!(parsed, "Data!$H$8");
+    }
+
+    #[test]
+    fn shared_formula_replay_shifts_only_relative_parts() {
+        // The master's tokens: A1*2 (tRef relative, tInt, tMul).
+        let master = cce(&[0x24, 0x00, 0x00, 0x00, 0xC0, 0x1E, 0x02, 0x00, 0x05]);
+        assert_eq!(parse(&master), "A1*2");
+        // Replay one row down (slave E2 against master E1): A2*2.
+        let shifted = parse_formula(
+            &master, &[], &[], &[], &encoding(), Biff::Biff8, Some((1, 0)),
+        )
+        .unwrap();
+        assert_eq!(shifted, "A2*2");
+        // Replay on the absolute twin: $A$1*2 does not move.
+        let absolute = cce(&[0x24, 0x00, 0x00, 0x00, 0x00, 0x1E, 0x02, 0x00, 0x05]);
+        let shifted = parse_formula(
+            &absolute, &[], &[], &[], &encoding(), Biff::Biff8, Some((1, 0)),
+        )
+        .unwrap();
+        assert_eq!(shifted, "$A$1*2");
     }
 }
