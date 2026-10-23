@@ -24,7 +24,8 @@ use crate::attrs::{decode_attr, local_name_matches, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::utils::{
-    build_zip_path_cache, cached_zip_path, unescape_entity_to_buffer, unescape_xml,
+    build_zip_path_cache, cached_zip_path, flush_pending_surrogate, unescape_entity_to_buffer,
+    unescape_xml, unescape_xml_into,
 };
 use crate::vba::VbaProject;
 #[cfg(feature = "picture")]
@@ -2942,6 +2943,7 @@ where
     RS: Read + Seek,
 {
     let mut rich_buffer: Option<String> = None;
+    let mut pending_high_surrogate = None;
     let mut is_phonetic_text = false;
     loop {
         xml_buf.clear();
@@ -2954,6 +2956,9 @@ where
                 is_phonetic_text = true;
             }
             Ok(Event::End(e)) if e.name() == closing => {
+                if let Some(s) = &mut rich_buffer {
+                    flush_pending_surrogate(s, &mut pending_high_surrogate);
+                }
                 if rich_buffer.is_none() {
                     // An empty <s></s> element, without <t> or other
                     // subelements, is treated as a valid empty string in Excel.
@@ -2979,17 +2984,16 @@ where
                     }
                 }
                 let value = if preserve_space {
-                    unescape_xml(&value).into_owned()
+                    value.as_ref()
                 } else {
                     // Trim ASCII whitespace (space/tab/CR/LF). Unicode spaces
                     // such as U+00A0 (NBSP) are preserved.
-                    unescape_xml(value.trim_matches([' ', '\t', '\r', '\n'])).into_owned()
+                    value.trim_matches([' ', '\t', '\r', '\n'])
                 };
-                if let Some(s) = &mut rich_buffer {
-                    s.push_str(&value);
-                } else {
-                    rich_buffer = Some(value);
-                }
+                // Rich text runs are joined as UTF-16, as in Excel, so a
+                // surrogate pair split across two runs still forms one character.
+                let s = rich_buffer.get_or_insert_with(String::new);
+                unescape_xml_into(value, s, &mut pending_high_surrogate);
             }
             Ok(Event::Eof) => return Err(XlsxError::XmlEof("")),
             Err(e) => return Err(XlsxError::Xml(e)),
@@ -4621,6 +4625,55 @@ mod tests {
         assert_eq!("String 1", &xlsx.strings[0]);
         assert_eq!("String 2", &xlsx.strings[1]);
         assert_eq!("String 3", &xlsx.strings[2]);
+    }
+
+    #[test]
+    fn test_read_shared_strings_surrogate_split_across_runs() {
+        let shared_strings_data = br#"<?xml version="1.0" encoding="utf-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+    <si><r><t>a_xD83D_</t></r><r><t>_xDCF7_b</t></r></si>
+    <si><r><t>_xD83D_</t></r></si>
+    <si><r><t>_xD83D_</t></r><rPh sb="0" eb="1"><t>x</t></rPh><r><t>_xDCF7_</t></r></si>
+</sst>"#;
+
+        let mut buf = [0; 1000];
+        let mut zip_writer = ZipWriter::new(std::io::Cursor::new(&mut buf[..]));
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        zip_writer
+            .start_file("xl/sharedStrings.xml", options)
+            .unwrap();
+        zip_writer.write_all(shared_strings_data).unwrap();
+        let zip_size = zip_writer.finish().unwrap().position() as usize;
+
+        let zip = ZipArchive::new(std::io::Cursor::new(&buf[..zip_size])).unwrap();
+        let zip_path_cache = build_zip_path_cache(&zip).unwrap();
+        let mut xlsx = Xlsx {
+            zip,
+            xl_path: "xl/".to_string(),
+            strings: vec![],
+            sheets: vec![],
+            tables: None,
+            formats: vec![],
+            is_1904: false,
+            metadata: Metadata::default(),
+            workbook_properties: None,
+            #[cfg(feature = "picture")]
+            pictures: None,
+            merged_regions: None,
+            options: XlsxOptions::default(),
+            zip_path_cache,
+        };
+
+        assert!(xlsx.read_shared_strings().is_ok());
+        assert_eq!(
+            xlsx.strings,
+            vec![
+                "a\u{1F4F7}b".to_string(),
+                "\u{FFFD}".to_string(),
+                "\u{1F4F7}".to_string(),
+            ]
+        );
     }
 }
 
