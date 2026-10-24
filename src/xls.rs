@@ -19,8 +19,8 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible,
+    oleps, Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet,
+    SheetType, SheetVisible, WorkbookProperties,
 };
 
 #[derive(Debug)]
@@ -240,6 +240,35 @@ impl<RS: Read + Seek> Xls<RS> {
 
         #[allow(deprecated)]
         self.worksheet_merge_cells(&sheet.name)
+    }
+
+    /// Get the workbook document properties.
+    ///
+    /// Read the document properties, such as the creator, title, application
+    /// and company, and any custom document properties, into a
+    /// [`WorkbookProperties`] struct. Missing fields are returned as `None`.
+    ///
+    /// See [`Xlsx::workbook_properties()`](crate::Xlsx::workbook_properties)
+    /// for an example.
+    ///
+    pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, XlsError> {
+        let mut props = WorkbookProperties::default();
+
+        if self.cfb.has_directory("\u{5}SummaryInformation") {
+            let stream = self
+                .cfb
+                .get_stream("\u{5}SummaryInformation", &mut self.reader)?;
+            oleps::read_summary_information(&stream, &mut props);
+        }
+
+        if self.cfb.has_directory("\u{5}DocumentSummaryInformation") {
+            let stream = self
+                .cfb
+                .get_stream("\u{5}DocumentSummaryInformation", &mut self.reader)?;
+            oleps::read_doc_summary_information(&stream, &mut props);
+        }
+
+        Ok(props)
     }
 
     /// Get the merged cells/regions in a worksheet by sheet name.
