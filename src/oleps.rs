@@ -314,8 +314,10 @@ fn read_u64(data: &[u8], pos: usize) -> Option<u64> {
 /// Decode a UTF-16LE string, removing any trailing null characters.
 fn decode_utf16(bytes: &[u8]) -> String {
     let chars = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]));
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c));
     let s = char::decode_utf16(chars)
         .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect::<String>();
