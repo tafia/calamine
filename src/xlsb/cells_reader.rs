@@ -107,7 +107,15 @@ where
                                 self.is_1904,
                             )
                         } else {
-                            DataRef::Int(v)
+                            // a whole-number date (e.g. 2021-01-01, 44197) is
+                            // often stored as an integer RK, so it needs the
+                            // cell's format too
+                            match cell_format(self.formats, &self.buf) {
+                                format @ Some(CellFormat::DateTime | CellFormat::TimeDelta) => {
+                                    format_excel_f64_ref(v as f64, format, self.is_1904)
+                                }
+                                _ => DataRef::Int(v),
+                            }
                         }
                     } else {
                         let mut v = [0u8; 8];
