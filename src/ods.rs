@@ -742,6 +742,8 @@ where
                         s.push(' ');
                     }
                 }
+                Ok(Event::Start(e)) if e.name() == QName("text:tab") => s.push('\t'),
+                Ok(Event::Start(e)) if e.name() == QName("text:line-break") => s.push('\n'),
                 Err(e) => return Err(OdsError::Xml(e)),
                 Ok(Event::Eof) => return Err(OdsError::Eof("table:table-cell")),
                 _ => (),

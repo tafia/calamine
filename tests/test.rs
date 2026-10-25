@@ -2897,6 +2897,21 @@ fn ods_with_annotations() {
     range_eq!(range, [[String("cell a.1".to_string())],]);
 }
 
+#[test]
+fn ods_tabs_line_breaks() {
+    let mut ods: Ods<_> = wb("ods_tabs_line_breaks.ods");
+    let range = ods.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [
+            [String("tab\tchar".to_string())],
+            [String("two\ttabs\t".to_string())],
+            [String("line\nbreak".to_string())],
+            [String("a  b".to_string())],
+        ]
+    );
+}
+
 #[rstest]
 #[case(HeaderRow::Row(0), &[
     [Empty, Empty],
