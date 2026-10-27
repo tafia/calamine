@@ -3940,3 +3940,40 @@ fn test_xlsx_bool_cell_values() {
         Err(calamine::XlsxError::Unrecognized { .. })
     ));
 }
+
+// Test that a sheet whose cells imply a range larger than MAX_CELLS returns an
+// error instead of aborting on allocation. See issue #693.
+#[test]
+fn test_xlsx_oversized_sparse_range() {
+    // `A1` and `XFD1048576` imply a 17 billion cell range.
+    let mut xlsx: Xlsx<_> = wb("issue_693.xlsx");
+    let name = xlsx.sheet_names()[0].clone();
+    assert!(matches!(
+        xlsx.worksheet_range(&name),
+        Err(calamine::XlsxError::CellLimitExceeded { .. })
+    ));
+}
+
+// Test the MAX_CELLS limit in Range::from_sparse(). See issue #693.
+#[test]
+fn test_from_sparse_cell_limit() {
+    use calamine::{Cell, CellLimitExceeded, Range, MAX_CELLS};
+    let cells = vec![
+        Cell::new((0, 0), 1usize),
+        Cell::new((1_048_575, 16_383), 2usize),
+    ];
+    let err = Range::from_sparse(cells).unwrap_err();
+    assert_eq!(
+        err,
+        CellLimitExceeded {
+            requested: 17_179_869_184,
+            max: MAX_CELLS
+        }
+    );
+    // Sparse but within the limit still loads.
+    let cells = vec![Cell::new((0, 0), 1usize), Cell::new((9_999, 9_999), 2usize)];
+    assert_eq!(
+        Range::from_sparse(cells).unwrap().get_size(),
+        (10_000, 10_000)
+    );
+}
