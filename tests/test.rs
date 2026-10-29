@@ -3940,3 +3940,20 @@ fn test_xlsx_bool_cell_values() {
         Err(calamine::XlsxError::Unrecognized { .. })
     ));
 }
+
+#[test]
+fn cfb_short_directory_chunk_does_not_panic() {
+    // Regression: a compound file whose directory stream length is not a multiple
+    // of 128 previously panicked in `cfb::Directory::from_slice`
+    // ("range end index 64 out of range for slice of length N"). Must not panic.
+    let path = test_path("cfb_dir_short_chunk_panic.xls");
+    let _ = open_workbook::<Xls<_>, _>(&path);
+}
+
+#[test]
+fn cfb_difat_chain_does_not_oom() {
+    // Regression: a crafted DIFAT chain previously drove an unbounded allocation
+    // (a 512-byte file attempted a multi-GB alloc). Must return promptly, not OOM.
+    let path = test_path("cfb_difat_oom.xls");
+    let _ = open_workbook::<Xls<_>, _>(&path);
+}
