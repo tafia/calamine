@@ -262,6 +262,23 @@ fn ods_covered() {
 }
 
 #[test]
+fn ods_cached_error_text() {
+    let mut excel: Ods<_> = wb("cached_error_text.ods");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [
+            [String("#DIV/0!".to_string())],
+            [String("#DIV/0!".to_string())],
+            [String("".to_string())],
+            [String("cached".to_string())],
+        ]
+    );
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(formulas, [["of:=1/0"]; 4]);
+}
+
+#[test]
 fn special_cells() {
     let mut excel: Ods<_> = wb("special_cells.ods");
     let range = excel.worksheet_range("sheet1").unwrap();
