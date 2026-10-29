@@ -248,7 +248,8 @@ impl FromStr for CellErrorType {
     }
 }
 
-type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
+/// Name, sheet name, column names, dimensions, `headerRowCount`, `totalsRowCount`.
+type Tables = Option<Vec<(String, String, Vec<String>, Dimensions, u32, u32)>>;
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
@@ -897,7 +898,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     dims.start.0 += table_meta.header_row_count;
                 }
                 if table_meta.totals_row_count != 0 {
-                    dims.end.0 -= table_meta.header_row_count;
+                    dims.end.0 -= table_meta.totals_row_count;
                 }
 
                 new_tables.push((
@@ -905,6 +906,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     sheet_name.clone(),
                     column_names,
                     dims,
+                    table_meta.header_row_count,
+                    table_meta.totals_row_count,
                 ));
             }
         }
@@ -1496,12 +1499,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
             start: match_table_meta.3.start,
             end: match_table_meta.3.end,
         };
+        let header_row_count = match_table_meta.4;
+        let totals_row_count = match_table_meta.5;
 
         Ok(TableMetadata {
             name,
             sheet_name,
             columns,
             dimensions,
+            header_row_count,
+            totals_row_count,
         })
     }
 
@@ -1900,6 +1907,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             dimensions,
+            header_row_count,
+            totals_row_count,
         } = self.get_table_meta(table_name)?;
         let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range(&sheet_name)?;
@@ -1910,6 +1919,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             data: tbl_rng,
+            header_row_count,
+            totals_row_count,
         })
     }
 
@@ -1974,6 +1985,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             dimensions,
+            header_row_count,
+            totals_row_count,
         } = self.get_table_meta(table_name)?;
         let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range_ref(&sheet_name)?;
@@ -1984,6 +1997,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             data: tbl_rng,
+            header_row_count,
+            totals_row_count,
         })
     }
 
@@ -2706,6 +2721,8 @@ struct TableMetadata {
     sheet_name: String,
     columns: Vec<String>,
     dimensions: Dimensions,
+    header_row_count: u32,
+    totals_row_count: u32,
 }
 
 struct InnerTableMetadata {
