@@ -475,8 +475,6 @@ impl<RS: Read + Seek> Xls<RS> {
             .cfb
             .get_stream("Workbook", &mut self.reader)
             .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))
-            .or_else(|_| self.cfb.get_stream("WORKBOOK", &mut self.reader))
-            .or_else(|_| self.cfb.get_stream("BOOK", &mut self.reader))
         {
             Ok(s) => s,
             Err(StreamNotFound(_)) => return Err(StreamNotFound("Workbook".to_string()).into()),
