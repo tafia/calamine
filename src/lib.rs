@@ -86,6 +86,7 @@ mod cfb;
 mod datatype;
 mod formats;
 mod ods;
+mod oleps;
 mod style;
 mod xls;
 mod xlsb;

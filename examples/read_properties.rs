@@ -2,7 +2,7 @@
 //
 // Copyright 2016-2026, Johann Tuffe.
 
-//! Demonstrates reading workbook properties from an XLSX, XLSB or ODS file.
+//! Demonstrates reading workbook properties from an XLS, XLSX, XLSB or ODS file.
 //!
 //! This example reads the document properties (such as creator, application,
 //! and company) as well as any custom document properties.
@@ -36,7 +36,7 @@ use std::process::exit;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <xlsx/xlsb/ods path>", args[0]);
+        eprintln!("Usage: {} <xls/xlsx/xlsb/ods path>", args[0]);
         exit(1);
     }
 
