@@ -1251,6 +1251,26 @@ fn date_xlsb() {
 }
 
 #[test]
+fn date_xlsb_rk_int() {
+    // date.xlsb with A1 (2021-01-01) and B1 stored as integer RK values (44197
+    // and 15) rather than float ones, as some writers (e.g. Aspose.Cells)
+    // store whole numbers.
+    let mut xls: Xlsb<_> = wb("date_rk_int.xlsb");
+    let range = xls.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(
+        range.get_value((0, 0)),
+        Some(&DateTime(ExcelDateTime::new(
+            44197.0,
+            ExcelDateTimeType::DateTime,
+            false
+        )))
+    );
+    // An integer without a date format is unchanged.
+    assert_eq!(range.get_value((0, 1)), Some(&Int(15)));
+}
+
+#[test]
 fn date_xlsb_1904() {
     let mut xls: Xlsb<_> = wb("date_1904.xlsb");
     assert!(xls.has_1904_epoch());

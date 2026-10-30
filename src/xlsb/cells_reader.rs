@@ -6,7 +6,7 @@ use std::io::{Read, Seek};
 
 use crate::{
     datatype::DataRef,
-    formats::{format_excel_f64_ref, CellFormat},
+    formats::{format_excel_f64_ref, format_excel_i64_ref, CellFormat},
     utils::{read_f64, read_i32, read_u32, read_usize},
     Cell, CellErrorType, Dimensions, XlsbError,
 };
@@ -107,7 +107,14 @@ where
                                 self.is_1904,
                             )
                         } else {
-                            DataRef::Int(v)
+                            // A whole-number date (e.g. 2021-01-01, 44197) is
+                            // often stored as an integer RK, so it needs the
+                            // cell's format too.
+                            format_excel_i64_ref(
+                                v,
+                                cell_format(self.formats, &self.buf),
+                                self.is_1904,
+                            )
                         }
                     } else {
                         let mut v = [0u8; 8];

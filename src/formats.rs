@@ -137,24 +137,27 @@ pub fn builtin_format_by_code(code: u16) -> CellFormat {
     }
 }
 
-// convert i64 to date, if format == Date
-pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> Data {
+// Convert an i64 to a date if the cell format is a date or time format.
+#[inline]
+pub fn format_excel_i64_ref(
+    value: i64,
+    format: Option<&CellFormat>,
+    is_1904: bool,
+) -> DataRef<'static> {
     match format {
-        Some(CellFormat::DateTime) => Data::DateTime(ExcelDateTime::new(
-            value as f64,
-            ExcelDateTimeType::DateTime,
-            is_1904,
-        )),
-        Some(CellFormat::TimeDelta) => Data::DateTime(ExcelDateTime::new(
-            value as f64,
-            ExcelDateTimeType::TimeDelta,
-            is_1904,
-        )),
-        _ => Data::Int(value),
+        Some(CellFormat::DateTime | CellFormat::TimeDelta) => {
+            format_excel_f64_ref(value as f64, format, is_1904)
+        }
+        _ => DataRef::Int(value),
     }
 }
 
-// convert f64 to date, if format == Date
+// Convert an i64 to a date if the cell format is a date or time format.
+pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> Data {
+    format_excel_i64_ref(value, format, is_1904).into()
+}
+
+// Convert an f64 to a date if the cell format is a date or time format.
 #[inline]
 pub fn format_excel_f64_ref(
     value: f64,
@@ -176,7 +179,7 @@ pub fn format_excel_f64_ref(
     }
 }
 
-// convert f64 to date, if format == Date
+// Convert an f64 to a date if the cell format is a date or time format.
 pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) -> Data {
     format_excel_f64_ref(value, format, is_1904).into()
 }
