@@ -4694,3 +4694,24 @@ fn test_next_cell_with_style_id() {
         assert_eq!(range.get_value((pos.0, pos.1)).unwrap(), value);
     }
 }
+
+#[test]
+fn issue_760_truncated_name_record() {
+    // A record type written in 3 bytes is read as a 1-byte BrtName record.
+    let path = test_path("issue_760.xlsb");
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, _>(path),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Is expected to return XlsbError::Unrecognized error"
+    );
+}
+
+#[test]
+fn issue_760_unknown_record_before_names() {
+    // The body of an unsupported record must be skipped, not read as the next record.
+    let xlsb: Xlsb<_> = wb("issue_760_unknown_record.xlsb");
+    assert_eq!(xlsb.sheet_names(), vec!["Sheet1"]);
+    assert!(xlsb.defined_names().is_empty());
+}
