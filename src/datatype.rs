@@ -965,6 +965,12 @@ impl ExcelDateTime {
             milli = 0;
         }
 
+        // A time that rounds up to the end of the day is midnight of the next
+        // day. Convert that day instead to apply the year/month/leap handling.
+        if day_as_seconds == DAY_SECONDS as u64 {
+            return Self::excel_to_standard_datetime(excel_datetime.floor() + 1.0, is_1904);
+        }
+
         // Calculate the hours, minutes and seconds in the day.
         let hour = day_as_seconds / HOUR_SECONDS;
         let min = (day_as_seconds - hour * HOUR_SECONDS) / MINUTE_SECONDS;
@@ -1580,6 +1586,45 @@ mod tests {
             let got = datetime.to_ymd_hms_milli();
             let got = (got.3, got.4, got.5, got.6); // Time parts only.
             assert_eq!(expected, got);
+        }
+    }
+
+    // Test times that round up to the next whole second at the end of the day
+    // roll over to midnight of the next day instead of returning hour 24.
+    #[test]
+    fn test_datetime_rounds_up_to_next_day() {
+        // 1900 epoch.
+        let test_data = vec![
+            (0.9999999999, (1900, 1, 1, 0, 0, 0, 0)),
+            (1.9999999999, (1900, 1, 2, 0, 0, 0, 0)),
+            (59.9999999999, (1900, 2, 29, 0, 0, 0, 0)),
+            (60.9999999999, (1900, 3, 1, 0, 0, 0, 0)),
+            (365.9999999999, (1900, 12, 31, 0, 0, 0, 0)),
+            (44926.9999999999, (2023, 1, 1, 0, 0, 0, 0)),
+        ];
+
+        for test in test_data {
+            let (excel_serial_datetime, expected) = test;
+            let datetime =
+                ExcelDateTime::new(excel_serial_datetime, ExcelDateTimeType::DateTime, false);
+            let got = datetime.to_ymd_hms_milli();
+
+            assert_eq!(expected, got, "serial {excel_serial_datetime}");
+        }
+
+        // 1904 epoch.
+        let test_data = vec![
+            (0.9999999999, (1904, 1, 2, 0, 0, 0, 0)),
+            (43464.9999999999, (2023, 1, 1, 0, 0, 0, 0)),
+        ];
+
+        for test in test_data {
+            let (excel_serial_datetime, expected) = test;
+            let datetime =
+                ExcelDateTime::new(excel_serial_datetime, ExcelDateTimeType::DateTime, true);
+            let got = datetime.to_ymd_hms_milli();
+
+            assert_eq!(expected, got, "serial {excel_serial_datetime}");
         }
     }
 
