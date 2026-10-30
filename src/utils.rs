@@ -12,7 +12,7 @@ use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
 use zip::read::ZipArchive;
 use zip::result::ZipResult;
 
-const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _x00HH_.
+const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _xHHHH_.
 
 macro_rules! from_err {
     ($from:ty, $to:tt, $var:tt) => {
@@ -124,40 +124,33 @@ pub(crate) fn unescape_entity_to_buffer(
 // Function to unescape Excel XML escapes in a string. Excel encodes a character
 // like "\r" as "_x000D_". In turn it escapes the literal string "_x000D_" as
 // "_x005F_x000D_".
+//
+// Each `_xHHHH_` escape is a UTF-16 code unit, so characters above U+FFFF are
+// written as a surrogate pair like "_xD83D__xDCF7_". Lone or reversed
+// surrogates become U+FFFD. Malformed escapes are left as written.
 pub(crate) fn unescape_xml(original: &str) -> Cow<'_, str> {
-    if !original.contains("_x00") {
+    if !original.contains("_x") {
         return Cow::Borrowed(original);
     }
 
-    let bytes = original.as_bytes();
     let mut escaped_string = String::with_capacity(original.len());
+    let mut code_units = Vec::new();
     let mut i = 0;
     let mut has_changes = false;
 
-    while i < bytes.len() {
-        // Look for an escape sequence like: "_x00HH_"
-        if i + UNICODE_ESCAPE_LENGTH <= bytes.len()
-            && bytes[i] == b'_'
-            && bytes.get(i..i + 4) == Some(b"_x00")
-            && bytes[i + 6] == b'_'
-        {
-            // Extract and validate the hex digits.
-            if let Ok(hex_str) = std::str::from_utf8(&bytes[i + 4..i + 6]) {
-                if let Ok(hex_value) = u8::from_str_radix(hex_str, 16) {
-                    // Valid escape sequence, convert to a character.
-                    escaped_string.push(hex_value as char);
-
-                    // Skip the processed escape sequence.
-                    i += UNICODE_ESCAPE_LENGTH;
-                    has_changes = true;
-                    continue;
-                }
-            }
+    while i < original.len() {
+        if let Some(code_unit) = parse_utf16_escape(original, i) {
+            // Collect consecutive escapes so that surrogate pairs are decoded together.
+            code_units.push(code_unit);
+            i += UNICODE_ESCAPE_LENGTH;
+            has_changes = true;
+            continue;
         }
 
+        push_utf16(&mut escaped_string, &mut code_units);
+
         // Not an escape sequence, so we copy the current UTF-8 character.
-        let remaining = &original[i..];
-        match remaining.chars().next() {
+        match original[i..].chars().next() {
             Some(ch) => {
                 escaped_string.push(ch);
                 i += ch.len_utf8();
@@ -167,10 +160,32 @@ pub(crate) fn unescape_xml(original: &str) -> Cow<'_, str> {
     }
 
     if has_changes {
+        push_utf16(&mut escaped_string, &mut code_units);
         Cow::Owned(escaped_string)
     } else {
         Cow::Borrowed(original)
     }
+}
+
+// Decode and append the collected UTF-16 code units, replacing unpaired
+// surrogates with U+FFFD.
+fn push_utf16(out: &mut String, code_units: &mut Vec<u16>) {
+    out.extend(
+        char::decode_utf16(code_units.drain(..)).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)),
+    );
+}
+
+// Parse an "_xHHHH_" escape at byte offset `i` and return its UTF-16 code unit.
+fn parse_utf16_escape(s: &str, i: usize) -> Option<u16> {
+    let bytes = s.as_bytes().get(i..i + UNICODE_ESCAPE_LENGTH)?;
+    if bytes[0] != b'_' || bytes[1] != b'x' || bytes[6] != b'_' {
+        return None;
+    }
+    let hex = &bytes[2..6];
+    if !hex.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    u16::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()
 }
 
 /// Build a lookup cache mapping lowercased normalized paths to original ZIP entry names.
@@ -1287,6 +1302,24 @@ mod tests {
             ("Just_a_normal_string", "Just_a_normal_string"),
             ("Hello_x000D_World_x000D__x000D_", "Hello\rWorld\r\r"),
             ("Multiple_x000D__x000D__x000D_Chars", "Multiple\r\r\rChars"),
+            ("_x2764_", "\u{2764}"),
+            ("_x2764__xFE0F_", "\u{2764}\u{FE0F}"),
+            ("_x597d_", "\u{597D}"),
+            ("_x00E9_", "\u{E9}"),
+            ("_xD83D__xDCF7_", "\u{1F4F7}"),
+            ("_xd83d__xdcf7_", "\u{1F4F7}"),
+            ("a_xD83D__xDE00_b", "a\u{1F600}b"),
+            ("_xD83D_", "\u{FFFD}"),
+            ("_xDCF7_", "\u{FFFD}"),
+            ("_xDCF7__xD83D_", "\u{FFFD}\u{FFFD}"),
+            ("_xD83D__xD83D__xDCF7_", "\u{FFFD}\u{1F4F7}"),
+            ("_xD83D_x", "\u{FFFD}x"),
+            ("_xD83D__x0041_", "\u{FFFD}A"),
+            ("_x005F_x2764_", "_x2764_"),
+            ("_x005F_xD83D__xDCF7_", "_xD83D_\u{FFFD}"),
+            ("_x+123_", "_x+123_"),
+            ("_x00+1_", "_x00+1_"),
+            ("_xFFFF_", "\u{FFFF}"),
         ];
 
         for (input, expected) in test_cases {
