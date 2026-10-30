@@ -21,7 +21,7 @@ This directory contains some example of Calamine usage.
   fills, borders, alignment and number formats) from an XLSX worksheet.
 - `read_picture_data.rs`: Reads pictures and their metadata from an XLSX file.
 - `read_properties.rs`: Reads the workbook properties (including custom
-  properties) from an XLSX, XLSB or ODS file.
+  properties) from an XLS, XLSX, XLSB or ODS file.
 
 ### Serialization examples
 

@@ -36,8 +36,8 @@ impl<RS: std::io::Read + std::io::Seek> Sheets<RS> {
     /// and company, into a [`WorkbookProperties`] struct. Missing fields are
     /// returned as `None`.
     ///
-    /// Document properties are supported for the [`Xlsx`], [`Xlsb`] and
-    /// [`Ods`] readers. The [`Xls`] reader returns an error.
+    /// Document properties are supported for the [`Xls`], [`Xlsx`], [`Xlsb`]
+    /// and [`Ods`] readers.
     ///
     /// See [`Xlsx::workbook_properties()`] for an example.
     ///
@@ -45,10 +45,8 @@ impl<RS: std::io::Read + std::io::Seek> Sheets<RS> {
         match self {
             Sheets::Xlsx(e) => e.workbook_properties().map_err(Error::Xlsx),
             Sheets::Xlsb(e) => e.workbook_properties().map_err(Error::Xlsb),
+            Sheets::Xls(e) => e.workbook_properties().map_err(Error::Xls),
             Sheets::Ods(e) => e.workbook_properties().map_err(Error::Ods),
-            Sheets::Xls(_) => Err(Error::Msg(
-                "Workbook properties are not supported for this format",
-            )),
         }
     }
 }

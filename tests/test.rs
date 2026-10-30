@@ -3911,6 +3911,81 @@ fn test_ods_workbook_properties_auto() {
 }
 
 #[test]
+fn test_xls_workbook_properties() {
+    let mut excel: Xls<_> = wb("issues.xls");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(
+        props.creator.as_deref(),
+        Some("Johann Tuffe (jtuffe010814)")
+    );
+    assert_eq!(
+        props.last_modified_by.as_deref(),
+        Some("Johann Tuffe (jtuffe010814)")
+    );
+    assert_eq!(props.created.as_deref(), Some("2016-10-18T10:19:50Z"));
+    assert_eq!(props.modified.as_deref(), Some("2017-04-19T06:56:48Z"));
+    assert_eq!(props.application.as_deref(), Some("Microsoft Excel"));
+    assert_eq!(props.app_version.as_deref(), Some("16.0000"));
+    assert_eq!(props.company.as_deref(), Some("SOCIETE GENERALE"));
+    assert!(props.title.is_none());
+    assert!(props.custom_properties.is_empty());
+}
+
+#[test]
+fn test_xls_workbook_properties_code_page() {
+    // The author name is stored in the Windows-1251 (Cyrillic) code page.
+    let mut excel: Xls<_> = wb("any_sheets.xls");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(props.creator.as_deref(), Some("Алена"));
+    // An empty company name is returned as `None`.
+    assert!(props.company.is_none());
+}
+
+#[test]
+fn test_xls_custom_properties() {
+    let mut excel: Xls<_> = wb("gh548_incorrect_sst_unique_count.xls");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(props.company.as_deref(), Some("Department of Health"));
+    assert_eq!(props.custom_properties.len(), 8);
+    assert_eq!(
+        props.custom_properties["ContentTypeId"],
+        "0x0101007B3BB9CF23C28F40815860AD19EBF8D8"
+    );
+    assert_eq!(props.custom_properties["Review Date"], "");
+}
+
+#[test]
+fn test_xls_workbook_properties_auto() {
+    let mut excel = open_workbook_auto(format!(
+        "{}/tests/issue_271.xls",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert_eq!(props.creator.as_deref(), Some("微软用户"));
+    assert_eq!(props.last_modified_by.as_deref(), Some("NTKO"));
+    assert_eq!(
+        props.custom_properties["KSOProductBuildVer"],
+        "2052-10.1.0.7698"
+    );
+}
+
+#[test]
+fn test_xls_workbook_properties_missing() {
+    // A file without document property streams.
+    let mut excel: Xls<_> = wb("issue444.xls");
+    let props = excel.workbook_properties().expect("workbook properties");
+
+    assert!(props.creator.is_none());
+    assert!(props.created.is_none());
+    assert!(props.custom_properties.is_empty());
+}
+
+#[test]
 fn test_xlsb_workbook_properties() {
     let mut excel: Xlsb<_> = wb("issues.xlsb");
     let props = excel.workbook_properties().expect("workbook properties");
