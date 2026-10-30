@@ -27,7 +27,7 @@ pub(crate) struct RawAttrIter<'a> {
 
 impl<'a> RawAttrIter<'a> {
     #[inline]
-    fn new(raw: &'a str) -> Self {
+    pub(crate) fn new(raw: &'a str) -> Self {
         Self { raw, pos: 0 }
     }
 }
