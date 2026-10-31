@@ -10,7 +10,7 @@ use std::io::Read;
 
 use log::debug;
 
-use encoding_rs::{Encoding, UTF_16LE, UTF_8};
+use encoding_rs::{Encoding, UTF_16BE, UTF_16LE};
 
 use crate::utils::*;
 
@@ -477,10 +477,12 @@ impl XlsEncoding {
 
     fn high_byte(&self, high_byte: Option<bool>) -> Option<bool> {
         high_byte.or_else(|| {
-            if self.encoding == UTF_8 || self.encoding.is_single_byte() {
-                None
-            } else {
+            // Only UTF-16 uses compressed low-byte characters. Legacy multibyte
+            // encodings consume their original bytes without inserted NULs.
+            if self.encoding == UTF_16LE || self.encoding == UTF_16BE {
                 Some(false)
+            } else {
+                None
             }
         })
     }
@@ -519,5 +521,55 @@ impl XlsEncoding {
 
     pub fn decode_all(&self, stream: &[u8]) -> String {
         self.encoding.decode(stream).0.into_owned()
+    }
+}
+
+#[cfg(test)]
+mod encoding_test {
+    use super::XlsEncoding;
+
+    #[test]
+    fn legacy_multibyte_strings_keep_the_original_bytes() {
+        for (codepage, bytes, expected) in [
+            (932, &[0x93, 0xfa, 0x96, 0x7b][..], "日本"),
+            (936, &[0xd6, 0xd0, 0xce, 0xc4][..], "中文"),
+            (950, &[0xa4, 0xa4, 0xa4, 0xe5][..], "中文"),
+            (951, &[0xa4, 0xa4, 0xa4, 0xe5][..], "中文"),
+            (1252, &[b'c', b'a', b'f', 0xe9][..], "café"),
+            (65001, "日本".as_bytes(), "日本"),
+        ] {
+            let encoding = XlsEncoding::from_codepage(codepage).unwrap();
+            let mut value = String::from("prefix:");
+            assert_eq!(
+                encoding.decode_to(bytes, bytes.len(), &mut value, None),
+                (bytes.len(), bytes.len())
+            );
+            assert_eq!(value, format!("prefix:{expected}"), "{codepage}");
+        }
+    }
+
+    #[test]
+    fn unicode_flags_and_truncated_legacy_input_keep_consumption_counts() {
+        let encoding = XlsEncoding::from_codepage(1200).unwrap();
+        for (bytes, flag) in [
+            (b"A".as_slice(), None),
+            (b"A".as_slice(), Some(false)),
+            (b"A\0".as_slice(), Some(true)),
+        ] {
+            let mut value = String::new();
+            assert_eq!(
+                encoding.decode_to(bytes, 1, &mut value, flag),
+                (1, bytes.len())
+            );
+            assert_eq!(value, "A");
+        }
+        let mut value = String::new();
+        assert_eq!(
+            XlsEncoding::from_codepage(932)
+                .unwrap()
+                .decode_to(&[0x80, 0xe9], 9, &mut value, None),
+            (2, 2)
+        );
+        assert_eq!(value, "\u{80}\u{fffd}");
     }
 }
