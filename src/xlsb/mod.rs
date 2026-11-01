@@ -342,7 +342,12 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         self.sheets.push((name.into_owned(), path));
                     }
                 }
-                0x0090 => break, // BrtEndBundleShs
+                0x0090 => {
+                    // BrtEndBundleShs: consume its (empty) body so the next read
+                    // starts at the following record.
+                    let _ = iter.fill_buffer(&mut buf)?;
+                    break;
+                }
                 _ => {
                     // Consume the body of any unmatched workbook-global record
                     // to avoid reading its trailing bytes in the next read.
@@ -383,10 +388,20 @@ impl<RS: Read + Seek> Xlsb<RS> {
                 0x0027 => {
                     // BrtName
                     let len = iter.fill_buffer(&mut buf)?;
+                    let record = &buf[..len];
+                    let truncated = || XlsbError::Unrecognized {
+                        typ: "BrtName record length",
+                        val: len.to_string(),
+                    };
                     let mut str_len = 0;
-                    let name = wide_str(&buf[9..len], &mut str_len)?.into_owned();
-                    let rgce_len = read_u32(&buf[9 + str_len..]) as usize;
-                    let rgce = &buf[13 + str_len..13 + str_len + rgce_len];
+                    let name = wide_str(record.get(9..).ok_or_else(truncated)?, &mut str_len)?
+                        .into_owned();
+                    let rgce_start = 13 + str_len;
+                    let rgce_len =
+                        read_u32(record.get(9 + str_len..rgce_start).ok_or_else(truncated)?)
+                            as usize;
+                    let rgce_end = rgce_start.checked_add(rgce_len).ok_or_else(truncated)?;
+                    let rgce = record.get(rgce_start..rgce_end).ok_or_else(truncated)?;
                     let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
                     defined_names.push((name, formula));
                 }
@@ -395,7 +410,11 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     self.metadata.names = defined_names;
                     return Ok(());
                 }
-                _ => debug!("Unsupported type {typ:X}"),
+                _ => {
+                    debug!("Unsupported type {typ:X}");
+                    // Consume the body so its bytes aren't read as the next record.
+                    let _ = iter.fill_buffer(&mut buf)?;
+                }
             }
         }
     }
@@ -743,6 +762,12 @@ where
 }
 
 fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, XlsbError> {
+    if buf.len() < 4 {
+        return Err(XlsbError::WideStr {
+            ws_len: 4,
+            buf_len: buf.len(),
+        });
+    }
     let len = read_u32(buf) as usize;
     if buf.len() < 4 + len * 2 {
         return Err(XlsbError::WideStr {
