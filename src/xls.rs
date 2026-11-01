@@ -5,11 +5,12 @@
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek};
 
+use cfb::CompoundFile;
 use log::debug;
 
-use crate::cfb::{Cfb, XlsEncoding};
+use crate::cfb::XlsEncoding;
 use crate::formats::{
     builtin_format_by_code, detect_custom_number_format, format_excel_f64, format_excel_i64,
     CellFormat,
@@ -162,20 +163,13 @@ struct SheetData {
 pub struct Xls<RS> {
     sheets: BTreeMap<String, SheetData>,
     metadata: Metadata,
-    cfb: Cfb,
     reader: RS,
+    has_vba: bool,
     options: XlsOptions,
     formats: Vec<CellFormat>,
     is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
-}
-
-fn cfb<RS: Seek + Read>(reader: &mut RS) -> Result<Cfb, XlsError> {
-    let offset_end = reader.seek(SeekFrom::End(0))? as usize;
-    reader.seek(SeekFrom::Start(0))?;
-    let cfb = Cfb::new(reader, offset_end)?;
-    Ok(cfb)
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -195,14 +189,42 @@ impl<RS: Read + Seek> Xls<RS> {
     /// # fn main() { assert!(run().is_err()); }
     /// ```
     pub fn new_with_options(mut reader: RS, options: XlsOptions) -> Result<Self, XlsError> {
-        let cfb = cfb(&mut reader)?;
+        // Scope the CFB operations so we can recover the reader for the VBA parsing.
+        let (stream_buf, has_vba) = {
+            let mut cfb = CompoundFile::open(&mut reader)?;
+
+            // Check for the workbook stream in the compound file. This must
+            // exist for a valid xls file and can be named "Workbook" or "Book"
+            // (case-insensitive) depending on the file version. It is also
+            // possible that some files have both streams.
+            let mut workbook_stream = match cfb
+                .open_stream("Workbook")
+                .or_else(|_| cfb.open_stream("Book"))
+            {
+                Ok(stream) => stream,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(crate::cfb::CfbError::StreamNotFound("Workbook".to_string()).into())
+                }
+                Err(e) => return Err(e.into()),
+            };
+
+            // Read the workbook stream data
+            let mut stream_buf = vec![];
+            workbook_stream.read_to_end(&mut stream_buf)?;
+
+            // Also check for VBA project stream.
+            let has_vba = cfb.exists("/_VBA_PROJECT_CUR/VBA/dir");
+
+            (stream_buf, has_vba)
+        };
 
         debug!("cfb loaded");
 
+        // Create the new Xls instance.
         let mut xls = Xls {
             sheets: BTreeMap::new(),
-            cfb,
             reader,
+            has_vba,
             metadata: Metadata::default(),
             options,
             is_1904: false,
@@ -211,7 +233,9 @@ impl<RS: Read + Seek> Xls<RS> {
             pictures: None,
         };
 
-        xls.parse_workbook()?;
+        // Parse the workbook stream. The VBA project, if any, is left until
+        // `vba_project()` asks for it.
+        xls.parse_workbook(&stream_buf)?;
 
         debug!("xls parsed");
 
@@ -254,17 +278,21 @@ impl<RS: Read + Seek> Xls<RS> {
     pub fn workbook_properties(&mut self) -> Result<WorkbookProperties, XlsError> {
         let mut props = WorkbookProperties::default();
 
-        if self.cfb.has_directory("\u{5}SummaryInformation") {
-            let stream = self
-                .cfb
-                .get_stream("\u{5}SummaryInformation", &mut self.reader)?;
+        // The compound file is reopened on demand, as for the VBA project,
+        // since `Xls` only keeps the reader.
+        let mut cfb = CompoundFile::open(&mut self.reader)?;
+
+        if cfb.is_stream("\u{5}SummaryInformation") {
+            let mut stream = Vec::new();
+            cfb.open_stream("\u{5}SummaryInformation")?
+                .read_to_end(&mut stream)?;
             oleps::read_summary_information(&stream, &mut props);
         }
 
-        if self.cfb.has_directory("\u{5}DocumentSummaryInformation") {
-            let stream = self
-                .cfb
-                .get_stream("\u{5}DocumentSummaryInformation", &mut self.reader)?;
+        if cfb.is_stream("\u{5}DocumentSummaryInformation") {
+            let mut stream = Vec::new();
+            cfb.open_stream("\u{5}DocumentSummaryInformation")?
+                .read_to_end(&mut stream)?;
             oleps::read_doc_summary_information(&stream, &mut props);
         }
 
@@ -436,11 +464,10 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     }
 
     fn vba_project(&mut self) -> Result<Option<VbaProject>, XlsError> {
-        // Reads vba once for all (better than reading all worksheets once for all)
-        if !self.cfb.has_directory("_VBA_PROJECT_CUR") {
+        if !self.has_vba {
             return Ok(None);
         }
-        let vba = VbaProject::from_cfb(&mut self.reader, &mut self.cfb)?;
+        let vba = VbaProject::new(&mut self.reader)?;
         Ok(Some(vba))
     }
 
@@ -497,19 +524,7 @@ struct Xti {
 }
 
 impl<RS: Read + Seek> Xls<RS> {
-    fn parse_workbook(&mut self) -> Result<(), XlsError> {
-        use super::cfb::CfbError::StreamNotFound;
-        // gets workbook and worksheets stream, or early exit
-        let stream = match self
-            .cfb
-            .get_stream("Workbook", &mut self.reader)
-            .or_else(|_| self.cfb.get_stream("Book", &mut self.reader))
-        {
-            Ok(s) => s,
-            Err(StreamNotFound(_)) => return Err(StreamNotFound("Workbook".to_string()).into()),
-            Err(e) => return Err(e.into()),
-        };
-
+    fn parse_workbook(&mut self, stream: &[u8]) -> Result<(), XlsError> {
         let mut sheet_names = Vec::new();
         let mut strings = Vec::new();
         let mut defined_names = Vec::new();
