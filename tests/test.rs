@@ -1665,6 +1665,49 @@ fn merge_cells_by_sheet_id_xlsx() {
 }
 
 #[test]
+fn merge_cells_by_sheet_name_xlsb() {
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn merge_cells_by_sheet_id_xlsb() {
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn merge_cells_xlsb_none() {
+    let mut excel: Xlsb<_> = wb("date.xlsb");
+    assert!(excel.merge_cells_by_sheet_id(0).unwrap().is_empty());
+}
+
+#[test]
+fn merge_cells_xlsb_not_found() {
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
+    assert!(excel.merge_cells_by_sheet_id(99).is_err());
+}
+
+#[test]
 fn merge_cells_by_sheet_name_not_found() {
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
