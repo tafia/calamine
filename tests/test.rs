@@ -4717,3 +4717,19 @@ fn test_xlsb_unknown_record_before_names() {
     assert_eq!(xlsb.sheet_names(), vec!["Sheet1"]);
     assert!(xlsb.defined_names().is_empty());
 }
+
+#[test]
+fn test_cfb_short_directory_chunk_does_not_panic() {
+    // Test that a compound file whose directory stream length is not a multiple
+    // of 128 doesn't panic. See PR #762.
+    let xls: Xls<_> = wb("cfb_dir_short_chunk_panic.xls");
+    assert_eq!(xls.sheet_names(), vec!["Sheet1"]);
+}
+
+#[test]
+fn test_cfb_difat_chain_does_not_oom() {
+    // Test that a compound file with a cyclic DIFAT chain is rejected without
+    // unbounded allocation. See PR #762.
+    let path = test_path("cfb_difat_oom.xls");
+    assert!(open_workbook::<Xls<_>, _>(path).is_err());
+}

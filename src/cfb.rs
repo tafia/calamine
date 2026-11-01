@@ -112,9 +112,15 @@ impl Cfb {
         // load fat and dif sectors
         debug!("load difat {h:?}");
         let mut sector_id = h.difat_start;
+        // Set a bound on the DIFAT chain so it cannot reference more than `maxid` sectors.
+        let mut difat_sectors = 0usize;
         while sector_id < RESERVED_SECTORS {
+            difat_sectors += 1;
+            if difat_sectors > maxid.saturating_add(1) {
+                return Err(CfbError::SectorBeyondEof(sector_id));
+            }
             difat.extend(to_u32(sectors.get(sector_id, reader)?));
-            sector_id = difat.pop().unwrap(); //TODO: check if in infinite loop
+            sector_id = difat.pop().ok_or(CfbError::SectorBeyondEof(sector_id))?;
         }
 
         // load the FATs
@@ -126,10 +132,13 @@ impl Cfb {
 
         // get the list of directory sectors
         debug!("load directories");
-        // we want to read the full chain, so pass no size restriction
+        // We want to read the full chain, so pass no size restriction. Each
+        // directory entry should be exactly 128 bytes. A short trailing chunk
+        // is malformed and must not be passed to Directory::from_slice.
         let dirs = sectors.get_chain(h.dir_start, &fats, reader, usize::MAX)?;
         let dirs = dirs
             .chunks(128)
+            .filter(|c| c.len() == 128)
             .map(|c| Directory::from_slice(c, h.sector_size))
             .collect::<Vec<_>>();
 
