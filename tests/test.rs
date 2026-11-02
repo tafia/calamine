@@ -4936,3 +4936,76 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+/// Copy a test file into a new zip archive with one extra entry whose name is
+/// not valid UTF-8.
+fn with_non_utf8_entry_name(name: &str) -> Vec<u8> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use zip::{ZipArchive, ZipWriter};
+
+    // `ZipWriter` only writes UTF-8 names, so write a placeholder name and then
+    // overwrite its bytes, in the local header and in the central directory,
+    // with a name of the same length that isn't valid UTF-8.
+    const PLACEHOLDER: &[u8] = b"placeholder-name.bin";
+    const NON_UTF8_NAME: &[u8] = b"\xff\xfe\xfdnon-utf8-name.bin";
+    assert_eq!(PLACEHOLDER.len(), NON_UTF8_NAME.len());
+
+    let mut source = ZipArchive::new(File::open(test_path(name)).unwrap()).unwrap();
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..source.len() {
+        writer.raw_copy_file(source.by_index(i).unwrap()).unwrap();
+    }
+    writer
+        .start_file(
+            std::str::from_utf8(PLACEHOLDER).unwrap(),
+            SimpleFileOptions::default(),
+        )
+        .unwrap();
+    writer.write_all(b"not a spreadsheet part").unwrap();
+    let mut data = writer.finish().unwrap().into_inner();
+
+    let mut replaced = 0;
+    let mut pos = 0;
+    while let Some(offset) = data[pos..]
+        .windows(PLACEHOLDER.len())
+        .position(|window| window == PLACEHOLDER)
+    {
+        let start = pos + offset;
+        data[start..start + NON_UTF8_NAME.len()].copy_from_slice(NON_UTF8_NAME);
+        pos = start + NON_UTF8_NAME.len();
+        replaced += 1;
+    }
+    // The name is in the local header and in the central directory.
+    assert_eq!(replaced, 2);
+
+    // Check that the archive really holds the non UTF-8 name.
+    let archive = ZipArchive::new(Cursor::new(&data)).unwrap();
+    assert!(archive.file_names_raw().any(|raw| raw == NON_UTF8_NAME));
+
+    data
+}
+
+#[test]
+fn test_all_non_utf8_zip_entry_name() {
+    // Test that a zip based file with an extra entry whose name isn't valid
+    // UTF-8 still opens and reads the same data as the original file.
+    for name in ["picture.xlsx", "picture.xlsb", "picture.ods"] {
+        let data = with_non_utf8_entry_name(name);
+
+        let mut expected = open_workbook_auto(test_path(name)).unwrap();
+        let mut actual = calamine::open_workbook_auto_from_rs(Cursor::new(data)).expect(name);
+
+        assert_eq!(actual.sheet_names(), expected.sheet_names(), "{name}");
+        for sheet in expected.sheet_names() {
+            assert_eq!(
+                actual.worksheet_range(&sheet).unwrap(),
+                expected.worksheet_range(&sheet).unwrap(),
+                "{name}: {sheet}"
+            );
+        }
+
+        #[cfg(feature = "picture")]
+        assert_eq!(actual.pictures(), expected.pictures(), "{name}");
+    }
+}
