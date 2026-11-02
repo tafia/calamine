@@ -6,6 +6,108 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.38.0] - 2026-11-02
+
+### Added
+
+- **Added an XLSX API to read cell styles.** A long requested feature.
+
+  The new `worksheet_style()` method returns a `StyleRange` of `Style` values
+  holding the font, fill, borders, alignment, number format and protection of
+  each cell, with theme and indexed colors resolved, including tints.
+
+  For streaming, `XlsxCellReader` adds the `next_cell_with_style_id()` method,
+  which returns each cell value together with its style id in a single pass, and
+  `styles()` to resolve the id to a `Style`. Formats without style support
+  return an empty `StyleRange`. See also the `xlsx_style_stream.rs` example. [PR
+  #653] and [PR #682].
+
+  [PR #653]: https://github.com/tafia/calamine/pull/653
+  [PR #682]: https://github.com/tafia/calamine/pull/682
+
+- Added `workbook_properties()` methods to `Xls` and `Ods` in addition to the
+  `xlsx` and `xlsb` support in the previous release. The workbook document
+  properties can now be read from all the supported formats, including via
+  `open_workbook_auto()`. [PR #756] and [PR #757].
+
+  [PR #756]: https://github.com/tafia/calamine/pull/756
+  [PR #757]: https://github.com/tafia/calamine/pull/757
+
+- Added `WorkbookProperties::custom_properties` to read the custom, user
+  defined, document properties as a map of property name to text value.
+  [PR #750].
+
+  [PR #750]: https://github.com/tafia/calamine/pull/750
+
+### Fixed
+
+- Fixed XLSX reading of packages whose main workbook part isn't named
+  `xl/workbook.xml`. The part name is now read from `_rels/.rels`. [Issue #752]
+  and [PR #753].
+
+  [Issue #752]: https://github.com/tafia/calamine/issues/752
+  [PR #753]: https://github.com/tafia/calamine/pull/753
+
+- Fixed XLSX decoding of `_xHHHH_` string escapes to handle all UTF-16 code
+  units, including surrogate pairs, instead of only `_x00HH_`. [PR #751] and
+  [PR #767].
+
+  [PR #751]: https://github.com/tafia/calamine/pull/751
+  [PR #767]: https://github.com/tafia/calamine/pull/767
+
+- Fixed XLSB date and time formats not being applied to whole-number cell
+  values stored as integer RK records. These were returned as `Data::Int`
+  instead of `Data::DateTime`. [PR #758].
+
+  [PR #758]: https://github.com/tafia/calamine/pull/758
+
+- Fixed an XLSB panic on malformed `BrtName` records, which now return an
+  error. [Issue #760] and [PR #761].
+
+  [Issue #760]: https://github.com/tafia/calamine/issues/760
+  [PR #761]: https://github.com/tafia/calamine/pull/761
+
+- Fixed a panic and an unbounded allocation in the CFB reader on malformed
+  compound files, which affected XLS files and VBA projects. [PR #762].
+
+  [PR #762]: https://github.com/tafia/calamine/pull/762
+
+- Fixed the XLS reader to ignore the case of the `Workbook` and `Book` stream
+  names, so that files with a `WORKBOOK` stream open as they do in LibreOffice.
+  [Issue #618] and [PR #755].
+
+  [Issue #618]: https://github.com/tafia/calamine/issues/618
+  [PR #755]: https://github.com/tafia/calamine/pull/755
+
+- Fixed XLS decoding of BIFF5 strings in multibyte code pages such as
+  Shift-JIS, GBK and Big5, which previously acquired NUL and replacement
+  characters. [PR #765].
+
+  [PR #765]: https://github.com/tafia/calamine/pull/765
+
+- Fixed an XLS panic on BIFF5 formulas with a `PtgStr` string literal, which
+  has no flags byte before BIFF8. [PR #703].
+
+  [PR #703]: https://github.com/tafia/calamine/pull/703
+
+- Fixed ODS error cells, such as `#DIV/0!`, to return their displayed text
+  instead of an empty string. [Issue #720] and [PR #739].
+
+  [Issue #720]: https://github.com/tafia/calamine/issues/720
+  [PR #739]: https://github.com/tafia/calamine/pull/739
+
+- Fixed ODS cell text to include tabs (`text:tab`) and soft line breaks
+  (`text:line-break`), which were previously dropped. [PR #759].
+
+  [PR #759]: https://github.com/tafia/calamine/pull/759
+
+- Fixed `ExcelDateTime::to_ymd_hms_milli()` for times that round up to
+  midnight, which were returned as hour 24 of the same day instead of rolling
+  over to the next day. [PR #763].
+
+  [PR #763]: https://github.com/tafia/calamine/pull/763
+
+
 ## [0.37.0] - 2026-10-18
 
 ### Changed
