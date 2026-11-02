@@ -1746,6 +1746,53 @@ fn test_xlsx_merge_cells_by_sheet_id() {
 }
 
 #[test]
+fn test_xlsb_merge_cells_by_sheet_name() {
+    // Test that merged cells are read by sheet name.
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn test_xlsb_merge_cells_by_sheet_id() {
+    // Test that merged cells are read by sheet index.
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn test_xlsb_merge_cells_none() {
+    // Test that a sheet without merged cells returns an empty list.
+    let mut excel: Xlsb<_> = wb("date.xlsb");
+    assert!(excel.merge_cells_by_sheet_id(0).unwrap().is_empty());
+}
+
+#[test]
+fn test_xlsb_merge_cells_not_found() {
+    // Test that merged cells for an unknown sheet name or index return an error.
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
+    assert!(excel.merge_cells_by_sheet_id(99).is_err());
+}
+
+#[test]
 fn test_xlsx_merge_cells_by_sheet_name_not_found() {
     // Test that merged cells for an unknown sheet name return an error.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
