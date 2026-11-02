@@ -32,6 +32,8 @@ typos  # cargo install typos-cli
   behaviour instead. The exception is the end of a test comment, see below.
 - Avoid adding panics. Malformed input should return an error.
 - Comments should be formatted as sentences with proper punctuation.
+- Comments should describe what the code does not what it did or what was
+  changed.
 
 ## Tests
 
@@ -41,6 +43,7 @@ typos  # cargo install typos-cli
   is `fn test_format_what_it_tests()` where format is one of
   all/xlsx/xlsb/xls/ods/xlsm. For example `test_xlsb_truncated_name_record`. The
   test name shouldn't include the issue number.
+- Test files should not be generated on the fly in a test.
 - Start each test with a comment saying what it tests. An issue reference, if
   any, goes at the end:
 
