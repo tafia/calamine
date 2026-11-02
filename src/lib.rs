@@ -17,7 +17,7 @@
 //! use calamine::{Reader, open_workbook, Xlsx, Data};
 //!
 //! // opens a new workbook
-//! # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+//! # let path = format!("{}/tests/single_row_sheet.xlsm", env!("CARGO_MANIFEST_DIR"));
 //! let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 //!
 //! // Read whole worksheet data and provide some statistics
@@ -433,7 +433,7 @@ where
     /// ```
     /// use calamine::{Xlsx, open_workbook, Reader};
     ///
-    /// # let path = format!("{}/tests/issue3.xlsm", env!("CARGO_MANIFEST_DIR"));
+    /// # let path = format!("{}/tests/single_row_sheet.xlsm", env!("CARGO_MANIFEST_DIR"));
     /// let mut workbook: Xlsx<_> = open_workbook(path).unwrap();
     /// println!("Sheets: {:#?}", workbook.sheet_names());
     /// ```
