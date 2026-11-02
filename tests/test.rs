@@ -48,7 +48,9 @@ macro_rules! range_eq {
 }
 
 #[test]
-fn issue_2() {
+fn test_xlsx_rows_split() {
+    // Test that a range with several rows is read with the rows split
+    // correctly. See issue #2.
     let mut excel: Xlsx<_> = wb("issues.xlsx");
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
@@ -62,22 +64,26 @@ fn issue_2() {
 }
 
 #[test]
-fn issue_3() {
-    // test if sheet is resolved with only one row
-    let mut excel: Xlsx<_> = wb("issue3.xlsm");
+fn test_xlsm_single_row_sheet() {
+    // Test that a sheet with only one row is read. See issue #3.
+    let mut excel: Xlsx<_> = wb("single_row_sheet.xlsm");
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(range, [[Float(1.), String("a".to_string())]]);
 }
 
 #[test]
-fn issue_4() {
+fn test_xlsx_float_with_zero_precision_format() {
+    // Test that a float in a cell with a zero precision number format keeps its
+    // value. See issue #5.
     let mut excel: Xlsx<_> = wb("issues.xlsx");
     let range = excel.worksheet_range("issue5").unwrap();
     range_eq!(range, [[Float(0.5)]]);
 }
 
 #[test]
-fn issue_6() {
+fn test_xlsx_formula_cell_values() {
+    // Test that cells containing formulas return their cached values.
+    // See issue #6.
     let mut excel: Xlsx<_> = wb("issues.xlsx");
     let range = excel.worksheet_range("issue6").unwrap();
     range_eq!(
@@ -92,7 +98,9 @@ fn issue_6() {
 }
 
 #[test]
-fn error_file() {
+fn test_xlsx_error_cell_values() {
+    // Test that cells with Excel error values are read as the matching
+    // CellErrorType.
     let mut excel: Xlsx<_> = wb("errors.xlsx");
     let range = excel.worksheet_range("Feuil1").unwrap();
     range_eq!(
@@ -110,8 +118,10 @@ fn error_file() {
 }
 
 #[test]
-fn issue_9() {
-    let mut excel: Xlsx<_> = wb("issue9.xlsx");
+fn test_xlsx_rich_text_shared_strings() {
+    // Test that shared strings with rich text runs are read as plain strings.
+    // See issue #9.
+    let mut excel: Xlsx<_> = wb("rich_text_shared_strings.xlsx");
     let range = excel.worksheet_range("Feuil1").unwrap();
     range_eq!(
         range,
@@ -125,7 +135,8 @@ fn issue_9() {
 }
 
 #[test]
-fn vba() {
+fn test_xlsm_vba() {
+    // Test that the VBA project module source is read from an xlsm file.
     let mut excel: Xlsx<_> = wb("vba.xlsm");
     let vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
@@ -136,7 +147,8 @@ fn vba() {
 }
 
 #[test]
-fn xlsb() {
+fn test_xlsb_range_values() {
+    // Test that a range of numbers and strings is read from an xlsb file.
     let mut excel: Xlsb<_> = wb("issues.xlsb");
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
@@ -150,21 +162,9 @@ fn xlsb() {
 }
 
 #[test]
-fn xlsx() {
-    let mut excel: Xlsx<_> = wb("issues.xlsx");
-    let range = excel.worksheet_range("issue2").unwrap();
-    range_eq!(
-        range,
-        [
-            [Float(1.), String("a".to_string())],
-            [Float(2.), String("b".to_string())],
-            [Float(3.), String("c".to_string())]
-        ]
-    );
-}
-
-#[test]
-fn xls() {
+fn test_xls_range_values_and_vba() {
+    // Test that a range of numbers and strings, and the VBA project references
+    // and module names, are read from an xls file.
     let mut excel: Xls<_> = wb("issues.xls");
     let range = excel.worksheet_range("issue2").unwrap();
     range_eq!(
@@ -206,10 +206,11 @@ fn xls() {
     );
 }
 
-// test ignored because the file is too large to be committed and tested
+// Test that a large xls file is read. Ignored because the file is too large to
+// be committed. See issue #195.
 #[ignore]
 #[test]
-fn issue_195() {
+fn test_xls_large_file() {
     let mut excel: Xls<_> = wb("JLCPCB SMT Parts Library(20210204).xls");
     let range = excel
         .worksheet_range("JLCPCB SMT Parts Library")
@@ -218,7 +219,9 @@ fn issue_195() {
 }
 
 #[test]
-fn ods() {
+fn test_ods_data_types() {
+    // Test that the ods data types, a range with several rows and a float with
+    // a zero precision format are read.
     let mut excel: Ods<_> = wb("issues.ods");
     let range = excel.worksheet_range("datatypes").unwrap();
     range_eq!(
@@ -248,7 +251,9 @@ fn ods() {
 }
 
 #[test]
-fn ods_covered() {
+fn test_ods_covered_cells() {
+    // Test that an ods sheet with covered table cells reads the visible cell
+    // values.
     let mut excel: Ods<_> = wb("covered.ods");
     let range = excel.worksheet_range("sheet1").unwrap();
     range_eq!(
@@ -262,7 +267,9 @@ fn ods_covered() {
 }
 
 #[test]
-fn ods_cached_error_text() {
+fn test_ods_cached_error_text() {
+    // Test that ods formula cells return their cached error text or value and
+    // that the formulas are read.
     let mut excel: Ods<_> = wb("cached_error_text.ods");
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
@@ -279,7 +286,9 @@ fn ods_cached_error_text() {
 }
 
 #[test]
-fn special_cells() {
+fn test_ods_special_cells() {
+    // Test that ods cells with line breaks and repeated, leading or trailing
+    // spaces are read as written.
     let mut excel: Ods<_> = wb("special_cells.ods");
     let range = excel.worksheet_range("sheet1").unwrap();
     range_eq!(
@@ -297,7 +306,9 @@ fn special_cells() {
 }
 
 #[test]
-fn special_chrs_xlsx() {
+fn test_xlsx_special_chars() {
+    // Test that cells with XML special characters and non-ASCII text are read
+    // from an xlsx file.
     let mut excel: Xlsx<_> = wb("issues.xlsx");
     let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(
@@ -316,7 +327,9 @@ fn special_chrs_xlsx() {
 }
 
 #[test]
-fn special_chrs_xlsb() {
+fn test_xlsb_special_chars() {
+    // Test that cells with XML special characters and non-ASCII text are read
+    // from an xlsb file.
     let mut excel: Xlsb<_> = wb("issues.xlsb");
     let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(
@@ -335,7 +348,9 @@ fn special_chrs_xlsb() {
 }
 
 #[test]
-fn special_chrs_ods() {
+fn test_ods_special_chars() {
+    // Test that cells with XML special characters and non-ASCII text are read
+    // from an ods file.
     let mut excel: Ods<_> = wb("issues.ods");
     let range = excel.worksheet_range("spc_chrs").unwrap();
     range_eq!(
@@ -353,11 +368,11 @@ fn special_chrs_ods() {
     );
 }
 
-// Test for decoding/unescaping simple XML entities. A2 is `&#xA;` (newline
-// character reference) — without xml:space="preserve" it is trimmed like any
-// other edge whitespace.
+// Test that simple XML entities are decoded. A2 is `&#xA;` (a newline character
+// reference) which, without xml:space="preserve", is trimmed like any other
+// edge whitespace.
 #[test]
-fn decode_xml_entities() {
+fn test_xlsx_decode_xml_entities() {
     let mut excel: Xlsx<_> = wb("encoded_entities.xlsx");
     let range = excel.worksheet_range("Sheet1").unwrap();
 
@@ -365,13 +380,11 @@ fn decode_xml_entities() {
     assert_eq!(range.get_value((1, 0)), Some(&String("".to_string())));
 }
 
-// Test for unescaping Excel XML escapes in a cell string. Excel encodes a
-// character like "\r" as "_x000D_". In turn it escapes the literal string
-// "_x000D_" as "_x005F_x000D_".
-//
-// See https://github.com/tafia/calamine/issues/469
+// Test that Excel XML escapes in a cell string are unescaped. Excel encodes a
+// character like "\r" as "_x000D_" and in turn escapes the literal string
+// "_x000D_" as "_x005F_x000D_". See issue #469.
 #[test]
-fn unescape_excel_xml() {
+fn test_xlsx_unescape_excel_xml() {
     let mut excel: Xlsx<_> = wb("has_x000D_.xlsx");
     let range = excel.worksheet_range("Sheet1").unwrap();
 
@@ -400,14 +413,18 @@ fn unescape_excel_xml() {
 }
 
 #[test]
-fn partial_richtext_ods() {
+fn test_ods_partial_richtext() {
+    // Test that an ods cell with partial rich text formatting is read as one
+    // string.
     let mut excel: Ods<_> = wb("richtext_issue.ods");
     let range = excel.worksheet_range("datatypes").unwrap();
     range_eq!(range, [[String("abc".to_string())]]);
 }
 
 #[test]
-fn xlsx_richtext_namespaced() {
+fn test_xlsx_richtext_namespaced() {
+    // Test that rich text in inline and shared strings is read when the
+    // elements use a namespace prefix.
     let mut excel: Xlsx<_> = wb("richtext-namespaced.xlsx");
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
@@ -426,7 +443,8 @@ fn xlsx_richtext_namespaced() {
 }
 
 #[test]
-fn defined_names_xlsx() {
+fn test_xlsx_defined_names() {
+    // Test that defined names are read from an xlsx file.
     let excel: Xlsx<_> = wb("issues.xlsx");
     let mut defined_names = excel.defined_names().to_vec();
     defined_names.sort();
@@ -441,7 +459,8 @@ fn defined_names_xlsx() {
 }
 
 #[test]
-fn defined_names_xlsb() {
+fn test_xlsb_defined_names() {
+    // Test that defined names are read from an xlsb file.
     let excel: Xlsb<_> = wb("issues.xlsb");
     let mut defined_names = excel.defined_names().to_vec();
     defined_names.sort();
@@ -456,7 +475,9 @@ fn defined_names_xlsb() {
 }
 
 #[test]
-fn defined_names_xls() {
+fn test_xls_defined_names() {
+    // Test that defined names, and the VBA project references and module names,
+    // are read from an xls file.
     let mut excel: Xls<_> = wb("issues.xls");
     let mut defined_names = excel.defined_names().to_vec();
     defined_names.sort();
@@ -500,7 +521,8 @@ fn defined_names_xls() {
 }
 
 #[test]
-fn defined_names_ods() {
+fn test_ods_defined_names() {
+    // Test that defined names are read from an ods file.
     let excel: Ods<_> = wb("issues.ods");
     let mut defined_names = excel.defined_names().to_vec();
     defined_names.sort();
@@ -521,13 +543,15 @@ fn defined_names_ods() {
 }
 
 #[test]
-fn parse_sheet_names_in_xls() {
+fn test_xls_sheet_names() {
+    // Test that the sheet names are parsed from an xls file.
     let excel: Xls<_> = wb("sheet_name_parsing.xls");
     assert_eq!(excel.sheet_names(), &["Sheet1"]);
 }
 
 #[test]
-fn read_xls_from_memory() {
+fn test_xls_read_from_memory() {
+    // Test that an xls file is read from an in-memory buffer.
     const DATA_XLS: &[u8] = include_bytes!("sheet_name_parsing.xls");
     let reader = Cursor::new(DATA_XLS);
     let excel = Xls::new(reader).unwrap();
@@ -535,7 +559,8 @@ fn read_xls_from_memory() {
 }
 
 #[test]
-fn search_references() {
+fn test_xlsm_vba_references() {
+    // Test that the VBA project reference names are read from an xlsm file.
     let mut excel: Xlsx<_> = wb("vba.xlsm");
     let vba = excel.vba_project().unwrap().unwrap();
     let references = vba.get_references();
@@ -544,7 +569,9 @@ fn search_references() {
 }
 
 #[test]
-fn formula_xlsx() {
+fn test_xlsx_formula() {
+    // Test that worksheet formulas are read from every sheet of an xlsx file
+    // and that a formula using a defined name is read as written.
     let mut excel: Xlsx<_> = wb("issues.xlsx");
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
@@ -556,7 +583,9 @@ fn formula_xlsx() {
 }
 
 #[test]
-fn formula_xlsb() {
+fn test_xlsb_formula() {
+    // Test that worksheet formulas are read from every sheet of an xlsb file
+    // and that a formula using a defined name is read as written.
     let mut excel: Xlsb<_> = wb("issues.xlsb");
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
@@ -568,10 +597,10 @@ fn formula_xlsb() {
 }
 
 #[test]
-fn formula_xls_utf16_string() {
-    // PtgStr operands stored as UTF-16 (fHighByte = 1) take 2 bytes per
-    // character. "舗" (U+8217) is encoded as `17 82`, which used to be misread
-    // as another PtgStr (0x17) of 0x82 characters and panicked.
+fn test_xls_formula_utf16_string() {
+    // Test that a PtgStr operand stored as UTF-16 (fHighByte = 1) is read as 2
+    // bytes per character. "舗" (U+8217) is encoded as `17 82`, which used to be
+    // misread as another PtgStr (0x17) of 0x82 characters and panicked.
     let mut excel: Xls<_> = wb("formula-utf16-string.xls");
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
@@ -584,8 +613,9 @@ fn formula_xls_utf16_string() {
 }
 
 #[test]
-fn formula_vals_xlsb() {
-    let mut excel: Xlsb<_> = wb("issue_182.xlsb");
+fn test_xlsb_formula_values() {
+    // Test that the cached values of formula cells are read from an xlsb file.
+    let mut excel: Xlsb<_> = wb("formula_values.xlsb");
     let range = excel.worksheet_range("formula_vals").unwrap();
     range_eq!(
         range,
@@ -594,8 +624,9 @@ fn formula_vals_xlsb() {
 }
 
 #[test]
-fn float_vals_xlsb() {
-    let mut excel: Xlsb<_> = wb("issue_186.xlsb");
+fn test_xlsb_float_values() {
+    // Test that float values are read from an xlsb file.
+    let mut excel: Xlsb<_> = wb("float_values.xlsb");
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
         range,
@@ -610,7 +641,9 @@ fn float_vals_xlsb() {
 }
 
 #[test]
-fn formula_xls() {
+fn test_xls_formula() {
+    // Test that worksheet formulas are read from every sheet of an xls file,
+    // along with the VBA project references and module names.
     let mut excel: Xls<_> = wb("issues.xls");
     let sheets = excel.sheet_names().to_owned();
     for s in sheets {
@@ -651,7 +684,8 @@ fn formula_xls() {
 }
 
 #[test]
-fn formula_ods() {
+fn test_ods_formula() {
+    // Test that worksheet formulas are read from every sheet of an ods file.
     let mut excel: Ods<_> = wb("issues.ods");
     for s in excel.sheet_names() {
         let _ = excel.worksheet_formula(&s).unwrap();
@@ -661,7 +695,8 @@ fn formula_ods() {
 }
 
 #[test]
-fn empty_sheet() {
+fn test_xlsx_empty_sheet() {
+    // Test that an empty sheet returns an empty range with no start or end.
     let mut excel: Xlsx<_> = wb("empty_sheet.xlsx");
     for s in excel.sheet_names() {
         let range = excel.worksheet_range(&s).unwrap();
@@ -672,7 +707,9 @@ fn empty_sheet() {
 }
 
 #[test]
-fn issue_120() {
+fn test_xlsx_get_value_past_end() {
+    // Test that get_value() returns None for a position past the end of the
+    // range. See issue #120.
     let mut excel: Xlsx<_> = wb("issues.xlsx");
 
     let range = excel.worksheet_range("issue2").unwrap();
@@ -686,7 +723,9 @@ fn issue_120() {
 }
 
 #[test]
-fn issue_127() {
+fn test_all_sheet_names_order() {
+    // Test that sheet_names() preserves the sheet order of the file in every
+    // format. See issue #127.
     let ordered_names: Vec<_> = [
         "Sheet1", "Sheet2", "Sheet3", "Sheet4", "Sheet5", "Sheet6", "Sheet7", "Sheet8",
     ]
@@ -695,7 +734,7 @@ fn issue_127() {
     .collect();
 
     for ext in &["ods", "xls", "xlsx", "xlsb"] {
-        let p = test_path(&format!("issue127.{ext}"));
+        let p = test_path(&format!("sheet_names_order.{ext}"));
         let workbook = open_workbook_auto(&p).expect(&p);
         assert_eq!(
             workbook.sheet_names(),
@@ -706,14 +745,16 @@ fn issue_127() {
 }
 
 #[test]
-fn mul_rk() {
+fn test_xls_mul_rk() {
+    // Test that values stored in MULRK records are read from an xls file.
     let mut xls: Xls<_> = wb("adhocallbabynames1996to2016.xls");
     let range = xls.worksheet_range("Boys").unwrap();
     assert_eq!(range.get_value((6, 2)), Some(&Float(9.)));
 }
 
 #[test]
-fn skip_phonetic_text() {
+fn test_xlsx_skip_phonetic_text() {
+    // Test that phonetic (furigana) runs in a shared string are skipped.
     let mut xls: Xlsx<_> = wb("rph.xlsx");
     let range = xls.worksheet_range("Sheet1").unwrap();
     assert_eq!(
@@ -723,13 +764,17 @@ fn skip_phonetic_text() {
 }
 
 #[test]
-fn issue_174() {
-    let mut xls: Xlsx<_> = wb("issue_174.xlsx");
+fn test_xlsx_worksheet_range_does_not_overflow() {
+    // Test that reading the first worksheet range does not overflow.
+    // See issue #174.
+    let mut xls: Xlsx<_> = wb("worksheet_range_does_not_overflow.xlsx");
     xls.worksheet_range_at(0).unwrap().unwrap();
 }
 
 #[test]
-fn table() {
+fn test_xlsx_tables() {
+    // Test that tables are loaded and read by name, including conversion to an
+    // owned Range.
     let mut xls: Xlsx<_> = wb("temperature-table.xlsx");
     xls.load_tables().unwrap();
     let table_names = xls.table_names();
@@ -773,7 +818,9 @@ fn table() {
 }
 
 #[test]
-fn table_by_ref() {
+fn test_xlsx_tables_by_ref() {
+    // Test that tables are read by reference with DataRef values, including
+    // conversion to an owned Range.
     let mut xls: Xlsx<_> = wb("temperature-table.xlsx");
     xls.load_tables().unwrap();
     let table_names = xls.table_names();
@@ -865,7 +912,9 @@ fn table_by_ref() {
 }
 
 #[test]
-fn date_xls() {
+fn test_xls_date() {
+    // Test that dates and durations are read from an xls file with the 1900
+    // epoch.
     let mut xls: Xls<_> = wb("date.xls");
     assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
@@ -901,7 +950,9 @@ fn date_xls() {
 }
 
 #[test]
-fn date_xls_1904() {
+fn test_xls_date_1904() {
+    // Test that dates and durations are read from an xls file with the 1904
+    // epoch.
     let mut xls: Xls<_> = wb("date_1904.xls");
     assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
@@ -937,7 +988,9 @@ fn date_xls_1904() {
 }
 
 #[test]
-fn date_xlsx() {
+fn test_xlsx_date() {
+    // Test that dates and durations are read from an xlsx file with the 1900
+    // epoch.
     let mut xls: Xlsx<_> = wb("date.xlsx");
     assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
@@ -972,13 +1025,14 @@ fn date_xlsx() {
     }
 }
 
-// The first 19 rows use built-in formats 27-36 and 50-58 without explicit
-// definitions. Each row contains 45306, 0.5, and 45306.123456789; the XLS
-// fixture includes integer RK and floating NUMBER records.
+// Test that the East Asian built-in date formats are recognised. The first 19
+// rows use built-in formats 27-36 and 50-58 without explicit definitions. Each
+// row contains 45306, 0.5, and 45306.123456789. The xls fixture includes
+// integer RK and floating NUMBER records.
 #[rstest]
 #[case("date_east_asian.xlsx", Float(45306.0))]
 #[case("date_east_asian.xls", Int(45306))]
-fn date_east_asian_builtin_formats(#[case] test_file: &str, #[case] general_value: Data) {
+fn test_all_date_east_asian_builtin_formats(#[case] test_file: &str, #[case] general_value: Data) {
     let mut workbook = open_workbook_auto(test_path(test_file)).unwrap();
     let range = workbook.worksheet_range_at(0).unwrap().unwrap();
     let serial_values = [45306.0, 0.5, 45306.123456789];
@@ -1028,7 +1082,9 @@ fn date_east_asian_builtin_formats(#[case] test_file: &str, #[case] general_valu
 }
 
 #[test]
-fn date_east_asian_explicit_formats() {
+fn test_xlsx_date_east_asian_explicit_formats() {
+    // Test that an explicit format definition takes precedence over the East
+    // Asian built-in format with the same id.
     let mut workbook: Xlsx<_> = wb("date_east_asian_explicit.xlsx");
     let range = workbook.worksheet_range_at(0).unwrap().unwrap();
 
@@ -1049,19 +1105,17 @@ fn date_east_asian_explicit_formats() {
     }
 }
 
-// Regression test: a custom number format whose `formatCode` contains
-// quoted literal text (e.g. `mmmm" "yyyy`) is stored in styles.xml with
-// `&quot;` XML entity references. The format detection must therefore
-// see the unescaped string — otherwise the `;` inside `&quot;` causes
-// `detect_custom_number_format` to bail out early and the cell is
-// reported as a plain `Float`.
-//
-// All four cells below use the same serial value (2021-01-01) but
-// different quoted custom formats covering English month names,
-// ISO-like dates with quoted separators, a locale-prefixed English
-// long-date format, and a Japanese era format.
+// Test that a custom number format whose `formatCode` contains quoted literal
+// text (e.g. `mmmm" "yyyy`) is detected as a date. The quotes are stored in
+// styles.xml as `&quot;` XML entity references, so the format detection must
+// see the unescaped string. Otherwise the `;` inside `&quot;` causes
+// `detect_custom_number_format` to bail out early and the cell is reported as a
+// plain `Float`. All four cells use the same serial value (2021-01-01) but
+// different quoted custom formats covering English month names, ISO-like dates
+// with quoted separators, a locale-prefixed English long-date format, and a
+// Japanese era format.
 #[test]
-fn date_xlsx_custom_format_with_quoted_text() {
+fn test_xlsx_date_custom_format_with_quoted_text() {
     let mut xls: Xlsx<_> = wb("date_quoted_format.xlsx");
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
@@ -1082,16 +1136,19 @@ fn date_xlsx_custom_format_with_quoted_text() {
 }
 
 #[test]
-fn date_xlsx_1904_extlst() {
-    // A 1904-system workbook whose extLst also contains an <x15:workbookPr>
-    // extension element (which shares the "workbookPr" local name but carries
-    // no date1904 attribute) must still be read on the 1904 epoch. See #706.
+fn test_xlsx_date_1904_extlst() {
+    // Test that a 1904-system workbook whose extLst also contains an
+    // <x15:workbookPr> extension element (which shares the "workbookPr" local
+    // name but carries no date1904 attribute) is still read on the 1904 epoch.
+    // See issue #706.
     let xlsx: Xlsx<_> = wb("date_1904_extlst.xlsx");
     assert!(xlsx.has_1904_epoch());
 }
 
 #[test]
-fn date_xlsx_1904() {
+fn test_xlsx_date_1904() {
+    // Test that dates and durations are read from an xlsx file with the 1904
+    // epoch.
     let mut xls: Xlsx<_> = wb("date_1904.xlsx");
     assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
@@ -1127,7 +1184,9 @@ fn date_xlsx_1904() {
 }
 
 #[test]
-fn date_xlsx_iso() {
+fn test_xlsx_date_iso() {
+    // Test that ISO 8601 date, time and datetime strings are read as
+    // DateTimeIso and converted with chrono.
     let mut xls: Xlsx<_> = wb("date_iso.xlsx");
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
@@ -1167,7 +1226,9 @@ fn date_xlsx_iso() {
 }
 
 #[test]
-fn date_ods() {
+fn test_ods_date() {
+    // Test that ods dates, datetimes and durations are read as ISO values and
+    // converted with chrono.
     let mut ods: Ods<_> = wb("date.ods");
     let range = ods.worksheet_range_at(0).unwrap().unwrap();
 
@@ -1215,7 +1276,9 @@ fn date_ods() {
 }
 
 #[test]
-fn date_xlsb() {
+fn test_xlsb_date() {
+    // Test that dates and durations are read from an xlsb file with the 1900
+    // epoch.
     let mut xls: Xlsb<_> = wb("date.xlsb");
     assert!(!xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
@@ -1251,10 +1314,11 @@ fn date_xlsb() {
 }
 
 #[test]
-fn date_xlsb_rk_int() {
-    // date.xlsb with A1 (2021-01-01) and B1 stored as integer RK values (44197
-    // and 15) rather than float ones, as some writers (e.g. Aspose.Cells)
-    // store whole numbers.
+fn test_xlsb_date_rk_int() {
+    // Test that a date stored as an integer RK value is read as a date. The
+    // fixture is date.xlsb with A1 (2021-01-01) and B1 stored as integer RK
+    // values (44197 and 15) rather than float ones, as some writers (e.g.
+    // Aspose.Cells) store whole numbers.
     let mut xls: Xlsb<_> = wb("date_rk_int.xlsb");
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
 
@@ -1271,7 +1335,9 @@ fn date_xlsb_rk_int() {
 }
 
 #[test]
-fn date_xlsb_1904() {
+fn test_xlsb_date_1904() {
+    // Test that dates and durations are read from an xlsb file with the 1904
+    // epoch.
     let mut xls: Xlsb<_> = wb("date_1904.xlsb");
     assert!(xls.has_1904_epoch());
     let range = xls.worksheet_range_at(0).unwrap().unwrap();
@@ -1307,14 +1373,17 @@ fn date_xlsb_1904() {
 }
 
 #[test]
-fn issue_219() {
-    // should not panic
-    let _: Xls<_> = wb("issue219.xls");
+fn test_xls_continued_extended_string() {
+    // Test that an xls file that failed with "Continued record too short while
+    // reading extended string" opens. See issue #219.
+    let _: Xls<_> = wb("continued_extended_string.xls");
 }
 
 #[test]
-fn issue_221() {
-    let mut excel: Xlsx<_> = wb("issue221.xlsm");
+fn test_xlsm_simple_range() {
+    // Test that a simple range of strings is read from an xlsm file.
+    // See issue #221.
+    let mut excel: Xlsx<_> = wb("simple_range.xlsm");
 
     let range = excel.worksheet_range("Sheet1").unwrap();
     range_eq!(
@@ -1328,7 +1397,9 @@ fn issue_221() {
 
 #[test]
 #[allow(deprecated)]
-fn merged_regions_xlsx() {
+fn test_xlsx_merged_regions() {
+    // Test that merged regions are loaded for all sheets and looked up by sheet
+    // name with the deprecated API.
     use calamine::Dimensions;
     use std::string::String;
     let mut excel: Xlsx<_> = wb("merged_range.xlsx");
@@ -1519,17 +1590,19 @@ fn merged_regions_xlsx() {
 }
 
 #[test]
-fn issue_252() {
-    let path = "issue252.xlsx";
-
-    // should err, not panic
-    assert!(open_workbook::<Xls<_>, _>(&path).is_err());
+fn test_xlsx_invalid_relationship_errors() {
+    // Test that a corrupted file with an invalid relationship returns an error
+    // instead of panicking. See issue #252.
+    let path = test_path("invalid_relationship_errors.xlsx");
+    assert!(open_workbook::<Xlsx<_>, _>(path).is_err());
 }
 
 #[test]
-fn issue_261() {
-    let mut workbook_with_missing_r_attributes: Xlsx<_> = wb("issue_261.xlsx");
-    let mut workbook_fixed_by_excel: Xlsx<_> = wb("issue_261_fixed_by_excel.xlsx");
+fn test_xlsx_missing_r_attributes() {
+    // Test that cells without an `r` attribute are read like the same file
+    // fixed by Excel. See issue #261.
+    let mut workbook_with_missing_r_attributes: Xlsx<_> = wb("missing_r_attributes.xlsx");
+    let mut workbook_fixed_by_excel: Xlsx<_> = wb("missing_r_attributes_fixed_by_excel.xlsx");
 
     let range_a = workbook_fixed_by_excel
         .worksheet_range("Some Sheet")
@@ -1583,7 +1656,9 @@ fn issue_261() {
 }
 
 #[test]
-fn test_values_xls() {
+fn test_xls_float_decimals() {
+    // Test that a float with many decimal places is read exactly from an xls
+    // file.
     let mut excel: Xls<_> = wb("xls_wrong_decimals.xls");
     let range = excel
         .worksheet_range_at(0)
@@ -1594,11 +1669,13 @@ fn test_values_xls() {
 }
 
 #[test]
-fn issue_271() -> Result<(), calamine::Error> {
+fn test_xls_repeated_reads_are_consistent() -> Result<(), calamine::Error> {
+    // Test that the same cell reads the same value on repeated opens.
+    // See issue #271.
     let mut count = 0;
     let mut values = Vec::new();
     loop {
-        let mut workbook: Xls<_> = wb("issue_271.xls");
+        let mut workbook: Xls<_> = wb("repeated_reads_are_consistent.xls");
         let v = workbook.worksheets();
         let (sheetname, range) = v.first().expect("bad format");
         assert_eq!(sheetname, "sheet1");
@@ -1620,7 +1697,9 @@ fn issue_271() -> Result<(), calamine::Error> {
 
 #[test]
 #[allow(deprecated)]
-fn issue_305_merge_cells() {
+fn test_xlsx_merge_cells() {
+    // Test that merged cells are read from a worksheet with the deprecated API.
+    // See issue #305.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     let merge_cells = excel.worksheet_merge_cells_at(0).unwrap().unwrap();
 
@@ -1635,7 +1714,8 @@ fn issue_305_merge_cells() {
 }
 
 #[test]
-fn merge_cells_by_sheet_name_xlsx() {
+fn test_xlsx_merge_cells_by_sheet_name() {
+    // Test that merged cells are read by sheet name.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
 
@@ -1650,7 +1730,8 @@ fn merge_cells_by_sheet_name_xlsx() {
 }
 
 #[test]
-fn merge_cells_by_sheet_id_xlsx() {
+fn test_xlsx_merge_cells_by_sheet_id() {
+    // Test that merged cells are read by sheet index.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
 
@@ -1665,19 +1746,22 @@ fn merge_cells_by_sheet_id_xlsx() {
 }
 
 #[test]
-fn merge_cells_by_sheet_name_not_found() {
+fn test_xlsx_merge_cells_by_sheet_name_not_found() {
+    // Test that merged cells for an unknown sheet name return an error.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
 }
 
 #[test]
-fn merge_cells_by_sheet_id_out_of_range() {
+fn test_xlsx_merge_cells_by_sheet_id_out_of_range() {
+    // Test that merged cells for an out of range sheet index return an error.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
     assert!(excel.merge_cells_by_sheet_id(99).is_err());
 }
 
 #[test]
-fn merge_cells_all_sheets_by_name() {
+fn test_xlsx_merge_cells_all_sheets_by_name() {
+    // Test that merged cells are read for every sheet by name.
     use calamine::Dimensions;
     use std::collections::BTreeSet;
     let mut excel: Xlsx<_> = wb("merged_range.xlsx");
@@ -1700,7 +1784,9 @@ fn merge_cells_all_sheets_by_name() {
 
 #[test]
 #[allow(deprecated)]
-fn issue_305_merge_cells_xls() {
+fn test_xls_merge_cells() {
+    // Test that merged cells are read from a worksheet with the deprecated API.
+    // See issue #305.
     let excel: Xls<_> = wb("merge_cells.xls");
     let merge_cells = excel.worksheet_merge_cells_at(0).unwrap();
 
@@ -1715,7 +1801,8 @@ fn issue_305_merge_cells_xls() {
 }
 
 #[test]
-fn merge_cells_by_sheet_name_xls() {
+fn test_xls_merge_cells_by_sheet_name() {
+    // Test that merged cells are read by sheet name.
     let excel: Xls<_> = wb("merge_cells.xls");
     let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
 
@@ -1730,7 +1817,8 @@ fn merge_cells_by_sheet_name_xls() {
 }
 
 #[test]
-fn merge_cells_by_sheet_id_xls() {
+fn test_xls_merge_cells_by_sheet_id() {
+    // Test that merged cells are read by sheet index.
     let excel: Xls<_> = wb("merge_cells.xls");
     let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
 
@@ -1745,13 +1833,15 @@ fn merge_cells_by_sheet_id_xls() {
 }
 
 #[test]
-fn merge_cells_by_sheet_name_not_found_xls() {
+fn test_xls_merge_cells_by_sheet_name_not_found() {
+    // Test that merged cells for an unknown sheet name return an error.
     let excel: Xls<_> = wb("merge_cells.xls");
     assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
 }
 
 #[test]
-fn merge_cells_by_sheet_id_out_of_range_xls() {
+fn test_xls_merge_cells_by_sheet_id_out_of_range() {
+    // Test that merged cells for an out of range sheet index return an error.
     let excel: Xls<_> = wb("merge_cells.xls");
     assert!(excel.merge_cells_by_sheet_id(99).is_err());
 }
@@ -1764,10 +1854,11 @@ fn digest(data: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-// cargo test --features picture
+// Test that embedded pictures are extracted from every format and match the
+// source images. Requires the picture feature: cargo test --features picture.
 #[test]
 #[cfg(feature = "picture")]
-fn pictures() -> Result<(), calamine::Error> {
+fn test_all_pictures() -> Result<(), calamine::Error> {
     let jpg_path = test_path("picture.jpg");
     let png_path = test_path("picture.png");
 
@@ -1813,10 +1904,10 @@ fn pictures() -> Result<(), calamine::Error> {
     Ok(())
 }
 
-// Test picture positions extracted from DrawingML anchors.
+// Test that picture positions are extracted from DrawingML anchors.
 #[test]
 #[cfg(feature = "picture")]
-fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
+fn test_xlsx_pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
     let workbook: Xlsx<_> = wb("picture.xlsx");
     let pics = workbook.pictures_with_metadata();
 
@@ -1842,10 +1933,11 @@ fn pictures_with_positions_drawingml() -> Result<(), calamine::Error> {
     Ok(())
 }
 
-// Test picture positions extracted from Excel 365 embedded style images.
+// Test that picture positions are extracted from Excel 365 embedded style
+// images.
 #[test]
 #[cfg(feature = "picture")]
-fn pictures_with_positions_richdata() -> Result<(), calamine::Error> {
+fn test_xlsx_pictures_with_positions_richdata() -> Result<(), calamine::Error> {
     let workbook: Xlsx<_> = wb("picture_richdata.xlsx");
     let pics = workbook.pictures_with_metadata();
 
@@ -1858,11 +1950,11 @@ fn pictures_with_positions_richdata() -> Result<(), calamine::Error> {
     Ok(())
 }
 
-// Test picture positions from a file with both in-cell (rich data) and
-// over-cell (DrawingML) images on the same sheet.
+// Test that picture positions are read from a file with both in-cell (rich
+// data) and over-cell (DrawingML) images on the same sheet.
 #[test]
 #[cfg(feature = "picture")]
-fn pictures_with_positions_mixed() -> Result<(), calamine::Error> {
+fn test_xlsx_pictures_with_positions_mixed() -> Result<(), calamine::Error> {
     let workbook: Xlsx<_> = wb("pictures_in_cell_and_over_cell.xlsx");
     let mut pics = workbook.pictures_with_metadata();
 
@@ -1893,7 +1985,9 @@ fn pictures_with_positions_mixed() -> Result<(), calamine::Error> {
 }
 
 #[test]
-fn ods_merged_cells() {
+fn test_ods_merged_cells() {
+    // Test that merged cells in an ods file are read with the value repeated
+    // over the merged area.
     let mut ods: Ods<_> = wb("merged_cells.ods");
     let range = ods.worksheet_range_at(0).unwrap().unwrap();
 
@@ -1916,7 +2010,9 @@ fn ods_merged_cells() {
 }
 
 #[test]
-fn ods_number_rows_repeated() {
+fn test_ods_number_rows_repeated() {
+    // Test that number-rows-repeated attributes expand to the right rows,
+    // including leading empty rows, for ranges and sub-ranges.
     let mut ods: Ods<_> = wb("number_rows_repeated.ods");
     let test_cropped_range = [
         [String("A".to_string()), String("B".to_string())],
@@ -1989,7 +2085,9 @@ fn ods_number_rows_repeated() {
 }
 
 #[test]
-fn issue304_xls_formula() {
+fn test_xls_formula_sheet_references() {
+    // Test that formulas referencing other sheets are read correctly.
+    // See issue #304.
     let mut wb: Xls<_> = wb("xls_formula.xls");
     let formula = wb.worksheet_formula("Sheet1").unwrap();
     let mut rows = formula.rows();
@@ -2000,7 +2098,9 @@ fn issue304_xls_formula() {
 }
 
 #[test]
-fn issue304_xls_values() {
+fn test_xls_formula_values() {
+    // Test that the cached values of formula cells are read correctly.
+    // See issue #304.
     let mut wb: Xls<_> = wb("xls_formula.xls");
     let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
@@ -2012,7 +2112,9 @@ fn issue304_xls_values() {
 }
 
 #[test]
-fn issue334_xls_values_string() {
+fn test_xls_string_reference_values() {
+    // Test that cells referencing string cells return the string value.
+    // See issue #334.
     let mut wb: Xls<_> = wb("xls_ref_String.xls");
     let rge = wb.worksheet_range("Sheet1").unwrap();
     let mut rows = rge.rows();
@@ -2024,8 +2126,9 @@ fn issue334_xls_values_string() {
 }
 
 #[test]
-fn issue281_vba() {
-    let mut excel: Xlsx<_> = wb("issue281.xlsm");
+fn test_xlsm_vba_shift_jis() {
+    // Test that a VBA project written in Shift-JIS is decoded. See issue #281.
+    let mut excel: Xlsx<_> = wb("vba_shift_jis.xlsm");
 
     let vba = excel.vba_project().unwrap().unwrap();
     assert_eq!(
@@ -2036,13 +2139,16 @@ fn issue281_vba() {
 }
 
 #[test]
-fn issue343() {
-    // should not panic
-    let _: Xls<_> = wb("issue343.xls");
+fn test_xls_unrecognized_error_0x3() {
+    // Test that an xls file that failed with "Unrecognized error: 0x3" opens.
+    // See issue #343.
+    let _: Xls<_> = wb("unrecognized_error_0x3.xls");
 }
 
 #[test]
-fn any_sheets_xlsx() {
+fn test_xlsx_sheets_metadata() {
+    // Test that the sheet names, types and visibility are read from an xlsx
+    // file.
     let workbook: Xlsx<_> = wb("any_sheets.xlsx");
 
     assert_eq!(
@@ -2073,7 +2179,9 @@ fn any_sheets_xlsx() {
 }
 
 #[test]
-fn any_sheets_xlsb() {
+fn test_xlsb_sheets_metadata() {
+    // Test that the sheet names, types and visibility are read from an xlsb
+    // file.
     let workbook: Xlsb<_> = wb("any_sheets.xlsb");
 
     assert_eq!(
@@ -2104,7 +2212,9 @@ fn any_sheets_xlsb() {
 }
 
 #[test]
-fn any_sheets_xls() {
+fn test_xls_sheets_metadata() {
+    // Test that the sheet names, types and visibility, and the VBA project
+    // references and module names, are read from an xls file.
     let mut workbook: Xls<_> = wb("any_sheets.xls");
 
     assert_eq!(
@@ -2156,7 +2266,9 @@ fn any_sheets_xls() {
 }
 
 #[test]
-fn any_sheets_ods() {
+fn test_ods_sheets_metadata() {
+    // Test that the sheet names, types and visibility are read from an ods
+    // file, which has no very hidden or chart sheets.
     let workbook: Ods<_> = wb("any_sheets.ods");
 
     assert_eq!(
@@ -2189,8 +2301,10 @@ fn any_sheets_ods() {
 }
 
 #[test]
-fn issue_102() {
-    let path = test_path("pass_protected.xlsx");
+fn test_xlsx_password_protected() {
+    // Test that a password protected xlsx file returns XlsxError::Password.
+    // See issue #102.
+    let path = test_path("password_protected.xlsx");
     assert!(
         matches!(
             open_workbook::<Xlsx<_>, _>(path),
@@ -2201,7 +2315,8 @@ fn issue_102() {
 }
 
 #[test]
-fn issue_374() {
+fn test_xls_biff5_text_not_truncated() {
+    // Test that strings in a BIFF5 file are not truncated. See issue #374.
     let mut workbook: Xls<_> = wb("biff5_write.xls");
 
     let first_sheet_name = workbook.sheet_names().first().unwrap().to_owned();
@@ -2216,8 +2331,10 @@ fn issue_374() {
 }
 
 #[test]
-fn issue_385() {
-    let path = test_path("issue_385.xls");
+fn test_xls_password_protected() {
+    // Test that a password protected xls file returns XlsError::Password.
+    // See issue #385.
+    let path = test_path("password_protected.xls");
     assert!(
         matches!(
             open_workbook::<Xls<_>, _>(path),
@@ -2228,8 +2345,9 @@ fn issue_385() {
 }
 
 #[test]
-fn pass_protected_xlsb() {
-    let path = test_path("pass_protected.xlsb");
+fn test_xlsb_password_protected() {
+    // Test that a password protected xlsb file returns XlsbError::Password.
+    let path = test_path("password_protected.xlsb");
     assert!(
         matches!(
             open_workbook::<Xlsb<_>, _>(path),
@@ -2240,8 +2358,9 @@ fn pass_protected_xlsb() {
 }
 
 #[test]
-fn pass_protected_ods() {
-    let path = test_path("pass_protected.ods");
+fn test_ods_password_protected() {
+    // Test that a password protected ods file returns OdsError::Password.
+    let path = test_path("password_protected.ods");
     assert!(
         matches!(
             open_workbook::<Ods<_>, _>(path),
@@ -2252,7 +2371,9 @@ fn pass_protected_ods() {
 }
 
 #[test]
-fn issue_384_multiple_formula() {
+fn test_xlsx_multiple_formulas() {
+    // Test that all formulas in a sheet are read by worksheet_formula().
+    // See issue #384.
     let mut workbook: Xlsx<_> = wb("formula.issue.xlsx");
 
     // first check values
@@ -2289,7 +2410,9 @@ fn issue_384_multiple_formula() {
 }
 
 #[test]
-fn issue_401_empty_tables() {
+fn test_xlsx_empty_tables() {
+    // Test that load_tables() on a file without tables gives an empty list.
+    // See issue #401.
     let mut excel: Xlsx<_> = wb("date.xlsx");
     excel.load_tables().unwrap();
     let tables = excel.table_names();
@@ -2297,8 +2420,10 @@ fn issue_401_empty_tables() {
 }
 
 #[test]
-fn issue_391_shared_formula() {
-    let mut excel: Xlsx<_> = wb("issue_391.xlsx");
+fn test_xlsx_shared_formula_dragged() {
+    // Test that dragged (shared) formulas are expanded for each cell.
+    // See issue #391.
+    let mut excel: Xlsx<_> = wb("shared_formula_dragged.xlsx");
     let mut expect = Range::<std::string::String>::new((1, 0), (6, 0));
     for (i, cell) in ["A1+1", "A2+1", "A3+1", "A4+1", "A5+1", "A6+1"]
         .iter()
@@ -2312,10 +2437,10 @@ fn issue_391_shared_formula() {
     assert!(expect.cells().eq(res.cells()));
 }
 
-// Regression coverage for PR #654: streaming cell+formula readers should
-// expand Excel-resaved shared formulas while reading values in one pass.
+// Test that the streaming cell and formula reader expands Excel-resaved shared
+// formulas while reading values in one pass. See pull request #654.
 #[test]
-fn xlsx_cell_reader_expands_excel_resaved_shared_formulas() {
+fn test_xlsx_cell_reader_expands_excel_resaved_shared_formulas() {
     let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
     let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
 
@@ -2344,7 +2469,9 @@ fn xlsx_cell_reader_expands_excel_resaved_shared_formulas() {
 }
 
 #[test]
-fn xlsx_cell_reader_reports_excel_resaved_shared_formula_metadata() {
+fn test_xlsx_cell_reader_reports_excel_resaved_shared_formula_metadata() {
+    // Test that the streaming reader reports shared formula metadata for the
+    // anchor cell and the derived cells.
     let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
     let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
 
@@ -2380,7 +2507,8 @@ fn xlsx_cell_reader_reports_excel_resaved_shared_formula_metadata() {
 }
 
 #[test]
-fn xlsx_worksheet_formula_expands_excel_resaved_shared_formulas() {
+fn test_xlsx_worksheet_formula_expands_excel_resaved_shared_formulas() {
+    // Test that worksheet_formula() expands Excel-resaved shared formulas.
     let mut excel: Xlsx<_> = wb("shared_formula_simple.xlsx");
     let formula = excel.worksheet_formula("Sheet1").unwrap();
 
@@ -2390,7 +2518,9 @@ fn xlsx_worksheet_formula_expands_excel_resaved_shared_formulas() {
 }
 
 #[test]
-fn xlsx_cell_reader_streams_excel_resaved_shared_formula_bench_fixture() {
+fn test_xlsx_cell_reader_streams_excel_resaved_shared_formula_bench_fixture() {
+    // Test that the streaming reader expands every shared formula in the
+    // benchmark fixture.
     let mut excel: Xlsx<_> = wb("shared_formula_bench.xlsx");
     let mut reader = excel.worksheet_cells_reader("Sheet1").unwrap();
 
@@ -2408,10 +2538,10 @@ fn xlsx_cell_reader_streams_excel_resaved_shared_formula_bench_fixture() {
 }
 
 #[test]
-fn issue_553_non_ascii_shared_formula() {
-    // Test incrementing a shared formula in an xlsx file where the formula
-    // contains utf-8 characters.
-    let mut excel: Xlsx<_> = wb("issue_553.xlsx");
+fn test_xlsx_non_ascii_shared_formula() {
+    // Test that a shared formula containing UTF-8 characters is incremented for
+    // each cell. See issue #553.
+    let mut excel: Xlsx<_> = wb("non_ascii_shared_formula.xlsx");
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     assert!(formula
         .cells()
@@ -2419,8 +2549,10 @@ fn issue_553_non_ascii_shared_formula() {
 }
 
 #[test]
-fn issue_644_shared_formula_function_names() {
-    let mut excel: Xlsx<_> = wb("issue644.xlsx");
+fn test_xlsx_shared_formula_function_names() {
+    // Test that shared formula expansion leaves function names like LOG10
+    // unchanged. See issue #644.
+    let mut excel: Xlsx<_> = wb("shared_formula_function_names.xlsx");
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     for (row, _, f) in formula.cells() {
         assert_eq!(f, &format!("LOG10(ABS(A{})+1)", row + 1));
@@ -2428,9 +2560,10 @@ fn issue_644_shared_formula_function_names() {
 }
 
 #[test]
-fn non_monotonic_si_shared_formula() {
-    // This excel has been manually edited so that the si numbers do not monotonically increase (si
-    // 0 swapped with 1)
+fn test_xlsx_non_monotonic_si_shared_formula() {
+    // Test that shared formulas are expanded when the si numbers do not
+    // increase monotonically. The file was edited by hand so that si 0 and si 1
+    // are swapped.
     let mut excel: Xlsx<_> = wb("non_monotonic_si.xlsx");
     let range = excel.worksheet_range("Sheet1").unwrap();
     let formula = excel.worksheet_formula("Sheet1").unwrap();
@@ -2506,9 +2639,10 @@ fn non_monotonic_si_shared_formula() {
 }
 
 #[test]
-fn issue_565_multi_axis_shared_formula() {
-    // B1:D2 contains a shared formula that expands in 2 dimnensions
-    let mut excel: Xlsx<_> = wb("issue_565_multi_axis_shared.xlsx");
+fn test_xlsx_multi_axis_shared_formula() {
+    // Test that a shared formula in B1:D2 expands in two dimensions.
+    // See issue #565.
+    let mut excel: Xlsx<_> = wb("multi_axis_shared_formula.xlsx");
     let formula = excel.worksheet_formula("Sheet1").unwrap();
 
     let expected_formulas = [["A1", "B1", "C1", "D1"], ["A2", "B2", "C2", "D2"]];
@@ -2524,9 +2658,9 @@ fn issue_565_multi_axis_shared_formula() {
 }
 
 #[test]
-fn shared_formula_reversed() {
-    // One sheet has a shared formula created by dragging downwards, the other has one created
-    // by dragging upwards.
+fn test_xlsx_shared_formula_reversed() {
+    // Test that shared formulas created by dragging downwards and by dragging
+    // upwards both expand correctly.
     let mut excel: Xlsx<_> = wb("shared_formula_reversed.xlsx");
 
     for sheet_name in &["Sheet1", "Sheet2"] {
@@ -2551,10 +2685,11 @@ fn shared_formula_reversed() {
 }
 
 #[test]
-fn issue_567_absolute_shared_formula() {
-    // Test absolute references in shared formulas. B$1 dragged to E3 should increment
-    // the column (B, C, D, E) but keep the row fixed at 1.
-    let mut excel: Xlsx<_> = wb("issue_567_absolute_shared.xlsx");
+fn test_xlsx_absolute_shared_formula() {
+    // Test that absolute references in shared formulas are kept. B$1 dragged to
+    // E3 should increment the column (B, C, D, E) but keep the row fixed at 1.
+    // See issue #567.
+    let mut excel: Xlsx<_> = wb("absolute_shared_formula.xlsx");
     let formula = excel.worksheet_formula("Sheet1").unwrap();
 
     let expected_formulas = [
@@ -2574,8 +2709,8 @@ fn issue_567_absolute_shared_formula() {
 }
 
 #[test]
-fn column_row_ranges() {
-    // Test column and row ranges in formulas (e.g., E:F, 5:6)
+fn test_xlsx_column_row_ranges() {
+    // Test that column and row ranges in formulas (e.g., E:F, 5:6) are read.
     let mut excel: Xlsx<_> = wb("column_row_ranges.xlsx");
 
     // Test column ranges (E:F, F:G, G:H)
@@ -2624,7 +2759,8 @@ fn column_row_ranges() {
 }
 
 #[test]
-fn issue_420_empty_s_attribute() {
+fn test_xlsx_empty_s_attribute() {
+    // Test that cells with an empty `s` attribute are read. See issue #420.
     let mut excel: Xlsx<_> = wb("empty_s_attribute.xlsx");
 
     let range = excel.worksheet_range("Sheet1").unwrap();
@@ -2641,16 +2777,20 @@ fn issue_420_empty_s_attribute() {
 }
 
 #[test]
-fn issue_438_charts() {
-    let mut excel: Xlsx<_> = wb("issue438.xlsx");
+fn test_xlsx_chart_sheet_range() {
+    // Test that reading the range of a chart sheet does not fail.
+    // See issue #438.
+    let mut excel: Xlsx<_> = wb("chart_sheet_range.xlsx");
     let _range = excel
         .worksheet_range("Chart1")
         .expect("could not open worksheet range");
 }
 
 #[test]
-fn issue_444_memory_allocation() {
-    let mut excel: Xls<_> = wb("issue444.xls"); // should not fail
+fn test_xls_merged_regions_memory_allocation() {
+    // Test that an xls file with merged regions is read without a memory
+    // allocation error. See issue #444.
+    let mut excel: Xls<_> = wb("merged_regions_memory_allocation.xls"); // should not fail
     let range = excel
         .worksheet_range("Sheet1")
         .expect("could not open worksheet range");
@@ -2658,13 +2798,17 @@ fn issue_444_memory_allocation() {
 }
 
 #[test]
-fn issue_446_formulas() {
-    let mut excel: Xlsx<_> = wb("issue446.xlsx");
+fn test_xlsx_formula_range_without_column_component() {
+    // Test that reading formulas does not fail with
+    // RangeWithoutColumnComponent. See issue #446.
+    let mut excel: Xlsx<_> = wb("formula_range_without_column_component.xlsx");
     let _ = excel.worksheet_formula("Sheet1").unwrap(); // should not fail
 }
 
 #[test]
-fn test_ref_xlsx() {
+fn test_xlsx_worksheet_range_ref() {
+    // Test that worksheet_range_at_ref() returns DataRef values for dates and
+    // floats.
     let mut excel: Xlsx<_> = wb("date.xlsx");
     let range = excel.worksheet_range_at_ref(0).unwrap().unwrap();
 
@@ -2700,7 +2844,9 @@ fn test_ref_xlsx() {
 }
 
 #[test]
-fn test_ref_xlsb() {
+fn test_xlsb_worksheet_range_ref() {
+    // Test that worksheet_range_at_ref() returns DataRef values for dates and
+    // floats.
     let mut excel: Xlsb<_> = wb("date.xlsb");
     let range = excel.worksheet_range_at_ref(0).unwrap().unwrap();
 
@@ -2743,7 +2889,7 @@ fn test_ref_xlsb() {
 #[case("temperature.xlsx", HeaderRow::Row(0), (0, 0), (2, 1), &[String("label".to_string()), String("value".to_string())], 6)]
 #[case("temperature-in-middle.xlsx", HeaderRow::FirstNonEmptyRow, (3, 1), (5, 2), &[String("label".to_string()), String("value".to_string())], 6)]
 #[case("temperature-in-middle.xlsx", HeaderRow::Row(0), (0, 1), (5, 2), &[Empty, Empty], 12)]
-fn test_header_row_xlsx(
+fn test_xlsx_header_row(
     #[case] fixture_path: &str,
     #[case] header_row: HeaderRow,
     #[case] expected_start: (u32, u32),
@@ -2751,6 +2897,8 @@ fn test_header_row_xlsx(
     #[case] expected_first_row: &[Data],
     #[case] expected_total_cells: usize,
 ) {
+    // Test that the header row option sets the start of the range and the first
+    // row returned.
     let mut excel: Xlsx<_> = wb(fixture_path);
     assert_eq!(
         excel.sheets_metadata(),
@@ -2772,7 +2920,8 @@ fn test_header_row_xlsx(
 }
 
 #[test]
-fn test_read_twice_with_different_header_rows() {
+fn test_xlsx_read_twice_with_different_header_rows() {
+    // Test that a sheet can be read twice with different header rows.
     let mut xlsx: Xlsx<_> = wb("any_sheets.xlsx");
     let _ = xlsx
         .with_header_row(HeaderRow::Row(2))
@@ -2785,7 +2934,9 @@ fn test_read_twice_with_different_header_rows() {
 }
 
 #[test]
-fn test_header_row_xlsb() {
+fn test_xlsb_header_row() {
+    // Test that the header row option sets the start of the range for an xlsb
+    // file.
     let mut xlsb: Xlsb<_> = wb("date.xlsb");
     assert_eq!(
         xlsb.sheets_metadata(),
@@ -2829,7 +2980,9 @@ fn test_header_row_xlsb() {
 }
 
 #[test]
-fn test_header_row_xls() {
+fn test_xls_header_row() {
+    // Test that the header row option sets the start of the range for an xls
+    // file.
     let mut xls: Xls<_> = wb("date.xls");
     assert_eq!(
         xls.sheets_metadata(),
@@ -2873,7 +3026,9 @@ fn test_header_row_xls() {
 }
 
 #[test]
-fn test_header_row_ods() {
+fn test_ods_header_row() {
+    // Test that the header row option sets the start of the range for an ods
+    // file.
     let mut ods: Ods<_> = wb("date.ods");
     assert_eq!(
         ods.sheets_metadata(),
@@ -2905,7 +3060,9 @@ fn test_header_row_ods() {
 #[rstest]
 #[case("single-empty.ods")]
 #[case("multi-empty.ods")]
-fn issue_repeated_empty(#[case] fixture_path: &str) {
+fn test_ods_repeated_empty_cells(#[case] fixture_path: &str) {
+    // Test that single and multiple repeated empty rows in an ods file are
+    // expanded.
     let mut ods: Ods<_> = wb(fixture_path);
     let range = ods.worksheet_range_at(0).unwrap().unwrap();
     range_eq!(
@@ -2929,14 +3086,17 @@ fn issue_repeated_empty(#[case] fixture_path: &str) {
 }
 
 #[test]
-fn ods_with_annotations() {
+fn test_ods_with_annotations() {
+    // Test that cell annotations in an ods file are not read as cell text.
     let mut ods: Ods<_> = wb("with-annotation.ods");
     let range = ods.worksheet_range("table1").unwrap();
     range_eq!(range, [[String("cell a.1".to_string())],]);
 }
 
 #[test]
-fn ods_tabs_line_breaks() {
+fn test_ods_tabs_line_breaks() {
+    // Test that tabs, line breaks and repeated spaces in ods cells are read as
+    // written.
     let mut ods: Ods<_> = wb("ods_tabs_line_breaks.ods");
     let range = ods.worksheet_range("Sheet1").unwrap();
     range_eq!(
@@ -2966,7 +3126,9 @@ fn ods_tabs_line_breaks() {
     [String("a".to_string()), Float(0.0)],
     [String("b".to_string()), Float(1.0)]
 ])]
-fn test_no_header(#[case] header_row: HeaderRow, #[case] expected: &[[Data; 2]]) {
+fn test_xlsx_no_header(#[case] header_row: HeaderRow, #[case] expected: &[[Data; 2]]) {
+    // Test that the header row option on a sheet without a header skips the
+    // rows above it.
     let mut excel: Xlsx<_> = wb("no-header.xlsx");
     let range = excel
         .with_header_row(header_row)
@@ -2977,7 +3139,9 @@ fn test_no_header(#[case] header_row: HeaderRow, #[case] expected: &[[Data; 2]])
 }
 
 #[test]
-fn test_string_ref() {
+fn test_xlsx_string_ref() {
+    // Test that a cell with a string reference to another sheet returns the
+    // referenced string.
     let mut xlsx: Xlsx<_> = wb("string-ref.xlsx");
     let expected_range = [
         [String("col1".to_string())],
@@ -2990,12 +3154,15 @@ fn test_string_ref() {
 }
 
 #[test]
-fn test_malformed_format() {
+fn test_xls_malformed_format() {
+    // Test that an xls file with a malformed number format opens.
     let _xls: Xls<_> = wb("malformed_format.xls");
 }
 
 #[test]
-fn test_oom_allocation() {
+fn test_xls_oom_allocation() {
+    // Test that xls files with bogus allocation sizes open or fail with a Cfb
+    // error instead of exhausting memory.
     let _xls: Xls<_> = wb("OOM_alloc.xls");
     let mut xls: Xls<_> = wb("OOM_alloc2.xls");
     let ws = xls.worksheets();
@@ -3012,13 +3179,13 @@ fn test_oom_allocation() {
     );
 }
 
-// Test for issue #548. The SST table in the test file has an incorrect unique
-// string count.
+// Test that an SST table with an incorrect unique string count is read.
+// See issue #548.
 #[test]
-fn test_incorrect_sst_unique_count() {
+fn test_xls_incorrect_sst_unique_count() {
     // Check for the string that appears last in the SST table: "11th May 2023".
     // This appears in cell C10 of each worksheet in the workbook.
-    let mut xls: Xls<_> = wb("gh548_incorrect_sst_unique_count.xls");
+    let mut xls: Xls<_> = wb("incorrect_sst_unique_count.xls");
     let range = xls.worksheet_range("System Level Data").unwrap();
 
     assert_eq!(
@@ -3027,12 +3194,12 @@ fn test_incorrect_sst_unique_count() {
     );
 }
 
-// Test the parsing of an SST table that finishes with a complete, untruncated,
-// string at the end of the block, and where the next string is in a CONTINUE
-// block. This is related to the previous test for gh548 to ensure that the edge
+// Test that an SST table that finishes with a complete, untruncated, string at
+// the end of the block, and where the next string is in a CONTINUE block, is
+// parsed. This is related to the previous test to ensure that the edge
 // condition is met.
 #[test]
-fn test_sst_continue() {
+fn test_xls_sst_continue() {
     let mut xls: Xls<_> = wb("sst_continue.xls");
     let range = xls.worksheet_range("Sheet1").unwrap();
 
@@ -3043,13 +3210,13 @@ fn test_sst_continue() {
     );
 }
 
-// Test for issue #419 where the part name is sentence case instead of camel
-// case. The test file contains a sub-file called "xl/SharedStrings.xml" (note
-// the uppercase S in Shared). This is allowed by "Office Open XML File Formats
-// — Open Packaging Conventions" 6.2.2.3.
+// Test that a part name in sentence case instead of camel case is found. The
+// test file contains a sub-file called "xl/SharedStrings.xml" (note the
+// uppercase S in Shared). This is allowed by "Office Open XML File Formats —
+// Open Packaging Conventions" 6.2.2.3. See issue #419.
 #[test]
 fn test_xlsx_case_insensitive_part_name() {
-    let mut xlsx: Xlsx<_> = wb("issue_419.xlsx");
+    let mut xlsx: Xlsx<_> = wb("case_insensitive_part_name.xlsx");
 
     let range = xlsx.worksheet_range("Sheet1").unwrap();
     let expected_range = [[String("Hello".to_string())]];
@@ -3057,10 +3224,11 @@ fn test_xlsx_case_insensitive_part_name() {
     range_eq!(range, expected_range);
 }
 
-// Test for issue #419 in Xlsb file. See the previous test for the details.
+// Test that a part name in sentence case is found in an xlsb file. See the
+// previous test for the details. See issue #419.
 #[test]
 fn test_xlsb_case_insensitive_part_name() {
-    let mut xlsb: Xlsb<_> = wb("issue_419.xlsb");
+    let mut xlsb: Xlsb<_> = wb("case_insensitive_part_name.xlsb");
 
     let range = xlsb.worksheet_range("Sheet1").unwrap();
     let expected_range = [[String("Hello".to_string())]];
@@ -3068,16 +3236,17 @@ fn test_xlsb_case_insensitive_part_name() {
     range_eq!(range, expected_range);
 }
 
-// Test for issue #530 where the part names in the xlsx file use a Windows-style
-// backslash. For example "xl\_rels\workbook.xml.rels" instead of
-// "xl/_rels/workbook.xml.rels".
+// Test that part names using a Windows-style backslash, for example
+// "xl\_rels\workbook.xml.rels" instead of "xl/_rels/workbook.xml.rels", are
+// found. See issue #530.
 #[test]
 fn test_xlsx_backward_slash_part_name() {
-    let _: Xlsx<_> = wb("issue_530.xlsx");
+    let _: Xlsx<_> = wb("backward_slash_part_name.xlsx");
 }
 
-// Test for issue #573 where a shared string doesn't have a <t> sub-element.
-// This is unusual but valid according to the xlsx specification.
+// Test that a shared string without a <t> sub-element is read as an empty
+// string. This is unusual but valid according to the xlsx specification.
+// See issue #573.
 #[test]
 fn test_xlsx_empty_shared_string() {
     let mut excel: Xlsx<_> = wb("empty_shared_string.xlsx");
@@ -3089,7 +3258,8 @@ fn test_xlsx_empty_shared_string() {
     );
 }
 
-// Test for issue #607 where a shared string in a cell doesn't have a <v> index.
+// Test that a shared string cell without a <v> index is read as empty.
+// See issue #607.
 #[test]
 fn test_xlsx_empty_shared_string_value() {
     let mut excel: Xlsx<_> = wb("empty_shared_string_value.xlsx");
@@ -3113,9 +3283,9 @@ fn test_xlsx_empty_shared_string_value() {
     );
 }
 
-// Test for issue #587, an xlsx file where table references IDs are absolute
-// instead of relative, i.e., "/xl/tables/table1.xml" instead of the Excel
-// generated "../tables/table1.xml".
+// Test that tables are loaded when the table reference ids are absolute instead
+// of relative, i.e., "/xl/tables/table1.xml" instead of the Excel generated
+// "../tables/table1.xml". See issue #587.
 #[test]
 fn test_xlsx_table_reference_ids() {
     let mut workbook: Xlsx<_> = wb("table_with_absolute_paths.xlsx");
@@ -3124,8 +3294,8 @@ fn test_xlsx_table_reference_ids() {
     assert!(!workbook.table_names().is_empty());
 }
 
-// Test for issue #589, an xlsx file where the table element has the `insertRow`
-// attribute set.
+// Test that a table whose element has the `insertRow` attribute set is read.
+// See issue #589.
 #[test]
 fn test_xlsx_table_insertrow_attribute() {
     let mut workbook: Xlsx<_> = wb("table_with_insertrow_attribute.xlsx");
@@ -3136,15 +3306,14 @@ fn test_xlsx_table_insertrow_attribute() {
     assert!(result.is_ok(), "Expected table_by_name to succeed");
 }
 
-// Test for issue #594: ODS DoS protection via repeat limits.
-// This test verifies that the ODS parser correctly caps malicious repeat values
-// that would otherwise cause memory exhaustion.
+// Test that the ods parser caps malicious repeat values that would otherwise
+// cause memory exhaustion. See issue #594.
 #[test]
 fn test_ods_dos_protection() {
-    // issue_594_dos.ods contains a malicious ODS file with excessive repeat values
+    // dos_protection.ods contains a malicious ODS file with excessive repeat values
     // (999999999 rows x 999999999 columns). The parser should reject this with a
     // cell limit error rather than hanging or exhausting memory.
-    let path = test_path("issue_594_dos.ods");
+    let path = test_path("dos_protection.ods");
     let ods: Result<Ods<_>, _> = open_workbook(&path);
 
     // The file should fail to parse because cell limit is exceeded
@@ -3162,7 +3331,9 @@ fn test_ods_dos_protection() {
 }
 
 #[test]
-fn test_pivot_table_meta_data() {
+fn test_xlsx_pivot_table_meta_data() {
+    // Test that pivot tables are listed by sheet and name and that each table
+    // has its own data.
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let pivot_tables = wb.pivot_tables().unwrap();
     let mut results = pivot_tables.get_pivot_tables_by_name_and_sheet();
@@ -3195,7 +3366,9 @@ fn test_pivot_table_meta_data() {
 }
 
 #[test]
-fn test_pivot_cache_data_mapping() {
+fn test_xlsx_pivot_cache_data_mapping() {
+    // Test that pivot cache records are mapped to the expected data values and
+    // types.
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let expected = vec![
         vec![
@@ -3341,7 +3514,8 @@ fn test_pivot_cache_data_mapping() {
 }
 
 #[test]
-fn test_pivot_table_cache_match() {
+fn test_xlsx_pivot_table_cache_match() {
+    // Test that two pivot tables sharing a cache return the same data.
     let mut wb: Xlsx<_> = wb("pivots.xlsx");
     let pivot_tables = wb.pivot_tables().unwrap();
     let results1 = wb
@@ -3358,9 +3532,9 @@ fn test_pivot_table_cache_match() {
 }
 
 #[test]
-fn vba_optional_records_581() {
-    // parsing missing-but-optional records should succeed
-    // ref: https://github.com/tafia/calamine/issues/581
+fn test_xls_vba_optional_records() {
+    // Test that a VBA project with missing optional records is parsed.
+    // See issue #581.
     let mut excel: Xls<_> = wb("optional_records.xls");
     let vba = excel.vba_project().unwrap().unwrap();
     let references = vba.get_references();
@@ -3389,9 +3563,9 @@ fn vba_optional_records_581() {
 }
 
 #[test]
-fn biff5_defined_names_and_empty_sheets_612() {
-    // covers a parsing error where biff8 byte layout was assumed
-    // ref: https://github.com/tafia/calamine/issues/612
+fn test_xls_biff5_defined_names_and_empty_sheets() {
+    // Test that BIFF5 defined names and empty sheets are parsed with the BIFF5
+    // byte layout rather than the BIFF8 one. See issue #612.
     let excel: Xls<_> = wb("misc_biff5_parsing.xls");
     assert_eq!(excel.sheet_names().len(), 11);
     assert_eq!(
@@ -3401,18 +3575,18 @@ fn biff5_defined_names_and_empty_sheets_612() {
 }
 
 #[test]
-fn biff5_formula_ptg_ref_643() {
-    // covers a parsing error where biff8 formula token sizes were assumed
-    // ref: https://github.com/tafia/calamine/pull/643
-    let mut excel: Xls<_> = wb("issue_643_biff5_formula.xls");
+fn test_xls_biff5_formula_ptg_ref() {
+    // Test that BIFF5 formula tokens are parsed with their BIFF5 sizes rather
+    // than the BIFF8 ones. See pull request #643.
+    let mut excel: Xls<_> = wb("biff5_formula_ptg_ref.xls");
     let formulas = excel.worksheet_formula("SheetJS").unwrap();
     assert_eq!(formulas.get_value((3, 1)), Some(&"$A$1".to_string()));
 }
 
 #[test]
 fn test_xls_truncated_ptgexp() {
-    // Test for xls file with a truncated PtgExp token (array/shared formula)
-    // with 2 bytes instead of 4.
+    // Test that an xls file with a truncated PtgExp token (array/shared
+    // formula) with 2 bytes instead of 4 is read.
     let mut excel: Xls<_> = wb("ptgexp-truncated-operand.xls");
     let range = excel.worksheet_range("Tab 1").unwrap();
     assert_eq!(range.get_size(), (23, 10));
@@ -3426,8 +3600,9 @@ fn test_xls_truncated_ptgexp() {
 }
 
 #[test]
-fn biff5_rich_text_string() {
-    // This file uses RSTRING records, apparently produced by ABBYY FineReader.
+fn test_xls_biff5_rich_text_string() {
+    // Test that a BIFF5 RSTRING (rich text string) record is read. The file was
+    // apparently produced by ABBYY FineReader.
     let mut wb: Xls<_> = wb("biff5-rich-text-string.xls");
     let range = wb.worksheet_range("Sheet1").unwrap();
     assert_eq!(
@@ -3439,10 +3614,11 @@ fn biff5_rich_text_string() {
 }
 
 #[test]
-fn issue_646_unsupported_formula_function() {
-    // Unsupported BIFF function ids should be reported as formula parse errors,
-    // not panic while opening the workbook.
-    let mut excel: Xls<_> = wb("issue_646_unsupported_formula_function.xls");
+fn test_xls_unsupported_formula_function() {
+    // Test that unsupported BIFF function ids are reported as formula parse
+    // errors and do not panic while opening the workbook.
+    // See pull request #646.
+    let mut excel: Xls<_> = wb("unsupported_formula_function.xls");
     assert!(!excel.sheet_names().is_empty());
     let formula = excel.worksheet_formula("Sheet1").unwrap();
     assert_eq!(
@@ -3452,15 +3628,15 @@ fn issue_646_unsupported_formula_function() {
 }
 
 #[test]
-fn test_capitalized_book_stream() {
-    // capitalized WORKBOOK and BOOK stream names are accepted by libreoffice
-    // ref: https://github.com/tafia/calamine/issues/618
+fn test_xls_capitalized_book_stream() {
+    // Test that capitalized WORKBOOK and BOOK stream names, which LibreOffice
+    // accepts, are read. See issue #618.
     let _wb: Xls<_> = wb("capitalized_wbook_stream.xls");
 }
 
 #[test]
 fn test_xlsx_inline_str_with_value() {
-    // extraneous v nodes should be ignored for inlineStr cells
+    // Test that extraneous <v> nodes are ignored for inlineStr cells.
     let mut wb: Xlsx<_> = wb("inlineStr_with_value.xlsx");
     let range = wb.worksheet_range_at(0).unwrap().unwrap();
     assert_eq!(range.get_value((0, 4)), Some(&String("ID".to_string())));
@@ -3471,7 +3647,7 @@ fn test_xlsx_inline_str_with_value() {
     assert_eq!(range.get_value((1, 3)), Some(&String("1.".to_string())));
 }
 
-// Test for issue #648 where a inlineStr string contains CDATA.
+// Test that an inlineStr string containing CDATA is read. See issue #648.
 #[test]
 fn test_xlsx_inline_str_cdata() {
     let mut excel: Xlsx<_> = wb("inlineStr_cdata.xlsx");
@@ -3566,7 +3742,9 @@ fn test_xlsx_renamed_workbook_part() {
 }
 
 #[test]
-fn test_hyperlinks_xlsx() {
+fn test_xlsx_hyperlinks() {
+    // Test that hyperlinks are read by sheet name and index with their target,
+    // location, text and tooltip, and that Hyperlink::contains() works.
     use calamine::Hyperlink;
 
     let mut excel: Xlsx<_> = wb("hyperlinks.xlsx");
@@ -3667,7 +3845,8 @@ fn test_hyperlinks_xlsx() {
 }
 
 #[test]
-fn test_hyperlinks_xlsx_escaped_attributes() {
+fn test_xlsx_hyperlinks_escaped_attributes() {
+    // Test that escaped XML attributes in hyperlinks are unescaped.
     let mut excel: Xlsx<_> = wb("hyperlinks_escaped.xlsx");
 
     let hyperlinks = excel
@@ -3694,8 +3873,9 @@ fn test_hyperlinks_xlsx_escaped_attributes() {
 }
 
 #[test]
-fn test_whitespace_trim_inline_str() {
-    // inlineStr cells: whitespace trimmed unless xml:space="preserve"
+fn test_xlsx_whitespace_trim_inline_str() {
+    // Test that whitespace in inlineStr cells is trimmed unless
+    // xml:space="preserve" is set.
     let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
     let range = excel.worksheet_range("inlineStr").unwrap();
 
@@ -3740,8 +3920,9 @@ fn test_whitespace_trim_inline_str() {
 }
 
 #[test]
-fn test_whitespace_trim_shared_strings() {
-    // shared string cells: whitespace trimmed unless xml:space="preserve"
+fn test_xlsx_whitespace_trim_shared_strings() {
+    // Test that whitespace in shared string cells is trimmed unless
+    // xml:space="preserve" is set.
     let mut excel: Xlsx<_> = wb("whitespace_trim.xlsx");
     let range = excel.worksheet_range("SharedStrings").unwrap();
 
@@ -3794,7 +3975,7 @@ fn test_whitespace_trim_shared_strings() {
 fn test_xlsb_unmatched_workbook_record_does_not_lose_sheet() {
     // The unmatched record's body size varint starts with `0x90`, which the
     // desynced reader misreads as `BrtEndBundleShs` and stops before any sheet.
-    let xlsb: Xlsb<_> = wb("issue_666_lost_sheets.xlsb");
+    let xlsb: Xlsb<_> = wb("unmatched_workbook_record_does_not_lose_sheet.xlsb");
     assert_eq!(xlsb.sheet_names(), vec!["Sheet1".to_string()]);
 }
 
@@ -3802,12 +3983,13 @@ fn test_xlsb_unmatched_workbook_record_does_not_lose_sheet() {
 fn test_xlsb_unmatched_workbook_record_does_not_panic() {
     // The unmatched record's body size varint starts with `0x9C`, which the
     // desynced reader misreads as `BrtBundleSh` and decodes from an empty buffer.
-    let xlsb: Xlsb<_> = wb("issue_666_panic.xlsb");
+    let xlsb: Xlsb<_> = wb("unmatched_workbook_record_does_not_panic.xlsb");
     assert_eq!(xlsb.sheet_names(), vec!["Sheet1".to_string()]);
 }
 
 #[test]
-fn too_small_xls() {
+fn test_xls_too_small() {
+    // Test that a file too small to be a compound file returns a Cfb error.
     let path = test_path("too_small.xls");
     let res: Result<Xls<_>, _> = open_workbook(&path);
     match res {
@@ -3820,7 +4002,7 @@ fn too_small_xls() {
     }
 }
 
-// Test for xlsx file with strict ISO/IEC 29500 relationship paths.
+// Test that an xlsx file with strict ISO/IEC 29500 relationship paths opens.
 // See issue #680.
 #[test]
 fn test_xlsx_strict_iso_paths() {
@@ -3881,7 +4063,7 @@ fn test_xlsx_custom_properties() {
 
 #[test]
 fn test_xlsb_custom_properties() {
-    let mut excel: Xlsb<_> = wb("issue_182.xlsb");
+    let mut excel: Xlsb<_> = wb("formula_values.xlsb");
     let props = excel.workbook_properties().expect("workbook properties");
 
     assert_eq!(props.custom_properties["FileName"], "");
@@ -3965,7 +4147,7 @@ fn test_xls_workbook_properties_code_page() {
 
 #[test]
 fn test_xls_custom_properties() {
-    let mut excel: Xls<_> = wb("gh548_incorrect_sst_unique_count.xls");
+    let mut excel: Xls<_> = wb("incorrect_sst_unique_count.xls");
     let props = excel.workbook_properties().expect("workbook properties");
 
     assert_eq!(props.company.as_deref(), Some("Department of Health"));
@@ -3980,7 +4162,7 @@ fn test_xls_custom_properties() {
 #[test]
 fn test_xls_workbook_properties_auto() {
     let mut excel = open_workbook_auto(format!(
-        "{}/tests/issue_271.xls",
+        "{}/tests/repeated_reads_are_consistent.xls",
         env!("CARGO_MANIFEST_DIR")
     ))
     .unwrap();
@@ -3997,7 +4179,7 @@ fn test_xls_workbook_properties_auto() {
 #[test]
 fn test_xls_workbook_properties_missing() {
     // A file without document property streams.
-    let mut excel: Xls<_> = wb("issue444.xls");
+    let mut excel: Xls<_> = wb("merged_regions_memory_allocation.xls");
     let props = excel.workbook_properties().expect("workbook properties");
 
     assert!(props.creator.is_none());
@@ -4024,17 +4206,19 @@ fn test_xlsb_workbook_properties() {
 }
 
 #[test]
-fn xls_empty_string() {
-    // Empty strings should be retained, not converted to None. See issue #678
+fn test_xls_empty_string() {
+    // Test that empty strings are retained and not converted to None.
+    // See issue #678.
     let mut wb: Xls<_> = wb("empty-string.xls");
     let range = wb.worksheet_range("Sheet1").unwrap();
     assert_eq!(range.get_value((0, 0)), Some(&String("".to_string())));
 }
 
 #[test]
-fn xls_formula_columns_beyond_z() {
-    // Formula column references at/after column AA (index 26) exercise the
-    // column-name rendering and the BIFF8 PtgArea column masking.
+fn test_xls_formula_columns_beyond_z() {
+    // Test that formula column references at and after column AA (index 26) are
+    // rendered correctly, which exercises the column-name rendering and the
+    // BIFF8 PtgArea column masking.
     let mut wb: Xls<_> = wb("xls_formula_columns_beyond_z.xls");
     let formula = wb.worksheet_formula("Sheet1").unwrap();
     let mut rows = formula.rows();
@@ -4044,9 +4228,9 @@ fn xls_formula_columns_beyond_z() {
 }
 
 #[test]
-fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
-    // Regression test: the chart on "Report" is a nested substream whose cached
-    // series values (Data!A1:B8) must not leak into the hosting sheet.
+fn test_xls_embedded_cross_sheet_chart_does_not_leak_cells() {
+    // Test that the cached series values (Data!A1:B8) of the chart on "Report",
+    // a nested substream, do not leak into the hosting sheet.
     let mut excel: Xls<_> = wb("xls_cross_sheet_chart.xls");
     let range = excel.worksheet_range("Report").unwrap();
 
@@ -4065,12 +4249,12 @@ fn xls_embedded_cross_sheet_chart_does_not_leak_cells() {
     );
 }
 
-// Test for an xls file with a 16 byte DIMENSIONS record instead of 14 bytes.
-// The file is from the govdocs1 corpus, via the Apache POI test files. See
-// issue #577.
+// Test that an xls file with a 16 byte DIMENSIONS record instead of 14 bytes is
+// read. The file is from the govdocs1 corpus, via the Apache POI test files.
+// See issue #577.
 #[test]
 fn test_xls_dimensions_16_bytes() {
-    let mut excel: Xls<_> = wb("issue_577_dimensions_16_bytes.xls");
+    let mut excel: Xls<_> = wb("dimensions_16_bytes.xls");
     let range = excel.worksheet_range("Sheet1").unwrap();
 
     assert_eq!(range.used_cells().count(), 232);
@@ -4083,7 +4267,7 @@ fn test_xls_dimensions_16_bytes() {
 // issue #714.
 #[test]
 fn test_xls_cfb_huge_sector_counts() {
-    let result = open_workbook::<Xls<_>, _>(test_path("issue_714.xls"));
+    let result = open_workbook::<Xls<_>, _>(test_path("cfb_huge_sector_counts.xls"));
     assert!(matches!(result, Err(XlsError::Cfb(_))));
 }
 
@@ -4092,7 +4276,7 @@ fn test_xls_cfb_huge_sector_counts() {
 // true. See issue #724.
 #[test]
 fn test_xlsx_bool_cell_values() {
-    let mut excel: Xlsx<_> = wb("issue_724.xlsx");
+    let mut excel: Xlsx<_> = wb("bool_cell_values.xlsx");
 
     // Reading the range fails on the first invalid boolean, "00" in cell G1.
     let result = excel.worksheet_range("Sheet1");
@@ -4121,7 +4305,9 @@ fn test_xlsx_bool_cell_values() {
 // ============================================================================
 
 #[test]
-fn test_all_styles() {
+fn test_xlsx_all_styles() {
+    // Test that fonts, borders, fills, alignment and number formats are read
+    // from the styles fixture.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let values = xlsx.worksheet_range("Sheet 1").unwrap();
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
@@ -4211,7 +4397,8 @@ fn test_all_styles() {
 }
 
 #[test]
-fn test_worksheet_style_iter() {
+fn test_xlsx_worksheet_style_iter() {
+    // Test that the style range can be iterated and the styles accessed.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4231,7 +4418,8 @@ fn test_worksheet_style_iter() {
 }
 
 #[test]
-fn test_underline_parsing() {
+fn test_xlsx_underline_parsing() {
+    // Test that a self-closing <u/> element is read as a single underline.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4242,7 +4430,8 @@ fn test_underline_parsing() {
 }
 
 #[test]
-fn test_color_construction() {
+fn test_xlsx_color_construction() {
+    // Test that Color values are constructed from RGB and ARGB components.
     let rgb = Color::rgb(255, 0, 0);
     assert_eq!(rgb.red, 255);
     assert_eq!(rgb.green, 0);
@@ -4262,7 +4451,8 @@ fn test_color_construction() {
 }
 
 #[test]
-fn test_border_colors() {
+fn test_xlsx_border_colors() {
+    // Test that thin and dashed borders with colors are read.
     let mut xlsx: Xlsx<_> = wb("borders.xlsx");
     let styles = xlsx.worksheet_style("Sheet1").unwrap();
 
@@ -4313,7 +4503,9 @@ fn test_border_colors() {
 }
 
 #[test]
-fn test_problematic_formats() {
+fn test_xlsx_problematic_formats() {
+    // Test that a file with problematic formats is read with a white font and
+    // non-empty number format codes.
     let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
     let range = xlsx.worksheet_range("Sheet1").unwrap();
     let styles = xlsx.worksheet_style("Sheet1").unwrap();
@@ -4357,7 +4549,9 @@ fn test_problematic_formats() {
 }
 
 #[test]
-fn test_color_parsing_with_styles() {
+fn test_xlsx_color_parsing_with_styles() {
+    // Test that font colors are read when looking up styles by absolute
+    // position from the value range.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
 
     // Test that we can read styles and colors from the styles.xlsx file.
@@ -4406,7 +4600,9 @@ fn test_color_parsing_with_styles() {
 }
 
 #[test]
-fn test_style_range_bounding_box() {
+fn test_xlsx_style_range_bounding_box() {
+    // Test that the style range iterator visits every cell in the bounding box
+    // exactly once with absolute positions.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4423,11 +4619,12 @@ fn test_style_range_bounding_box() {
 }
 
 #[test]
-fn test_theme_color_with_tint() {
-    // EMSI_JobChange_UK.xlsx uses theme="2" tint="-0.0999..." for the header
-    // fill. The file's theme has lt2 = EEECE1, and Excel shows the tinted
-    // color ("Tan, Background 2, Darker 10%") as DDD9C4. The tint applies to
-    // the HSL luminance so the color keeps its tan hue.
+fn test_xlsx_theme_color_with_tint() {
+    // Test that a theme color with a tint is resolved. EMSI_JobChange_UK.xlsx
+    // uses theme="2" tint="-0.0999..." for the header fill. The file's theme
+    // has lt2 = EEECE1, and Excel shows the tinted color
+    // ("Tan, Background 2, Darker 10%") as DDD9C4. The tint applies to the HSL
+    // luminance so the color keeps its tan hue.
     let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
     let styles = xlsx.worksheet_style("1 digit").unwrap();
 
@@ -4447,11 +4644,11 @@ fn test_theme_color_with_tint() {
 }
 
 #[test]
-fn test_worksheet_style_positions_are_absolute() {
-    // The cells in borders.xlsx start at A2 and have styles but no values, so
-    // the style range starts at (1, 0) while the value range is empty. Style
-    // lookups use absolute worksheet positions, so A2 is at (1, 0) rather
-    // than at (0, 0) relative to the start of the style range.
+fn test_xlsx_worksheet_style_positions_are_absolute() {
+    // Test that style lookups use absolute worksheet positions. The cells in
+    // borders.xlsx start at A2 and have styles but no values, so the style
+    // range starts at (1, 0) while the value range is empty. A2 is therefore
+    // at (1, 0) rather than at (0, 0) relative to the start of the style range.
     let mut xlsx: Xlsx<_> = wb("borders.xlsx");
     let range = xlsx.worksheet_range("Sheet1").unwrap();
     let styles = xlsx.worksheet_style("Sheet1").unwrap();
@@ -4468,8 +4665,9 @@ fn test_worksheet_style_positions_are_absolute() {
 }
 
 #[test]
-fn test_theme_colors_read_from_file() {
-    // EMSI_JobChange_UK.xlsx has the Office 2007 theme:
+fn test_xlsx_theme_colors_read_from_file() {
+    // Test that theme colors are read from the file. EMSI_JobChange_UK.xlsx has
+    // the Office 2007 theme:
     //   dk1=000000, lt1=FFFFFF, dk2=1F497D, lt2=EEECE1
     // After Excel's index swap: theme 0=lt1, 1=dk1, 2=lt2, 3=dk2.
     let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
@@ -4481,11 +4679,11 @@ fn test_theme_colors_read_from_file() {
 }
 
 #[test]
-fn test_sys_color_parsing_prefers_last_clr() {
-    // problematic_formats.xlsx has sysClr elements like:
+fn test_xlsx_sys_color_parsing_prefers_last_clr() {
+    // Test that sysClr elements resolve to lastClr rather than the system name
+    // in val. problematic_formats.xlsx has sysClr elements like:
     //   <a:sysClr val="windowText" lastClr="000000"/>
     //   <a:sysClr val="window" lastClr="FFFFFF"/>
-    // The parser should use lastClr (resolved) over val (system name).
     let mut xlsx: Xlsx<_> = wb("problematic_formats.xlsx");
     let styles = xlsx.worksheet_style("Sheet1").unwrap();
 
@@ -4506,11 +4704,11 @@ fn test_sys_color_parsing_prefers_last_clr() {
 }
 
 #[test]
-fn test_tint_darkening() {
-    // Verify that a negative tint darkens a color.
-    // EMSI_JobChange_UK.xlsx border colors use theme="0" tint="-0.2499...".
-    // Theme 0 = lt1 = FFFFFF (255, 255, 255). With tint -0.25 the luminance
-    // is reduced by a quarter, giving the grey BFBFBF (191, 191, 191).
+fn test_xlsx_tint_darkening() {
+    // Test that a negative tint darkens a color. EMSI_JobChange_UK.xlsx border
+    // colors use theme="0" tint="-0.2499...". Theme 0 = lt1 = FFFFFF
+    // (255, 255, 255). With tint -0.25 the luminance is reduced by a quarter,
+    // giving the grey BFBFBF (191, 191, 191).
     let mut xlsx: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
     let styles = xlsx.worksheet_style("1 digit").unwrap();
 
@@ -4525,9 +4723,9 @@ fn test_tint_darkening() {
 }
 
 #[test]
-fn test_font_parsing_self_closing_elements() {
-    // Self-closing font elements like <b/> and <sz val="11"/> are the most
-    // common form in real Excel files.
+fn test_xlsx_font_parsing_self_closing_elements() {
+    // Test that self-closing font elements like <b/> and <sz val="11"/>, the
+    // most common form in real Excel files, are parsed.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4538,8 +4736,9 @@ fn test_font_parsing_self_closing_elements() {
 }
 
 #[test]
-fn test_fill_parsing_self_closing_elements() {
-    // Fill elements like <fgColor rgb="..."/> are usually self-closing.
+fn test_xlsx_fill_parsing_self_closing_elements() {
+    // Test that self-closing fill elements like <fgColor rgb="..."/> are
+    // parsed.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4556,9 +4755,9 @@ fn test_fill_parsing_self_closing_elements() {
 }
 
 #[test]
-fn test_border_parsing_self_closing_elements() {
-    // Border sides like <left style="thin"/> with no child <color> element
-    // are self-closing.
+fn test_xlsx_border_parsing_self_closing_elements() {
+    // Test that self-closing border sides like <left style="thin"/> with no
+    // child <color> element are parsed.
     let mut xlsx: Xlsx<_> = wb("borders.xlsx");
     let styles = xlsx.worksheet_style("Sheet1").unwrap();
 
@@ -4579,7 +4778,8 @@ fn test_border_parsing_self_closing_elements() {
 }
 
 #[test]
-fn test_text_rotation_variants() {
+fn test_xlsx_text_rotation_variants() {
+    // Test that the TextRotation variants are distinct, so that
     // textRotation=255 is parsed as Stacked rather than Degrees(255).
     let stacked = TextRotation::Stacked;
     let degrees = TextRotation::Degrees(90);
@@ -4591,8 +4791,8 @@ fn test_text_rotation_variants() {
 }
 
 #[test]
-fn test_style_parsing_with_protection() {
-    // Verify that protection parsing works on a real file.
+fn test_xlsx_style_parsing_with_protection() {
+    // Test that protection properties are parsed from a real file.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4606,8 +4806,8 @@ fn test_style_parsing_with_protection() {
 }
 
 #[test]
-fn test_style_alignment_parsing() {
-    // Verify alignment parsing handles all properties correctly.
+fn test_xlsx_style_alignment_parsing() {
+    // Test that alignment properties are parsed from a real file.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let styles = xlsx.worksheet_style("Sheet 1").unwrap();
 
@@ -4630,7 +4830,8 @@ fn test_style_alignment_parsing() {
 }
 
 #[test]
-fn test_worksheet_style_nonexistent_sheet() {
+fn test_xlsx_worksheet_style_nonexistent_sheet() {
+    // Test that worksheet_style() returns an error for an unknown sheet name.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
     let result = xlsx.worksheet_style("nonexistent_sheet_name");
     assert!(
@@ -4640,9 +4841,9 @@ fn test_worksheet_style_nonexistent_sheet() {
 }
 
 #[test]
-fn test_worksheet_style_default_trait_impl() {
-    // Formats without style support return an empty StyleRange from the
-    // Reader trait's default implementation.
+fn test_xls_worksheet_style_default_trait_impl() {
+    // Test that formats without style support return an empty StyleRange from
+    // the Reader trait's default implementation.
     let mut xls: Xls<_> = wb("any_sheets.xls");
     let styles = xls.worksheet_style("Visible").unwrap();
     assert!(styles.is_empty());
@@ -4651,9 +4852,9 @@ fn test_worksheet_style_default_trait_impl() {
 }
 
 #[test]
-fn test_worksheet_style_auto_forwarding() {
-    // Sheets (open_workbook_auto) forwards worksheet_style to the inner
-    // reader, so an XLSX opened via the auto API reaches the real
+fn test_xlsx_worksheet_style_auto_forwarding() {
+    // Test that Sheets (open_workbook_auto) forwards worksheet_style() to the
+    // inner reader, so an xlsx opened via the auto API reaches the real
     // implementation rather than the trait default.
     let mut workbook = open_workbook_auto(test_path("styles.xlsx")).unwrap();
     let styles = workbook.worksheet_style("Sheet 1").unwrap();
@@ -4662,7 +4863,9 @@ fn test_worksheet_style_auto_forwarding() {
 }
 
 #[test]
-fn test_next_cell_with_style_id() {
+fn test_xlsx_next_cell_with_style_id() {
+    // Test that cell values and style ids are streamed in a single pass and
+    // match the bulk range values.
     let mut xlsx: Xlsx<_> = wb("styles.xlsx");
 
     // Stream cell values and style ids in a single pass.
@@ -4719,17 +4922,17 @@ fn test_xlsb_unknown_record_before_names() {
 }
 
 #[test]
-fn test_cfb_short_directory_chunk_does_not_panic() {
+fn test_xls_cfb_short_directory_chunk_does_not_panic() {
     // Test that a compound file whose directory stream length is not a multiple
-    // of 128 doesn't panic. See PR #762.
+    // of 128 doesn't panic. See pull request #762.
     let xls: Xls<_> = wb("cfb_dir_short_chunk_panic.xls");
     assert_eq!(xls.sheet_names(), vec!["Sheet1"]);
 }
 
 #[test]
-fn test_cfb_difat_chain_does_not_oom() {
+fn test_xls_cfb_difat_chain_does_not_oom() {
     // Test that a compound file with a cyclic DIFAT chain is rejected without
-    // unbounded allocation. See PR #762.
+    // unbounded allocation. See pull request #762.
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
