@@ -2098,6 +2098,35 @@ fn test_xls_formula_sheet_references() {
 }
 
 #[test]
+fn test_xls_formula_references() {
+    // Test that relative, absolute and mixed cell and area references, on the
+    // same sheet and on another sheet, are read from xls formulas.
+    let mut excel: Xls<_> = wb("formula_references.xls");
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(
+        formulas,
+        [
+            ["A1"],
+            ["$A$1"],
+            ["$A1"],
+            ["A$1"],
+            ["SUM(A1:B2)"],
+            ["SUM($A$1:$B$2)"],
+            ["SUM($A1:B$2)"],
+            ["Sheet2!A1"],
+            ["Sheet2!$A$1"],
+            ["Sheet2!$A1"],
+            ["Sheet2!A$1"],
+            ["Sheet2!B2"],
+            ["Sheet2!$B2"],
+            ["SUM(Sheet2!A1:B2)"],
+            ["SUM(Sheet2!$A$1:$B$2)"],
+            ["SUM(Sheet2!$A1:B$2)"],
+        ]
+    );
+}
+
+#[test]
 fn test_xls_formula_values() {
     // Test that the cached values of formula cells are read correctly.
     // See issue #304.

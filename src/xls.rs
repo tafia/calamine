@@ -1432,6 +1432,28 @@ fn write_absolute_cell_ref(f: &mut String, col: u32, row: u32) {
     write!(f, "${}", row + 1).unwrap();
 }
 
+/// Push a BIFF8 cell reference such as `$A1` to a formula.
+///
+/// `col` is a ColRelU: a 14-bit column followed by the colRelative and
+/// rowRelative flags. A `$` marks a column or row that isn't relative.
+fn push_cell_ref(row: u16, col: u16, formula: &mut String) {
+    if col & 0x4000 == 0 {
+        formula.push('$');
+    }
+    push_column((col & 0x3FFF) as u32, formula);
+    if col & 0x8000 == 0 {
+        formula.push('$');
+    }
+    write!(formula, "{}", row as u32 + 1).unwrap();
+}
+
+/// Get the name of the sheet that an XTI index refers to.
+fn xti_sheet_name<'a>(ixti: u16, xtis: &[Xti], sheets: &'a [String]) -> &'a str {
+    xtis.get(ixti as usize)
+        .and_then(|xti| sheets.get(xti.itab_first as usize))
+        .map_or("#REF", |sheet| sheet)
+}
+
 /// Formula parsing
 ///
 /// Does not implement ALL possibilities, only Area are parsed
@@ -1536,45 +1558,28 @@ fn parse_formula(
             0x3a | 0x5a | 0x7a => {
                 // PtgRef3d
                 let ixti = read_u16(&rgce[0..2]);
-                let rowu = read_u16(&rgce[2..]);
-                let colu = read_u16(&rgce[4..]);
-                let sh = xtis
-                    .get(ixti as usize)
-                    .and_then(|xti| sheets.get(xti.itab_first as usize))
-                    .map_or("#REF", |sh| sh);
                 stack.push(formula.len());
-                formula.push_str(sh);
+                formula.push_str(xti_sheet_name(ixti, xtis, sheets));
                 formula.push('!');
-                let col = colu << 2; // first 14 bits only
-                if colu & 2 != 0 {
-                    formula.push('$');
-                }
-                push_column(col as u32, &mut formula);
-                if colu & 1 != 0 {
-                    formula.push('$');
-                }
-                write!(&mut formula, "{}", rowu + 1).unwrap();
+                push_cell_ref(read_u16(&rgce[2..4]), read_u16(&rgce[4..6]), &mut formula);
                 rgce = &rgce[6..];
             }
             0x3b | 0x5b | 0x7b => {
                 // PtgArea3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push_str(xti_sheet_name(ixti, xtis, sheets));
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                write!(&mut formula, "${}:$", read_u16(&rgce[2..4]) as u32 + 1).unwrap();
-                push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
-                write!(&mut formula, "${}", read_u16(&rgce[4..6]) as u32 + 1).unwrap();
+                push_cell_ref(read_u16(&rgce[2..4]), read_u16(&rgce[6..8]), &mut formula);
+                formula.push(':');
+                push_cell_ref(read_u16(&rgce[4..6]), read_u16(&rgce[8..10]), &mut formula);
                 rgce = &rgce[10..];
             }
             0x3c | 0x5c | 0x7c => {
                 // PtfRefErr3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push_str(xti_sheet_name(ixti, xtis, sheets));
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[6..];
@@ -1583,7 +1588,7 @@ fn parse_formula(
                 // PtgAreaErr3d
                 let ixti = read_u16(&rgce[0..2]);
                 stack.push(formula.len());
-                formula.push_str(sheets.get(ixti as usize).map_or("#REF", |s| &**s));
+                formula.push_str(xti_sheet_name(ixti, xtis, sheets));
                 formula.push('!');
                 formula.push_str("#REF!");
                 rgce = &rgce[10..];
@@ -1839,16 +1844,7 @@ fn parse_formula(
                     formula.push_str(&format!("{row}"));
                     rgce = &rgce[3..];
                 } else {
-                    let row = read_u16(rgce) + 1;
-                    let col = read_u16(&[rgce[2], rgce[3] & 0x3F]);
-                    if rgce[3] & 0x80 != 0x80 {
-                        formula.push('$');
-                    }
-                    push_column(col as u32, &mut formula);
-                    if rgce[3] & 0x40 != 0x40 {
-                        formula.push('$');
-                    }
-                    formula.push_str(&format!("{row}"));
+                    push_cell_ref(read_u16(&rgce[0..2]), read_u16(&rgce[2..4]), &mut formula);
                     rgce = &rgce[4..];
                 }
             }
@@ -1867,27 +1863,9 @@ fn parse_formula(
                     write!(&mut formula, "${row_last}").unwrap();
                     rgce = &rgce[6..];
                 } else {
-                    // columnFirst/columnLast are ColRelU: 14-bit column + fColRel/fRwRel flags.
-                    let col_first = read_u16(&[rgce[4], rgce[5] & 0x3F]);
-                    let col_last = read_u16(&[rgce[6], rgce[7] & 0x3F]);
-                    let row_first = read_u16(&rgce[0..2]) as u32 + 1;
-                    let row_last = read_u16(&rgce[2..4]) as u32 + 1;
-                    if rgce[5] & 0x80 != 0x80 {
-                        formula.push('$');
-                    }
-                    push_column(col_first as u32, &mut formula);
-                    if rgce[5] & 0x40 != 0x40 {
-                        formula.push('$');
-                    }
-                    write!(&mut formula, "{row_first}:").unwrap();
-                    if rgce[7] & 0x80 != 0x80 {
-                        formula.push('$');
-                    }
-                    push_column(col_last as u32, &mut formula);
-                    if rgce[7] & 0x40 != 0x40 {
-                        formula.push('$');
-                    }
-                    write!(&mut formula, "{row_last}").unwrap();
+                    push_cell_ref(read_u16(&rgce[0..2]), read_u16(&rgce[4..6]), &mut formula);
+                    formula.push(':');
+                    push_cell_ref(read_u16(&rgce[2..4]), read_u16(&rgce[6..8]), &mut formula);
                     rgce = &rgce[8..];
                 }
             }
