@@ -583,6 +583,26 @@ fn test_xlsx_formula() {
 }
 
 #[test]
+fn test_xlsb_formula_reference_operators() {
+    // Test that xlsb formulas that use the intersection and union reference
+    // operators are read.
+    let mut excel: Xlsb<_> = wb("formula_reference_operators.xlsb");
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(
+        formulas,
+        [
+            ["$A$1:$A$2 $B$1:$B$2"],
+            ["SUM($A$1:$B$2 $B$1:$C$3)"],
+            ["$A$1:$C$1 $B$1:$B$3"],
+            ["SUM(($A$1,$C$3))"],
+            ["SUM(($A$1:$A$2,$C$1:$C$2))"],
+            ["SUM($A$1:$C$3 ($A$1,$C$3))"],
+            ["SUM($A$1:$C$3 OFFSET($A$1,1,1))"],
+        ]
+    );
+}
+
+#[test]
 fn test_xlsb_formula() {
     // Test that worksheet formulas are read from every sheet of an xlsb file
     // and that a formula using a defined name is read as written.
