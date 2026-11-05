@@ -3052,21 +3052,9 @@ pub(crate) fn get_dimension(dimension: &str) -> Result<Dimensions, XlsxError> {
             end: parts[0],
         }),
         2 => {
-            // The `ref` may be in reversed order like `C5:A1`.
-            let dim = Dimensions::new(parts[0], parts[1]);
-            if dim.end.0 >= MAX_ROWS {
-                warn!(
-                    "file has more than maximum supported number of rows ({} >= {MAX_ROWS})",
-                    dim.end.0
-                );
-            }
-            if dim.end.1 >= MAX_COLUMNS {
-                warn!(
-                    "file has more than maximum supported number of columns ({} >= {MAX_COLUMNS})",
-                    dim.end.1
-                );
-            }
-            Ok(dim)
+            // The `ref` may be in reversed order like `C5:A1`. Each corner was
+            // already checked against the grid by `get_row_column`.
+            Ok(Dimensions::new(parts[0], parts[1]))
         }
         len => Err(XlsxError::DimensionCount(len)),
     }
@@ -3113,6 +3101,11 @@ fn get_row_and_optional_column(range: &str) -> Result<(u32, Option<u32>), XlsxEr
             }
             c => return Err(XlsxError::Alphanumeric(c)),
         }
+        // Reject a column beyond the grid as soon as it is seen. This also
+        // keeps `col * 26` well inside a u32.
+        if col > MAX_COLUMNS {
+            return Err(XlsxError::ColumnNumberOverflow);
+        }
         i += 1;
     }
 
@@ -3121,6 +3114,11 @@ fn get_row_and_optional_column(range: &str) -> Result<(u32, Option<u32>), XlsxEr
         match range[i] {
             c @ b'0'..=b'9' => row = row * 10 + (c - b'0') as u32,
             c => return Err(XlsxError::Alphanumeric(c)),
+        }
+        // Reject a row beyond the grid as soon as it is seen. This also
+        // keeps `row * 10` well inside a u32.
+        if row > MAX_ROWS {
+            return Err(XlsxError::RowNumberOverflow);
         }
         i += 1;
     }
@@ -4488,6 +4486,42 @@ mod tests {
         assert_eq!(
             get_dimension("C1:A5").unwrap(),
             get_dimension("A1:C5").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_xlsx_reference_beyond_grid_is_an_error() {
+        // Test that a cell reference beyond the grid limits returns an error,
+        // however far beyond the grid it is. See issue #694.
+        assert!(matches!(
+            get_row_column("XFE1"),
+            Err(XlsxError::ColumnNumberOverflow)
+        ));
+        assert!(matches!(
+            get_row_column("A1048577"),
+            Err(XlsxError::RowNumberOverflow)
+        ));
+        assert!(matches!(
+            get_row_column("ZZZZZZZ1"),
+            Err(XlsxError::ColumnNumberOverflow)
+        ));
+        assert!(matches!(
+            get_row_column("A99999999999"),
+            Err(XlsxError::RowNumberOverflow)
+        ));
+        assert!(matches!(
+            get_dimension("A1:ZZZZZZZ1"),
+            Err(XlsxError::ColumnNumberOverflow)
+        ));
+        assert!(matches!(
+            get_dimension("A1:A99999999999"),
+            Err(XlsxError::RowNumberOverflow)
+        ));
+
+        // The bottom-right cell of the grid still parses.
+        assert_eq!(
+            get_row_column("XFD1048576").unwrap(),
+            (MAX_ROWS - 1, MAX_COLUMNS - 1)
         );
     }
 
