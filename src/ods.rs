@@ -945,7 +945,10 @@ fn read_pictures<RS: Read + Seek>(
     let mut pics = Vec::new();
     for i in 0..zip.len() {
         let mut zfile = zip.by_index(i)?;
-        let zname = zfile.name()?;
+        // Skip an entry whose name cannot be decoded instead of failing the read.
+        let Ok(zname) = zfile.name() else {
+            continue;
+        };
         // no Thumbnails
         if zname.starts_with("Pictures") {
             if let Some(ext) = zname.split('.').next_back() {
