@@ -780,6 +780,21 @@ fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, Xlsb
     Ok(UTF_16LE.decode(s).0)
 }
 
+/// Push a cell reference such as `$A1` to a formula.
+///
+/// `col` is a ColRelShort: a 14-bit column followed by the fColRel and fRwRel
+/// flags. A `$` marks a column or row that isn't relative.
+fn push_cell_ref(row: u32, col: u16, formula: &mut String) {
+    if col & 0x4000 == 0 {
+        formula.push('$');
+    }
+    push_column((col & 0x3FFF) as u32, formula);
+    if col & 0x8000 == 0 {
+        formula.push('$');
+    }
+    formula.push_str(&format!("{}", row + 1));
+}
+
 /// Formula parsing
 ///
 /// [MS-XLSB 2.2.2]
@@ -807,11 +822,7 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(&sheets[ixti as usize]);
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[6..8]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[2..6]) + 1));
+                push_cell_ref(read_u32(&rgce[2..6]), read_u16(&rgce[6..8]), &mut formula);
                 rgce = &rgce[8..];
             }
             0x3b | 0x5b | 0x7b => {
@@ -820,16 +831,13 @@ fn parse_formula(
                 stack.push(formula.len());
                 formula.push_str(&sheets[ixti as usize]);
                 formula.push('!');
-                // TODO: check with relative columns
-                formula.push('$');
-                push_column(read_u16(&rgce[10..12]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[2..6]) + 1));
+                push_cell_ref(read_u32(&rgce[2..6]), read_u16(&rgce[10..12]), &mut formula);
                 formula.push(':');
-                formula.push('$');
-                push_column(read_u16(&rgce[12..14]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[6..10]) + 1));
+                push_cell_ref(
+                    read_u32(&rgce[6..10]),
+                    read_u16(&rgce[12..14]),
+                    &mut formula,
+                );
                 rgce = &rgce[14..];
             }
             0x3c | 0x5c | 0x7c => {
@@ -1026,31 +1034,15 @@ fn parse_formula(
                 rgce = &rgce[4..];
             }
             0x24 | 0x44 | 0x64 => {
-                let row = read_u32(rgce) + 1;
-                let col = [rgce[4], rgce[5] & 0x3F];
-                let col = read_u16(&col);
                 stack.push(formula.len());
-                if rgce[5] & 0x80 != 0x80 {
-                    formula.push('$');
-                }
-                push_column(col as u32, &mut formula);
-                if rgce[5] & 0x40 != 0x40 {
-                    formula.push('$');
-                }
-                formula.push_str(&format!("{row}"));
+                push_cell_ref(read_u32(&rgce[0..4]), read_u16(&rgce[4..6]), &mut formula);
                 rgce = &rgce[6..];
             }
             0x25 | 0x45 | 0x65 => {
                 stack.push(formula.len());
-                formula.push('$');
-                push_column(read_u16(&rgce[8..10]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[0..4]) + 1));
+                push_cell_ref(read_u32(&rgce[0..4]), read_u16(&rgce[8..10]), &mut formula);
                 formula.push(':');
-                formula.push('$');
-                push_column(read_u16(&rgce[10..12]) as u32, &mut formula);
-                formula.push('$');
-                formula.push_str(&format!("{}", read_u32(&rgce[4..8]) + 1));
+                push_cell_ref(read_u32(&rgce[4..8]), read_u16(&rgce[10..12]), &mut formula);
                 rgce = &rgce[12..];
             }
             0x2A | 0x4A | 0x6A => {
