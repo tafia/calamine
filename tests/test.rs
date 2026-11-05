@@ -651,6 +651,29 @@ fn test_xlsb_formula_values() {
 }
 
 #[test]
+fn test_xlsb_formula_error_values() {
+    // Test that formula cells whose cached value is an error are read from an
+    // xlsb file.
+    let mut excel: Xlsb<_> = wb("formula_error_values.xlsb");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(
+        range,
+        [
+            [String("=NA()".to_string()), Error(NA)],
+            [String("=1/0".to_string()), Error(Div0)],
+            [String("=\"a\"+1".to_string()), Error(Value)],
+            [String("=SQRT(-1)".to_string()), Error(Num)],
+            [String("=INDEX(A1:A2,3)".to_string()), Error(Ref)],
+            [String("=NOSUCHFUNC()".to_string()), Error(Name)],
+            [
+                String("=VLOOKUP(\"x\",A1:A6,1,FALSE)".to_string()),
+                Error(NA)
+            ],
+        ]
+    );
+}
+
+#[test]
 fn test_xlsb_float_values() {
     // Test that float values are read from an xlsb file.
     let mut excel: Xlsb<_> = wb("float_values.xlsb");
