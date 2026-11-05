@@ -4992,3 +4992,41 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_xlsx_oversized_sparse_range() {
+    // Test that a sheet whose cells imply a range larger than MAX_CELLS returns
+    // an error instead of aborting on allocation. See issue #693.
+    let mut xlsx: Xlsx<_> = wb("oversized_sparse_range.xlsx");
+    let name = xlsx.sheet_names()[0].clone();
+    assert!(matches!(
+        xlsx.worksheet_range(&name),
+        Err(calamine::XlsxError::CellLimitExceeded { .. })
+    ));
+}
+
+#[test]
+fn test_all_from_sparse_cell_limit() {
+    // Test that Range::from_sparse() returns an error for a range larger than
+    // MAX_CELLS. See issue #693.
+    use calamine::{Cell, CellLimitExceeded, Range, MAX_CELLS};
+    let cells = vec![
+        Cell::new((0, 0), 1usize),
+        Cell::new((1_048_575, 16_383), 2usize),
+    ];
+    let err = Range::from_sparse(cells).unwrap_err();
+    assert_eq!(
+        err,
+        CellLimitExceeded {
+            requested: 17_179_869_184,
+            max: MAX_CELLS
+        }
+    );
+
+    // A sparse range within the limit still loads.
+    let cells = vec![Cell::new((0, 0), 1usize), Cell::new((9_999, 9_999), 2usize)];
+    assert_eq!(
+        Range::from_sparse(cells).unwrap().get_size(),
+        (10_000, 10_000)
+    );
+}
