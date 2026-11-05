@@ -10,10 +10,11 @@ mod style_parser;
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
 use std::collections::HashSet;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
+use cfb::CompoundFile;
 use log::warn;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
@@ -2832,8 +2833,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let Some(mut f) = self.zip.by_name(path.as_ref()).ok() else {
             return Ok(None);
         };
-        let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len)?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // Wrap the buffer in a Cursor to supply the Seek bound that
+        // `VbaProject::new()` requires of the cfb crate.
+        let mut cursor = Cursor::new(buf);
+        let vba = VbaProject::new(&mut cursor)?;
         Ok(Some(vba))
     }
 
@@ -3191,11 +3198,8 @@ where
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsxError::Password);
         }
     }

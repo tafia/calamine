@@ -8,8 +8,9 @@ pub use cells_reader::XlsbCellsReader;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Cursor, Read, Seek};
 
+use cfb::CompoundFile;
 use log::debug;
 
 use encoding_rs::UTF_16LE;
@@ -557,8 +558,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
             return Ok(None);
         };
-        let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len)?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // Wrap the buffer in a Cursor to supply the Seek bound that
+        // `VbaProject::new()` requires of the cfb crate.
+        let mut cursor = Cursor::new(buf);
+        let vba = VbaProject::new(&mut cursor)?;
         Ok(Some(vba))
     }
 
@@ -1090,11 +1097,8 @@ fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellForm
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsbError::Password);
         }
     }
