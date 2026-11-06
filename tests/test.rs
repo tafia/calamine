@@ -640,6 +640,23 @@ fn test_xlsb_formula_references() {
 }
 
 #[test]
+fn test_xlsb_formula_external_sheets() {
+    // Test that references to sheets of other workbooks are read from xlsb
+    // formulas, written as in xlsx with the number of the other workbook.
+    let mut excel: Xlsb<_> = wb("formula_external_sheets.xlsb");
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(
+        formulas,
+        [
+            ["[1]Data!$A$1"],
+            ["SUM([1]Second!$A$1:$A$2)"],
+            ["[2]Data!$A$1"],
+            ["Sheet2!$A$1"],
+        ]
+    );
+}
+
+#[test]
 fn test_xlsb_formula_values() {
     // Test that the cached values of formula cells are read from an xlsb file.
     let mut excel: Xlsb<_> = wb("formula_values.xlsb");
