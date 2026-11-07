@@ -405,7 +405,20 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
                     defined_names.push((name, formula));
                 }
-                0x009D | 0x0225 | 0x018D | 0x0180 | 0x009A | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
+                0x009A => {
+                    // BrtCalcProp
+                    let len = iter.fill_buffer(&mut buf)?;
+                    if len >= 20 {
+                        self.metadata.calc_settings.iterate_count = read_u32(&buf[8..12]);
+                        self.metadata.calc_settings.iterate_delta = read_f64(&buf[12..20]);
+                    }
+                    if len >= 25 {
+                        self.metadata.calc_settings.iterate = (buf[24] & 0x10) != 0;
+                    }
+                    self.metadata.names = defined_names;
+                    return Ok(());
+                }
+                0x009D | 0x0225 | 0x018D | 0x0180 | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
                     // record supposed to happen AFTER BrtNames
                     self.metadata.names = defined_names;
                     return Ok(());

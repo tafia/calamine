@@ -4992,3 +4992,44 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_all_calc_settings() {
+    // Test that workbook iterative calculation settings are read across xlsx,
+    // xlsb, xls, and ods files. See issue #790.
+    let xlsx_iter: Xlsx<_> = wb("worksheet_range_does_not_overflow.xlsx");
+    assert_eq!(
+        xlsx_iter.calc_settings(),
+        calamine::CalcSettings {
+            iterate: true,
+            iterate_count: 100,
+            iterate_delta: 0.001,
+        }
+    );
+
+    let xlsx_default: Xlsx<_> = wb("date.xlsx");
+    assert_eq!(
+        xlsx_default.calc_settings(),
+        calamine::CalcSettings {
+            iterate: false,
+            iterate_count: 100,
+            iterate_delta: 0.001,
+        }
+    );
+
+    let ods: Ods<_> = wb("ods_tabs_line_breaks.ods");
+    assert_eq!(
+        ods.calc_settings(),
+        calamine::CalcSettings {
+            iterate: false,
+            iterate_count: 100,
+            iterate_delta: 0.0001,
+        }
+    );
+
+    let xls: Xls<_> = wb("issues.xls");
+    assert_eq!(xls.calc_settings(), calamine::CalcSettings::default());
+
+    let xlsb: Xlsb<_> = wb("issues.xlsb");
+    assert_eq!(xlsb.calc_settings(), calamine::CalcSettings::default());
+}

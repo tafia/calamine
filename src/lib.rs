@@ -225,6 +225,29 @@ pub struct Picture {
     pub name: String,
 }
 
+/// Workbook iterative-calculation settings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CalcSettings {
+    /// Whether iterative calculation is enabled for circular references.
+    pub iterate: bool,
+
+    /// Maximum iterations per recalculation.
+    pub iterate_count: u32,
+
+    /// Maximum change threshold for convergence.
+    pub iterate_delta: f64,
+}
+
+impl Default for CalcSettings {
+    fn default() -> Self {
+        Self {
+            iterate: false,
+            iterate_count: 100,
+            iterate_delta: 0.001,
+        }
+    }
+}
+
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
@@ -234,6 +257,8 @@ pub struct Metadata {
     sheets: Vec<Sheet>,
     /// Map of sheet names/sheet path within zip archive
     names: Vec<(String, String)>,
+    /// Workbook calculation and iteration settings
+    calc_settings: CalcSettings,
 }
 
 /// Workbook document properties.
@@ -453,6 +478,11 @@ where
     /// Get all defined names (Ranges names etc)
     fn defined_names(&self) -> &[(String, String)] {
         &self.metadata().names
+    }
+
+    /// Get the workbook iterative-calculation settings.
+    fn calc_settings(&self) -> CalcSettings {
+        self.metadata().calc_settings
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth
