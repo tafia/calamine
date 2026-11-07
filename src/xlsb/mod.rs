@@ -29,8 +29,8 @@ use crate::utils::{
 use crate::vba::VbaProject;
 use crate::xlsx::{read_app_properties, read_core_properties, read_custom_properties};
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    WorkbookProperties,
+    Cell, Data, DefinedName, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, WorkbookProperties,
 };
 
 /// A Xlsb specific error
@@ -359,6 +359,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
         // BrtName
         let mut defined_names = Vec::new();
+        let mut defined_names_metadata = Vec::new();
         loop {
             let typ = iter.read_type()?;
             match typ {
@@ -393,6 +394,10 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         typ: "BrtName record length",
                         val: len.to_string(),
                     };
+                    let flags = read_u32(record.get(0..4).ok_or_else(truncated)?);
+                    let hidden = (flags & 0x01) != 0;
+                    let itab = read_u32(record.get(5..9).ok_or_else(truncated)?);
+                    let scope = (itab != 0xFFFF_FFFF).then_some(itab as usize);
                     let mut str_len = 0;
                     let name = wide_str(record.get(9..).ok_or_else(truncated)?, &mut str_len)?
                         .into_owned();
@@ -403,11 +408,32 @@ impl<RS: Read + Seek> Xlsb<RS> {
                     let rgce_end = rgce_start.checked_add(rgce_len).ok_or_else(truncated)?;
                     let rgce = record.get(rgce_start..rgce_end).ok_or_else(truncated)?;
                     let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
+                    defined_names_metadata.push(DefinedName {
+                        name: name.clone(),
+                        formula: formula.clone(),
+                        scope,
+                        hidden,
+                    });
                     defined_names.push((name, formula));
                 }
-                0x009D | 0x0225 | 0x018D | 0x0180 | 0x009A | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
+                0x009A => {
+                    // BrtCalcProp
+                    let len = iter.fill_buffer(&mut buf)?;
+                    if len >= 20 {
+                        self.metadata.calc_settings.iterate_count = read_u32(&buf[8..12]);
+                        self.metadata.calc_settings.iterate_delta = read_f64(&buf[12..20]);
+                    }
+                    if len >= 25 {
+                        self.metadata.calc_settings.iterate = (buf[24] & 0x10) != 0;
+                    }
+                    self.metadata.names = defined_names;
+                    self.metadata.defined_names = defined_names_metadata;
+                    return Ok(());
+                }
+                0x009D | 0x0225 | 0x018D | 0x0180 | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
                     // record supposed to happen AFTER BrtNames
                     self.metadata.names = defined_names;
+                    self.metadata.defined_names = defined_names_metadata;
                     return Ok(());
                 }
                 _ => {
@@ -564,6 +590,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
 
     fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    fn has_1904_epoch(&self) -> bool {
+        self.is_1904
     }
 
     /// MS-XLSB 2.1.7.62

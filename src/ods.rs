@@ -24,8 +24,8 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
 use crate::{
-    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
-    WorkbookProperties,
+    CalcSettings, CellErrorType, Data, DataType, DefinedName, HeaderRow, Metadata, Range, Reader,
+    Sheet, SheetType, SheetVisible, WorkbookProperties,
 };
 use std::marker::PhantomData;
 
@@ -170,6 +170,7 @@ impl std::error::Error for OdsError {
 pub struct Ods<RS> {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     metadata: Metadata,
+    is_1904: bool,
     marker: PhantomData<RS>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
@@ -178,7 +179,6 @@ pub struct Ods<RS> {
     /// Reader options
     options: OdsOptions,
 }
-
 impl<RS> Ods<RS> {
     /// Get the workbook document properties.
     ///
@@ -195,6 +195,11 @@ impl<RS> Ods<RS> {
             read_meta_properties(meta_xml, &mut props)?;
         }
         Ok(props)
+    }
+
+    /// Check if the workbook uses the 1904 date system.
+    pub fn has_1904_epoch(&self) -> bool {
+        self.is_1904
     }
 }
 
@@ -231,15 +236,21 @@ where
             sheets,
             sheets_metadata,
             defined_names,
+            defined_names_metadata,
+            calc_settings,
+            is_1904,
         } = parse_content(zip)?;
         let metadata = Metadata {
             sheets: sheets_metadata,
             names: defined_names,
+            defined_names: defined_names_metadata,
+            calc_settings,
         };
 
         Ok(Ods {
             marker: PhantomData,
             metadata,
+            is_1904,
             sheets,
             #[cfg(feature = "picture")]
             pictures,
@@ -261,6 +272,10 @@ where
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    fn has_1904_epoch(&self) -> bool {
+        self.is_1904
     }
 
     /// Read worksheet data in corresponding worksheet path
@@ -310,6 +325,9 @@ struct Content {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+    defined_names_metadata: Vec<DefinedName>,
+    calc_settings: CalcSettings,
+    is_1904: bool,
 }
 
 /// Check password protection
@@ -373,6 +391,9 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut buf = Vec::with_capacity(1024);
     let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
+    let mut defined_names_metadata = Vec::new();
+    let mut calc_settings = CalcSettings::default();
+    let mut is_1904 = false;
     let mut sheets_metadata = Vec::new();
     let mut styles = HashMap::new();
     let mut style_name: Option<String> = None;
@@ -396,6 +417,37 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                 };
                 styles.insert(style_name.clone(), visible);
             }
+            Ok(Event::Start(e)) if e.name() == QName("table:null-date") => {
+                if let Some(v) = e.raw_attr("table:date-value")? {
+                    let date_val = decode_attr(v)?;
+                    if date_val.trim().starts_with("1904-01-01") {
+                        is_1904 = true;
+                    }
+                }
+            }
+            Ok(Event::Start(e)) if e.name() == QName("table:iteration") => {
+                let mut status_enabled = false;
+                for attr in e.iter_raw_attrs() {
+                    let (key, val) = attr?;
+                    match key {
+                        "table:status" => {
+                            status_enabled = decode_attr(val)?.trim() == "enable";
+                        }
+                        "table:steps" => {
+                            if let Ok(steps) = decode_attr(val)?.trim().parse::<u32>() {
+                                calc_settings.iterate_count = steps;
+                            }
+                        }
+                        "table:maximum-difference" => {
+                            if let Ok(diff) = decode_attr(val)?.trim().parse::<f64>() {
+                                calc_settings.iterate_delta = diff;
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+                calc_settings.iterate = status_enabled;
+            }
             Ok(Event::Start(e)) if e.name() == QName("table:table") => {
                 let visible = styles
                     .get(
@@ -407,7 +459,12 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .unwrap_or(SheetVisible::Visible);
                 if let Some(v) = e.raw_attr("table:name")? {
                     let name = decode_attr(v)?;
-                    let (range, formulas) = read_table(&mut reader)?;
+                    let sheet_idx = sheets_metadata.len();
+                    let (range, formulas, sheet_names) = read_table(&mut reader, sheet_idx)?;
+                    for dn in sheet_names {
+                        defined_names.push((dn.name.clone(), dn.formula.clone()));
+                        defined_names_metadata.push(dn);
+                    }
                     sheets_metadata.push(Sheet {
                         name: name.clone(),
                         typ: SheetType::WorkSheet,
@@ -417,7 +474,11 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                 }
             }
             Ok(Event::Start(e)) if e.name() == QName("table:named-expressions") => {
-                defined_names = read_named_expressions(&mut reader)?;
+                let wb_names = read_named_expressions(&mut reader, None)?;
+                for dn in wb_names {
+                    defined_names.push((dn.name.clone(), dn.formula.clone()));
+                    defined_names_metadata.push(dn);
+                }
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(OdsError::Xml(e)),
@@ -429,16 +490,25 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         sheets,
         sheets_metadata,
         defined_names,
+        defined_names_metadata,
+        calc_settings,
+        is_1904,
     })
 }
 
-fn read_table<RS>(reader: &mut OdsReader<'_, RS>) -> Result<(Range<Data>, Range<String>), OdsError>
+type OdsTableResult = (Range<Data>, Range<String>, Vec<DefinedName>);
+
+fn read_table<RS>(
+    reader: &mut OdsReader<'_, RS>,
+    sheet_index: usize,
+) -> Result<OdsTableResult, OdsError>
 where
     RS: Read + Seek,
 {
     let mut cells = Vec::new();
     let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
+    let mut sheet_defined_names = Vec::new();
     let mut cols = Vec::new();
     let mut buf = Vec::with_capacity(1024);
     let mut row_buf = Vec::with_capacity(1024);
@@ -473,6 +543,9 @@ where
                 cols.push(cells.len());
                 rows_repeats.push(capped_repeats);
             }
+            Ok(Event::Start(e)) if e.name() == QName("table:named-expressions") => {
+                sheet_defined_names.extend(read_named_expressions(reader, Some(sheet_index))?);
+            }
             Ok(Event::End(e)) if e.name() == QName("table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
@@ -482,6 +555,7 @@ where
     Ok((
         get_range(cells, &cols, &rows_repeats)?,
         get_range(formulas, &cols, &rows_repeats)?,
+        sheet_defined_names,
     ))
 }
 
@@ -694,6 +768,7 @@ where
 {
     let mut is_string = false;
     let mut is_error = false;
+    let mut is_office_error = false;
     let mut is_value_set = false;
     let mut val = Data::Empty;
     let mut formula = String::new();
@@ -721,7 +796,13 @@ where
                 val = Data::Bool(b);
                 is_value_set = true;
             }
-            "office:value-type" if !is_value_set => is_string = value == "string",
+            "office:value-type" if !is_value_set => {
+                is_string = value == "string";
+                if value == "error" {
+                    is_error = true;
+                    is_office_error = true;
+                }
+            }
             "calcext:value-type" => is_error = value == "error",
             "table:formula" => {
                 formula = decode_attr(value)?;
@@ -729,7 +810,8 @@ where
             _ => (),
         }
     }
-    if (!is_value_set && is_string) || (is_error && matches!(&val, Data::String(s) if s.is_empty()))
+    if (!is_value_set && (is_string || is_error))
+        || (is_error && matches!(&val, Data::String(s) if s.is_empty()))
     {
         // If the value type is string and the office:string-value attribute
         // is not present, the element content defines the value. LibreOffice
@@ -749,6 +831,11 @@ where
                     if e.name() == QName("table:table-cell")
                         || e.name() == QName("table:covered-table-cell") =>
                 {
+                    if is_office_error {
+                        if let Ok(err) = s.trim().parse::<CellErrorType>() {
+                            return Ok((Data::Error(err), formula, true));
+                        }
+                    }
                     return Ok((Data::String(s), formula, true));
                 }
                 Ok(Event::Start(e)) if e.name() == QName("office:annotation") => loop {
@@ -784,13 +871,21 @@ where
             }
         }
     } else {
+        if is_office_error {
+            if let Data::String(s) = &val {
+                if let Ok(err) = s.trim().parse::<CellErrorType>() {
+                    val = Data::Error(err);
+                }
+            }
+        }
         Ok((val, formula, false))
     }
 }
 
 fn read_named_expressions<RS>(
     reader: &mut OdsReader<'_, RS>,
-) -> Result<Vec<(String, String)>, OdsError>
+    scope: Option<usize>,
+) -> Result<Vec<DefinedName>, OdsError>
 where
     RS: Read + Seek,
 {
@@ -817,12 +912,18 @@ where
                         _ => (),
                     }
                 }
-                defined_names.push((name, formula));
+                defined_names.push(DefinedName {
+                    name,
+                    formula,
+                    scope,
+                    hidden: false,
+                });
             }
             Ok(Event::End(e))
                 if e.name() == QName("table:named-range")
                     || e.name() == QName("table:named-expression") => {}
             Ok(Event::End(e)) if e.name() == QName("table:named-expressions") => break,
+            Ok(Event::Text(t)) if t.as_ref().trim().is_empty() => (),
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {

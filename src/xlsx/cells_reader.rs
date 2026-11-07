@@ -2,9 +2,6 @@
 //
 // Copyright 2016-2026, Johann Tuffe.
 
-use quick_xml::events::{BytesStart, Event};
-use std::io::{Read, Seek};
-
 use super::{
     expand_shared_formula, get_dimension, get_row, get_row_column, read_string_with_bufs,
     Dimensions, XlReader,
@@ -15,8 +12,11 @@ use crate::{
     formats::{format_excel_f64_ref, CellFormat},
     style::Style,
     utils::{unescape_entity_to_buffer, unescape_xml},
-    Cell, XlsxError,
+    Cell, CellErrorType, XlsxError,
 };
+use quick_xml::events::{BytesStart, Event};
+use std::collections::HashMap;
+use std::io::{Read, Seek};
 
 #[derive(Clone, Debug)]
 struct SharedFormula {
@@ -73,13 +73,29 @@ pub enum XlsxFormulaMetadata {
         /// Shared formula index (`si`). Shared formula indices are worksheet-local.
         shared_index: usize,
     },
+
+    /// Legacy array (Ctrl+Shift+Enter) formula stored in the top-left cell of `range`.
+    Array {
+        /// Cell range covered by the array formula.
+        range: Dimensions,
+        /// Formula text.
+        formula: String,
+    },
+
+    /// Dynamic-array formula whose result spills from its anchor cell.
+    Dynamic {
+        /// Last recorded spill range.
+        range: Dimensions,
+        /// Formula text.
+        formula: String,
+    },
 }
 
 impl XlsxFormulaMetadata {
     /// Return the shared formula index when this record belongs to a shared group.
     pub fn shared_index(&self) -> Option<usize> {
         match self {
-            Self::Normal { .. } => None,
+            Self::Normal { .. } | Self::Array { .. } | Self::Dynamic { .. } => None,
             Self::Shared { shared_index, .. } | Self::SharedDerived { shared_index } => {
                 Some(*shared_index)
             }
@@ -109,12 +125,25 @@ enum FormulaMetadata {
         shared_index: usize,
         translated_formula: Option<String>,
     },
+
+    Array {
+        range: Dimensions,
+        formula: String,
+    },
+
+    Dynamic {
+        range: Dimensions,
+        formula: String,
+    },
 }
 
 impl FormulaMetadata {
     fn formula_text(&self) -> Option<&str> {
         match self {
-            Self::Normal { formula } | Self::Shared { formula, .. } => Some(formula),
+            Self::Normal { formula }
+            | Self::Shared { formula, .. }
+            | Self::Array { formula, .. }
+            | Self::Dynamic { formula, .. } => Some(formula),
             Self::SharedDerived {
                 translated_formula, ..
             } => translated_formula.as_deref(),
@@ -136,6 +165,8 @@ impl FormulaMetadata {
             Self::SharedDerived { shared_index, .. } => {
                 XlsxFormulaMetadata::SharedDerived { shared_index }
             }
+            Self::Array { range, formula } => XlsxFormulaMetadata::Array { range, formula },
+            Self::Dynamic { range, formula } => XlsxFormulaMetadata::Dynamic { range, formula },
         }
     }
 }
@@ -190,6 +221,8 @@ where
     cell_buf: Vec<u8>,
     value_bufs: ValueBufs,
     formulas: Vec<Option<SharedFormula>>,
+    dynamic_metadata: &'a [bool],
+    rich_errors: Option<&'a HashMap<usize, CellErrorType>>,
 }
 
 impl<'a, RS> XlsxCellReader<'a, RS>
@@ -248,7 +281,19 @@ where
             cell_buf: Vec::with_capacity(1024),
             value_bufs: ValueBufs::new(),
             formulas: Vec::with_capacity(1024),
+            dynamic_metadata: &[],
+            rich_errors: None,
         })
+    }
+
+    pub(crate) fn with_workbook_metadata(
+        mut self,
+        dynamic_metadata: &'a [bool],
+        rich_errors: &'a HashMap<usize, CellErrorType>,
+    ) -> Self {
+        self.dynamic_metadata = dynamic_metadata;
+        self.rich_errors = Some(rich_errors);
+        self
     }
 
     /// Return the worksheet dimensions declared by the sheet XML.
@@ -271,8 +316,8 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
-                    let (pos_attr, style_attr, type_attr) =
-                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
+                    let (pos_attr, style_attr, type_attr, vm_attr) =
+                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t, "vm" => vm)?;
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
@@ -305,6 +350,7 @@ where
                             _ => (),
                         }
                     }
+                    Self::apply_rich_error(self.rich_errors, type_attr, vm_attr, &mut value);
                     self.col_index += 1;
                     return Ok(Some(Cell::new(pos, value)));
                 }
@@ -345,8 +391,8 @@ where
                 }
 
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
-                    let (pos_attr, style_attr, type_attr) =
-                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
+                    let (pos_attr, style_attr, type_attr, vm_attr) =
+                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t, "vm" => vm)?;
 
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
@@ -385,6 +431,7 @@ where
                             _ => (),
                         }
                     }
+                    Self::apply_rich_error(self.rich_errors, type_attr, vm_attr, &mut value);
                     self.col_index += 1;
                     return Ok(Some((Cell::new(pos, value), style_id)));
                 }
@@ -402,16 +449,54 @@ where
         }
     }
 
+    fn apply_rich_error(
+        rich_errors: Option<&'a HashMap<usize, CellErrorType>>,
+        type_attr: Option<&str>,
+        vm_attr: Option<&str>,
+        value: &mut DataRef<'a>,
+    ) {
+        if type_attr == Some("e") {
+            if let Some(vm_idx) =
+                vm_attr.and_then(|v| atoi_simd::parse::<usize, true, false>(v.as_bytes()).ok())
+            {
+                if let Some(err) = rich_errors.and_then(|m| m.get(&vm_idx)) {
+                    *value = DataRef::Error(err.clone());
+                }
+            }
+        }
+    }
+
+    fn is_dynamic_cm(dynamic_metadata: &[bool], cm_attr: Option<&str>) -> bool {
+        cm_attr
+            .and_then(|v| atoi_simd::parse::<usize, true, false>(v.as_bytes()).ok())
+            .and_then(|cm| cm.checked_sub(1))
+            .and_then(|idx| dynamic_metadata.get(idx).copied())
+            .unwrap_or(false)
+    }
+
     fn read_formula_record(
         xml: &mut XlReader<'_, RS>,
         formulas: &mut Vec<Option<SharedFormula>>,
         e: &BytesStart<'_>,
         pos: (u32, u32),
         expand_shared_derived: bool,
+        is_dynamic: bool,
     ) -> Result<Option<FormulaMetadata>, XlsxError> {
         let formula = read_formula(xml, e)?;
 
         let (t_attr, si_attr, ref_attr) = get_attrs!(e, "t" => t, "si" => si, "ref" => ref_)?;
+        if t_attr == Some("array") {
+            let range = match ref_attr {
+                Some(res) => get_dimension(res)?,
+                None => Dimensions::new(pos, pos),
+            };
+            let formula = formula.unwrap_or_default();
+            return if is_dynamic {
+                Ok(Some(FormulaMetadata::Dynamic { range, formula }))
+            } else {
+                Ok(Some(FormulaMetadata::Array { range, formula }))
+            };
+        }
         if t_attr == Some("shared") {
             let shared_index = match si_attr {
                 Some(res) => match atoi_simd::parse::<usize, true, false>(res.as_bytes()) {
@@ -516,8 +601,15 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
-                    let (pos_attr, style_attr, type_attr) =
-                        get_attrs!(c_element, "r" => r, "s" => s, "t" => t)?;
+                    let (pos_attr, style_attr, type_attr, cm_attr, vm_attr) = get_attrs!(
+                        c_element,
+                        "r" => r,
+                        "s" => s,
+                        "t" => t,
+                        "cm" => cm,
+                        "vm" => vm
+                    )?;
+                    let is_dynamic = Self::is_dynamic_cm(self.dynamic_metadata, cm_attr);
                     let pos = if let Some(range) = pos_attr {
                         let (row, col) = get_row_column(range)?;
                         self.col_index = col;
@@ -537,6 +629,7 @@ where
                                     &e,
                                     pos,
                                     expand_shared_derived,
+                                    is_dynamic,
                                 )?;
                             }
                             Ok(Event::Start(e)) => {
@@ -560,6 +653,7 @@ where
                             _ => (),
                         }
                     }
+                    Self::apply_rich_error(self.rich_errors, type_attr, vm_attr, &mut value);
                     self.col_index += 1;
                     return Ok(Some(XlsxCellFormulaMetadataRecordInternal {
                         pos,
@@ -592,7 +686,9 @@ where
                     self.col_index = 0;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
-                    let pos = if let Some(r) = c_element.raw_attr("r")? {
+                    let (r_attr, cm_attr) = get_attrs!(c_element, "r" => r, "cm" => cm)?;
+                    let is_dynamic = Self::is_dynamic_cm(self.dynamic_metadata, cm_attr);
+                    let pos = if let Some(r) = r_attr {
                         let (row, col) = get_row_column(r)?;
                         self.col_index = col;
                         (row, col)
@@ -610,6 +706,7 @@ where
                                     &e,
                                     pos,
                                     true,
+                                    is_dynamic,
                                 )?;
                                 if let Some(formula_text) = formula_record
                                     .and_then(|record| record.formula_text().map(str::to_string))
