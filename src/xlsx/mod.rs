@@ -673,6 +673,23 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         self.is_1904 = v == "1" || v == "true";
                     }
                 }
+                Ok(Event::Start(e)) if e.local_name().as_ref() == "calcPr" => {
+                    if let Some(v) = e.raw_attr("iterate")? {
+                        let v = v.trim();
+                        self.metadata.calc_settings.iterate =
+                            v == "1" || v.eq_ignore_ascii_case("true");
+                    }
+                    if let Some(v) = e.raw_attr("iterateCount")? {
+                        if let Ok(count) = v.trim().parse::<u32>() {
+                            self.metadata.calc_settings.iterate_count = count;
+                        }
+                    }
+                    if let Some(v) = e.raw_attr("iterateDelta")? {
+                        if let Ok(delta) = v.trim().parse::<f64>() {
+                            self.metadata.calc_settings.iterate_delta = delta;
+                        }
+                    }
+                }
                 Ok(Event::Start(e)) if e.local_name().as_ref() == "definedName" => {
                     if let Some(val) = e.raw_attr("name")? {
                         let name = decode_attr(val)?;

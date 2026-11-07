@@ -541,6 +541,18 @@ impl<RS: Read + Seek> Xls<RS> {
                         sheet_names.reserve(sheet_len);
                         self.metadata.sheets.reserve(sheet_len);
                     }
+                    // CalcCount (MS-XLS 2.4.34)
+                    0x000C if r.data.len() >= 2 => {
+                        self.metadata.calc_settings.iterate_count = read_u16(r.data) as u32;
+                    }
+                    // Delta (MS-XLS 2.4.85)
+                    0x0010 if r.data.len() >= 8 => {
+                        self.metadata.calc_settings.iterate_delta = read_f64(r.data);
+                    }
+                    // Iteration (MS-XLS 2.4.146)
+                    0x0011 if r.data.len() >= 2 => {
+                        self.metadata.calc_settings.iterate = read_u16(r.data) == 1;
+                    }
                     // DateMode (MS-XLS 2.4.77)
                     0x0022 if read_u16(r.data) == 1 => {
                         self.is_1904 = true;
@@ -658,6 +670,15 @@ impl<RS: Read + Seek> Xls<RS> {
                         } else {
                             seen_sheet_bof = true;
                         }
+                    }
+                    0x000C if r.data.len() >= 2 => {
+                        self.metadata.calc_settings.iterate_count = read_u16(r.data) as u32;
+                    }
+                    0x0010 if r.data.len() >= 8 => {
+                        self.metadata.calc_settings.iterate_delta = read_f64(r.data);
+                    }
+                    0x0011 if r.data.len() >= 2 => {
+                        self.metadata.calc_settings.iterate = read_u16(r.data) == 1;
                     }
                     // 512: Dimensions
                     0x0200 => {
