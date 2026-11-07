@@ -24,8 +24,8 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
 use crate::{
-    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
-    WorkbookProperties,
+    Data, DataType, DefinedName, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
+    SheetVisible, WorkbookProperties,
 };
 use std::marker::PhantomData;
 
@@ -231,10 +231,12 @@ where
             sheets,
             sheets_metadata,
             defined_names,
+            defined_names_metadata,
         } = parse_content(zip)?;
         let metadata = Metadata {
             sheets: sheets_metadata,
             names: defined_names,
+            defined_names: defined_names_metadata,
         };
 
         Ok(Ods {
@@ -310,6 +312,7 @@ struct Content {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+    defined_names_metadata: Vec<DefinedName>,
 }
 
 /// Check password protection
@@ -373,6 +376,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut buf = Vec::with_capacity(1024);
     let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
+    let mut defined_names_metadata = Vec::new();
     let mut sheets_metadata = Vec::new();
     let mut styles = HashMap::new();
     let mut style_name: Option<String> = None;
@@ -407,7 +411,12 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     .unwrap_or(SheetVisible::Visible);
                 if let Some(v) = e.raw_attr("table:name")? {
                     let name = decode_attr(v)?;
-                    let (range, formulas) = read_table(&mut reader)?;
+                    let sheet_idx = sheets_metadata.len();
+                    let (range, formulas, sheet_names) = read_table(&mut reader, sheet_idx)?;
+                    for dn in sheet_names {
+                        defined_names.push((dn.name.clone(), dn.formula.clone()));
+                        defined_names_metadata.push(dn);
+                    }
                     sheets_metadata.push(Sheet {
                         name: name.clone(),
                         typ: SheetType::WorkSheet,
@@ -417,7 +426,11 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                 }
             }
             Ok(Event::Start(e)) if e.name() == QName("table:named-expressions") => {
-                defined_names = read_named_expressions(&mut reader)?;
+                let wb_names = read_named_expressions(&mut reader, None)?;
+                for dn in wb_names {
+                    defined_names.push((dn.name.clone(), dn.formula.clone()));
+                    defined_names_metadata.push(dn);
+                }
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(OdsError::Xml(e)),
@@ -429,16 +442,23 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         sheets,
         sheets_metadata,
         defined_names,
+        defined_names_metadata,
     })
 }
 
-fn read_table<RS>(reader: &mut OdsReader<'_, RS>) -> Result<(Range<Data>, Range<String>), OdsError>
+type OdsTableResult = (Range<Data>, Range<String>, Vec<DefinedName>);
+
+fn read_table<RS>(
+    reader: &mut OdsReader<'_, RS>,
+    sheet_index: usize,
+) -> Result<OdsTableResult, OdsError>
 where
     RS: Read + Seek,
 {
     let mut cells = Vec::new();
     let mut rows_repeats = Vec::new();
     let mut formulas = Vec::new();
+    let mut sheet_defined_names = Vec::new();
     let mut cols = Vec::new();
     let mut buf = Vec::with_capacity(1024);
     let mut row_buf = Vec::with_capacity(1024);
@@ -473,6 +493,9 @@ where
                 cols.push(cells.len());
                 rows_repeats.push(capped_repeats);
             }
+            Ok(Event::Start(e)) if e.name() == QName("table:named-expressions") => {
+                sheet_defined_names.extend(read_named_expressions(reader, Some(sheet_index))?);
+            }
             Ok(Event::End(e)) if e.name() == QName("table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(_) => (),
@@ -482,6 +505,7 @@ where
     Ok((
         get_range(cells, &cols, &rows_repeats)?,
         get_range(formulas, &cols, &rows_repeats)?,
+        sheet_defined_names,
     ))
 }
 
@@ -790,7 +814,8 @@ where
 
 fn read_named_expressions<RS>(
     reader: &mut OdsReader<'_, RS>,
-) -> Result<Vec<(String, String)>, OdsError>
+    scope: Option<usize>,
+) -> Result<Vec<DefinedName>, OdsError>
 where
     RS: Read + Seek,
 {
@@ -817,12 +842,18 @@ where
                         _ => (),
                     }
                 }
-                defined_names.push((name, formula));
+                defined_names.push(DefinedName {
+                    name,
+                    formula,
+                    scope,
+                    hidden: false,
+                });
             }
             Ok(Event::End(e))
                 if e.name() == QName("table:named-range")
                     || e.name() == QName("table:named-expression") => {}
             Ok(Event::End(e)) if e.name() == QName("table:named-expressions") => break,
+            Ok(Event::Text(t)) if t.as_ref().trim().is_empty() => (),
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
                 return Err(OdsError::Mismatch {

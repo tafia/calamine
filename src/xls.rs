@@ -19,8 +19,8 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    oleps, Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet,
-    SheetType, SheetVisible, WorkbookProperties,
+    oleps, Cell, CellErrorType, Data, DefinedName, Dimensions, HeaderRow, Metadata, Range, Reader,
+    Sheet, SheetType, SheetVisible, WorkbookProperties,
 };
 
 #[derive(Debug)]
@@ -608,17 +608,25 @@ impl<RS: Read + Seek> Xls<RS> {
 
         debug!("formats: {:?}", self.formats);
 
+        let mut defined_names_metadata = Vec::with_capacity(defined_names.len());
         let defined_names = defined_names
             .into_iter()
-            .map(|(name, (i, mut f))| {
-                if let Some(i) = i {
+            .map(|lbl| {
+                let mut f = lbl.formula;
+                if let Some(i) = lbl.sheet_idx {
                     let sh = xtis
                         .get(i)
                         .and_then(|xti| sheet_names.get(xti.itab_first as usize))
                         .map_or("#REF", |sh| &sh.1);
                     f = format!("{sh}!{f}");
                 }
-                (name, f)
+                defined_names_metadata.push(DefinedName {
+                    name: lbl.name.clone(),
+                    formula: f.clone(),
+                    scope: lbl.scope,
+                    hidden: lbl.hidden,
+                });
+                (lbl.name, f)
             })
             .collect::<Vec<_>>();
 
@@ -735,6 +743,7 @@ impl<RS: Read + Seek> Xls<RS> {
 
         self.sheets = sheets;
         self.metadata.names = defined_names;
+        self.metadata.defined_names = defined_names_metadata;
 
         #[cfg(feature = "picture")]
         if !draw_group.is_empty() {
@@ -830,13 +839,21 @@ fn parse_sheet_metadata(
     Ok((pos, Sheet { name, typ, visible }))
 }
 
-fn parse_lbl(
-    r: &Record<'_>,
-    encoding: &XlsEncoding,
-    biff: Biff,
-) -> Result<(String, (Option<usize>, String)), XlsError> {
+struct ParsedLbl {
+    name: String,
+    scope: Option<usize>,
+    hidden: bool,
+    sheet_idx: Option<usize>,
+    formula: String,
+}
+
+fn parse_lbl(r: &Record<'_>, encoding: &XlsEncoding, biff: Biff) -> Result<ParsedLbl, XlsError> {
+    let flags = read_u16(r.data);
+    let hidden = (flags & 0x0001) != 0;
     let cch = r.data[3] as usize;
     let cce = read_u16(&r.data[4..]) as usize;
+    let itab = read_u16(&r.data[8..]) as usize;
+    let scope = itab.checked_sub(1);
     let mut name = String::with_capacity(cch);
     match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
@@ -848,8 +865,14 @@ fn parse_lbl(
         }
     }
     let rgce = &r.data[r.data.len() - cce..];
-    let formula = parse_defined_names(rgce, biff)?;
-    Ok((name, formula))
+    let (sheet_idx, formula) = parse_defined_names(rgce, biff)?;
+    Ok(ParsedLbl {
+        name,
+        scope,
+        hidden,
+        sheet_idx,
+        formula,
+    })
 }
 
 fn parse_extern_sheet(r: &Record<'_>, biff: Biff) -> Vec<Xti> {

@@ -225,6 +225,23 @@ pub struct Picture {
     pub name: String,
 }
 
+/// A workbook- or worksheet-scoped defined name.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DefinedName {
+    /// Name as written in the workbook.
+    pub name: String,
+
+    /// Formula or range expression (without a leading `=`).
+    pub formula: String,
+
+    /// Zero-based worksheet index when the name is scoped to a single worksheet,
+    /// or `None` for workbook scope.
+    pub scope: Option<usize>,
+
+    /// Whether the name is hidden in the application's name manager.
+    pub hidden: bool,
+}
+
 /// Common file metadata
 ///
 /// Depending on file type, some extra information may be stored
@@ -234,6 +251,8 @@ pub struct Metadata {
     sheets: Vec<Sheet>,
     /// Map of sheet names/sheet path within zip archive
     names: Vec<(String, String)>,
+    /// Defined names with scope and visibility metadata
+    defined_names: Vec<DefinedName>,
 }
 
 /// Workbook document properties.
@@ -453,6 +472,11 @@ where
     /// Get all defined names (Ranges names etc)
     fn defined_names(&self) -> &[(String, String)] {
         &self.metadata().names
+    }
+
+    /// Get all defined names including worksheet scope and visibility metadata.
+    fn defined_names_metadata(&self) -> &[DefinedName] {
+        &self.metadata().defined_names
     }
 
     /// Get the nth worksheet. Shortcut for getting the nth

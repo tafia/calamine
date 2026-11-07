@@ -4992,3 +4992,67 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_all_defined_names_metadata() {
+    // Test that defined names with worksheet scope and visibility metadata are
+    // read across xlsx, xlsb, xls, and ods files. See issue #789.
+    let xlsx_scoped: Xlsx<_> = wb("EMSI_JobChange_UK.xlsx");
+    assert_eq!(
+        xlsx_scoped.defined_names_metadata(),
+        &[
+            calamine::DefinedName {
+                name: "_xlnm._FilterDatabase".to_string(),
+                formula: "'1 digit'!$A$1:$F$305".to_string(),
+                scope: Some(0),
+                hidden: true,
+            },
+            calamine::DefinedName {
+                name: "_xlnm._FilterDatabase".to_string(),
+                formula: "'2 digit'!$A$1:$H$1333".to_string(),
+                scope: Some(1),
+                hidden: true,
+            },
+        ]
+    );
+
+    let xlsx_visible: Xlsx<_> = wb("worksheet_range_does_not_overflow.xlsx");
+    assert_eq!(
+        xlsx_visible.defined_names_metadata(),
+        &[
+            calamine::DefinedName {
+                name: "_xlnm.Sheet_Title".to_string(),
+                formula: "\"Sheet1\"".to_string(),
+                scope: Some(0),
+                hidden: false,
+            },
+            calamine::DefinedName {
+                name: "_xlnm.Print_Area".to_string(),
+                formula: "#REF!".to_string(),
+                scope: Some(0),
+                hidden: false,
+            },
+        ]
+    );
+
+    let xls: Xls<_> = wb("issues.xls");
+    assert_eq!(xls.defined_names_metadata().len(), 3);
+    assert!(xls
+        .defined_names_metadata()
+        .iter()
+        .all(|dn| dn.scope.is_none() && !dn.hidden));
+
+    let xlsb: Xlsb<_> = wb("issues.xlsb");
+    assert_eq!(xlsb.defined_names_metadata().len(), 3);
+    assert!(xlsb
+        .defined_names_metadata()
+        .iter()
+        .all(|dn| dn.scope.is_none() && !dn.hidden));
+
+    let ods: Ods<_> = wb("issues.ods");
+    assert_eq!(ods.defined_names_metadata().len(), 3);
+    assert!(ods
+        .defined_names_metadata()
+        .iter()
+        .all(|dn| dn.scope.is_none() && !dn.hidden));
+}
