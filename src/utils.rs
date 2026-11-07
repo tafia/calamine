@@ -6,11 +6,14 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::io::{Read, Seek};
 
 use quick_xml::{escape::resolve_xml_entity, events::BytesRef};
 use zip::read::ZipArchive;
 use zip::result::ZipResult;
+
+use crate::Dimensions;
 
 const UNICODE_ESCAPE_LENGTH: usize = 7; // Length of _xHHHH_.
 
@@ -74,6 +77,104 @@ pub fn push_column(col: u32, buf: &mut String) {
     let len = column_name_digits(col, &mut digits);
     for &d in &digits[..len] {
         buf.push(d as char);
+    }
+}
+
+/// The bit of a cell reference's column field that marks the row as relative.
+pub(crate) const ROW_RELATIVE: u16 = 0x8000;
+
+/// The bit of a cell reference's column field that marks the column as
+/// relative.
+pub(crate) const COL_RELATIVE: u16 = 0x4000;
+
+/// The bits of a cell reference's column field that hold the column.
+pub(crate) const COLUMN_MASK: u16 = 0x3FFF;
+
+/// Push a cell reference such as `$A1` to a formula.
+///
+/// `row` is zero-based. `col` is a column field: a 14-bit column followed by
+/// the `COL_RELATIVE` and `ROW_RELATIVE` flags. A `$` marks a column or row
+/// that isn't relative.
+pub(crate) fn push_cell_ref(row: u32, col: u16, formula: &mut String) {
+    if col & COL_RELATIVE == 0 {
+        formula.push('$');
+    }
+    push_column(u32::from(col & COLUMN_MASK), formula);
+    if col & ROW_RELATIVE == 0 {
+        formula.push('$');
+    }
+    write!(formula, "{}", row + 1).unwrap();
+}
+
+/// An index of the ranges covered by the shared and array formulas on a
+/// worksheet, used to find the shared formula that a cell belongs to.
+///
+/// A worksheet can have thousands of shared formulas, since Excel splits a
+/// formula filled down a column into ranges of about 64 rows. The ranges are
+/// indexed by column, so a cell is found with a binary search instead of a scan
+/// of every range. Ranges wider than `MAX_INDEXED_COLUMNS` columns are rare.
+/// They go in a separate list that is scanned directly, so they don't add an
+/// index entry for every column they cover.
+pub(crate) struct SharedFormulaIndex {
+    // For each column, the (first row, last row, shared formula index) of the
+    // ranges that cover it, sorted by first row.
+    by_column: HashMap<u32, Vec<(u32, u32, usize)>>,
+
+    // The ranges too wide to index by column, with their shared formula index.
+    unindexed: Vec<(Dimensions, usize)>,
+}
+
+impl SharedFormulaIndex {
+    const MAX_INDEXED_COLUMNS: u32 = 64;
+
+    /// Index the ranges of a worksheet's shared formulas. The position of each
+    /// range in `ranges` is the index that `find()` returns for it.
+    pub(crate) fn new<'a>(ranges: impl IntoIterator<Item = &'a Dimensions>) -> Self {
+        let mut by_column: HashMap<u32, Vec<(u32, u32, usize)>> = HashMap::new();
+        let mut unindexed = Vec::new();
+        for (index, range) in ranges.into_iter().enumerate() {
+            if range.end.1.saturating_sub(range.start.1) >= Self::MAX_INDEXED_COLUMNS {
+                unindexed.push((*range, index));
+                continue;
+            }
+
+            for col in range.start.1..=range.end.1 {
+                by_column
+                    .entry(col)
+                    .or_default()
+                    .push((range.start.0, range.end.0, index));
+            }
+        }
+
+        for spans in by_column.values_mut() {
+            spans.sort_unstable();
+        }
+
+        Self {
+            by_column,
+            unindexed,
+        }
+    }
+
+    /// Find the index of the shared formula whose range contains the cell at
+    /// `pos`, a zero-based `(row, col)`.
+    pub(crate) fn find(&self, pos: (u32, u32)) -> Option<usize> {
+        let (row, col) = pos;
+        let indexed = self.by_column.get(&col).and_then(|spans| {
+            // The ranges in a column don't overlap, so the only candidate is
+            // the last one that starts at or before this row.
+            let i = spans.partition_point(|&(first_row, _, _)| first_row <= row);
+            let &(_, last_row, index) = spans.get(i.checked_sub(1)?)?;
+            (row <= last_row).then_some(index)
+        });
+
+        indexed.or_else(|| {
+            self.unindexed
+                .iter()
+                .rev()
+                .find(|(range, _)| range.contains(row, col))
+                .map(|&(_, index)| index)
+        })
     }
 }
 
@@ -1231,6 +1332,60 @@ mod tests {
         check(701, "ZZ");
         check(702, "AAA");
         check(16383, "XFD");
+    }
+
+    #[test]
+    fn test_shared_formula_index_find() {
+        // Test that a cell is matched to the shared formula range that
+        // contains it, including ranges stacked in one column, a range several
+        // columns wide, and a range too wide to be indexed by column.
+        let ranges = [
+            Dimensions::new((9, 12), (20, 12)),    // M10:M21.
+            Dimensions::new((25, 12), (35, 12)),   // M26:M36.
+            Dimensions::new((0, 2), (3, 4)),       // C1:E4.
+            Dimensions::new((100, 0), (100, 200)), // A101:GS101.
+        ];
+        let index = SharedFormulaIndex::new(&ranges);
+
+        assert_eq!(index.find((9, 12)), Some(0));
+        assert_eq!(index.find((20, 12)), Some(0));
+        assert_eq!(index.find((25, 12)), Some(1));
+        assert_eq!(index.find((35, 12)), Some(1));
+        assert_eq!(index.find((1, 3)), Some(2));
+        assert_eq!(index.find((3, 4)), Some(2));
+        assert_eq!(index.find((100, 0)), Some(3));
+        assert_eq!(index.find((100, 150)), Some(3));
+
+        // Cells between, beside and past the ranges.
+        assert_eq!(index.find((8, 12)), None);
+        assert_eq!(index.find((22, 12)), None);
+        assert_eq!(index.find((36, 12)), None);
+        assert_eq!(index.find((9, 13)), None);
+        assert_eq!(index.find((4, 3)), None);
+        assert_eq!(index.find((101, 150)), None);
+    }
+
+    #[test]
+    fn test_shared_formula_index_empty() {
+        // Test that no cell is matched when a worksheet has no shared formulas.
+        let index = SharedFormulaIndex::new(&[]);
+        assert_eq!(index.find((0, 0)), None);
+    }
+
+    #[test]
+    fn test_push_cell_ref_masks_flags() {
+        // Test that the relative flags aren't read as part of the column.
+        // Column C with the column relative flag is 0x4002. Read as a whole,
+        // that is column index 16386, past the last column of a worksheet.
+        let cell_ref = |col: u16| {
+            let mut formula = String::new();
+            push_cell_ref(0, col, &mut formula);
+            formula
+        };
+        assert_eq!(cell_ref(0x4002), "C$1");
+        assert_eq!(cell_ref(0x8002), "$C1");
+        assert_eq!(cell_ref(0xC003), "D1");
+        assert_eq!(cell_ref(0x3FFF), "$XFD$1");
     }
 
     #[test]

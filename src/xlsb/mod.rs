@@ -23,8 +23,8 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{
-    build_zip_path_cache, cached_zip_path, push_column, read_f64, read_i32, read_u16, read_u32,
-    read_usize,
+    build_zip_path_cache, cached_zip_path, push_cell_ref, read_f64, read_i32, read_u16, read_u32,
+    read_usize, COLUMN_MASK, COL_RELATIVE, ROW_RELATIVE,
 };
 use crate::vba::VbaProject;
 use crate::xlsx::{read_app_properties, read_core_properties, read_custom_properties};
@@ -78,6 +78,17 @@ pub enum XlsbError {
         /// buffer length
         buf_len: usize,
     },
+    /// An error where a formula token is shorter than its format requires.
+    Len {
+        /// The name of the token, such as `PtgRefN`.
+        typ: &'static str,
+
+        /// The number of bytes the token needs.
+        expected: usize,
+
+        /// The number of bytes available.
+        found: usize,
+    },
     /// Unrecognized data
     Unrecognized {
         /// data type
@@ -119,6 +130,14 @@ impl std::fmt::Display for XlsbError {
             XlsbError::BErr(t) => write!(f, "Unsupported BErr {t:X}"),
             XlsbError::Ptg(t) => write!(f, "Unsupported Ptf {t:X}"),
             XlsbError::CellError(t) => write!(f, "Unsupported Cell Error code {t:X}"),
+            XlsbError::Len {
+                typ,
+                expected,
+                found,
+            } => write!(
+                f,
+                "Invalid {typ} length, expected at least {expected}, found {found}",
+            ),
             XlsbError::WideStr { ws_len, buf_len } => write!(
                 f,
                 "Wide str length exceeds buffer length ({ws_len} > {buf_len})",
@@ -402,7 +421,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                             as usize;
                     let rgce_end = rgce_start.checked_add(rgce_len).ok_or_else(truncated)?;
                     let rgce = record.get(rgce_start..rgce_end).ok_or_else(truncated)?;
-                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names)?;
+                    let formula = parse_formula(rgce, &self.extern_sheets, &defined_names, (0, 0))?;
                     defined_names.push((name, formula));
                 }
                 0x009D | 0x0225 | 0x018D | 0x0180 | 0x009A | 0x0252 | 0x0229 | 0x009B | 0x0084 => {
@@ -580,12 +599,9 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     /// MS-XLSB 2.1.7.62
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsbError> {
         let mut cells_reader = self.worksheet_cells_reader(name)?;
-        let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
-        while let Some(cell) = cells_reader.next_formula()? {
-            if !cell.val.is_empty() {
-                cells.push(cell);
-            }
-        }
+        // Read the formulas with `formulas()` rather than a `next_formula()`
+        // loop, since it resolves the shared formula cells.
+        let cells = cells_reader.formulas()?;
         Ok(Range::from_sparse(cells))
     }
 
@@ -780,19 +796,70 @@ fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, Xlsb
     Ok(UTF_16LE.decode(s).0)
 }
 
-/// Push a cell reference such as `$A1` to a formula.
+/// A zero-based row and a column field in the form `push_cell_ref()` takes.
+type CellRef = (u32, u16);
+
+/// Read a `PtgRefN` operand, a cell reference whose relative parts are
+/// offsets from `anchor`.
 ///
-/// `col` is a ColRelShort: a 14-bit column followed by the fColRel and fRwRel
-/// flags. A `$` marks a column or row that isn't relative.
-fn push_cell_ref(row: u32, col: u16, formula: &mut String) {
-    if col & 0x4000 == 0 {
-        formula.push('$');
+/// Returns the zero-based row and a column field in the form `push_cell_ref()`
+/// takes. The column is absolute and the token's relative flags are kept. A
+/// relative row is a signed 32-bit offset and a relative column a signed 14-bit
+/// offset. Both wrap around at the edge of the sheet.
+fn read_ref_n(rgce: &[u8], anchor: (u32, u32)) -> Result<CellRef, XlsbError> {
+    if rgce.len() < 6 {
+        return Err(XlsbError::Len {
+            typ: "PtgRefN",
+            expected: 6,
+            found: rgce.len(),
+        });
     }
-    push_column((col & 0x3FFF) as u32, formula);
-    if col & 0x8000 == 0 {
-        formula.push('$');
+    let raw_row = read_u32(rgce);
+    let col_field = read_u16(&rgce[4..6]);
+    let flags = col_field & (ROW_RELATIVE | COL_RELATIVE);
+
+    let row = if flags & ROW_RELATIVE != 0 {
+        anchor.0.wrapping_add(raw_row)
+    } else {
+        raw_row
+    };
+
+    let col = if flags & COL_RELATIVE != 0 {
+        // Sign-extend the 14-bit delta before applying it.
+        let delta = ((col_field << 2) as i16 >> 2) as i32;
+        (anchor.1 as i32).wrapping_add(delta) as u32
+    } else {
+        u32::from(col_field & COLUMN_MASK)
+    };
+
+    Ok((row & 0xF_FFFF, (col as u16 & COLUMN_MASK) | flags))
+}
+
+/// Read a `PtgAreaN` operand as its two corners, each in the form
+/// `read_ref_n()` returns.
+fn read_area_n(rgce: &[u8], anchor: (u32, u32)) -> Result<(CellRef, CellRef), XlsbError> {
+    if rgce.len() < 12 {
+        return Err(XlsbError::Len {
+            typ: "PtgAreaN",
+            expected: 12,
+            found: rgce.len(),
+        });
     }
-    formula.push_str(&format!("{}", row + 1));
+
+    // The operand is stored as rwFirst(4) rwLast(4) colFirst(2) colLast(2).
+    // Repack each corner into the row and column layout of a PtgRefN.
+    let first = [rgce[0], rgce[1], rgce[2], rgce[3], rgce[8], rgce[9]];
+    let second = [rgce[4], rgce[5], rgce[6], rgce[7], rgce[10], rgce[11]];
+    Ok((read_ref_n(&first, anchor)?, read_ref_n(&second, anchor)?))
+}
+
+/// The row a `PtgExp` token points at, if `rgce` is a shared formula cell.
+///
+/// A shared formula cell carries a single `PtgExp` token naming the first row
+/// of the shared formula's range. The actual token stream lives in a separate
+/// `BrtShrFmla` or `BrtArrFmla` record.
+pub(crate) fn shared_formula_anchor_row(rgce: &[u8]) -> Option<u32> {
+    (rgce.len() >= 5 && rgce[0] == 0x01).then(|| read_u32(&rgce[1..5]))
 }
 
 /// Formula parsing
@@ -801,10 +868,16 @@ fn push_cell_ref(row: u32, col: u16, formula: &mut String) {
 /// [MS-XLSB 2.5.97]
 ///
 /// See Ptg [2.5.97.16]
+///
+/// The `anchor` is the cell the formula belongs to, as a zero-based `(row,
+/// col)`. It is required because the `N`-class reference tokens like `PtgRefN`
+/// and `PtgAreaN`, which are the ones shared and array formulas are built from,
+/// store offsets from the cell being evaluated rather than absolute positions.
 fn parse_formula(
     mut rgce: &[u8],
     sheets: &[String],
     names: &[(String, String)],
+    anchor: (u32, u32),
 ) -> Result<String, XlsbError> {
     if rgce.is_empty() {
         return Ok(String::new());
@@ -859,9 +932,18 @@ fn parse_formula(
                 rgce = &rgce[14..];
             }
             0x01 => {
-                // PtgExp: array/shared formula, ignore
-                debug!("ignoring PtgExp array/shared formula");
+                // PtgExp: a lone PtgExp is resolved earlier from its shared or
+                // array formula, so one found here is unexpected and is skipped.
+                debug!("ignoring PtgExp that isn't a cell's only token");
                 stack.push(formula.len());
+                // The operand is the first row of the shared formula's range.
+                if rgce.len() < 4 {
+                    return Err(XlsbError::Len {
+                        typ: "PtgExp",
+                        expected: 4,
+                        found: rgce.len(),
+                    });
+                }
                 rgce = &rgce[4..];
             }
             0x03..=0x11 => {
@@ -879,8 +961,8 @@ fn parse_formula(
                     0x09 => "<",
                     0x0A => "<=",
                     0x0B => "=",
-                    0x0C => ">",
-                    0x0D => ">=",
+                    0x0C => ">=",
+                    0x0D => ">",
                     0x0E => "<>",
                     0x0F => " ",
                     0x10 => ",",
@@ -1045,6 +1127,23 @@ fn parse_formula(
                 push_cell_ref(read_u32(&rgce[4..8]), read_u16(&rgce[10..12]), &mut formula);
                 rgce = &rgce[12..];
             }
+            0x2C | 0x4C | 0x6C => {
+                // PtgRefN: like PtgRef, but relative components are signed
+                // offsets from `anchor` rather than absolute indices.
+                let (row, col) = read_ref_n(rgce, anchor)?;
+                stack.push(formula.len());
+                push_cell_ref(row, col, &mut formula);
+                rgce = &rgce[6..];
+            }
+            0x2D | 0x4D | 0x6D => {
+                // PtgAreaN: the two-corner form of PtgRefN.
+                let ((r1, c1), (r2, c2)) = read_area_n(rgce, anchor)?;
+                stack.push(formula.len());
+                push_cell_ref(r1, c1, &mut formula);
+                formula.push(':');
+                push_cell_ref(r2, c2, &mut formula);
+                rgce = &rgce[12..];
+            }
             0x2A | 0x4A | 0x6A => {
                 stack.push(formula.len());
                 formula.push_str("#REF!");
@@ -1058,7 +1157,7 @@ fn parse_formula(
             0x29 | 0x49 | 0x69 => {
                 let cce = read_u16(rgce) as usize;
                 rgce = &rgce[2..];
-                let f = parse_formula(&rgce[..cce], sheets, names)?;
+                let f = parse_formula(&rgce[..cce], sheets, names, anchor)?;
                 stack.push(formula.len());
                 formula.push_str(&f);
                 rgce = &rgce[cce..];
@@ -1112,5 +1211,205 @@ fn xlsx_error_to_xlsb(e: crate::xlsx::XlsxError) -> XlsbError {
         XlsxError::XmlAttr(e) => XlsbError::XmlAttr(e),
         XlsxError::Encoding(e) => XlsbError::Xml(e.into()),
         e => XlsbError::FileNotFound(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_formula, read_area_n, read_ref_n, shared_formula_anchor_row};
+    use crate::utils::{COLUMN_MASK, COL_RELATIVE, ROW_RELATIVE};
+
+    /// Build a column field: a 14-bit column followed by the column and row
+    /// relative flags.
+    fn col_field(col: u16, row_rel: bool, col_rel: bool) -> u16 {
+        let mut field = col & COLUMN_MASK;
+        if col_rel {
+            field |= COL_RELATIVE;
+        }
+        if row_rel {
+            field |= ROW_RELATIVE;
+        }
+        field
+    }
+
+    /// Build a `PtgRef` token: `row(4) col(2)`.
+    fn ptg_ref(ptg: u8, row: u32, col: u16, row_rel: bool, col_rel: bool) -> Vec<u8> {
+        let mut token = vec![ptg];
+        token.extend_from_slice(&row.to_le_bytes());
+        token.extend_from_slice(&col_field(col, row_rel, col_rel).to_le_bytes());
+        token
+    }
+
+    /// Build a `PtgArea` token: `rwFirst(4) rwLast(4) colFirst(2) colLast(2)`.
+    /// `rel` sets both relative flags on both corners.
+    fn ptg_area(ptg: u8, first: (u32, u16), last: (u32, u16), rel: bool) -> Vec<u8> {
+        let mut token = vec![ptg];
+        token.extend_from_slice(&first.0.to_le_bytes());
+        token.extend_from_slice(&last.0.to_le_bytes());
+        token.extend_from_slice(&col_field(first.1, rel, rel).to_le_bytes());
+        token.extend_from_slice(&col_field(last.1, rel, rel).to_le_bytes());
+        token
+    }
+
+    /// Build a `PtgRefN` token: `row(4) col(2)`.
+    ///
+    /// A relative `row` or `col` is a signed offset from the anchor cell. An
+    /// absolute one is a zero-based index.
+    fn ptg_ref_n(ptg: u8, row: i32, col: i16, row_rel: bool, col_rel: bool) -> Vec<u8> {
+        let mut token = vec![ptg];
+        token.extend_from_slice(&(row as u32).to_le_bytes());
+        token.extend_from_slice(&col_field(col as u16, row_rel, col_rel).to_le_bytes());
+        token
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_ref_n_relative_offsets() {
+        // Test that PtgRefN relative offsets are applied to the anchor cell.
+        let anchor = (5, 2); // C6.
+
+        // One row up, same column.
+        let rgce = ptg_ref_n(0x4C, -1, 0, true, true);
+        assert_eq!(parse_formula(&rgce, &[], &[], anchor).unwrap(), "C5");
+
+        // One column left, same row.
+        let rgce = ptg_ref_n(0x4C, 0, -1, true, true);
+        assert_eq!(parse_formula(&rgce, &[], &[], anchor).unwrap(), "B6");
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_ref_n_absolute_components() {
+        // Test that absolute PtgRefN components don't depend on the anchor
+        // cell.
+        let rgce = ptg_ref_n(0x4C, 0, 0, false, false);
+        assert_eq!(parse_formula(&rgce, &[], &[], (5, 2)).unwrap(), "$A$1");
+        assert_eq!(parse_formula(&rgce, &[], &[], (99, 7)).unwrap(), "$A$1");
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_ref_n_mixed_flags() {
+        // Test that a PtgRefN with an absolute column and a relative row is
+        // read correctly.
+        let rgce = ptg_ref_n(0x4C, -1, 0, true, false);
+        assert_eq!(parse_formula(&rgce, &[], &[], (5, 2)).unwrap(), "$A5");
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_ref_n_shifts_with_anchor() {
+        // Test that a PtgRefN token gives a different cell for each anchor
+        // row, as it does in a shared formula filled down a column.
+        let rgce = ptg_ref_n(0x4C, -1, 0, true, true);
+        let formulas: Vec<String> = (5..9)
+            .map(|row| parse_formula(&rgce, &[], &[], (row, 2)).unwrap())
+            .collect();
+        assert_eq!(formulas, ["C5", "C6", "C7", "C8"]);
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_ref_flags() {
+        // Test that each component of a PtgRef is marked by its own flag.
+        let cases = [
+            (true, true, "C2"),
+            (false, false, "$C$2"),
+            (true, false, "$C2"),
+            (false, true, "C$2"),
+        ];
+        for (row_rel, col_rel, expected) in cases {
+            let rgce = ptg_ref(0x44, 1, 2, row_rel, col_rel);
+            assert_eq!(parse_formula(&rgce, &[], &[], (0, 0)).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_area_corners() {
+        // Test that both corners of a PtgArea are read correctly, including
+        // the last cell of a worksheet.
+        let rgce = ptg_area(0x45, (3, 3), (3, 7), true);
+        assert_eq!(parse_formula(&rgce, &[], &[], (0, 0)).unwrap(), "D4:H4");
+
+        let rgce = ptg_area(0x45, (0, 0), (1048575, 16383), false);
+        assert_eq!(
+            parse_formula(&rgce, &[], &[], (0, 0)).unwrap(),
+            "$A$1:$XFD$1048576"
+        );
+    }
+
+    #[test]
+    fn test_parse_formula_3d_references() {
+        // Test that 3-D references keep their sheet and column.
+        let sheets = ["Summary".to_string(), "Data".to_string()];
+
+        // PtgRef3d: ixti(2) rw(4) col(2).
+        let mut rgce = vec![0x5A, 0x00, 0x00];
+        rgce.extend_from_slice(&24u32.to_le_bytes());
+        rgce.extend_from_slice(&col_field(3, true, true).to_le_bytes());
+        assert_eq!(
+            parse_formula(&rgce, &sheets, &[], (0, 0)).unwrap(),
+            "Summary!D25"
+        );
+
+        // PtgArea3d: ixti(2) rwFirst(4) rwLast(4) colFirst(2) colLast(2).
+        let mut rgce = vec![0x5B, 0x01, 0x00];
+        rgce.extend_from_slice(&0u32.to_le_bytes());
+        rgce.extend_from_slice(&1048575u32.to_le_bytes());
+        rgce.extend_from_slice(&col_field(2, false, false).to_le_bytes());
+        rgce.extend_from_slice(&col_field(9, false, false).to_le_bytes());
+        assert_eq!(
+            parse_formula(&rgce, &sheets, &[], (0, 0)).unwrap(),
+            "Data!$C$1:$J$1048576"
+        );
+    }
+
+    #[test]
+    fn test_read_ref_n_truncated_token() {
+        // Test that truncated PtgRefN and PtgAreaN operands return an error.
+        assert!(read_ref_n(&[0; 5], (0, 0)).is_err());
+        assert!(read_area_n(&[0; 11], (0, 0)).is_err());
+    }
+
+    #[test]
+    fn test_parse_formula_comparison_operators() {
+        // Test that the comparison operator tokens are written with the right
+        // symbols. MS-XLSB assigns PtgGe = 0x0C and PtgGt = 0x0D.
+        let lhs = ptg_ref_n(0x4C, 0, 0, true, true);
+        let rhs = ptg_ref_n(0x4C, -1, 0, true, true);
+        let formula_with = |operator: u8| {
+            let mut rgce = lhs.clone();
+            rgce.extend_from_slice(&rhs);
+            rgce.push(operator);
+            parse_formula(&rgce, &[], &[], (5, 2)).unwrap()
+        };
+        assert_eq!(formula_with(0x0C), "C6>=C5");
+        assert_eq!(formula_with(0x0D), "C6>C5");
+        assert_eq!(formula_with(0x09), "C6<C5");
+        assert_eq!(formula_with(0x0A), "C6<=C5");
+        assert_eq!(formula_with(0x0B), "C6=C5");
+        assert_eq!(formula_with(0x0E), "C6<>C5");
+    }
+
+    #[test]
+    fn test_shared_formula_anchor_row() {
+        // Test that a lone PtgExp is recognised as a shared formula cell and
+        // the first row of its shared formula's range is read.
+        let rgce = [0x01u8, 0x02, 0x00, 0x00, 0x00];
+        assert_eq!(shared_formula_anchor_row(&rgce), Some(2));
+
+        // An ordinary reference isn't a shared formula cell.
+        let rgce = ptg_ref_n(0x4C, 0, 0, true, true);
+        assert_eq!(shared_formula_anchor_row(&rgce), None);
+
+        // An empty token stream, and a PtgExp too short to hold a row.
+        assert_eq!(shared_formula_anchor_row(&[]), None);
+        assert_eq!(shared_formula_anchor_row(&[0x01, 0x00]), None);
+    }
+
+    #[test]
+    fn test_parse_formula_ptg_exp_truncated() {
+        // Test that a PtgExp too short to hold its row returns an error
+        // instead of panicking, both on its own and after another token.
+        assert!(parse_formula(&[0x01, 0x00], &[], &[], (0, 0)).is_err());
+
+        let mut rgce = ptg_ref_n(0x4C, 0, 0, true, true);
+        rgce.extend_from_slice(&[0x01, 0x00, 0x00]);
+        assert!(parse_formula(&rgce, &[], &[], (0, 0)).is_err());
     }
 }
