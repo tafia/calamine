@@ -2154,6 +2154,46 @@ fn test_xls_formula_references() {
 }
 
 #[test]
+fn test_xls_formula_relative_references() {
+    // Test that relative, absolute and mixed references, including those in
+    // formulas filled down a column, are read from an xls file as the same
+    // formulas as the xlsx file it was saved from.
+    let mut xls: Xls<_> = wb("relative_references.xls");
+    let mut xlsx: Xlsx<_> = wb("relative_references.xlsx");
+    let formulas = xls.worksheet_formula("Sheet1").unwrap();
+    assert_eq!(formulas, xlsx.worksheet_formula("Sheet1").unwrap());
+
+    let formula_at = |pos| formulas.get_value(pos).map(std::string::String::as_str);
+    assert_eq!(formula_at((0, 5)), Some("$A2+B$1")); // F1.
+    assert_eq!(formula_at((2, 5)), Some("SUM($A2:B$3)")); // F3.
+    assert_eq!(formula_at((4, 5)), Some("Data!$B2+Data!C$1")); // F5.
+    assert_eq!(formula_at((5, 5)), Some("SUM(Data!$A1:B$4)")); // F6.
+    assert_eq!(formula_at((6, 7)), Some("$A7*B$1+C7")); // H7.
+    assert_eq!(formula_at((6, 8)), Some("SUM(A$1:$B7)")); // I7.
+}
+
+#[test]
+fn test_xls_formula_shared_formulas() {
+    // Test that formulas filled down a column are read from an xls file with
+    // their references adjusted for each cell. Column M has two filled ranges,
+    // M10:M21 and M26:M36, and column AA has one, AA10:AA92.
+    let mut excel: Xls<_> = wb("optional_records.xls");
+    let formulas = excel.worksheet_formula("Orig Sched").unwrap();
+    assert_eq!(formulas.used_cells().count(), 112);
+
+    let formula_at = |pos| formulas.get_value(pos).map(std::string::String::as_str);
+    assert_eq!(formula_at((9, 12)), Some("N10/1000")); // M10.
+    assert_eq!(formula_at((20, 12)), Some("N21/1000")); // M21.
+    assert_eq!(formula_at((25, 12)), Some("N26/1000")); // M26.
+    assert_eq!(formula_at((35, 12)), Some("N36/1000")); // M36.
+    assert_eq!(formula_at((38, 12)), Some("SUBTOTAL(9,M9:M38)")); // M39.
+
+    assert_eq!(formula_at((9, 26)), Some("N10")); // AA10.
+    assert_eq!(formula_at((40, 26)), Some("N41")); // AA41.
+    assert_eq!(formula_at((91, 26)), Some("N92")); // AA92.
+}
+
+#[test]
 fn test_xls_formula_values() {
     // Test that the cached values of formula cells are read correctly.
     // See issue #304.
