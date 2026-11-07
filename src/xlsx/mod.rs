@@ -34,8 +34,8 @@ use crate::vba::VbaProject;
 #[cfg(feature = "picture")]
 use crate::Picture;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table, WorkbookProperties,
+    Cell, CellErrorType, Data, DefinedName, Dimensions, HeaderRow, Metadata, Range, Reader,
+    ReaderRef, Sheet, SheetType, SheetVisible, Table, WorkbookProperties,
 };
 pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
@@ -603,6 +603,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
         let mut defined_names = Vec::new();
+        let mut defined_names_metadata = Vec::new();
         let mut buf = Vec::with_capacity(1024);
         let mut val_buf = Vec::with_capacity(1024);
         loop {
@@ -676,6 +677,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == "definedName" => {
                     if let Some(val) = e.raw_attr("name")? {
                         let name = decode_attr(val)?;
+                        let scope = e
+                            .raw_attr("localSheetId")?
+                            .and_then(|v| v.trim().parse::<usize>().ok());
+                        let hidden = e.raw_attr("hidden")?.is_some_and(|v| {
+                            let v = v.trim();
+                            v == "1" || v.eq_ignore_ascii_case("true")
+                        });
                         val_buf.clear();
                         let mut value = String::new();
                         loop {
@@ -687,6 +695,12 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                 _ => (),
                             }
                         }
+                        defined_names_metadata.push(DefinedName {
+                            name: name.clone(),
+                            formula: value.clone(),
+                            scope,
+                            hidden,
+                        });
                         defined_names.push((name, value));
                     }
                 }
@@ -697,6 +711,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             }
         }
         self.metadata.names = defined_names;
+        self.metadata.defined_names = defined_names_metadata;
         Ok(())
     }
 
