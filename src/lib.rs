@@ -122,8 +122,8 @@ pub use crate::style::{
 pub use crate::xls::{Xls, XlsError, XlsOptions};
 pub use crate::xlsb::{Xlsb, XlsbError};
 pub use crate::xlsx::{
-    expand_shared_formula, expand_shared_formula_into, Hyperlink, Xlsx, XlsxCellFormula,
-    XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxError, XlsxFormulaMetadata,
+    expand_shared_formula, expand_shared_formula_into, Hyperlink, TableDefinition, Xlsx,
+    XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxError, XlsxFormulaMetadata,
 };
 
 use crate::vba::VbaProject;
@@ -223,6 +223,46 @@ pub struct Picture {
     /// like "Picture 1". Excel doesn't track the original file name of the
     /// image.
     pub name: String,
+}
+
+/// A defined name declared on an external workbook link.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ExternalDefinedName {
+    /// Name as written in the external workbook link.
+    pub name: String,
+
+    /// Formula or range expression (without a leading `=`).
+    pub formula: String,
+
+    /// Zero-based worksheet index when the name is scoped to a single worksheet,
+    /// or `None` for workbook scope.
+    pub scope: Option<usize>,
+
+    /// Whether the name is hidden.
+    pub hidden: bool,
+}
+
+/// A linked external workbook and the values cached for it in an XLSX file.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ExternalLink {
+    /// Target file path or file name from the external link relationship.
+    pub target: String,
+
+    /// Cached worksheets in the linked workbook's order.
+    pub sheets: Vec<ExternalSheet>,
+
+    /// Defined names declared on the external workbook.
+    pub defined_names: Vec<ExternalDefinedName>,
+}
+
+/// Cached cell values for one worksheet of an external workbook link.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ExternalSheet {
+    /// Worksheet name.
+    pub name: String,
+
+    /// Cached cell values as `((row, col), Data)`.
+    pub cells: Vec<((u32, u32), Data)>,
 }
 
 /// Common file metadata
@@ -1998,6 +2038,9 @@ pub struct Table<T> {
     pub(crate) sheet_name: String,
     pub(crate) columns: Vec<String>,
     pub(crate) data: Range<T>,
+    pub(crate) full_dimensions: Dimensions,
+    pub(crate) header_row_count: u32,
+    pub(crate) totals_row_count: u32,
 }
 impl<T> Table<T> {
     /// Get the name of the table.
@@ -2152,6 +2195,21 @@ impl<T> Table<T> {
     ///
     pub fn data(&self) -> &Range<T> {
         &self.data
+    }
+
+    /// Get the full worksheet dimensions of the table, including header and totals rows.
+    pub fn full_dimensions(&self) -> Dimensions {
+        self.full_dimensions
+    }
+
+    /// Get the number of header rows in the table (`0` or `1`).
+    pub fn header_row_count(&self) -> u32 {
+        self.header_row_count
+    }
+
+    /// Get the number of totals rows in the table (`0` or `1`).
+    pub fn totals_row_count(&self) -> u32 {
+        self.totals_row_count
     }
 }
 

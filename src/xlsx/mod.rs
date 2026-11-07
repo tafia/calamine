@@ -34,8 +34,9 @@ use crate::vba::VbaProject;
 #[cfg(feature = "picture")]
 use crate::Picture;
 use crate::{
-    Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet,
-    SheetType, SheetVisible, Table, WorkbookProperties,
+    Cell, CellErrorType, Data, Dimensions, ExternalDefinedName, ExternalLink, ExternalSheet,
+    HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible, Table,
+    WorkbookProperties,
 };
 pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
@@ -248,7 +249,32 @@ impl FromStr for CellErrorType {
     }
 }
 
-type Tables = Option<Vec<(String, String, Vec<String>, Dimensions)>>;
+/// Worksheet table definition metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableDefinition {
+    /// Table display name (or name).
+    pub name: String,
+
+    /// Parent worksheet name.
+    pub sheet_name: String,
+
+    /// Column header names, left to right.
+    pub columns: Vec<String>,
+
+    /// Data-only dimensions (excluding header and totals rows).
+    pub data_dimensions: Dimensions,
+
+    /// Complete table dimensions (including header and totals rows).
+    pub full_dimensions: Dimensions,
+
+    /// Number of header rows (`0` or `1`).
+    pub header_row_count: u32,
+
+    /// Number of totals rows (`0` or `1`).
+    pub totals_row_count: u32,
+}
+
+type Tables = Option<Vec<TableDefinition>>;
 
 /// A struct representing xml zipped excel file
 /// Xlsx, Xlsm, Xlam
@@ -283,6 +309,8 @@ pub struct Xlsx<RS> {
     options: XlsxOptions,
     /// Cached ZIP path lookups (lowercased normalized -> original).
     zip_path_cache: HashMap<String, String>,
+    /// Linked external workbooks and their cached values.
+    external_links: Vec<ExternalLink>,
 }
 
 /// Xlsx reader options
@@ -603,6 +631,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
             Some(x) => x?,
         };
         let mut defined_names = Vec::new();
+        let mut external_rel_ids = Vec::new();
         let mut buf = Vec::with_capacity(1024);
         let mut val_buf = Vec::with_capacity(1024);
         loop {
@@ -690,13 +719,220 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         defined_names.push((name, value));
                     }
                 }
+                Ok(Event::Start(e)) if e.local_name().as_ref() == "externalReference" => {
+                    for attr in e.iter_raw_attrs() {
+                        let (key, val) = attr?;
+                        if local_name_matches(key, "id") {
+                            external_rel_ids.push(decode_attr(val)?);
+                        }
+                    }
+                }
                 Ok(Event::End(e)) if e.local_name().as_ref() == "workbook" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("workbook")),
                 Err(e) => return Err(XlsxError::Xml(e)),
                 _ => (),
             }
         }
+        drop(xml);
         self.metadata.names = defined_names;
+        self.read_external_links(relationships, &external_rel_ids)?;
+        Ok(())
+    }
+
+    fn resolve_rel_target(&self, target: &str) -> String {
+        if let Some(abs) = target.strip_prefix('/') {
+            abs.to_string()
+        } else if let Some(rel) = target.strip_prefix("../") {
+            let base = self.xl_path.trim_end_matches('/');
+            match base.rfind('/') {
+                Some(idx) => format!("{}/{rel}", &base[..idx]),
+                None => rel.to_string(),
+            }
+        } else {
+            format!("{}{target}", self.xl_path)
+        }
+    }
+
+    fn read_external_links(
+        &mut self,
+        relationships: &HashMap<String, (String, String)>,
+        external_rel_ids: &[String],
+    ) -> Result<(), XlsxError> {
+        for rel_id in external_rel_ids {
+            let Some((target, rel_type)) = relationships.get(rel_id) else {
+                continue;
+            };
+            if !rel_type.ends_with("/externalLink") {
+                continue;
+            }
+            let link_path = self.resolve_rel_target(target);
+            let last_slash = link_path.rfind('/').unwrap_or(0);
+            let (base_folder, file_name) = link_path.split_at(last_slash);
+            let rel_path = format!("{base_folder}/_rels{file_name}.rels");
+
+            let mut link_rels: HashMap<String, String> = HashMap::new();
+            if let Some(rel_xml) = xml_reader(&mut self.zip, &rel_path, &self.zip_path_cache) {
+                let mut rel_xml = rel_xml?;
+                let mut buf = Vec::with_capacity(128);
+                loop {
+                    buf.clear();
+                    match rel_xml.read_event_into(&mut buf) {
+                        Ok(Event::Start(e)) if e.local_name().as_ref() == "Relationship" => {
+                            let (id, target, typ) =
+                                get_attrs!(e, "Id" => id, "Target" => target, "Type" => typ)?;
+                            if typ.is_some_and(|t| {
+                                t.ends_with("/externalLinkPath") || t.contains("xlExternalLinkPath")
+                            }) {
+                                if let (Some(id), Some(target)) = (id, target) {
+                                    link_rels.insert(decode_attr(id)?, decode_attr(target)?);
+                                }
+                            }
+                        }
+                        Ok(Event::End(e)) if e.local_name().as_ref() == "Relationships" => break,
+                        Ok(Event::Eof) => break,
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
+                    }
+                }
+            }
+
+            let mut xml = match xml_reader(&mut self.zip, &link_path, &self.zip_path_cache) {
+                None => continue,
+                Some(x) => x?,
+            };
+
+            let mut book_target = String::new();
+            let mut sheets: Vec<ExternalSheet> = Vec::new();
+            let mut defined_names: Vec<ExternalDefinedName> = Vec::new();
+            let mut current_sheet_idx: Option<usize> = None;
+            let mut current_cell_pos: Option<(u32, u32)> = None;
+            let mut current_cell_type: Option<String> = None;
+            let mut in_v = false;
+            let mut v_text = String::new();
+            let mut buf = Vec::with_capacity(512);
+
+            loop {
+                buf.clear();
+                match xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e)) => match e.local_name().as_ref() {
+                        "externalBook" => {
+                            for attr in e.iter_raw_attrs() {
+                                let (key, val) = attr?;
+                                if local_name_matches(key, "id") {
+                                    let rid = decode_attr(val)?;
+                                    if let Some(t) = link_rels.get(&rid) {
+                                        book_target = t.clone();
+                                    }
+                                }
+                            }
+                        }
+                        "sheetName" => {
+                            if let Some(val) = e.raw_attr("val")? {
+                                sheets.push(ExternalSheet {
+                                    name: decode_attr(val)?,
+                                    cells: Vec::new(),
+                                });
+                            }
+                        }
+                        "definedName" => {
+                            if let Some(name_attr) = e.raw_attr("name")? {
+                                let name = decode_attr(name_attr)?;
+                                let formula = e
+                                    .raw_attr("refersTo")?
+                                    .map(decode_attr)
+                                    .transpose()?
+                                    .unwrap_or_default();
+                                let formula =
+                                    formula.strip_prefix('=').unwrap_or(&formula).to_string();
+                                let scope = e
+                                    .raw_attr("sheetId")?
+                                    .and_then(|s| s.trim().parse::<usize>().ok());
+                                let hidden = e.raw_attr("hidden")?.is_some_and(|v| {
+                                    let v = v.trim();
+                                    v == "1" || v.eq_ignore_ascii_case("true")
+                                });
+                                defined_names.push(ExternalDefinedName {
+                                    name,
+                                    formula,
+                                    scope,
+                                    hidden,
+                                });
+                            }
+                        }
+                        "sheetData" => {
+                            current_sheet_idx = e
+                                .raw_attr("sheetId")?
+                                .and_then(|s| s.trim().parse::<usize>().ok());
+                        }
+                        "cell" if current_sheet_idx.is_some() => {
+                            let (r_attr, t_attr) = get_attrs!(e, "r" => r, "t" => t)?;
+                            current_cell_pos = r_attr.and_then(|r| get_row_column(r).ok());
+                            current_cell_type = t_attr.map(str::to_string);
+                        }
+                        "v" if current_cell_pos.is_some() => {
+                            in_v = true;
+                            v_text.clear();
+                        }
+                        _ => (),
+                    },
+                    Ok(Event::Text(t)) if in_v => {
+                        v_text.push_str(&t.xml10_content());
+                    }
+                    Ok(Event::GeneralRef(e)) if in_v => {
+                        unescape_entity_to_buffer(&e, &mut v_text)?;
+                    }
+                    Ok(Event::End(e)) => match e.local_name().as_ref() {
+                        "v" if in_v => {
+                            in_v = false;
+                            if let (Some(sheet_idx), Some(pos)) =
+                                (current_sheet_idx, current_cell_pos)
+                            {
+                                let data = match current_cell_type.as_deref() {
+                                    Some("b") => {
+                                        let v = v_text.trim();
+                                        Data::Bool(v == "1" || v.eq_ignore_ascii_case("true"))
+                                    }
+                                    Some("e") => match v_text.trim().parse::<CellErrorType>() {
+                                        Ok(err) => Data::Error(err),
+                                        Err(_) => Data::String(v_text.clone()),
+                                    },
+                                    Some("str") | Some("inlineStr") => {
+                                        Data::String(unescape_xml(&v_text).into_owned())
+                                    }
+                                    _ => {
+                                        match fast_float2::parse::<f64, _>(v_text.trim().as_bytes())
+                                        {
+                                            Ok(n) => Data::Float(n),
+                                            Err(_) => Data::String(v_text.clone()),
+                                        }
+                                    }
+                                };
+                                if let Some(sheet) = sheets.get_mut(sheet_idx) {
+                                    sheet.cells.push((pos, data));
+                                }
+                            }
+                        }
+                        "cell" => {
+                            current_cell_pos = None;
+                            current_cell_type = None;
+                        }
+                        "sheetData" => {
+                            current_sheet_idx = None;
+                        }
+                        _ => (),
+                    },
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+
+            self.external_links.push(ExternalLink {
+                target: book_target,
+                sheets,
+                defined_names,
+            });
+        }
         Ok(())
     }
 
@@ -868,6 +1104,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                     "displayName" => {
                                         table_meta.display_name = decode_attr(val)?;
                                     }
+                                    "name" if table_meta.display_name.is_empty() => {
+                                        table_meta.display_name = decode_attr(val)?;
+                                    }
                                     "ref" => {
                                         table_meta.ref_cells = val.to_string();
                                     }
@@ -892,20 +1131,24 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         _ => (),
                     }
                 }
-                let mut dims = get_dimension(&table_meta.ref_cells)?;
+                let full_dimensions = get_dimension(&table_meta.ref_cells)?;
+                let mut dims = full_dimensions;
                 if table_meta.header_row_count != 0 {
                     dims.start.0 += table_meta.header_row_count;
                 }
                 if table_meta.totals_row_count != 0 {
-                    dims.end.0 -= table_meta.header_row_count;
+                    dims.end.0 = dims.end.0.saturating_sub(table_meta.totals_row_count);
                 }
 
-                new_tables.push((
-                    table_meta.display_name,
-                    sheet_name.clone(),
-                    column_names,
-                    dims,
-                ));
+                new_tables.push(TableDefinition {
+                    name: table_meta.display_name,
+                    sheet_name: sheet_name.clone(),
+                    columns: column_names,
+                    data_dimensions: dims,
+                    full_dimensions,
+                    header_row_count: table_meta.header_row_count,
+                    totals_row_count: table_meta.totals_row_count,
+                });
             }
         }
         self.tables = Some(new_tables);
@@ -1486,22 +1729,17 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .as_ref()
             .expect("Tables must be loaded before they are referenced")
             .iter()
-            .find(|(table, ..)| table == table_name)
+            .find(|table| table.name == table_name)
             .ok_or_else(|| XlsxError::TableNotFound(table_name.into()))?;
 
-        let name = match_table_meta.0.to_owned();
-        let sheet_name = match_table_meta.1.clone();
-        let columns = match_table_meta.2.clone();
-        let dimensions = Dimensions {
-            start: match_table_meta.3.start,
-            end: match_table_meta.3.end,
-        };
-
         Ok(TableMetadata {
-            name,
-            sheet_name,
-            columns,
-            dimensions,
+            name: match_table_meta.name.clone(),
+            sheet_name: match_table_meta.sheet_name.clone(),
+            columns: match_table_meta.columns.clone(),
+            dimensions: match_table_meta.data_dimensions,
+            full_dimensions: match_table_meta.full_dimensions,
+            header_row_count: match_table_meta.header_row_count,
+            totals_row_count: match_table_meta.totals_row_count,
         })
     }
 
@@ -1772,8 +2010,24 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .as_ref()
             .expect("Tables must be loaded before they are referenced")
             .iter()
-            .map(|(name, ..)| name)
+            .map(|t| &t.name)
             .collect()
+    }
+
+    /// Get all loaded table definitions in the workbook.
+    ///
+    /// # Panics
+    ///
+    /// Panics if tables have not been loaded via [`Xlsx::load_tables()`].
+    pub fn table_definitions(&self) -> &[TableDefinition] {
+        self.tables
+            .as_deref()
+            .expect("Tables must be loaded before they are referenced")
+    }
+
+    /// Get all linked external workbooks and their cached sheet values and names.
+    pub fn external_links(&self) -> &[ExternalLink] {
+        &self.external_links
     }
 
     /// Get the names of all the tables in a worksheet.
@@ -1835,8 +2089,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
             .as_ref()
             .expect("Tables must be loaded before they are referenced")
             .iter()
-            .filter(|(_, sheet, ..)| sheet == sheet_name)
-            .map(|(name, ..)| name)
+            .filter(|t| t.sheet_name == sheet_name)
+            .map(|t| &t.name)
             .collect()
     }
 
@@ -1900,6 +2154,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             dimensions,
+            full_dimensions,
+            header_row_count,
+            totals_row_count,
         } = self.get_table_meta(table_name)?;
         let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range(&sheet_name)?;
@@ -1910,6 +2167,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             data: tbl_rng,
+            full_dimensions,
+            header_row_count,
+            totals_row_count,
         })
     }
 
@@ -1974,6 +2234,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             dimensions,
+            full_dimensions,
+            header_row_count,
+            totals_row_count,
         } = self.get_table_meta(table_name)?;
         let Dimensions { start, end } = dimensions;
         let range = self.worksheet_range_ref(&sheet_name)?;
@@ -1984,6 +2247,9 @@ impl<RS: Read + Seek> Xlsx<RS> {
             sheet_name,
             columns,
             data: tbl_rng,
+            full_dimensions,
+            header_row_count,
+            totals_row_count,
         })
     }
 
@@ -2706,6 +2972,9 @@ struct TableMetadata {
     sheet_name: String,
     columns: Vec<String>,
     dimensions: Dimensions,
+    full_dimensions: Dimensions,
+    header_row_count: u32,
+    totals_row_count: u32,
 }
 
 struct InnerTableMetadata {
@@ -2810,6 +3079,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            external_links: Vec::new(),
         };
         xlsx.read_package_relationships()?;
         xlsx.read_shared_strings()?;
@@ -5024,6 +5294,7 @@ mod tests {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            external_links: Vec::new(),
         };
 
         assert!(xlsx.read_shared_strings().is_ok());
@@ -5077,6 +5348,7 @@ mod tests {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            external_links: Vec::new(),
         };
 
         assert!(xlsx.read_styles().is_ok());
