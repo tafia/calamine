@@ -49,6 +49,16 @@ impl<RS: std::io::Read + std::io::Seek> Sheets<RS> {
             Sheets::Ods(e) => e.workbook_properties().map_err(Error::Ods),
         }
     }
+
+    /// Check if the workbook uses the 1904 date system.
+    pub fn has_1904_epoch(&self) -> bool {
+        match self {
+            Sheets::Xls(e) => e.has_1904_epoch(),
+            Sheets::Xlsx(e) => e.has_1904_epoch(),
+            Sheets::Xlsb(e) => e.has_1904_epoch(),
+            Sheets::Ods(e) => e.has_1904_epoch(),
+        }
+    }
 }
 
 /// Opens a workbook and define the file type at runtime.
@@ -188,6 +198,9 @@ where
         }
     }
 
+    fn has_1904_epoch(&self) -> bool {
+        Sheets::has_1904_epoch(self)
+    }
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         match self {
