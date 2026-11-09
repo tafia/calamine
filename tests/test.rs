@@ -5030,3 +5030,50 @@ fn test_xlsx_new_error_values_and_dynamic_array_formula() {
         })
     );
 }
+
+#[test]
+fn test_xlsx_rich_errors_with_varying_structure_key_order() {
+    // Test a workbook saved by Excel 365 for Mac whose two `_error` rich value
+    // structures list their keys in different orders, together with array and
+    // dynamic-array formula metadata. See issues #754 and #785.
+    use calamine::{Dimensions, XlsxFormulaMetadata};
+
+    let mut xlsx: Xlsx<_> = wb("rich_errors.xlsx");
+
+    let range = xlsx.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.get_value((0, 2)), Some(&Error(Spill)));
+    assert_eq!(range.get_value((2, 2)), Some(&Error(Calc)));
+    assert_eq!(range.get_value((4, 2)), Some(&Error(Spill)));
+    assert_eq!(range.get_value((7, 2)), Some(&Error(Div0)));
+    assert_eq!(range.get_value((8, 2)), Some(&Error(NA)));
+    assert_eq!(range.get_value((10, 2)), Some(&Error(Calc)));
+
+    let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+    let mut formulas = std::collections::HashMap::new();
+    while let Some(record) = reader.next_cell_with_formula_metadata().unwrap() {
+        if let Some(formula) = record.formula {
+            formulas.insert(record.pos, formula);
+        }
+    }
+    assert_eq!(
+        formulas[&(0, 0)],
+        XlsxFormulaMetadata::Dynamic {
+            range: Dimensions::new((0, 0), (2, 0)),
+            formula: "_xlfn.SEQUENCE(3)".to_string(),
+        }
+    );
+    assert_eq!(
+        formulas[&(12, 2)],
+        XlsxFormulaMetadata::Dynamic {
+            range: Dimensions::new((12, 2), (13, 3)),
+            formula: "_xlfn.SEQUENCE(2,2)".to_string(),
+        }
+    );
+    assert_eq!(
+        formulas[&(0, 4)],
+        XlsxFormulaMetadata::Array {
+            range: Dimensions::new((0, 4), (2, 4)),
+            formula: "A1:A3*2".to_string(),
+        }
+    );
+}
