@@ -3093,8 +3093,18 @@ fn get_row_and_optional_column(range: &str) -> Result<(u32, Option<u32>), XlsxEr
     let mut row: u32 = 0;
     while i < len {
         match range[i] {
-            c @ b'A'..=b'Z' => col = col * 26 + (c - b'A') as u32 + 1,
-            c @ b'a'..=b'z' => col = col * 26 + (c - b'a') as u32 + 1,
+            c @ b'A'..=b'Z' => {
+                col = col
+                    .checked_mul(26)
+                    .and_then(|col| col.checked_add((c - b'A') as u32 + 1))
+                    .ok_or(XlsxError::ColumnNumberOverflow)?;
+            }
+            c @ b'a'..=b'z' => {
+                col = col
+                    .checked_mul(26)
+                    .and_then(|col| col.checked_add((c - b'a') as u32 + 1))
+                    .ok_or(XlsxError::ColumnNumberOverflow)?;
+            }
             c @ b'0'..=b'9' => {
                 // on first digit, capture it and transition to the row loop
                 row = (c - b'0') as u32;
@@ -3109,7 +3119,12 @@ fn get_row_and_optional_column(range: &str) -> Result<(u32, Option<u32>), XlsxEr
     // Row: accumulate base-10 from remaining digits (1-based in source)
     while i < len {
         match range[i] {
-            c @ b'0'..=b'9' => row = row * 10 + (c - b'0') as u32,
+            c @ b'0'..=b'9' => {
+                row = row
+                    .checked_mul(10)
+                    .and_then(|row| row.checked_add((c - b'0') as u32))
+                    .ok_or(XlsxError::RowNumberOverflow)?;
+            }
             c => return Err(XlsxError::Alphanumeric(c)),
         }
         i += 1;
@@ -4447,6 +4462,20 @@ mod tests {
                 end: (1_048_575, 16_383),
             }
         );
+    }
+
+    #[test]
+    fn test_cell_reference_overflow() {
+        // Test that a cell reference whose column or row does not fit in a u32
+        // returns an error instead of panicking or wrapping around.
+        assert!(matches!(
+            get_row_and_optional_column("ZZZZZZZ1"),
+            Err(XlsxError::ColumnNumberOverflow)
+        ));
+        assert!(matches!(
+            get_row_and_optional_column("A4294967296"),
+            Err(XlsxError::RowNumberOverflow)
+        ));
     }
 
     #[test]
