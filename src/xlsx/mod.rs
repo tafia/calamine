@@ -3045,18 +3045,19 @@ pub(crate) fn get_dimension(dimension: &str) -> Result<Dimensions, XlsxError> {
             end: parts[0],
         }),
         2 => {
-            let rows = parts[1].0 - parts[0].0;
-            let columns = parts[1].1 - parts[0].1;
+            // A dimension does not have to be ordered: `<dimension ref="C5:A1"/>` names the same
+            // range as `A1:C5`, so the corners are always the bounding box of the two.
+            let start = (parts[0].0.min(parts[1].0), parts[0].1.min(parts[1].1));
+            let end = (parts[0].0.max(parts[1].0), parts[0].1.max(parts[1].1));
+            let rows = end.0 - start.0;
+            let columns = end.1 - start.1;
             if rows > MAX_ROWS {
                 warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
             }
             if columns > MAX_COLUMNS {
                 warn!("xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})");
             }
-            Ok(Dimensions {
-                start: parts[0],
-                end: parts[1],
-            })
+            Ok(Dimensions { start, end })
         }
         len => Err(XlsxError::DimensionCount(len)),
     }
@@ -4447,6 +4448,22 @@ mod tests {
                 end: (1_048_575, 16_383),
             }
         );
+    }
+
+    #[test]
+    fn test_reversed_dimension() {
+        // Test that a dimension whose corners are not ordered is normalized to
+        // the bounding box of the two corners instead of underflowing when the
+        // extent is computed.
+        assert_eq!(
+            get_dimension("C5:A1").unwrap(),
+            Dimensions {
+                start: (0, 0),
+                end: (4, 2)
+            }
+        );
+        assert_eq!(get_dimension("C5:A1").unwrap().len(), 15);
+        assert_eq!(Dimensions::new((4, 2), (0, 0)).len(), 15);
     }
 
     #[test]

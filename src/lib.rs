@@ -187,7 +187,8 @@ impl Dimensions {
     }
     /// len
     pub fn len(&self) -> u64 {
-        (self.end.0 - self.start.0 + 1) as u64 * (self.end.1 - self.start.1 + 1) as u64
+        (self.end.0.abs_diff(self.start.0) as u64 + 1)
+            * (self.end.1.abs_diff(self.start.1) as u64 + 1)
     }
 }
 
