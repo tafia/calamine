@@ -3434,6 +3434,20 @@ fn test_ods_dos_protection() {
 }
 
 #[test]
+fn test_ods_unclosed_table() {
+    // Test that an ods file whose table:table element is never closed returns
+    // an error instead of looping forever at the end of the xml. See issue #773.
+    let path = test_path("unclosed_table.ods");
+    assert!(
+        matches!(
+            open_workbook::<Ods<_>, _>(path),
+            Err(calamine::OdsError::Eof("table:table"))
+        ),
+        "Is expected to return OdsError::Eof error"
+    );
+}
+
+#[test]
 fn test_xlsx_pivot_table_meta_data() {
     // Test that pivot tables are listed by sheet and name and that each table
     // has its own data.

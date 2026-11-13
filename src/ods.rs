@@ -475,6 +475,7 @@ where
             }
             Ok(Event::End(e)) if e.name() == QName("table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
+            Ok(Event::Eof) => return Err(OdsError::Eof("table:table")),
             Ok(_) => (),
         }
         buf.clear();
@@ -757,6 +758,7 @@ where
                             break;
                         }
                         Err(e) => return Err(OdsError::Xml(e)),
+                        Ok(Event::Eof) => return Err(OdsError::Eof("office:annotation")),
                         _ => (),
                     }
                 },
