@@ -247,6 +247,54 @@ fn ods() {
 }
 
 #[test]
+fn ods_row_whitespace() {
+    let mut ods: Ods<_> = wb("ods-row-whitespace.ods");
+    let sheets = [
+        "Compact",
+        "Indented",
+        "Space",
+        "Tab",
+        "Carriage return",
+        "Line feed",
+        "Mixed",
+    ];
+    assert_eq!(ods.sheet_names(), sheets);
+    for sheet in sheets {
+        let range = ods.worksheet_range(sheet).unwrap();
+        range_eq!(
+            range,
+            [[String("  INV-SEC-1  ".into()), Float(125.5), Bool(true)]]
+        );
+    }
+
+    #[cfg(feature = "picture")]
+    {
+        let archive = File::open(test_path("ods-row-whitespace.ods")).unwrap();
+        let mut archive = zip::ZipArchive::new(archive).unwrap();
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(
+            &mut archive.by_name("Pictures/pixel.png").unwrap(),
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(ods.pictures(), Some(vec![("png".to_owned(), bytes)]));
+    }
+}
+
+#[rstest]
+#[case("ods-row-unexpected-text.ods")]
+#[case("ods-row-non-xml-whitespace.ods")]
+fn ods_row_rejects_unexpected_text(#[case] fixture: &str) {
+    assert!(matches!(
+        open_workbook::<Ods<_>, _>(test_path(fixture)),
+        Err(calamine::OdsError::Mismatch {
+            expected: "table-cell",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn ods_covered() {
     let mut excel: Ods<_> = wb("covered.ods");
     let range = excel.worksheet_range("sheet1").unwrap();
