@@ -244,6 +244,15 @@ impl FromStr for CellErrorType {
             "#NUM!" => Ok(CellErrorType::Num),
             "#REF!" => Ok(CellErrorType::Ref),
             "#VALUE!" => Ok(CellErrorType::Value),
+            "#GETTING_DATA" | "#DATA!" => Ok(CellErrorType::GettingData),
+            "#SPILL!" => Ok(CellErrorType::Spill),
+            "#CALC!" => Ok(CellErrorType::Calc),
+            "#BLOCKED!" => Ok(CellErrorType::Blocked),
+            "#UNKNOWN!" => Ok(CellErrorType::Unknown),
+            "#FIELD!" => Ok(CellErrorType::Field),
+            "#CONNECT!" => Ok(CellErrorType::Connect),
+            "#BUSY!" => Ok(CellErrorType::Busy),
+            "#PYTHON!" => Ok(CellErrorType::Python),
             _ => Err(XlsxError::CellError(s.into())),
         }
     }
@@ -284,6 +293,10 @@ pub struct Xlsx<RS> {
     options: XlsxOptions,
     /// Cached ZIP path lookups (lowercased normalized -> original).
     zip_path_cache: HashMap<String, String>,
+    /// Dynamic-array flags per 0-based `cellMetadata` record (`cm - 1`).
+    dynamic_cell_metadata: Vec<bool>,
+    /// Rich-value error map keyed by 1-based `vm` attribute.
+    rich_error_values: HashMap<usize, CellErrorType>,
 }
 
 /// Xlsx reader options
@@ -697,7 +710,293 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 _ => (),
             }
         }
+        drop(xml);
         self.metadata.names = defined_names;
+        self.read_sheet_metadata_and_rich_errors(relationships)?;
+        Ok(())
+    }
+
+    fn resolve_rel_target(&self, target: &str) -> String {
+        if let Some(abs) = target.strip_prefix('/') {
+            abs.to_string()
+        } else if let Some(rel) = target.strip_prefix("../") {
+            let base = self.xl_path.trim_end_matches('/');
+            match base.rfind('/') {
+                Some(idx) => format!("{}/{rel}", &base[..idx]),
+                None => rel.to_string(),
+            }
+        } else {
+            format!("{}{target}", self.xl_path)
+        }
+    }
+
+    fn read_sheet_metadata_and_rich_errors(
+        &mut self,
+        relationships: &HashMap<String, (String, String)>,
+    ) -> Result<(), XlsxError> {
+        let Some((meta_target, _)) = relationships
+            .values()
+            .find(|(_, rel_type)| rel_type.ends_with("/sheetMetadata"))
+        else {
+            return Ok(());
+        };
+        let meta_path = self.resolve_rel_target(meta_target);
+        let mut xml = match xml_reader(&mut self.zip, &meta_path, &self.zip_path_cache) {
+            None => return Ok(()),
+            Some(x) => x?,
+        };
+
+        let mut metadata_types: Vec<String> = Vec::new();
+        let mut xldapr_dynamic: Vec<bool> = Vec::new();
+        let mut xlrichvalue_rvb: Vec<usize> = Vec::new();
+        let mut cell_rc: Vec<Vec<(usize, usize)>> = Vec::new();
+        let mut value_rc: Vec<Vec<(usize, usize)>> = Vec::new();
+
+        let mut buf = Vec::with_capacity(512);
+        let mut section = "";
+        let mut future_name = String::new();
+        let mut in_bk = false;
+        let mut current_dynamic = false;
+        let mut current_rvb: Option<usize> = None;
+        let mut current_rc: Vec<(usize, usize)> = Vec::new();
+
+        loop {
+            buf.clear();
+            match xml.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => match e.local_name().as_ref() {
+                    "metadataTypes" => section = "metadataTypes",
+                    "metadataType" if section == "metadataTypes" => {
+                        let name = e
+                            .raw_attr("name")?
+                            .map(decode_attr)
+                            .transpose()?
+                            .unwrap_or_default();
+                        metadata_types.push(name);
+                    }
+                    "futureMetadata" => {
+                        section = "futureMetadata";
+                        future_name = e
+                            .raw_attr("name")?
+                            .map(decode_attr)
+                            .transpose()?
+                            .unwrap_or_default();
+                    }
+                    "cellMetadata" => section = "cellMetadata",
+                    "valueMetadata" => section = "valueMetadata",
+                    "bk" => {
+                        in_bk = true;
+                        current_dynamic = false;
+                        current_rvb = None;
+                        current_rc.clear();
+                    }
+                    "dynamicArrayProperties" if in_bk && future_name == "XLDAPR" => {
+                        let f_dynamic = e.raw_attr("fDynamic")?.map(|v| v.trim());
+                        current_dynamic = match f_dynamic {
+                            Some("0") => false,
+                            Some(v) if v.eq_ignore_ascii_case("false") => false,
+                            _ => true,
+                        };
+                    }
+                    "f" if in_bk && future_name == "XLDAPR" => {
+                        current_dynamic = true;
+                    }
+                    "rvb" if in_bk && future_name == "XLRICHVALUE" => {
+                        if let Some(i_str) = e.raw_attr("i")? {
+                            if let Ok(i) = i_str.trim().parse::<usize>() {
+                                current_rvb = Some(i);
+                            }
+                        }
+                    }
+                    "rc" if in_bk && (section == "cellMetadata" || section == "valueMetadata") => {
+                        let (t_attr, v_attr) = get_attrs!(e, "t" => t, "v" => v)?;
+                        if let (Some(t_str), Some(v_str)) = (t_attr, v_attr) {
+                            if let (Ok(t), Ok(v)) =
+                                (t_str.trim().parse::<usize>(), v_str.trim().parse::<usize>())
+                            {
+                                current_rc.push((t, v));
+                            }
+                        }
+                    }
+                    _ => (),
+                },
+                Ok(Event::End(e)) => match e.local_name().as_ref() {
+                    "metadataTypes" | "futureMetadata" | "cellMetadata" | "valueMetadata" => {
+                        section = "";
+                    }
+                    "bk" if in_bk => {
+                        in_bk = false;
+                        match section {
+                            "futureMetadata" if future_name == "XLDAPR" => {
+                                xldapr_dynamic.push(current_dynamic);
+                            }
+                            "futureMetadata" if future_name == "XLRICHVALUE" => {
+                                if let Some(rvb) = current_rvb {
+                                    xlrichvalue_rvb.push(rvb);
+                                }
+                            }
+                            "cellMetadata" => cell_rc.push(std::mem::take(&mut current_rc)),
+                            "valueMetadata" => value_rc.push(std::mem::take(&mut current_rc)),
+                            _ => (),
+                        }
+                    }
+                    "metadata" => break,
+                    _ => (),
+                },
+                Ok(Event::Eof) => break,
+                Err(e) => return Err(XlsxError::Xml(e)),
+                _ => (),
+            }
+        }
+        drop(xml);
+
+        self.dynamic_cell_metadata = cell_rc
+            .into_iter()
+            .map(|rcs| {
+                rcs.into_iter().any(|(t, v)| {
+                    t.checked_sub(1)
+                        .and_then(|ti| metadata_types.get(ti))
+                        .is_some_and(|name| name == "XLDAPR")
+                        && xldapr_dynamic.get(v).copied().unwrap_or(false)
+                })
+            })
+            .collect();
+
+        let mut vm_to_rv: Vec<(usize, usize)> = Vec::new();
+        for (vm_zero_idx, rcs) in value_rc.into_iter().enumerate() {
+            for (t, v) in rcs {
+                if t.checked_sub(1)
+                    .and_then(|ti| metadata_types.get(ti))
+                    .is_some_and(|name| name == "XLRICHVALUE")
+                {
+                    if let Some(&rv_idx) = xlrichvalue_rvb.get(v) {
+                        vm_to_rv.push((vm_zero_idx + 1, rv_idx));
+                    }
+                }
+            }
+        }
+        if vm_to_rv.is_empty() {
+            return Ok(());
+        }
+
+        let struct_path = relationships
+            .values()
+            .find(|(_, rel_type)| rel_type.ends_with("/rdRichValueStructure"))
+            .map(|(target, _)| self.resolve_rel_target(target))
+            .unwrap_or_else(|| format!("{}richData/rdrichvaluestructure.xml", self.xl_path));
+        let values_path = relationships
+            .values()
+            .find(|(_, rel_type)| rel_type.ends_with("/rdRichValue"))
+            .map(|(target, _)| self.resolve_rel_target(target))
+            .unwrap_or_else(|| format!("{}richData/rdrichvalue.xml", self.xl_path));
+
+        let mut error_key_index_by_struct: Vec<Option<usize>> = Vec::new();
+        if let Some(struct_xml) = xml_reader(&mut self.zip, &struct_path, &self.zip_path_cache) {
+            let mut struct_xml = struct_xml?;
+            let mut in_error_s = false;
+            let mut k_index = 0usize;
+            let mut error_k: Option<usize> = None;
+            loop {
+                buf.clear();
+                match struct_xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e)) => match e.local_name().as_ref() {
+                        "s" => {
+                            in_error_s = e.raw_attr("t")? == Some("_error");
+                            k_index = 0;
+                            error_k = None;
+                        }
+                        "k" if in_error_s => {
+                            let (n_attr, t_attr) = get_attrs!(e, "n" => n, "t" => t)?;
+                            if n_attr == Some("errorType") && t_attr == Some("i") {
+                                error_k = Some(k_index);
+                            }
+                            k_index += 1;
+                        }
+                        _ => (),
+                    },
+                    Ok(Event::End(e)) if e.local_name().as_ref() == "s" => {
+                        error_key_index_by_struct.push(if in_error_s { error_k } else { None });
+                        in_error_s = false;
+                    }
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+        }
+
+        let mut rv_errors: HashMap<usize, CellErrorType> = HashMap::new();
+        if let Some(val_xml) = xml_reader(&mut self.zip, &values_path, &self.zip_path_cache) {
+            let mut val_xml = val_xml?;
+            let mut rv_idx = 0usize;
+            let mut target_v_idx: Option<usize> = None;
+            let mut v_idx = 0usize;
+            let mut in_v = false;
+            let mut v_text = String::new();
+            loop {
+                buf.clear();
+                match val_xml.read_event_into(&mut buf) {
+                    Ok(Event::Start(e)) => match e.local_name().as_ref() {
+                        "rv" => {
+                            target_v_idx = e
+                                .raw_attr("s")?
+                                .and_then(|s| s.trim().parse::<usize>().ok())
+                                .and_then(|s_idx| error_key_index_by_struct.get(s_idx).copied())
+                                .flatten();
+                            v_idx = 0;
+                        }
+                        "v" if target_v_idx.is_some() => {
+                            in_v = target_v_idx == Some(v_idx);
+                            v_text.clear();
+                        }
+                        _ => (),
+                    },
+                    Ok(Event::Text(t)) if in_v => {
+                        v_text.push_str(&t.xml10_content());
+                    }
+                    Ok(Event::GeneralRef(e)) if in_v => {
+                        unescape_entity_to_buffer(&e, &mut v_text)?;
+                    }
+                    Ok(Event::End(e)) => match e.local_name().as_ref() {
+                        "v" if target_v_idx.is_some() => {
+                            if in_v {
+                                if let Ok(code) = v_text.trim().parse::<u32>() {
+                                    let err = match code {
+                                        8 => Some(CellErrorType::Spill),
+                                        9 => Some(CellErrorType::Connect),
+                                        10 => Some(CellErrorType::Blocked),
+                                        11 => Some(CellErrorType::Unknown),
+                                        12 => Some(CellErrorType::Field),
+                                        13 => Some(CellErrorType::Calc),
+                                        14 => Some(CellErrorType::Busy),
+                                        16 => Some(CellErrorType::Python),
+                                        _ => None,
+                                    };
+                                    if let Some(err) = err {
+                                        rv_errors.insert(rv_idx, err);
+                                    }
+                                }
+                            }
+                            in_v = false;
+                            v_idx += 1;
+                        }
+                        "rv" => {
+                            target_v_idx = None;
+                            rv_idx += 1;
+                        }
+                        _ => (),
+                    },
+                    Ok(Event::Eof) => break,
+                    Err(e) => return Err(XlsxError::Xml(e)),
+                    _ => (),
+                }
+            }
+        }
+
+        for (vm_idx, rv_idx) in vm_to_rv {
+            if let Some(err) = rv_errors.get(&rv_idx) {
+                self.rich_error_values.insert(vm_idx, err.clone());
+            }
+        }
         Ok(())
     }
 
@@ -2744,7 +3043,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let strings = &self.strings;
         let formats = &self.formats;
         let styles = &self.styles;
-        XlsxCellReader::new(xml, strings, formats, styles, is_1904)
+        let dynamic_meta = &self.dynamic_cell_metadata;
+        let rich_errors = &self.rich_error_values;
+        Ok(XlsxCellReader::new(xml, strings, formats, styles, is_1904)?
+            .with_workbook_metadata(dynamic_meta, rich_errors))
     }
 
     /// Get the cell styles for the worksheet with the given name.
@@ -2811,6 +3113,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            dynamic_cell_metadata: Vec::new(),
+            rich_error_values: HashMap::new(),
         };
         xlsx.read_package_relationships()?;
         xlsx.read_shared_strings()?;
@@ -5028,6 +5332,8 @@ mod tests {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            dynamic_cell_metadata: Vec::new(),
+            rich_error_values: HashMap::new(),
         };
 
         assert!(xlsx.read_shared_strings().is_ok());
@@ -5081,6 +5387,8 @@ mod tests {
             merged_regions: None,
             options: XlsxOptions::default(),
             zip_path_cache,
+            dynamic_cell_metadata: Vec::new(),
+            rich_error_values: HashMap::new(),
         };
 
         assert!(xlsx.read_styles().is_ok());

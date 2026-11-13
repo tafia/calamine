@@ -5067,3 +5067,88 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_xlsx_new_error_values_and_dynamic_array_formula() {
+    // Test that modern Excel error values (both rich-data vm-indexed and
+    // literal cached strings) and dynamic-array formula metadata are read from
+    // an xlsx file. See issues #754 and #785.
+    let mut xlsx: Xlsx<_> = wb("new_error_values.xlsx");
+
+    let excel_range = xlsx.worksheet_range("Excel").unwrap();
+    assert_eq!(excel_range.get_value((1, 1)), Some(&Error(Spill)));
+    assert_eq!(excel_range.get_value((2, 1)), Some(&Error(Calc)));
+
+    let cached_range = xlsx.worksheet_range("Cached").unwrap();
+    assert_eq!(cached_range.get_value((1, 1)), Some(&Error(Spill)));
+    assert_eq!(cached_range.get_value((2, 1)), Some(&Error(Calc)));
+    assert_eq!(cached_range.get_value((3, 1)), Some(&Error(Field)));
+    assert_eq!(cached_range.get_value((4, 1)), Some(&Error(Blocked)));
+    assert_eq!(cached_range.get_value((5, 1)), Some(&Error(Connect)));
+    assert_eq!(cached_range.get_value((6, 1)), Some(&Error(Busy)));
+    assert_eq!(cached_range.get_value((7, 1)), Some(&Error(Unknown)));
+    assert_eq!(cached_range.get_value((8, 1)), Some(&Error(Python)));
+    assert_eq!(cached_range.get_value((9, 1)), Some(&Error(GettingData)));
+
+    let mut reader = xlsx.worksheet_cells_reader("Excel").unwrap();
+    let mut dynamic_formula = None;
+    while let Some(record) = reader.next_cell_with_formula_metadata().unwrap() {
+        if record.pos == (1, 1) {
+            dynamic_formula = record.formula;
+        }
+    }
+    assert_eq!(
+        dynamic_formula,
+        Some(calamine::XlsxFormulaMetadata::Dynamic {
+            range: calamine::Dimensions::new((1, 1), (1, 1)),
+            formula: "_xlfn.SEQUENCE(1,2)".to_string(),
+        })
+    );
+}
+
+#[test]
+fn test_xlsx_rich_errors_with_varying_structure_key_order() {
+    // Test a workbook saved by Excel 365 for Mac whose two `_error` rich value
+    // structures list their keys in different orders, together with array and
+    // dynamic-array formula metadata. See issues #754 and #785.
+    use calamine::{Dimensions, XlsxFormulaMetadata};
+
+    let mut xlsx: Xlsx<_> = wb("rich_errors.xlsx");
+
+    let range = xlsx.worksheet_range("Sheet1").unwrap();
+    assert_eq!(range.get_value((0, 2)), Some(&Error(Spill)));
+    assert_eq!(range.get_value((2, 2)), Some(&Error(Calc)));
+    assert_eq!(range.get_value((4, 2)), Some(&Error(Spill)));
+    assert_eq!(range.get_value((7, 2)), Some(&Error(Div0)));
+    assert_eq!(range.get_value((8, 2)), Some(&Error(NA)));
+    assert_eq!(range.get_value((10, 2)), Some(&Error(Calc)));
+
+    let mut reader = xlsx.worksheet_cells_reader("Sheet1").unwrap();
+    let mut formulas = std::collections::HashMap::new();
+    while let Some(record) = reader.next_cell_with_formula_metadata().unwrap() {
+        if let Some(formula) = record.formula {
+            formulas.insert(record.pos, formula);
+        }
+    }
+    assert_eq!(
+        formulas[&(0, 0)],
+        XlsxFormulaMetadata::Dynamic {
+            range: Dimensions::new((0, 0), (2, 0)),
+            formula: "_xlfn.SEQUENCE(3)".to_string(),
+        }
+    );
+    assert_eq!(
+        formulas[&(12, 2)],
+        XlsxFormulaMetadata::Dynamic {
+            range: Dimensions::new((12, 2), (13, 3)),
+            formula: "_xlfn.SEQUENCE(2,2)".to_string(),
+        }
+    );
+    assert_eq!(
+        formulas[&(0, 4)],
+        XlsxFormulaMetadata::Array {
+            range: Dimensions::new((0, 4), (2, 4)),
+            formula: "A1:A3*2".to_string(),
+        }
+    );
+}
