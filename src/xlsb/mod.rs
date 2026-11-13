@@ -288,8 +288,45 @@ impl<RS: Read + Seek> Xlsb<RS> {
         Ok(())
     }
 
+    /// Read the sheet names of the other workbooks that formulas refer to, by
+    /// relationship id, from the BrtSupTabs record of each external link.
+    fn read_external_sheet_names(
+        &mut self,
+        relationships: &HashMap<String, String>,
+    ) -> HashMap<String, Vec<String>> {
+        let mut external_sheet_names = HashMap::new();
+        let mut buf = Vec::with_capacity(64);
+        for (id, target) in relationships {
+            if !target.starts_with("externalLinks/") {
+                continue;
+            }
+            let path = format!("xl/{target}");
+            let Ok(mut iter) = RecordIter::from_zip(&mut self.zip, &path, &self.zip_path_cache)
+            else {
+                continue;
+            };
+            let Ok(len) = iter.next_skip_blocks(0x0167, &[], &mut buf) else {
+                continue;
+            };
+            let count = buf.get(..4).map_or(0, read_u32);
+            let mut names = Vec::new();
+            let mut pos = 4;
+            for _ in 0..count {
+                let mut str_len = 0;
+                match buf.get(pos..len).map(|b| wide_str(b, &mut str_len)) {
+                    Some(Ok(name)) => names.push(name.into_owned()),
+                    _ => break,
+                }
+                pos += str_len;
+            }
+            external_sheet_names.insert(id.clone(), names);
+        }
+        external_sheet_names
+    }
+
     /// MS-XLSB 2.1.7.61
     fn read_workbook(&mut self, relationships: &HashMap<String, String>) -> Result<(), XlsbError> {
+        let mut external_sheet_names = self.read_external_sheet_names(relationships);
         let mut iter =
             RecordIter::from_zip(&mut self.zip, "xl/workbook.bin", &self.zip_path_cache)?;
         let mut buf = Vec::with_capacity(1024);
@@ -359,9 +396,29 @@ impl<RS: Read + Seek> Xlsb<RS> {
 
         // BrtName
         let mut defined_names = Vec::new();
+        // The supporting workbooks of the external sheets: the number and sheet
+        // names of another workbook, or `None` for this workbook.
+        let mut supporting_books: Vec<Option<(usize, Vec<String>)>> = Vec::new();
+        let mut external_books = 0;
         loop {
             let typ = iter.read_type()?;
             match typ {
+                0x0163 => {
+                    // BrtSupBookSrc: another workbook, numbered from 1 as in
+                    // `[1]Sheet1!A1`.
+                    let len = iter.fill_buffer(&mut buf)?;
+                    let names = wide_str(&buf[..len], &mut 0)
+                        .ok()
+                        .and_then(|id| external_sheet_names.remove(&*id))
+                        .unwrap_or_default();
+                    external_books += 1;
+                    supporting_books.push(Some((external_books, names)));
+                }
+                0x0165 | 0x0166 => {
+                    // BrtSupSelf and BrtSupSame: this workbook.
+                    let _ = iter.fill_buffer(&mut buf)?;
+                    supporting_books.push(None);
+                }
                 0x016A => {
                     // BrtExternSheet
                     let _len = iter.fill_buffer(&mut buf)?;
@@ -370,16 +427,26 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         self.extern_sheets.reserve(cxti);
                     }
                     let sheets = &self.sheets;
+                    let supporting_books = &supporting_books;
                     let extern_sheets = buf[4..]
                         .chunks(12)
                         .map(|xti| {
-                            match read_i32(&xti[4..8]) {
-                                -2 => "#ThisWorkbook",
-                                -1 => "#InvalidWorkSheet",
-                                p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
-                                _ => "#Unknown",
+                            let book = supporting_books.get(read_u32(&xti[..4]) as usize);
+                            match (read_i32(&xti[4..8]), book) {
+                                (-2, _) => "#ThisWorkbook".to_string(),
+                                (-1, _) => "#InvalidWorkSheet".to_string(),
+                                (p, Some(Some((n, names)))) => usize::try_from(p)
+                                    .ok()
+                                    .and_then(|p| names.get(p))
+                                    .map_or_else(
+                                        || "#Unknown".to_string(),
+                                        |name| format!("[{n}]{name}"),
+                                    ),
+                                (p, _) if p >= 0 && (p as usize) < sheets.len() => {
+                                    sheets[p as usize].0.clone()
+                                }
+                                _ => "#Unknown".to_string(),
                             }
-                            .to_string()
                         })
                         .take(cxti)
                         .collect();
