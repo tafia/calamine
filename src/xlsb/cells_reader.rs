@@ -11,7 +11,7 @@ use crate::{
     Cell, CellErrorType, Dimensions, XlsbError,
 };
 
-use super::{cell_format, parse_formula, wide_str, RecordIter};
+use super::{cell_format, check_record_len, parse_formula, wide_str, RecordIter};
 
 /// A cells reader for xlsb files
 pub struct XlsbCellsReader<'a, RS>
@@ -44,7 +44,7 @@ where
     ) -> Result<Self, XlsbError> {
         let mut buf = Vec::with_capacity(1024);
         // BrtWsDim
-        let _ = iter.next_skip_blocks(
+        let len = iter.next_skip_blocks(
             0x0094,
             &[
                 (0x0081, None), // BrtBeginSheet
@@ -52,6 +52,9 @@ where
             ],
             &mut buf,
         )?;
+        // The buffer is reused for each record and is never shrunk, so it can be
+        // longer than this record. Check the record length instead.
+        check_record_len("BrtWsDim record length", len, 16)?;
         let dimensions = parse_dimensions(&buf[..16]);
 
         // BrtBeginSheetData
@@ -88,7 +91,17 @@ where
         // loop until end of sheet
         let value = loop {
             self.typ = self.iter.read_type()?;
-            let _ = self.iter.fill_buffer(&mut self.buf)?;
+            let len = self.iter.fill_buffer(&mut self.buf)?;
+            // The fixed-size part of the records that are read below.
+            let min_len = match self.typ {
+                0x0000 => 4,                   // BrtRowHdr
+                0x0002 | 0x0007 => 12,         // BrtCellRk, BrtCellIsst
+                0x0003 | 0x0004 | 0x000A => 9, // BrtCellError, BrtCellBool, BrtFmlaBool
+                0x0005 | 0x0009 => 16,         // BrtCellReal, BrtFmlaNum
+                0x0006 | 0x0008 => 8,          // BrtCellSt, BrtFmlaString
+                _ => 0,
+            };
+            check_record_len("cell record length", len, min_len)?;
             let value = match self.typ {
                 // 0x0001 => continue, // Data::Empty, // BrtCellBlank
                 0x0002 => {
@@ -144,11 +157,19 @@ where
                     let v = read_f64(&self.buf[8..16]);
                     format_excel_f64_ref(v, cell_format(self.formats, &self.buf), self.is_1904)
                 } // BrtCellReal or BrtFmlaNum
-                0x0006 | 0x0008 => DataRef::String(wide_str(&self.buf[8..], &mut 0)?.into_owned()), // BrtCellSt or BrtFmlaString
+                0x0006 | 0x0008 => {
+                    DataRef::String(wide_str(&self.buf[8..len], &mut 0)?.into_owned())
+                } // BrtCellSt or BrtFmlaString
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&self.buf[8..12]);
-                    DataRef::SharedString(&self.strings[isst])
+                    let Some(string) = self.strings.get(isst) else {
+                        return Err(XlsbError::Unrecognized {
+                            typ: "shared string index",
+                            val: isst.to_string(),
+                        });
+                    };
+                    DataRef::SharedString(string)
                 }
                 0x0000 => {
                     // BrtRowHdr
@@ -170,34 +191,31 @@ where
     pub fn next_formula(&mut self) -> Result<Option<Cell<String>>, XlsbError> {
         let value = loop {
             self.typ = self.iter.read_type()?;
-            let _ = self.iter.fill_buffer(&mut self.buf)?;
+            let len = self.iter.fill_buffer(&mut self.buf)?;
+            let record = &self.buf[..len];
 
             let value = match self.typ {
                 // 0x0001 => continue, // Data::Empty, // BrtCellBlank
                 0x0008 => {
                     // BrtFmlaString
-                    let cch = read_u32(&self.buf[8..]) as usize;
-                    let formula = &self.buf[14 + cch * 2..];
-                    let cce = read_u32(formula) as usize;
-                    let rgce = &formula[4..4 + cce];
+                    check_record_len("formula record length", len, 12)?;
+                    let cch = read_u32(&record[8..]) as usize;
+                    let rgce = formula_rgce(record, cch.saturating_mul(2).saturating_add(14))?;
                     parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x0009 => {
                     // BrtFmlaNum
-                    let formula = &self.buf[18..];
-                    let cce = read_u32(formula) as usize;
-                    let rgce = &formula[4..4 + cce];
+                    let rgce = formula_rgce(record, 18)?;
                     parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x000A | 0x000B => {
                     // BrtFmlaBool | BrtFmlaError
-                    let formula = &self.buf[11..];
-                    let cce = read_u32(formula) as usize;
-                    let rgce = &formula[4..4 + cce];
+                    let rgce = formula_rgce(record, 11)?;
                     parse_formula(rgce, self.extern_sheets, self.metadata_names)?
                 }
                 0x0000 => {
                     // BrtRowHdr
+                    check_record_len("cell record length", len, 4)?;
                     self.row = read_u32(&self.buf);
                     if self.row > 0x0010_0000 {
                         return Ok(None); // invalid row
@@ -212,6 +230,20 @@ where
         let col = read_u32(&self.buf);
         Ok(Some(Cell::new((self.row, col), value)))
     }
+}
+
+/// Returns the rgce bytes of the formula that starts at `offset` in `record`.
+fn formula_rgce(record: &[u8], offset: usize) -> Result<&[u8], XlsbError> {
+    let too_short = || XlsbError::Unrecognized {
+        typ: "formula record length",
+        val: record.len().to_string(),
+    };
+    let formula = record.get(offset..).ok_or_else(too_short)?;
+    if formula.len() < 4 {
+        return Err(too_short());
+    }
+    let cce = read_u32(formula) as usize;
+    formula[4..].get(..cce).ok_or_else(too_short)
 }
 
 fn parse_dimensions(buf: &[u8]) -> Dimensions {

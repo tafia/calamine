@@ -4978,6 +4978,117 @@ fn test_xlsb_unknown_record_before_names() {
 }
 
 #[test]
+fn test_xlsb_shared_string_index_out_of_range() {
+    // Test that a BrtCellIsst record whose index is past the shared strings
+    // table returns an error instead of panicking. See issue #799.
+    let mut xlsb: Xlsb<_> = wb("shared_string_index_out_of_range.xlsb");
+    assert!(
+        matches!(
+            xlsb.worksheet_range("Sheet1"),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_sheet_relationship_not_found() {
+    // Test that a sheet whose relationship id is not in workbook.bin.rels
+    // returns an error instead of panicking. See issue #799.
+    let path = test_path("sheet_relationship_not_found.xlsb");
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, _>(path),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_short_ws_dim_record() {
+    // Test that a BrtWsDim record shorter than 16 bytes returns an error
+    // instead of panicking. See issue #799.
+    let mut xlsb: Xlsb<_> = wb("short_ws_dim_record.xlsb");
+    assert!(
+        matches!(
+            xlsb.worksheet_range("Sheet1"),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_short_bundle_sh_record() {
+    // Test that a BrtBundleSh record whose relationship id length is past the
+    // end of the record returns an error instead of panicking. See issue #799.
+    let path = test_path("short_bundle_sh_record.xlsb");
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, _>(path),
+            Err(calamine::XlsbError::Unrecognized {
+                typ: "BrtBundleSh record length",
+                ..
+            })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_empty_wb_prop_record() {
+    // Test that a BrtWbProp record with no data returns an error instead of
+    // panicking. See issue #799.
+    let path = test_path("empty_wb_prop_record.xlsb");
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, _>(path),
+            Err(calamine::XlsbError::Unrecognized {
+                typ: "BrtWbProp record length",
+                ..
+            })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_short_cell_record() {
+    // Test that a BrtCellIsst record that ends before the shared string index
+    // returns an error instead of reading the bytes of an earlier record. See
+    // issue #799.
+    let mut xlsb: Xlsb<_> = wb("short_cell_record.xlsb");
+    assert!(
+        matches!(
+            xlsb.worksheet_range("Sheet1"),
+            Err(calamine::XlsbError::Unrecognized {
+                typ: "cell record length",
+                ..
+            })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_short_formula_record() {
+    // Test that a BrtFmlaNum record whose formula length is past the end of
+    // the record returns an error instead of panicking. See issue #799.
+    let mut xlsb: Xlsb<_> = wb("short_formula_record.xlsb");
+    assert!(
+        matches!(
+            xlsb.worksheet_formula("Sheet1"),
+            Err(calamine::XlsbError::Unrecognized {
+                typ: "formula record length",
+                ..
+            })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
 fn test_xls_cfb_short_directory_chunk_does_not_panic() {
     // Test that a compound file whose directory stream length is not a multiple
     // of 128 doesn't panic. See pull request #762.
