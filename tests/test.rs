@@ -5067,3 +5067,41 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_xlsx_table_definitions_and_external_links() {
+    // Test that full table dimensions, header/totals row counts, and external
+    // workbook links are read from xlsx files. See issue #786.
+    let mut xlsx: Xlsx<_> = wb("inventory-table.xlsx");
+    xlsx.load_tables().unwrap();
+    let defs = xlsx.table_definitions();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].name, "Table1");
+    assert_eq!(defs[0].sheet_name, "Sheet1");
+    assert_eq!(defs[0].columns, vec!["Item", "Type", "Quantity"]);
+    assert_eq!(
+        defs[0].full_dimensions,
+        calamine::Dimensions::new((0, 0), (4, 2))
+    );
+    assert_eq!(
+        defs[0].data_dimensions,
+        calamine::Dimensions::new((1, 0), (4, 2))
+    );
+    assert_eq!(defs[0].header_row_count, 1);
+    assert_eq!(defs[0].totals_row_count, 0);
+
+    let table = xlsx.table_by_name("Table1").unwrap();
+    assert_eq!(
+        table.full_dimensions(),
+        calamine::Dimensions::new((0, 0), (4, 2))
+    );
+    assert_eq!(table.header_row_count(), 1);
+    assert_eq!(table.totals_row_count(), 0);
+
+    let errors_xlsx: Xlsx<_> = wb("errors.xlsx");
+    let links = errors_xlsx.external_links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].target, "Feuil8");
+    assert_eq!(links[0].sheets.len(), 1);
+    assert_eq!(links[0].sheets[0].name, "Feuil8");
+}
