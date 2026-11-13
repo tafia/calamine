@@ -297,25 +297,27 @@ impl<RS: Read + Seek> Xlsb<RS> {
         loop {
             match iter.read_type()? {
                 0x0099 => {
-                    let _ = iter.fill_buffer(&mut buf)?;
+                    let len = iter.fill_buffer(&mut buf)?;
+                    check_record_len("BrtWbProp record length", len, 1)?;
                     self.is_1904 = &buf[0] & 0x1 != 0;
                 } // BrtWbProp
                 0x009C => {
                     // BrtBundleSh
                     let len = iter.fill_buffer(&mut buf)?;
+                    check_record_len("BrtBundleSh record length", len, 12)?;
                     let rel_len = read_u32(&buf[8..len]);
                     if rel_len != 0xFFFF_FFFF {
                         let rel_len = rel_len as usize * 2;
+                        check_record_len("BrtBundleSh record length", len, 12 + rel_len)?;
                         let relid = &buf[12..12 + rel_len];
                         // converts utf16le to utf8 for HashMap search
                         let relid = UTF_16LE.decode(relid).0;
-                        let target =
-                            relationships
-                                .get(&*relid)
-                                .ok_or_else(|| XlsbError::Unrecognized {
-                                    typ: "sheet relationship id",
-                                    val: relid.to_string(),
-                                })?;
+                        let Some(target) = relationships.get(&*relid) else {
+                            return Err(XlsbError::Unrecognized {
+                                typ: "sheet relationship id",
+                                val: relid.to_string(),
+                            });
+                        };
                         let path = format!("xl/{target}");
                         // ST_SheetState
                         let visible = match read_u32(&buf) {
@@ -766,6 +768,17 @@ where
             }
         }
     }
+}
+
+/// Returns an error if a record of `len` bytes is shorter than `min` bytes.
+fn check_record_len(typ: &'static str, len: usize, min: usize) -> Result<(), XlsbError> {
+    if len < min {
+        return Err(XlsbError::Unrecognized {
+            typ,
+            val: len.to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn wide_str<'a>(buf: &'a [u8], str_len: &mut usize) -> Result<Cow<'a, str>, XlsbError> {
