@@ -1055,7 +1055,13 @@ fn parse_formula(
                 formula.push_str("#REF!");
                 rgce = &rgce[12..];
             }
-            0x29 | 0x49 | 0x69 => {
+            0x26..=0x29 | 0x46..=0x49 | 0x66..=0x69 => {
+                // PtgMemArea, PtgMemErr, PtgMemNoMem or PtgMemFunc, followed
+                // by a subexpression of cce bytes. All but PtgMemFunc have 4
+                // bytes before cce.
+                if !matches!(ptg, 0x29 | 0x49 | 0x69) {
+                    rgce = &rgce[4..];
+                }
                 let cce = read_u16(rgce) as usize;
                 rgce = &rgce[2..];
                 let f = parse_formula(&rgce[..cce], sheets, names)?;
