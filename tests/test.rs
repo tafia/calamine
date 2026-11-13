@@ -4978,6 +4978,48 @@ fn test_xlsb_unknown_record_before_names() {
 }
 
 #[test]
+fn test_xlsb_shared_string_index_out_of_range() {
+    // Test that a BrtCellIsst record whose index is past the shared strings
+    // table returns an error instead of panicking. See issue #799.
+    let mut xlsb: Xlsb<_> = wb("shared_string_index_out_of_range.xlsb");
+    assert!(
+        matches!(
+            xlsb.worksheet_range("Sheet1"),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_sheet_relationship_not_found() {
+    // Test that a sheet whose relationship id is not in workbook.bin.rels
+    // returns an error instead of panicking. See issue #799.
+    let path = test_path("sheet_relationship_not_found.xlsb");
+    assert!(
+        matches!(
+            open_workbook::<Xlsb<_>, _>(path),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
+fn test_xlsb_short_ws_dim_record() {
+    // Test that a BrtWsDim record shorter than 16 bytes returns an error
+    // instead of panicking. See issue #799.
+    let mut xlsb: Xlsb<_> = wb("short_ws_dim_record.xlsb");
+    assert!(
+        matches!(
+            xlsb.worksheet_range("Sheet1"),
+            Err(calamine::XlsbError::Unrecognized { .. })
+        ),
+        "Expected XlsbError::Unrecognized"
+    );
+}
+
+#[test]
 fn test_xls_cfb_short_directory_chunk_does_not_panic() {
     // Test that a compound file whose directory stream length is not a multiple
     // of 128 doesn't panic. See pull request #762.

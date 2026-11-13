@@ -309,7 +309,14 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         let relid = &buf[12..12 + rel_len];
                         // converts utf16le to utf8 for HashMap search
                         let relid = UTF_16LE.decode(relid).0;
-                        let path = format!("xl/{}", relationships[&*relid]);
+                        let target =
+                            relationships
+                                .get(&*relid)
+                                .ok_or_else(|| XlsbError::Unrecognized {
+                                    typ: "sheet relationship id",
+                                    val: relid.to_string(),
+                                })?;
+                        let path = format!("xl/{target}");
                         // ST_SheetState
                         let visible = match read_u32(&buf) {
                             0 => SheetVisible::Visible,

@@ -44,7 +44,7 @@ where
     ) -> Result<Self, XlsbError> {
         let mut buf = Vec::with_capacity(1024);
         // BrtWsDim
-        let _ = iter.next_skip_blocks(
+        let len = iter.next_skip_blocks(
             0x0094,
             &[
                 (0x0081, None), // BrtBeginSheet
@@ -52,6 +52,14 @@ where
             ],
             &mut buf,
         )?;
+        // The buffer can be longer than the record, since it also held the
+        // records that were skipped.
+        if len < 16 {
+            return Err(XlsbError::Unrecognized {
+                typ: "BrtWsDim record length",
+                val: len.to_string(),
+            });
+        }
         let dimensions = parse_dimensions(&buf[..16]);
 
         // BrtBeginSheetData
@@ -148,7 +156,11 @@ where
                 0x0007 => {
                     // BrtCellIsst
                     let isst = read_usize(&self.buf[8..12]);
-                    DataRef::SharedString(&self.strings[isst])
+                    let string = self.strings.get(isst).ok_or(XlsbError::Unrecognized {
+                        typ: "shared string index",
+                        val: isst.to_string(),
+                    })?;
+                    DataRef::SharedString(string)
                 }
                 0x0000 => {
                     // BrtRowHdr
