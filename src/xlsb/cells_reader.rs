@@ -214,7 +214,7 @@ where
     }
 }
 
-fn parse_dimensions(buf: &[u8]) -> Dimensions {
+pub(super) fn parse_dimensions(buf: &[u8]) -> Dimensions {
     Dimensions {
         start: (read_u32(&buf[0..4]), read_u32(&buf[8..12])),
         end: (read_u32(&buf[4..8]), read_u32(&buf[12..16])),
