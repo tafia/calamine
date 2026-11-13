@@ -361,7 +361,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == "sst" => {
                     if let Some(count) = e.raw_attr("uniqueCount")? {
                         if let Ok(n) = atoi_simd::parse::<usize, true, false>(count.as_bytes()) {
-                            self.strings.reserve(n);
+                            self.strings.reserve(n.min(8192));
                         }
                     }
                     break;
