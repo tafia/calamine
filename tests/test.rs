@@ -1144,6 +1144,22 @@ fn test_xlsx_date_east_asian_explicit_formats() {
     }
 }
 
+#[test]
+fn test_xls_custom_format_builtin_ids() {
+    // Test that explicit FORMAT records with built-in East Asian date format
+    // IDs (50 and 51) override the built-in date fallback so numeric cells are
+    // read as numbers rather than dates. See issue #798.
+    let mut workbook: Xls<_> = wb("custom_format_builtin_ids.xls");
+    let range = workbook.worksheet_range("Лист_1").unwrap();
+
+    assert_eq!(range.get_value((1, 0)), Some(&String("V-RTLA02140".into())));
+    assert_eq!(range.get_value((1, 1)), Some(&Float(3.505)));
+    assert_eq!(range.get_value((2, 0)), Some(&String("36501003".into())));
+    assert_eq!(range.get_value((2, 1)), Some(&Float(286.5)));
+    assert_eq!(range.get_value((3, 0)), Some(&String("LA550".into())));
+    assert_eq!(range.get_value((3, 1)), Some(&Int(5)));
+}
+
 // Test that a custom number format whose `formatCode` contains quoted literal
 // text (e.g. `mmmm" "yyyy`) is detected as a date. The quotes are stored in
 // styles.xml as `&quot;` XML entity references, so the format detection must

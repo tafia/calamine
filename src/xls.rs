@@ -1237,12 +1237,9 @@ fn parse_format(
             found: r.data.len(),
         });
     }
+    // Accept any format index so explicit FORMAT records take precedence over
+    // built-in fallbacks, even when writers reuse built-in or out-of-range IDs.
     let ifmt = read_u16(r.data);
-    match ifmt {
-        5..=8 | 23..=26 | 41..=44 | 63..=66 | 164..=382 => (),
-        _ => return Err(XlsError::InvalidFormat { ifmt }),
-    }
-
     let s = parse_string(&r.data[2..], encoding, biff)?;
     Ok((ifmt, detect_custom_number_format(&s)))
 }
@@ -2135,5 +2132,66 @@ mod tests {
         let mut rgce = vec![5u8, 0, 0x17, 6];
         rgce.extend_from_slice(b"SCH");
         parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5).unwrap_err();
+    }
+
+    #[test]
+    fn test_xls_parse_format_any_id() {
+        // Test that explicit FORMAT records are accepted for any format ID,
+        // including built-in East Asian date IDs and IDs beyond 382.
+        // See issue #798.
+        let enc = XlsEncoding::from_codepage(1200).unwrap();
+
+        let make_biff8_format = |ifmt: u16, code: &str| {
+            let mut data = Vec::new();
+            data.extend_from_slice(&ifmt.to_le_bytes());
+            data.extend_from_slice(&(code.len() as u16).to_le_bytes());
+            data.push(0); // Compressed 8-bit characters.
+            data.extend_from_slice(code.as_bytes());
+            data
+        };
+
+        // Numeric format stored at built-in East Asian date ID 50.
+        let data = make_biff8_format(50, "0.000");
+        let mut rec = Record {
+            typ: 0x041E,
+            data: &data,
+            cont: Vec::new(),
+        };
+        assert_eq!(
+            parse_format(&mut rec, &enc, Biff::Biff8).unwrap(),
+            (50, CellFormat::Other)
+        );
+
+        // Date format stored at built-in General ID 0.
+        let data = make_biff8_format(0, "yyyy-mm-dd");
+        let mut rec = Record {
+            typ: 0x041E,
+            data: &data,
+            cont: Vec::new(),
+        };
+        assert_eq!(
+            parse_format(&mut rec, &enc, Biff::Biff8).unwrap(),
+            (0, CellFormat::DateTime)
+        );
+
+        // Custom duration format stored at an ID beyond 382.
+        let data = make_biff8_format(400, "[h]:mm:ss");
+        let mut rec = Record {
+            typ: 0x041E,
+            data: &data,
+            cont: Vec::new(),
+        };
+        assert_eq!(
+            parse_format(&mut rec, &enc, Biff::Biff8).unwrap(),
+            (400, CellFormat::TimeDelta)
+        );
+
+        // A truncated record shorter than 2 bytes still returns an error.
+        let mut short = Record {
+            typ: 0x041E,
+            data: &[0x32],
+            cont: Vec::new(),
+        };
+        assert!(parse_format(&mut short, &enc, Biff::Biff8).is_err());
     }
 }
