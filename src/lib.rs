@@ -132,6 +132,7 @@ use crate::vba::VbaProject;
 /// An enum to represent all different errors that can appear as
 /// a value in a worksheet cell
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CellErrorType {
     /// Division by 0 error
     Div0,
@@ -149,6 +150,22 @@ pub enum CellErrorType {
     Value,
     /// Getting data
     GettingData,
+    /// Dynamic array spill range is blocked (`#SPILL!`)
+    Spill,
+    /// Calculation engine error (`#CALC!`)
+    Calc,
+    /// Access or security blocked error (`#BLOCKED!`)
+    Blocked,
+    /// Unrecognized or unsupported value error (`#UNKNOWN!`)
+    Unknown,
+    /// Invalid linked data type field (`#FIELD!`)
+    Field,
+    /// External connection or service error (`#CONNECT!`)
+    Connect,
+    /// Asynchronous calculation in progress (`#BUSY!`)
+    Busy,
+    /// Python in Excel evaluation error (`#PYTHON!`)
+    Python,
 }
 
 impl fmt::Display for CellErrorType {
@@ -162,6 +179,14 @@ impl fmt::Display for CellErrorType {
             CellErrorType::Ref => write!(f, "#REF!"),
             CellErrorType::Value => write!(f, "#VALUE!"),
             CellErrorType::GettingData => write!(f, "#DATA!"),
+            CellErrorType::Spill => write!(f, "#SPILL!"),
+            CellErrorType::Calc => write!(f, "#CALC!"),
+            CellErrorType::Blocked => write!(f, "#BLOCKED!"),
+            CellErrorType::Unknown => write!(f, "#UNKNOWN!"),
+            CellErrorType::Field => write!(f, "#FIELD!"),
+            CellErrorType::Connect => write!(f, "#CONNECT!"),
+            CellErrorType::Busy => write!(f, "#BUSY!"),
+            CellErrorType::Python => write!(f, "#PYTHON!"),
         }
     }
 }
