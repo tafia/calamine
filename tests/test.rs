@@ -263,6 +263,48 @@ fn test_ods_data_types() {
 }
 
 #[test]
+fn test_ods_row_with_whitespace() {
+    // Test that XML whitespace between cells preserves their values and text spacing.
+    let mut ods: Ods<_> = wb("ods-row-whitespace.ods");
+    let sheets = [
+        "Compact",
+        "Indented",
+        "Space",
+        "Tab",
+        "Carriage return",
+        "Line feed",
+        "Mixed",
+    ];
+    assert_eq!(ods.sheet_names(), sheets);
+    for sheet in sheets {
+        let range = ods.worksheet_range(sheet).unwrap();
+        range_eq!(
+            range,
+            [[String("  INV-SEC-1  ".into()), Float(125.5), Bool(true)]]
+        );
+    }
+}
+
+#[test]
+fn test_ods_read_errors() {
+    // Test that ordinary text and non-XML whitespace between cells are rejected.
+    assert!(matches!(
+        open_workbook::<Ods<_>, _>(test_path("ods-row-unexpected-text.ods")),
+        Err(calamine::OdsError::Mismatch {
+            expected: "table-cell",
+            ..
+        })
+    ));
+    assert!(matches!(
+        open_workbook::<Ods<_>, _>(test_path("ods-row-non-xml-whitespace.ods")),
+        Err(calamine::OdsError::Mismatch {
+            expected: "table-cell",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn test_ods_covered_cells() {
     // Test that an ods sheet with covered table cells reads the visible cell
     // values.
