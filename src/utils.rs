@@ -77,6 +77,137 @@ pub(crate) fn column_name_digits(col: u32, out: &mut [u8]) -> usize {
     n
 }
 
+/// Quote a sheet name for a formula, such as `'My Sheet'`, if Excel would.
+///
+/// An apostrophe in a quoted name is doubled. The rules are the same as
+/// `quote_sheet_name()` in `rust_xlsxwriter`, plus the quoting of `TRUE` and
+/// `FALSE`.
+pub(crate) fn quote_sheet_name(name: &str) -> Cow<'_, str> {
+    if sheet_name_needs_quotes(name) {
+        Cow::Owned(format!("'{}'", name.replace('\'', "''")))
+    } else {
+        Cow::Borrowed(name)
+    }
+}
+
+/// Check if Excel quotes a sheet name in a formula.
+fn sheet_name_needs_quotes(name: &str) -> bool {
+    const ROW_MAX: u64 = 1_048_576;
+    const COL_MAX: u64 = 16_384;
+
+    // Rule 1. Names with characters other than letters, digits, `_`, `.` and
+    // emoji are quoted.
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || is_emoji(c))
+    {
+        return true;
+    }
+
+    // Rule 2. Names that start with a digit, `.` or an emoji are quoted.
+    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit() || c == '.' || is_emoji(c))
+    {
+        return true;
+    }
+
+    // The boolean values are quoted.
+    if name.eq_ignore_ascii_case("TRUE") || name.eq_ignore_ascii_case("FALSE") {
+        return true;
+    }
+
+    // Split names like `A1` and `R1C1` into the letters before the first digit
+    // and the rest. Names without a digit are only quoted if they are an R1C1
+    // reference to the current row or column.
+    let Some(position) = name.find(|c: char| c.is_ascii_digit()) else {
+        return ["R", "C", "RC"]
+            .iter()
+            .any(|r| name.eq_ignore_ascii_case(r));
+    };
+    let (letters, number) = name.split_at(position);
+    if !letters.chars().all(|c| c.is_ascii_alphabetic()) {
+        return false;
+    }
+    let letters = letters.to_ascii_uppercase();
+    let digits = number.bytes().take_while(u8::is_ascii_digit).count();
+    let value = number[..digits].parse::<u64>().unwrap_or_default();
+
+    // Rule 3. Names that are an A1 reference within Excel's limits are quoted.
+    if letters.len() <= 3 && digits == number.len() {
+        let col = letters
+            .bytes()
+            .fold(0, |col, b| col * 26 + u64::from(b - b'A' + 1));
+        if (1..=ROW_MAX).contains(&value) && col <= COL_MAX {
+            return true;
+        }
+    }
+
+    // Rule 4. Names that start with an R1C1 reference within Excel's limits are
+    // quoted. Characters after the reference are ignored.
+    match letters.as_str() {
+        "R" => (1..=ROW_MAX).contains(&value),
+        "C" | "RC" => (1..=COL_MAX).contains(&value),
+        _ => false,
+    }
+}
+
+// Match the emoji characters that Excel allows in an unquoted sheet name.
+fn is_emoji(c: char) -> bool {
+    if c < '\u{203C}' {
+        // Shortcut for most chars in the lower range. We ignore '#', '*',
+        // '0-9', '©️' and '®️' which are in this range and which are, strictly
+        // speaking, emoji symbols but they are not treated so by Excel in the
+        // context of this check.
+        return false;
+    }
+
+    if c < '\u{01F004}' {
+        return matches!(c,
+            '\u{203C}' | '\u{2049}' | '\u{2122}' | '\u{2139}' | '\u{2194}'..='\u{2199}' |
+            '\u{21A9}' | '\u{21AA}' | '\u{231A}' | '\u{231B}' | '\u{2328}' | '\u{23CF}' |
+            '\u{23E9}'..='\u{23F3}' | '\u{23F8}'..='\u{23FA}' | '\u{24C2}' | '\u{25AA}' |
+            '\u{25AB}' | '\u{25B6}' | '\u{25C0}' | '\u{25FB}'..='\u{25FE}' |
+            '\u{2600}'..='\u{2604}' | '\u{260E}' | '\u{2611}' | '\u{2614}' | '\u{2615}' |
+            '\u{2618}' | '\u{261D}' | '\u{2620}' | '\u{2622}' | '\u{2623}' | '\u{2626}' |
+            '\u{262A}' | '\u{262E}' | '\u{262F}' | '\u{2638}'..='\u{263A}' | '\u{2640}' |
+            '\u{2642}' | '\u{2648}'..='\u{2653}' | '\u{265F}' | '\u{2660}' | '\u{2663}' |
+            '\u{2665}' | '\u{2666}' | '\u{2668}' | '\u{267B}' | '\u{267E}' | '\u{267F}' |
+            '\u{2692}'..='\u{2697}' | '\u{2699}' | '\u{269B}' | '\u{269C}' | '\u{26A0}' |
+            '\u{26A1}' | '\u{26A7}' | '\u{26AA}' | '\u{26AB}' | '\u{26B0}' | '\u{26B1}' |
+            '\u{26BD}' | '\u{26BE}' | '\u{26C4}' | '\u{26C5}' | '\u{26C8}' | '\u{26CE}' |
+            '\u{26CF}' | '\u{26D1}' | '\u{26D3}' | '\u{26D4}' | '\u{26E9}' | '\u{26EA}' |
+            '\u{26F0}'..='\u{26F5}' | '\u{26F7}'..='\u{26FA}' | '\u{26FD}' | '\u{2702}' |
+            '\u{2705}' | '\u{2708}'..='\u{270D}' | '\u{270F}' | '\u{2712}' | '\u{2714}' |
+            '\u{2716}' | '\u{271D}' | '\u{2721}' | '\u{2728}' | '\u{2733}' | '\u{2734}' |
+            '\u{2744}' | '\u{2747}' | '\u{274C}' | '\u{274E}' | '\u{2753}'..='\u{2755}' |
+            '\u{2757}' | '\u{2763}' | '\u{2764}' | '\u{2795}'..='\u{2797}' | '\u{27A1}' |
+            '\u{27B0}' | '\u{27BF}' | '\u{2934}' | '\u{2935}' | '\u{2B05}'..='\u{2B07}' |
+            '\u{2B1B}' | '\u{2B1C}' | '\u{2B50}' | '\u{2B55}' | '\u{3030}' | '\u{303D}' |
+            '\u{3297}' | '\u{3299}'
+        );
+    }
+
+    matches!(c,
+        '\u{01F004}' | '\u{01F0CF}' | '\u{01F170}' | '\u{01F171}' | '\u{01F17E}' | '\u{01F17F}' |
+        '\u{01F18E}' | '\u{01F191}'..='\u{01F19A}' | '\u{01F1E6}'..='\u{01F1FF}' | '\u{01F201}' |
+        '\u{01F202}' | '\u{01F21A}' | '\u{01F22F}' | '\u{01F232}'..='\u{01F23A}' | '\u{01F250}' |
+        '\u{01F251}' | '\u{01F300}'..='\u{01F321}' | '\u{01F324}'..='\u{01F393}' | '\u{01F396}' |
+        '\u{01F397}' | '\u{01F399}'..='\u{01F39B}' | '\u{01F39E}'..='\u{01F3F0}' |
+        '\u{01F3F3}'..='\u{01F3F5}' | '\u{01F3F7}'..='\u{01F4FD}' | '\u{01F4FF}'..='\u{01F53D}' |
+        '\u{01F549}'..='\u{01F54E}' | '\u{01F550}'..='\u{01F567}' | '\u{01F56F}' | '\u{01F570}' |
+        '\u{01F573}'..='\u{01F57A}' | '\u{01F587}' | '\u{01F58A}'..='\u{01F58D}' | '\u{01F590}' |
+        '\u{01F595}' | '\u{01F596}' | '\u{01F5A4}' | '\u{01F5A5}' | '\u{01F5A8}' | '\u{01F5B1}' |
+        '\u{01F5B2}' | '\u{01F5BC}' | '\u{01F5C2}'..='\u{01F5C4}' | '\u{01F5D1}'..='\u{01F5D3}' |
+        '\u{01F5DC}'..='\u{01F5DE}' | '\u{01F5E1}' | '\u{01F5E3}' | '\u{01F5E8}' | '\u{01F5EF}' |
+        '\u{01F5F3}' | '\u{01F5FA}'..='\u{01F64F}' | '\u{01F680}'..='\u{01F6C5}' |
+        '\u{01F6CB}'..='\u{01F6D2}' | '\u{01F6D5}'..='\u{01F6D7}' | '\u{01F6DC}'..='\u{01F6E5}' |
+        '\u{01F6E9}' | '\u{01F6EB}' | '\u{01F6EC}' | '\u{01F6F0}' | '\u{01F6F3}'..='\u{01F6FC}' |
+        '\u{01F7E0}'..='\u{01F7EB}' | '\u{01F7F0}' | '\u{01F90C}'..='\u{01F93A}' |
+        '\u{01F93C}'..='\u{01F945}' | '\u{01F947}'..='\u{01F9FF}' | '\u{01FA70}'..='\u{01FA7C}' |
+        '\u{01FA80}'..='\u{01FA88}' | '\u{01FA90}'..='\u{01FABD}' | '\u{01FABF}'..='\u{01FAC5}' |
+        '\u{01FACE}'..='\u{01FADB}' | '\u{01FAE0}'..='\u{01FAE8}' | '\u{01FAF0}'..='\u{01FAF8}'
+    )
+}
+
 // Utility function to unescape standard XML entities or character references
 // generated by a `quick_xml::Event::GeneralRef()`. Appends the result to the
 // provided buffer or returns a `quick_xml::Error`.
@@ -1217,6 +1348,161 @@ mod tests {
         check(701, "ZZ");
         check(702, "AAA");
         check(16383, "XFD");
+    }
+
+    #[test]
+    fn test_quote_sheet_name() {
+        // Unquoted and quoted sheet names from Excel files, from the tests of
+        // `quote_sheet_name()` in `rust_xlsxwriter`.
+        let tests = [
+            // ----------------------------------------------------------------
+            // Rule 1.
+            // ----------------------------------------------------------------
+            // Some simple variants on standard sheet names.
+            ("Sheet1", "Sheet1"),
+            ("Sheet.1", "Sheet.1"),
+            ("Sheet_1", "Sheet_1"),
+            ("Sheet-1", "'Sheet-1'"),
+            ("Sheet 1", "'Sheet 1'"),
+            ("Sheet#1", "'Sheet#1'"),
+            // Sheetnames with single quotes.
+            ("Sheet'1", "'Sheet''1'"),
+            ("Sheet''1", "'Sheet''''1'"),
+            // Single special chars that are unquoted in sheetnames. These are
+            // variants of the first char rule.
+            ("_", "_"),
+            (".", "'.'"),
+            // White space only.
+            (" ", "' '"),
+            ("    ", "'    '"),
+            // Sheetnames with unicode or emojis.
+            ("été", "été"),
+            ("mangé", "mangé"),
+            ("Sheet©", "'Sheet©'"),
+            ("Sheet😀", "Sheet😀"),
+            ("Sheet🤌1", "Sheet🤌1"),
+            ("Sheet⟦1", "'Sheet⟦1'"), // Unicode punctuation.
+            ("Sheet᠅1", "'Sheet᠅1'"), // Unicode punctuation.
+            // ----------------------------------------------------------------
+            // Rule 2.
+            // ----------------------------------------------------------------
+            // Sheetnames starting with non-word characters.
+            ("_Sheet1", "_Sheet1"),
+            (".Sheet1", "'.Sheet1'"),
+            ("1Sheet1", "'1Sheet1'"),
+            ("-Sheet1", "'-Sheet1'"),
+            ("#Sheet1", "'#Sheet1'"),
+            ("©Sheet", "'©Sheet'"),
+            ("😀Sheet", "'😀Sheet'"),
+            ("🤌Sheet", "'🤌Sheet'"),
+            // Sheetnames that are digits only also start with a non word char.
+            ("1", "'1'"),
+            ("2", "'2'"),
+            ("1234", "'1234'"),
+            ("12345678", "'12345678'"),
+            // ----------------------------------------------------------------
+            // Rule 3.
+            // ----------------------------------------------------------------
+            // Worksheet names that look like A1 style references (with the
+            // row/column number in the Excel allowable range). These are case
+            // insensitive.
+            ("A0", "A0"),
+            ("A1", "'A1'"),
+            ("a1", "'a1'"),
+            ("XFD", "XFD"),
+            ("xfd", "xfd"),
+            ("XFE1", "XFE1"),
+            ("ZZZ1", "ZZZ1"),
+            ("XFD1", "'XFD1'"),
+            ("xfd1", "'xfd1'"),
+            ("B1048577", "B1048577"),
+            ("A1048577", "A1048577"),
+            ("A1048576", "'A1048576'"),
+            ("B1048576", "'B1048576'"),
+            ("B1048576a", "B1048576a"),
+            ("XFD048576", "'XFD048576'"),
+            ("XFD1048576", "'XFD1048576'"),
+            ("XFD01048577", "XFD01048577"),
+            ("XFD01048576", "'XFD01048576'"),
+            ("A123456789012345678901", "A123456789012345678901"), // Exceeds u64.
+            // Sheet names where the characters before the digits aren't ASCII
+            // column letters aren't treated as cell references.
+            ("Q.1", "Q.1"),
+            ("_1", "_1"),
+            ("é1", "é1"),
+            ("一1", "一1"),
+            ("éa1", "éa1"),
+            ("ß1", "ß1"), // Uppercases to "SS" but isn't treated as "SS1".
+            ("ﬁ1", "ﬁ1"), // Uppercases to "FI" but isn't treated as "FI1".
+            // ----------------------------------------------------------------
+            // Rule 4.
+            // ----------------------------------------------------------------
+            // Sheet names that *start* with RC style references (with the
+            // row/column number in the Excel allowable range). These are case
+            // insensitive.
+            ("A", "A"),
+            ("B", "B"),
+            ("D", "D"),
+            ("Q", "Q"),
+            ("S", "S"),
+            ("c", "'c'"),
+            ("C", "'C'"),
+            ("CR", "CR"),
+            ("CZ", "CZ"),
+            ("r", "'r'"),
+            ("R", "'R'"),
+            ("C8", "'C8'"),
+            ("rc", "'rc'"),
+            ("RC", "'RC'"),
+            ("RCZ", "RCZ"),
+            ("RRC", "RRC"),
+            ("R0C0", "R0C0"),
+            ("R4C", "'R4C'"),
+            ("R5C", "'R5C'"),
+            ("rc2", "'rc2'"),
+            ("RC2", "'RC2'"),
+            ("RC8", "'RC8'"),
+            ("bR1C1", "bR1C1"),
+            ("R1C1", "'R1C1'"),
+            ("r1c2", "'r1c2'"),
+            ("rc2z", "'rc2z'"),
+            ("bR1C1b", "bR1C1b"),
+            ("R1C1b", "'R1C1b'"),
+            ("R1C1R", "'R1C1R'"),
+            ("C16384", "'C16384'"),
+            ("C16385", "'C16385'"),
+            ("C16385Z", "C16385Z"),
+            ("C16386", "'C16386'"),
+            ("C16384Z", "'C16384Z'"),
+            ("PC16384Z", "PC16384Z"),
+            ("RC16383", "'RC16383'"),
+            ("RC16385Z", "RC16385Z"),
+            ("R1048576", "'R1048576'"),
+            ("R1048577C", "R1048577C"),
+            ("R1C16384", "'R1C16384'"),
+            ("R1C16385", "'R1C16385'"),
+            ("RC16384Z", "'RC16384Z'"),
+            ("R1048576C", "'R1048576C'"),
+            ("R1048577C1", "R1048577C1"),
+            ("R1C16384Z", "'R1C16384Z'"),
+            ("R1048575C1", "'R1048575C1'"),
+            ("R1048576C1", "'R1048576C1'"),
+            ("R1048577C16384", "R1048577C16384"),
+            ("R1048576C16384", "'R1048576C16384'"),
+            ("R1048576C16385", "'R1048576C16385'"),
+            ("ZR1048576C16384", "ZR1048576C16384"),
+            ("C123456789012345678901Z", "C123456789012345678901Z"), // Exceeds u64.
+            ("R123456789012345678901Z", "R123456789012345678901Z"), // Exceeds u64.
+            // ----------------------------------------------------------------
+            // Boolean values.
+            // ----------------------------------------------------------------
+            ("TRUE", "'TRUE'"),
+            ("false", "'false'"),
+        ];
+
+        for (name, expected) in tests {
+            assert_eq!(quote_sheet_name(name), expected, "for name {name:?}");
+        }
     }
 
     #[test]

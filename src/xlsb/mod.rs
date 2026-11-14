@@ -25,8 +25,8 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::datatype::DataRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{
-    build_zip_path_cache, cached_zip_path, push_column, read_f64, read_i32, read_u16, read_u32,
-    read_usize,
+    build_zip_path_cache, cached_zip_path, push_column, quote_sheet_name, read_f64, read_i32,
+    read_u16, read_u32, read_usize,
 };
 use crate::vba::VbaProject;
 use crate::xlsx::{read_app_properties, read_core_properties, read_custom_properties};
@@ -376,12 +376,14 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         .chunks(12)
                         .map(|xti| {
                             match read_i32(&xti[4..8]) {
-                                -2 => "#ThisWorkbook",
-                                -1 => "#InvalidWorkSheet",
-                                p if p >= 0 && (p as usize) < sheets.len() => &sheets[p as usize].0,
-                                _ => "#Unknown",
+                                -2 => "#ThisWorkbook".into(),
+                                -1 => "#InvalidWorkSheet".into(),
+                                p if p >= 0 && (p as usize) < sheets.len() => {
+                                    quote_sheet_name(&sheets[p as usize].0)
+                                }
+                                _ => "#Unknown".into(),
                             }
-                            .to_string()
+                            .into_owned()
                         })
                         .take(cxti)
                         .collect();
