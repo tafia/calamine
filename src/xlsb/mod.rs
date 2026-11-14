@@ -727,6 +727,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         &self.metadata
     }
 
+    fn has_1904_epoch(&self) -> bool {
+        self.is_1904
+    }
+
     /// MS-XLSB 2.1.7.62
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {
         let rge = self.worksheet_range_ref(name)?;

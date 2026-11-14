@@ -2848,6 +2848,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         &self.metadata
     }
 
+    fn has_1904_epoch(&self) -> bool {
+        self.is_1904
+    }
+
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsxError> {
         let rge = self.worksheet_range_ref(name)?;
         let inner = rge.inner.into_iter().map(|v| v.into()).collect();

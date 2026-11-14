@@ -5067,3 +5067,31 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_ods_date_1904() {
+    // Test that the 1904 date epoch is read from an ods file and exposed via
+    // Ods::has_1904_epoch(), Sheets::has_1904_epoch(), and Reader::has_1904_epoch().
+    // See issue #784.
+    let ods_1904: Ods<_> = wb("date_1904.ods");
+    assert!(ods_1904.has_1904_epoch());
+    assert!(Reader::has_1904_epoch(&ods_1904));
+
+    let ods_1900: Ods<_> = wb("date.ods");
+    assert!(!ods_1900.has_1904_epoch());
+    assert!(!Reader::has_1904_epoch(&ods_1900));
+
+    for file in [
+        "date_1904.xlsx",
+        "date_1904.xlsb",
+        "date_1904.xls",
+        "date_1904.ods",
+    ] {
+        let sheets = open_workbook_auto(test_path(file)).unwrap();
+        assert!(sheets.has_1904_epoch(), "{file}");
+        assert!(Reader::has_1904_epoch(&sheets), "{file}");
+    }
+
+    let sheets_1900 = open_workbook_auto(test_path("date.xlsx")).unwrap();
+    assert!(!sheets_1900.has_1904_epoch());
+}

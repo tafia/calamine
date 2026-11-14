@@ -170,6 +170,7 @@ impl std::error::Error for OdsError {
 pub struct Ods<RS> {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     metadata: Metadata,
+    is_1904: bool,
     marker: PhantomData<RS>,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
@@ -195,6 +196,11 @@ impl<RS> Ods<RS> {
             read_meta_properties(meta_xml, &mut props)?;
         }
         Ok(props)
+    }
+
+    /// Check if the workbook uses the 1904 date system.
+    pub fn has_1904_epoch(&self) -> bool {
+        self.is_1904
     }
 }
 
@@ -231,6 +237,7 @@ where
             sheets,
             sheets_metadata,
             defined_names,
+            is_1904,
         } = parse_content(zip)?;
         let metadata = Metadata {
             sheets: sheets_metadata,
@@ -240,6 +247,7 @@ where
         Ok(Ods {
             marker: PhantomData,
             metadata,
+            is_1904,
             sheets,
             #[cfg(feature = "picture")]
             pictures,
@@ -261,6 +269,10 @@ where
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    fn has_1904_epoch(&self) -> bool {
+        self.is_1904
     }
 
     /// Read worksheet data in corresponding worksheet path
@@ -310,6 +322,7 @@ struct Content {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+    is_1904: bool,
 }
 
 /// Check password protection
@@ -373,6 +386,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut buf = Vec::with_capacity(1024);
     let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
+    let mut is_1904 = false;
     let mut sheets_metadata = Vec::new();
     let mut styles = HashMap::new();
     let mut style_name: Option<String> = None;
@@ -395,6 +409,14 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     None => SheetVisible::Visible,
                 };
                 styles.insert(style_name.clone(), visible);
+            }
+            Ok(Event::Start(e)) if e.name() == QName("table:null-date") => {
+                if let Some(v) = e.raw_attr("table:date-value")? {
+                    let date_val = decode_attr(v)?;
+                    if date_val.trim().starts_with("1904-01-01") {
+                        is_1904 = true;
+                    }
+                }
             }
             Ok(Event::Start(e)) if e.name() == QName("table:table") => {
                 let visible = styles
@@ -429,6 +451,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         sheets,
         sheets_metadata,
         defined_names,
+        is_1904,
     })
 }
 
