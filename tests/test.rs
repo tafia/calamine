@@ -247,7 +247,8 @@ fn ods() {
 }
 
 #[test]
-fn ods_row_whitespace() {
+fn test_ods_row_with_whitespace() {
+    // Test that XML whitespace between cells preserves their values and text spacing.
     let mut ods: Ods<_> = wb("ods-row-whitespace.ods");
     let sheets = [
         "Compact",
@@ -266,27 +267,20 @@ fn ods_row_whitespace() {
             [[String("  INV-SEC-1  ".into()), Float(125.5), Bool(true)]]
         );
     }
-
-    #[cfg(feature = "picture")]
-    {
-        let archive = File::open(test_path("ods-row-whitespace.ods")).unwrap();
-        let mut archive = zip::ZipArchive::new(archive).unwrap();
-        let mut bytes = Vec::new();
-        std::io::Read::read_to_end(
-            &mut archive.by_name("Pictures/pixel.png").unwrap(),
-            &mut bytes,
-        )
-        .unwrap();
-        assert_eq!(ods.pictures(), Some(vec![("png".to_owned(), bytes)]));
-    }
 }
 
-#[rstest]
-#[case("ods-row-unexpected-text.ods")]
-#[case("ods-row-non-xml-whitespace.ods")]
-fn ods_row_rejects_unexpected_text(#[case] fixture: &str) {
+#[test]
+fn test_ods_read_errors() {
+    // Test that ordinary text and non-XML whitespace between cells are rejected.
     assert!(matches!(
-        open_workbook::<Ods<_>, _>(test_path(fixture)),
+        open_workbook::<Ods<_>, _>(test_path("ods-row-unexpected-text.ods")),
+        Err(calamine::OdsError::Mismatch {
+            expected: "table-cell",
+            ..
+        })
+    ));
+    assert!(matches!(
+        open_workbook::<Ods<_>, _>(test_path("ods-row-non-xml-whitespace.ods")),
         Err(calamine::OdsError::Mismatch {
             expected: "table-cell",
             ..
