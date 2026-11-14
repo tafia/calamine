@@ -1,6 +1,12 @@
 //! Calamine example to demonstrate stateful deserialization using
 //! [`RowDeserializer`] and [`serde::de::DeserializeSeed`].
 //!
+//! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example deserialize_seed
+//! ``
+//!
 //! Use this approach when:
 //! - Column names are only known at runtime (discovered from the header row),
 //!   or,

@@ -4,6 +4,12 @@
 
 //! Demonstrates streaming XLSX cell values and cell styles in one worksheet
 //! pass.
+//!
+//! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example xlsx_formula_stream
+//! ```
 
 use calamine::{open_workbook, Xlsx};
 

@@ -4,6 +4,12 @@
 
 //! An example of positional deserialization without a header row.
 //!
+//! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example deserialize_no_headers
+//! ``
+//!
 //! Compared with earlier examples, which assume the first row contains column
 //! names, this example shows [`RangeDeserializerBuilder::has_headers`] set to
 //! `false`. Every row, including the header row, is then yielded as a data

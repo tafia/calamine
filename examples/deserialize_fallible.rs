@@ -5,6 +5,12 @@
 //! An example of deserializing cells that may be empty or contain unexpected
 //! types.
 //!
+//! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example deserialize_fallible
+//! ``
+//!
 //! Compared with `deserialize_struct`, which expects every cell to contain a
 //! value of the correct type, this example shows how to handle cells that may
 //! be empty or hold a string where a number is expected.

@@ -4,6 +4,14 @@
 
 //! An example for using the `calamine` crate to convert an Excel file to CSV.
 //!
+//! //! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example excel_to_csv -- tests/readings.xlsx Sheet1
+//! ``
+//!
+//! This will create a new csv file 'readings.csv' in the tests folder.
+//!
 //! Converts XLSX, XLSM, XLSB, and XLS files. The filename and sheet name must
 //! be specified as command line arguments. The output CSV will be written to a
 //! file with the same name as the input file, but with a `.csv` extension.
@@ -40,11 +48,17 @@ fn main() {
     }
 
     let csv_path = excel_path.with_extension("csv");
-    let mut csv_file = BufWriter::new(File::create(csv_path).unwrap());
+    let mut csv_file = BufWriter::new(File::create(&csv_path).unwrap());
     let mut workbook = open_workbook_auto(&excel_path).unwrap();
     let range = workbook.worksheet_range(&sheet_name).unwrap();
 
     write_to_csv(&mut csv_file, &range).unwrap();
+
+    println!(
+        "Converted '{}' to '{}'",
+        excel_path.display(),
+        csv_path.display()
+    );
 }
 
 // Write the Excel data as strings to a CSV file. Uses a semicolon (`;`) as the
@@ -78,6 +92,5 @@ fn write_to_csv<W: Write>(output_file: &mut W, range: &Range<Data>) -> std::io::
 
         write!(output_file, "\r\n")?;
     }
-
     Ok(())
 }

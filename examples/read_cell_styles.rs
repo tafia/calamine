@@ -4,6 +4,12 @@
 
 //! Example of reading cell style/formatting information from a worksheet in
 //! an XLSX file.
+//!
+//! //! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example read_cell_styles
+//! ``
 
 use calamine::{open_workbook, Error, Reader, Xlsx};
 
