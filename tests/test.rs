@@ -652,6 +652,38 @@ fn test_xlsb_formula_references() {
 }
 
 #[test]
+fn test_xlsb_formula_sheet_names() {
+    // Test that sheet names in xlsb formulas are quoted when Excel quotes them.
+    let mut excel: Xlsb<_> = wb("formula_sheet_names.xlsb");
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(
+        formulas,
+        [
+            ["Plain!$A$1"],
+            ["SUM(_under!$A$1:$A$2)"],
+            ["Sales.2024!$A$1"],
+            ["SUM(Ünicode!$A$1:$A$2)"],
+            ["Rates!$A$1"],
+            ["SUM('My Sheet'!$A$1:$A$2)"],
+            ["'Bob''s'!$A$1"],
+            ["SUM('a-b'!$A$1:$A$2)"],
+            ["'€uro'!$A$1"],
+            ["SUM('2024'!$A$1:$A$2)"],
+            ["'A1'!$A$1"],
+            ["SUM('XFD1'!$A$1:$A$2)"],
+            ["XFE1!$A$1"],
+            ["SUM('R'!$A$1:$A$2)"],
+            ["'C'!$A$1"],
+            ["SUM('RC'!$A$1:$A$2)"],
+            ["'R2C3'!$A$1"],
+            ["SUM('TRUE'!$A$1:$A$2)"],
+            ["SALES!$A$1"],
+            ["SUM('Q3 SALES'!$A$1:$A$2)"],
+        ]
+    );
+}
+
+#[test]
 fn test_xlsb_formula_values() {
     // Test that the cached values of formula cells are read from an xlsb file.
     let mut excel: Xlsb<_> = wb("formula_values.xlsb");
@@ -2208,6 +2240,38 @@ fn test_xls_formula_references() {
             ["SUM(Sheet2!A1:B2)"],
             ["SUM(Sheet2!$A$1:$B$2)"],
             ["SUM(Sheet2!$A1:B$2)"],
+        ]
+    );
+}
+
+#[test]
+fn test_xls_formula_sheet_names() {
+    // Test that sheet names in xls formulas are quoted when Excel quotes them.
+    let mut excel: Xls<_> = wb("formula_sheet_names.xls");
+    let formulas = excel.worksheet_formula("Sheet1").unwrap();
+    range_eq!(
+        formulas,
+        [
+            ["Plain!$A$1"],
+            ["SUM(_under!$A$1:$A$2)"],
+            ["Sales.2024!$A$1"],
+            ["SUM(Ünicode!$A$1:$A$2)"],
+            ["Rates!$A$1"],
+            ["SUM('My Sheet'!$A$1:$A$2)"],
+            ["'Bob''s'!$A$1"],
+            ["SUM('a-b'!$A$1:$A$2)"],
+            ["'€uro'!$A$1"],
+            ["SUM('2024'!$A$1:$A$2)"],
+            ["'A1'!$A$1"],
+            ["SUM('XFD1'!$A$1:$A$2)"],
+            ["XFE1!$A$1"],
+            ["SUM('R'!$A$1:$A$2)"],
+            ["'C'!$A$1"],
+            ["SUM('RC'!$A$1:$A$2)"],
+            ["'R2C3'!$A$1"],
+            ["SUM('TRUE'!$A$1:$A$2)"],
+            ["SALES!$A$1"],
+            ["SUM('Q3 SALES'!$A$1:$A$2)"],
         ]
     );
 }

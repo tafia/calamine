@@ -17,7 +17,9 @@ use crate::formats::{
 };
 #[cfg(feature = "picture")]
 use crate::utils::read_usize;
-use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
+use crate::utils::{
+    push_column, quote_sheet_name, read_f64, read_i16, read_i32, read_u16, read_u32,
+};
 use crate::vba::VbaProject;
 use crate::{
     oleps, Cell, CellErrorType, Data, Dimensions, HeaderRow, Metadata, Range, Reader, Sheet,
@@ -657,7 +659,7 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut sheets = BTreeMap::new();
         let fmla_sheet_names = sheet_names
             .iter()
-            .map(|(_, n)| n.clone())
+            .map(|(_, n)| quote_sheet_name(n).into_owned())
             .collect::<Vec<_>>();
         for (pos, name) in sheet_names {
             let sh = &stream[pos..];
