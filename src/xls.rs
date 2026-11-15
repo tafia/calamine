@@ -1237,11 +1237,11 @@ fn parse_format(
             found: r.data.len(),
         });
     }
+    // The specification restricts `ifmt` to a few ranges but some writers use
+    // other ids, for example ones that start their custom formats at 50. The
+    // format string in the record is used for any id so that it takes
+    // precedence over the built-in format with the same id.
     let ifmt = read_u16(r.data);
-    match ifmt {
-        5..=8 | 23..=26 | 41..=44 | 63..=66 | 164..=382 => (),
-        _ => return Err(XlsError::InvalidFormat { ifmt }),
-    }
 
     let s = parse_string(&r.data[2..], encoding, biff)?;
     Ok((ifmt, detect_custom_number_format(&s)))
