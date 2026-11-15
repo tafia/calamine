@@ -328,6 +328,9 @@ impl<RS: Read + Seek> Xlsb<RS> {
                             Some("worksheets") => SheetType::WorkSheet,
                             Some("chartsheets") => SheetType::ChartSheet,
                             Some("dialogsheets") => SheetType::DialogSheet,
+                            // Excel 4.0 macro sheets and international macro
+                            // sheets.
+                            Some("macrosheets") => SheetType::MacroSheet,
                             _ => {
                                 return Err(XlsbError::Unrecognized {
                                     typ: "BoundSheet8:dt",

@@ -2457,6 +2457,51 @@ fn test_ods_sheets_metadata() {
     );
 }
 
+#[rstest]
+#[case("macro_sheets.xlsm")]
+#[case("macro_sheets.xlsb")]
+#[case("macro_sheets.xls")]
+fn test_all_macro_sheets(#[case] test_file: &str) {
+    // Test that Excel 4.0 macro sheets and international macro sheets are read
+    // as macro sheets, along with their cells and formulas. The files are the
+    // same workbook saved by Excel in each format. See issue #802.
+    let mut workbook = open_workbook_auto(test_path(test_file)).unwrap();
+
+    assert_eq!(
+        workbook.sheets_metadata(),
+        &[
+            Sheet {
+                name: "Data".to_string(),
+                typ: SheetType::WorkSheet,
+                visible: SheetVisible::Visible
+            },
+            Sheet {
+                name: "Macro1".to_string(),
+                typ: SheetType::MacroSheet,
+                visible: SheetVisible::Visible
+            },
+            Sheet {
+                name: "Intl1".to_string(),
+                typ: SheetType::MacroSheet,
+                visible: SheetVisible::Visible
+            },
+        ]
+    );
+
+    let range = workbook.worksheet_range("Macro1").unwrap();
+    range_eq!(range, [[Bool(false)], [Bool(false)]]);
+    let formulas = workbook.worksheet_formula("Macro1").unwrap();
+    range_eq!(
+        formulas,
+        [["ECHO(FALSE)".to_string()], ["RETURN()".to_string()]]
+    );
+
+    let range = workbook.worksheet_range("Intl1").unwrap();
+    range_eq!(range, [[Bool(false)]]);
+    let formulas = workbook.worksheet_formula("Intl1").unwrap();
+    range_eq!(formulas, [["RETURN()".to_string()]]);
+}
+
 #[test]
 fn test_xlsx_password_protected() {
     // Test that a password protected xlsx file returns XlsxError::Password.

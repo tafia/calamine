@@ -652,6 +652,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         Some("worksheet") => SheetType::WorkSheet,
                         Some("chartsheet") => SheetType::ChartSheet,
                         Some("dialogsheet") => SheetType::DialogSheet,
+                        // Excel 4.0 macro sheets and international macro sheets.
+                        Some("xlMacrosheet" | "xlIntlMacrosheet") => SheetType::MacroSheet,
                         _ => {
                             return Err(XlsxError::Unrecognized {
                                 typ: "sheet:type",
