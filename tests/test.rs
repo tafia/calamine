@@ -1186,6 +1186,20 @@ fn test_xlsx_date_east_asian_explicit_formats() {
     }
 }
 
+#[test]
+fn test_xls_format_id_overrides_builtin() {
+    // Test that a Format record with an id outside the ranges allowed by the
+    // specification takes precedence over the built-in date format with the
+    // same id. The file defines format 50 as `0.000` and format 51 as `0.0`.
+    // See issue #798.
+    let mut workbook: Xls<_> = wb("format_id_overrides_builtin.xls");
+    let range = workbook.worksheet_range_at(0).unwrap().unwrap();
+
+    assert_eq!(range.get_value((1, 1)), Some(&Float(3.505)));
+    assert_eq!(range.get_value((2, 1)), Some(&Float(286.5)));
+    assert_eq!(range.get_value((3, 1)), Some(&Int(5)));
+}
+
 // Test that a custom number format whose `formatCode` contains quoted literal
 // text (e.g. `mmmm" "yyyy`) is detected as a date. The quotes are stored in
 // styles.xml as `&quot;` XML entity references, so the format detection must
