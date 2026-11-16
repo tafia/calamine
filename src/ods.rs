@@ -24,8 +24,8 @@ use crate::attrs::{decode_attr, RawAttributes};
 use crate::utils::unescape_entity_to_buffer;
 use crate::vba::VbaProject;
 use crate::{
-    Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
-    WorkbookProperties,
+    CalcSettings, Data, DataType, HeaderRow, Metadata, Range, Reader, Sheet, SheetType,
+    SheetVisible, WorkbookProperties,
 };
 use std::marker::PhantomData;
 
@@ -231,10 +231,12 @@ where
             sheets,
             sheets_metadata,
             defined_names,
+            calc_settings,
         } = parse_content(zip)?;
         let metadata = Metadata {
             sheets: sheets_metadata,
             names: defined_names,
+            calc_settings,
         };
 
         Ok(Ods {
@@ -310,6 +312,7 @@ struct Content {
     sheets: BTreeMap<String, (Range<Data>, Range<String>)>,
     sheets_metadata: Vec<Sheet>,
     defined_names: Vec<(String, String)>,
+    calc_settings: CalcSettings,
 }
 
 /// Check password protection
@@ -373,6 +376,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
     let mut buf = Vec::with_capacity(1024);
     let mut sheets = BTreeMap::new();
     let mut defined_names = Vec::new();
+    let mut calc_settings = CalcSettings::default();
     let mut sheets_metadata = Vec::new();
     let mut styles = HashMap::new();
     let mut style_name: Option<String> = None;
@@ -395,6 +399,29 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
                     None => SheetVisible::Visible,
                 };
                 styles.insert(style_name.clone(), visible);
+            }
+            Ok(Event::Start(e)) if e.name() == QName("table:iteration") => {
+                let mut status_enabled = false;
+                for attr in e.iter_raw_attrs() {
+                    let (key, val) = attr?;
+                    match key {
+                        "table:status" => {
+                            status_enabled = decode_attr(val)?.trim() == "enable";
+                        }
+                        "table:steps" => {
+                            if let Ok(steps) = decode_attr(val)?.trim().parse::<u32>() {
+                                calc_settings.iterate_count = steps;
+                            }
+                        }
+                        "table:maximum-difference" => {
+                            if let Ok(diff) = decode_attr(val)?.trim().parse::<f64>() {
+                                calc_settings.iterate_delta = diff;
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+                calc_settings.iterate = status_enabled;
             }
             Ok(Event::Start(e)) if e.name() == QName("table:table") => {
                 let visible = styles
@@ -429,6 +456,7 @@ fn parse_content<RS: Read + Seek>(mut zip: ZipArchive<RS>) -> Result<Content, Od
         sheets,
         sheets_metadata,
         defined_names,
+        calc_settings,
     })
 }
 
