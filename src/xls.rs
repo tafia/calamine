@@ -491,6 +491,10 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         &self.metadata
     }
 
+    fn has_1904_epoch(&self) -> bool {
+        self.is_1904
+    }
+
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsError> {
         let sheet = self
             .sheets

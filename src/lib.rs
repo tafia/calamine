@@ -459,6 +459,11 @@ where
         &self.metadata().names
     }
 
+    /// Check if the workbook uses the 1904 date system.
+    fn has_1904_epoch(&self) -> bool {
+        false
+    }
+
     /// Get the nth worksheet. Shortcut for getting the nth
     /// worksheet name, then the corresponding worksheet.
     fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<Data>, Self::Error>> {
