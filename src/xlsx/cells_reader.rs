@@ -3,13 +3,13 @@
 // Copyright 2016-2026, Johann Tuffe.
 
 use quick_xml::events::{BytesStart, Event};
-use std::io::{Read, Seek};
+use std::io::{BufRead, Read, Seek};
 
 use super::{
     expand_shared_formula, get_dimension, get_row, get_row_column, read_string_with_bufs,
     Dimensions, XlReader,
 };
-use crate::attrs::RawAttributes;
+use crate::attrs::{RawAttrIter, RawAttributes};
 use crate::{
     datatype::DataRef,
     formats::{format_excel_f64_ref, CellFormat},
@@ -190,6 +190,145 @@ where
     cell_buf: Vec<u8>,
     value_bufs: ValueBufs,
     formulas: Vec<Option<SharedFormula>>,
+    /// Whether the XML reader's last event was an end tag: then it holds no pending event and
+    /// expects text, so `next_cell` may read the bytes that follow itself.
+    settled: bool,
+}
+
+/// What one fast step of [`XlsxCellReader::next_cell`] did.
+enum FastStep<'a> {
+    Cell(Cell<DataRef<'a>>),
+    Advanced,
+    /// The next construct is left, unconsumed, to the XML reader.
+    Fallback,
+}
+
+/// The end of a start tag whose name has just been matched: the index of its `>` and whether
+/// the tag is self-closing, or `None` if the name continues or the tag is not wholly in `rest`.
+fn start_tag_end(rest: &[u8]) -> Option<(usize, bool)> {
+    if !matches!(
+        rest.first(),
+        Some(b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/')
+    ) {
+        return None;
+    }
+    let mut quote = None;
+    for (index, byte) in rest.iter().enumerate() {
+        match (quote, *byte) {
+            (None, b'"' | b'\'') => quote = Some(*byte),
+            (Some(open), byte) if byte == open => quote = None,
+            (None, b'>') => return Some((index, index > 0 && rest[index - 1] == b'/')),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The length of the rest of an end tag whose name has just been matched.
+fn end_tag_end(rest: &[u8]) -> Option<usize> {
+    let spaces = rest
+        .iter()
+        .take_while(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+        .count();
+    (rest.get(spaces) == Some(&b'>')).then_some(spaces + 1)
+}
+
+/// A start tag's attributes, without the trailing `/` of a self-closing tag, as UTF-8.
+fn tag_attrs(rest: &[u8], tag_end: usize, self_closing: bool) -> Option<&str> {
+    std::str::from_utf8(&rest[..tag_end - usize::from(self_closing)]).ok()
+}
+
+/// The first `r`, `s` and `t` values, matched as `get_attrs!` matches them, or `None` if the
+/// attributes are malformed.
+#[allow(clippy::type_complexity)]
+fn cell_attrs(raw: &str) -> Option<(Option<&str>, Option<&str>, Option<&str>)> {
+    let (mut r, mut s, mut t) = (None, None, None);
+    for item in RawAttrIter::new(raw) {
+        match item.ok()? {
+            ("r", value) if r.is_none() => r = Some(value),
+            ("s", value) if s.is_none() => s = Some(value),
+            ("t", value) if t.is_none() => t = Some(value),
+            _ => {}
+        }
+    }
+    Some((r, s, t))
+}
+
+/// Reads one `<c>` element from `rest`, the bytes after `<c`, when its children are only
+/// `<v>` and `<f>` with plain text and it lies wholly in `rest`. Returns the bytes it spans
+/// after `<c`, its position and its value; `None` leaves it to the XML reader.
+#[allow(clippy::type_complexity)]
+fn fast_cell<'s>(
+    ctx: &WorkbookContext<'s>,
+    rest: &[u8],
+    row_index: u32,
+    col_index: u32,
+) -> Result<Option<(usize, (u32, u32), DataRef<'s>)>, XlsxError> {
+    let Some((tag_end, self_closing)) = start_tag_end(rest) else {
+        return Ok(None);
+    };
+    let Some((pos_attr, style_attr, type_attr)) =
+        tag_attrs(rest, tag_end, self_closing).and_then(cell_attrs)
+    else {
+        return Ok(None);
+    };
+    let pos = match pos_attr {
+        Some(range) => get_row_column(range)?,
+        None => (row_index, col_index),
+    };
+    if self_closing {
+        return Ok(Some((tag_end + 1, pos, DataRef::Empty)));
+    }
+    let mut at = tag_end + 1;
+    let mut value = DataRef::Empty;
+    loop {
+        // Text between children is ignored, as `next_cell` ignores it.
+        let Some(skip) = memchr::memchr(b'<', &rest[at..]) else {
+            return Ok(None);
+        };
+        at += skip;
+        let tail = &rest[at..];
+        if let Some(after) = tail.strip_prefix(b"</c") {
+            return Ok(end_tag_end(after).map(|len| (at + 3 + len, pos, value)));
+        }
+        let (name, close): (&[u8], &[u8]) = if tail.starts_with(b"<v") {
+            (b"<v", b"</v>")
+        } else if tail.starts_with(b"<f") {
+            (b"<f", b"</f>")
+        } else {
+            return Ok(None);
+        };
+        let Some((child_end, child_closing)) = start_tag_end(&tail[name.len()..]) else {
+            return Ok(None);
+        };
+        let body = at + name.len() + child_end + 1;
+        let content = if child_closing {
+            at = body;
+            ""
+        } else {
+            let Some(length) = memchr::memmem::find(&rest[body..], close) else {
+                return Ok(None);
+            };
+            let bytes = &rest[body..body + length];
+            // Markup, entities and line ends that XML normalizes need the XML reader.
+            if bytes.iter().any(|byte| matches!(byte, b'<' | b'&' | b'\r')) {
+                return Ok(None);
+            }
+            let Ok(content) = std::str::from_utf8(bytes) else {
+                return Ok(None);
+            };
+            at = body + length + close.len();
+            content
+        };
+        // As in `read_value`, every child sets the value and the last one wins.
+        value = match (name, type_attr) {
+            (b"<f", _) | (_, Some("inlineStr") | Some("is")) => DataRef::Empty,
+            (_, Some("n") | Some("s") | Some("b") | Some("e") | None) if content.is_empty() => {
+                DataRef::Empty
+            }
+            _ => read_v(ctx, content, style_attr, type_attr)?,
+        };
+    }
 }
 
 impl<'a, RS> XlsxCellReader<'a, RS>
@@ -204,6 +343,9 @@ where
         styles: &'a [Style],
         is_1904: bool,
     ) -> Result<Self, XlsxError> {
+        // `next_cell` may read a `<row>` whose `</row>` the XML reader later sees. End names are
+        // already unchecked, so an end with no recorded start must not be an error either.
+        xml.config_mut().allow_unmatched_ends = true;
         let mut buf = Vec::with_capacity(1024);
         let mut dimensions = Dimensions::default();
         let mut sh_type = None;
@@ -248,7 +390,79 @@ where
             cell_buf: Vec::with_capacity(1024),
             value_bufs: ValueBufs::new(),
             formulas: Vec::with_capacity(1024),
+            settled: false,
         })
+    }
+
+    /// Reads the next construct straight from the buffered bytes when it is one nearly every
+    /// sheet is made of: text between elements, `<row>`, `</row>`, or a `<c>` that
+    /// [`fast_cell`] reads. Anything else is left unconsumed for the XML reader.
+    fn fast_step(&mut self) -> Result<FastStep<'a>, XlsxError> {
+        if self.xml.encoding() != encoding_rs::UTF_8 {
+            return Ok(FastStep::Fallback);
+        }
+        let ctx = WorkbookContext {
+            strings: self.strings,
+            formats: self.formats,
+            is_1904: self.is_1904,
+        };
+        let mut stream = self.xml.stream();
+        let buf = stream.fill_buf().map_err(XlsxError::Io)?;
+        if buf.is_empty() {
+            return Ok(FastStep::Fallback);
+        }
+        let text = memchr::memchr(b'<', buf).unwrap_or(buf.len());
+        if text > 0 {
+            stream.consume(text);
+            return Ok(FastStep::Advanced);
+        }
+        if let Some(rest) = buf.strip_prefix(b"</row") {
+            let Some(len) = end_tag_end(rest) else {
+                return Ok(FastStep::Fallback);
+            };
+            stream.consume(5 + len);
+            self.row_index += 1;
+            self.col_index = 0;
+            return Ok(FastStep::Advanced);
+        }
+        if let Some(rest) = buf.strip_prefix(b"<row") {
+            let Some((tag_end, self_closing)) = start_tag_end(rest) else {
+                return Ok(FastStep::Fallback);
+            };
+            let Some(raw) = tag_attrs(rest, tag_end, self_closing) else {
+                return Ok(FastStep::Fallback);
+            };
+            let mut r = None;
+            for item in RawAttrIter::new(raw) {
+                match item {
+                    Ok(("r", value)) => {
+                        r = Some(value);
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(_) => return Ok(FastStep::Fallback),
+                }
+            }
+            if let Some(r) = r {
+                self.row_index = get_row(r)?;
+            }
+            // An empty `<row/>` is a start and an end, as the expanding XML reader reports it.
+            if self_closing {
+                self.row_index += 1;
+                self.col_index = 0;
+            }
+            stream.consume(4 + tag_end + 1);
+            return Ok(FastStep::Advanced);
+        }
+        if let Some(rest) = buf.strip_prefix(b"<c") {
+            if let Some((len, pos, value)) = fast_cell(&ctx, rest, self.row_index, self.col_index)?
+            {
+                stream.consume(2 + len);
+                self.col_index = pos.1 + 1;
+                return Ok(FastStep::Cell(Cell::new(pos, value)));
+            }
+        }
+        Ok(FastStep::Fallback)
     }
 
     /// Return the worksheet dimensions declared by the sheet XML.
@@ -259,6 +473,14 @@ where
     /// Return the next cell value in XML stream order.
     pub fn next_cell(&mut self) -> Result<Option<Cell<DataRef<'a>>>, XlsxError> {
         loop {
+            if self.settled {
+                match self.fast_step()? {
+                    FastStep::Cell(cell) => return Ok(Some(cell)),
+                    FastStep::Advanced => continue,
+                    FastStep::Fallback => {}
+                }
+            }
+            self.settled = false;
             self.buf.clear();
             match self.xml.read_event_into(&mut self.buf) {
                 Ok(Event::Start(row_element)) if row_element.local_name().as_ref() == "row" => {
@@ -269,6 +491,7 @@ where
                 Ok(Event::End(row_element)) if row_element.local_name().as_ref() == "row" => {
                     self.row_index += 1;
                     self.col_index = 0;
+                    self.settled = true;
                 }
                 Ok(Event::Start(c_element)) if c_element.local_name().as_ref() == "c" => {
                     let (pos_attr, style_attr, type_attr) =
@@ -306,6 +529,7 @@ where
                         }
                     }
                     self.col_index += 1;
+                    self.settled = true;
                     return Ok(Some(Cell::new(pos, value)));
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == "sheetData" => {
@@ -313,6 +537,7 @@ where
                 }
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("sheetData")),
                 Err(e) => return Err(XlsxError::Xml(e)),
+                Ok(Event::End(_)) => self.settled = true,
                 _ => (),
             }
         }
