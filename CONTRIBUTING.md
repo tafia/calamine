@@ -20,7 +20,7 @@ The CI runs the following on every pull request. Run them locally first:
 cargo test --all-features
 cargo fmt -- --check
 cargo clippy --all-targets --all-features -- -Dwarnings
-cargo +1.88 check --all-features
+cargo +1.89 check --all-features
 cargo check --target wasm32-unknown-unknown --all-features
 typos  # cargo install typos-cli
 ```
