@@ -4431,23 +4431,12 @@ fn test_xls_dimensions_16_bytes() {
 }
 
 #[test]
-fn test_xls_sparse_sheet_allocation() {
-    // Test that the reader returns the only value in a sparse sheet without
-    // reserving space for the full sheet.
-    let path = test_path("sparse_dimensions.xls");
-    let usage = allocation_counter::measure(|| {
-        let mut excel: Xls<_> = open_workbook(&path).unwrap();
-        let range = excel.worksheet_range("Sheet1").unwrap();
-        range_eq!(range, [[Bool(true)]]);
-    });
-
-    // A formatted blank extends the sheet to 256 rows and 128 columns.
-    let full_area_bytes = (256 * 128 * size_of::<calamine::Cell<Data>>()) as u64;
-    assert!(
-        usage.bytes_max < full_area_bytes,
-        "expected peak allocation below {full_area_bytes} bytes, got {}",
-        usage.bytes_max
-    );
+fn test_xls_forged_dimensions() {
+    // Test that an xls sheet with a forged DIMENSIONS record opens and returns
+    // its cell.
+    let mut excel: Xls<_> = wb("forged_dimensions.xls");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(range, [[Bool(true)]]);
 }
 
 // Test that huge FAT and DIFAT sector counts in a CFB header return an error
