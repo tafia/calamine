@@ -5109,3 +5109,25 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+#[test]
+fn test_xls_shared_formula_cells_resolve_relative_references() {
+    // Test that cells using PtgExp get the shared formula with references
+    // rebased against the cell position. See issue #443.
+    let mut xls: Xls<_> = open_workbook(test_path("readformulas.xls")).unwrap();
+    let names = xls.sheet_names().to_owned();
+    let formula = xls.worksheet_formula(&names[0]).unwrap();
+    let count = formula
+        .rows()
+        .flat_map(|row| row.iter())
+        .filter(|f| !f.is_empty())
+        .count();
+    assert_eq!(count, 805);
+
+    assert_eq!(formula.get_value((6, 1)), Some(&"AA7".to_string()));
+    assert_eq!(formula.get_value((6, 2)), Some(&"AB7".to_string()));
+    assert_eq!(formula.get_value((6, 3)), Some(&"Z7".to_string()));
+    assert_eq!(
+        formula.get_value((6, 9)),
+        Some(&"G7+20*2-5.2-4.9-6.4-5".to_string())
+    );
+}

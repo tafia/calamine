@@ -162,6 +162,20 @@ pub struct XlsOptions {
     pub header_row: HeaderRow,
 }
 
+struct FormulaRecord {
+    pos: (u32, u32),
+    text: String,
+    anchor: Option<(u32, u32)>,
+}
+
+struct SharedFormula {
+    row_first: u16,
+    row_last: u16,
+    col_first: u16,
+    col_last: u16,
+    rgce: Vec<u8>,
+}
+
 struct SheetData {
     range: Range<Data>,
     formula: Range<String>,
@@ -663,7 +677,8 @@ impl<RS: Read + Seek> Xls<RS> {
             let sh = &stream[pos..];
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
-            let mut formulas = Vec::new();
+            let mut formula_records: Vec<FormulaRecord> = Vec::new();
+            let mut shared_formulas: Vec<SharedFormula> = Vec::new();
             let mut fmla_pos = (0, 0);
             let mut merge_cells = Vec::new();
             // Nested substreams (embedded charts) carry cell-like records; skip them.
@@ -672,6 +687,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let mut substream_depth = 0usize;
             for record in records {
                 let r = record?;
+
                 if substream_depth > 0 {
                     match r.typ {
                         0x0809 => substream_depth += 1,
@@ -710,7 +726,25 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
                     0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
                     0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?, // 229: Merge Cells
-                    0x000A => break,                                        // 10: EOF,
+                    0x04BC => {
+                        // Shared formula: the formula body lives in this record, while
+                        // each participating cell carries a PtgExp pointing at the range.
+                        if r.data.len() >= 10 {
+                            let row_first = read_u16(&r.data[0..2]);
+                            let row_last = read_u16(&r.data[2..4]);
+                            let col_first = r.data[4] as u16;
+                            let col_last = r.data[5] as u16;
+
+                            shared_formulas.push(SharedFormula {
+                                row_first,
+                                row_last,
+                                col_first,
+                                col_last,
+                                rgce: r.data[8..].to_vec(),
+                            });
+                        }
+                    }
+                    0x000A => break, // 10: EOF,
                     0x0006 => {
                         // 6: Formula
                         if r.data.len() < 20 {
@@ -731,6 +765,16 @@ impl<RS: Read + Seek> Xls<RS> {
                             // it will appear in 0x0207 record coming next
                             cells.push(Cell::new(fmla_pos, val));
                         }
+                        let cce = read_u16(&r.data[20..]) as usize;
+                        let rgce = r.data.get(22..22 + cce).unwrap_or(&[]);
+                        let anchor = if rgce.first() == Some(&0x01) && rgce.len() >= 5 {
+                            // PtgExp stores the row/column of the cell that owns
+                            // the shared or array formula.
+                            Some((read_u16(&rgce[1..3]) as u32, read_u16(&rgce[3..5]) as u32))
+                        } else {
+                            None
+                        };
+
                         let fmla = parse_formula(
                             &r.data[20..],
                             &fmla_sheet_names,
@@ -738,6 +782,7 @@ impl<RS: Read + Seek> Xls<RS> {
                             &xtis,
                             &encoding,
                             biff,
+                            None,
                         )
                         .unwrap_or_else(|e| {
                             debug!("{e}");
@@ -746,11 +791,51 @@ impl<RS: Read + Seek> Xls<RS> {
                                  for cell ({row}, {col}): {e:?}"
                             )
                         });
-                        formulas.push(Cell::new(fmla_pos, fmla));
+                        if anchor.is_some() {
+                            debug!("PtgExp at {:?} -> {:?}", fmla_pos, anchor);
+                        }
+                        formula_records.push(FormulaRecord {
+                            pos: fmla_pos,
+                            text: fmla,
+                            anchor,
+                        });
                     }
                     _ => (),
                 }
             }
+            let formulas: Vec<Cell<String>> = formula_records
+                .into_iter()
+                .map(|record| {
+                    let text = if record.anchor.is_some() {
+                        shared_formulas
+                            .iter()
+                            .find(|formula| {
+                                let (row, col) = record.pos;
+                                row >= formula.row_first as u32
+                                    && row <= formula.row_last as u32
+                                    && col >= formula.col_first as u32
+                                    && col <= formula.col_last as u32
+                            })
+                            .and_then(|formula| {
+                                parse_formula(
+                                    &formula.rgce,
+                                    &fmla_sheet_names,
+                                    &defined_names,
+                                    &xtis,
+                                    &encoding,
+                                    biff,
+                                    Some((record.pos.0 as u16, record.pos.1 as u16)),
+                                )
+                                .ok()
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        record.text
+                    };
+                    Cell::new(record.pos, text)
+                })
+                .collect();
+
             let range = Range::from_sparse(cells);
             let formula = Range::from_sparse(formulas);
             sheets.insert(
@@ -1575,6 +1660,7 @@ fn parse_formula(
     xtis: &[Xti],
     encoding: &XlsEncoding,
     biff: Biff,
+    current: Option<(u16, u16)>,
 ) -> Result<String, XlsError> {
     let is_pre_biff8 = matches!(biff, Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5);
     let mut stack = Vec::new();
@@ -1652,8 +1738,8 @@ fn parse_formula(
                     0x09 => "<",
                     0x0A => "<=",
                     0x0B => "=",
-                    0x0C => ">",
-                    0x0D => ">=",
+                    0x0C => ">=",
+                    0x0D => ">",
                     0x0E => "<>",
                     0x0F => " ",
                     0x10 => ",",
@@ -1875,6 +1961,51 @@ fn parse_formula(
                     rgce = &rgce[3..];
                 } else {
                     push_cell_ref(read_u16(&rgce[0..2]), read_u16(&rgce[2..4]), &mut formula);
+                    rgce = &rgce[4..];
+                }
+            }
+            0x2C | 0x4C | 0x6C => {
+                stack.push(formula.len());
+                if is_pre_biff8 {
+                    // BIFF2-5 has no PtgRefN; treat it like PtgRef.
+                    let rw_raw = read_u16(rgce);
+                    let row = (rw_raw & 0x3FFF) + 1;
+                    let col = rgce[2];
+                    if rw_raw & 0x4000 == 0 {
+                        formula.push('$');
+                    }
+                    push_column(col as u32, &mut formula);
+                    if rw_raw & 0x8000 == 0 {
+                        formula.push('$');
+                    }
+                    formula.push_str(&format!("{row}"));
+                    rgce = &rgce[3..];
+                } else {
+                    let rw = read_u16(&rgce[0..2]);
+                    let col = read_u16(&rgce[2..4]);
+                    let row_rel = col & 0x8000 != 0;
+                    let col_rel = col & 0x4000 != 0;
+                    let sign_extend = |v: i32, bits: i32| -> i32 {
+                        let mask = 1 << (bits - 1);
+                        if v & mask != 0 {
+                            v - (1 << bits)
+                        } else {
+                            v
+                        }
+                    };
+                    let mut abs_row = sign_extend((rw & 0x3FFF) as i32, 14);
+                    let mut abs_col = sign_extend((col & 0x00FF) as i32, 8);
+                    if let Some((anchor_row, anchor_col)) = current {
+                        if row_rel {
+                            abs_row += anchor_row as i32;
+                        }
+                        if col_rel {
+                            abs_col += anchor_col as i32;
+                        }
+                    }
+                    let row = abs_row.clamp(0, 0x3FFF) as u16;
+                    let col_arg = ((abs_col.clamp(0, 0x3FFF) as u16) & 0x3FFF) | (col & 0xC000);
+                    push_cell_ref(row, col_arg, &mut formula);
                     rgce = &rgce[4..];
                 }
             }
@@ -2111,7 +2242,7 @@ mod tests {
         // cce = 8, then PtgStr(0x17) cch=6 "SCHUCH" - the literal ends the rgce.
         let mut rgce = vec![8u8, 0, 0x17, 6];
         rgce.extend_from_slice(b"SCHUCH");
-        let f = parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5).unwrap();
+        let f = parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5, None).unwrap();
         assert_eq!(f, "\"SCHUCH\"");
     }
 
@@ -2123,7 +2254,7 @@ mod tests {
         // cce = 9, then PtgStr(0x17) cch=6, grbit=0 (compressed), "SCHUCH".
         let mut rgce = vec![9u8, 0, 0x17, 6, 0];
         rgce.extend_from_slice(b"SCHUCH");
-        let f = parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff8).unwrap();
+        let f = parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff8, None).unwrap();
         assert_eq!(f, "\"SCHUCH\"");
     }
 
@@ -2134,6 +2265,6 @@ mod tests {
         // cce = 5 covers the whole token stream, but cch claims 6 bytes.
         let mut rgce = vec![5u8, 0, 0x17, 6];
         rgce.extend_from_slice(b"SCH");
-        parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5).unwrap_err();
+        parse_formula(&rgce, &[], &[], &[], &enc, Biff::Biff5, None).unwrap_err();
     }
 }
