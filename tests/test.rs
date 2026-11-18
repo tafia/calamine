@@ -4430,6 +4430,15 @@ fn test_xls_dimensions_16_bytes() {
     assert_eq!(range.get_value((35, 0)), Some(&String("TOTAL".to_string())));
 }
 
+#[test]
+fn test_xls_forged_dimensions() {
+    // Test that an xls sheet with a forged DIMENSIONS record opens and returns
+    // its cell.
+    let mut excel: Xls<_> = wb("forged_dimensions.xls");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+    range_eq!(range, [[Bool(true)]]);
+}
+
 // Test that huge FAT and DIFAT sector counts in a CFB header return an error
 // instead of being used as allocation sizes and aborting the process. See
 // issue #714.
