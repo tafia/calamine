@@ -694,7 +694,7 @@ impl<RS: Read + Seek> Xls<RS> {
                         let Dimensions { start, end } = parse_dimensions(r.data)?;
                         let rows = (end.0 - start.0 + 1) as usize;
                         let cols = (end.1 - start.1 + 1) as usize;
-                        cells.reserve(rows.saturating_mul(cols));
+                        cells.reserve(rows.saturating_mul(cols).min(8192));
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
                     0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number

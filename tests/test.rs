@@ -4430,6 +4430,26 @@ fn test_xls_dimensions_16_bytes() {
     assert_eq!(range.get_value((35, 0)), Some(&String("TOTAL".to_string())));
 }
 
+#[test]
+fn test_xls_sparse_sheet_allocation() {
+    // Test that the reader returns the only value in a sparse sheet without
+    // reserving space for the full sheet.
+    let path = test_path("sparse_dimensions.xls");
+    let usage = allocation_counter::measure(|| {
+        let mut excel: Xls<_> = open_workbook(&path).unwrap();
+        let range = excel.worksheet_range("Sheet1").unwrap();
+        range_eq!(range, [[Bool(true)]]);
+    });
+
+    // A formatted blank extends the sheet to 256 rows and 128 columns.
+    let full_area_bytes = (256 * 128 * size_of::<calamine::Cell<Data>>()) as u64;
+    assert!(
+        usage.bytes_max < full_area_bytes,
+        "expected peak allocation below {full_area_bytes} bytes, got {}",
+        usage.bytes_max
+    );
+}
+
 // Test that huge FAT and DIFAT sector counts in a CFB header return an error
 // instead of being used as allocation sizes and aborting the process. See
 // issue #714.
