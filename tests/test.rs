@@ -5109,3 +5109,136 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_xlsx_deserialize_header_not_found() {
+    // Test that building a deserializer with a header that isn't in the header
+    // row return an error naming that header.
+    let mut excel: Xlsx<_> = wb("temperature.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    let result = calamine::RangeDeserializerBuilder::with_headers(&["temperature"])
+        .from_range::<_, Vec<Data>>(&range);
+
+    assert!(matches!(
+        result,
+        Err(calamine::DeError::HeaderNotFound(ref header)) if header == "temperature"
+    ));
+}
+
+#[test]
+fn test_xlsx_deserialize_as_f64_or_none() {
+    // Test that deserialize_as_f64_or_none() returns None for a call that can't
+    // be read as an f64, and that an empty cell is skipped during map
+    // deserialization so that the field takes its serde default.
+    #[derive(serde_derive::Deserialize)]
+    struct Row {
+        label: std::string::String,
+        #[serde(default, deserialize_with = "calamine::deserialize_as_f64_or_none")]
+        value: Option<f64>,
+        #[serde(default)]
+        notes: std::string::String,
+    }
+
+    let mut excel: Xlsx<_> = wb("temperature-fallible.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    let rows: Vec<Row> = calamine::RangeDeserializerBuilder::with_deserialize_headers::<Row>()
+        .from_range(&range)
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(rows.len(), 4);
+
+    assert_eq!(rows[0].label, "celsius");
+    assert_eq!(rows[0].value, Some(22.2222));
+    assert_eq!(rows[0].notes, "measured");
+
+    assert_eq!(rows[1].label, "fahrenheit");
+    assert_eq!(rows[1].value, Some(72.0));
+    assert_eq!(rows[1].notes, "converted");
+
+    assert_eq!(rows[2].label, "kelvin");
+    assert_eq!(rows[2].value, None);
+    assert_eq!(rows[2].notes, "");
+
+    assert_eq!(rows[3].label, "rankine");
+    assert_eq!(rows[3].value, None);
+    assert_eq!(rows[3].notes, "derived");
+}
+
+#[test]
+fn test_xlsx_deserialize_as_f64_or_string() {
+    // Test that deserialize_as_f64_or_string() keeps the original cell value as
+    // a string when it can't be read as an f64.
+    fn missing_value() -> Result<f64, std::string::String> {
+        Err(std::string::String::new())
+    }
+
+    #[derive(serde_derive::Deserialize)]
+    struct Row {
+        label: std::string::String,
+        #[serde(
+            default = "missing_value",
+            deserialize_with = "calamine::deserialize_as_f64_or_string"
+        )]
+        value: Result<f64, std::string::String>,
+    }
+
+    let mut excel: Xlsx<_> = wb("temperature-fallible.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    let rows: Vec<Row> = calamine::RangeDeserializerBuilder::with_deserialize_headers::<Row>()
+        .from_range(&range)
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(rows.len(), 4);
+
+    assert_eq!(rows[0].label, "celsius");
+    assert_eq!(rows[0].value, Ok(22.2222));
+
+    assert_eq!(rows[1].label, "fahrenheit");
+    assert_eq!(rows[1].value, Ok(72.0));
+
+    assert_eq!(rows[2].label, "kelvin");
+    assert_eq!(rows[2].value, Err(std::string::String::new()));
+
+    assert_eq!(rows[3].label, "rankine");
+    assert_eq!(rows[3].value, Err("N/A".to_string()));
+}
+
+#[test]
+fn test_xlsx_deserialize_flatten() {
+    // Test that columns which don't match a named struct field are captured by
+    // a flattened map field.
+    #[derive(serde_derive::Deserialize)]
+    struct StationRow {
+        #[serde(rename = "Station")]
+        station: std::string::String,
+        #[serde(flatten)]
+        readings: std::collections::HashMap<std::string::String, f64>,
+    }
+
+    let mut excel: Xlsx<_> = wb("readings.xlsx");
+    let range = excel.worksheet_range("Sheet1").unwrap();
+
+    let rows: Vec<StationRow> = calamine::RangeDeserializerBuilder::new()
+        .from_range(&range)
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(rows.len(), 3);
+
+    assert_eq!(rows[0].station, "London");
+    assert_eq!(rows[1].station, "Paris");
+    assert_eq!(rows[2].station, "Berlin");
+
+    assert_eq!(rows[0].readings.len(), 3);
+    assert_eq!(rows[0].readings["Celsius"], 15.0);
+    assert_eq!(rows[0].readings["Humidity"], 72.0);
+    assert_eq!(rows[0].readings["Pressure"], 1013.0);
+}
