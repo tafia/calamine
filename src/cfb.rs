@@ -210,6 +210,13 @@ impl XlsEncoding {
                 let l = min(stream.len(), len);
                 (l, l, Cow::Borrowed(&stream[..l]))
             }
+            Some(false) if self.encoding == UTF_16LE => {
+                // Each byte is a UTF-16LE code unit with a 0x00 high byte,
+                // which is the char with the same value. A BOM cannot occur.
+                let l = min(stream.len(), len);
+                s.extend(stream[..l].iter().map(|&b| char::from(b)));
+                return (l, l);
+            }
             Some(false) => {
                 let l = min(stream.len(), len);
 
