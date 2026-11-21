@@ -3,7 +3,7 @@
 // Copyright 2016-2026, Johann Tuffe.
 
 use quick_xml::events::{BytesStart, Event};
-use std::io::{Read, Seek};
+use std::io::Read;
 
 use super::{
     expand_shared_formula, get_dimension, get_row, get_row_column, read_string_with_bufs,
@@ -174,11 +174,11 @@ struct XlsxCellFormulaMetadataRecordInternal<'a> {
 /// The `next_*` methods all advance the same XML stream. Use one streaming
 /// method per reader; mixing methods on a single reader will consume cells from
 /// the current stream position.
-pub struct XlsxCellReader<'a, RS>
+pub struct XlsxCellReader<'a, R>
 where
-    RS: Read + Seek,
+    R: Read,
 {
-    xml: XlReader<'a, RS>,
+    xml: XlReader<R>,
     strings: &'a [String],
     formats: &'a [CellFormat],
     styles: &'a [Style],
@@ -192,13 +192,13 @@ where
     formulas: Vec<Option<SharedFormula>>,
 }
 
-impl<'a, RS> XlsxCellReader<'a, RS>
+impl<'a, R> XlsxCellReader<'a, R>
 where
-    RS: Read + Seek,
+    R: Read,
 {
     /// Create a new XLSX cell reader over a worksheet XML stream.
     pub fn new(
-        mut xml: XlReader<'a, RS>,
+        mut xml: XlReader<R>,
         strings: &'a [String],
         formats: &'a [CellFormat],
         styles: &'a [Style],
@@ -403,7 +403,7 @@ where
     }
 
     fn read_formula_record(
-        xml: &mut XlReader<'_, RS>,
+        xml: &mut XlReader<R>,
         formulas: &mut Vec<Option<SharedFormula>>,
         e: &BytesStart<'_>,
         pos: (u32, u32),
@@ -703,16 +703,16 @@ where
 
 /// Reads a cell value using pre-extracted `s` and `t` attributes
 /// (avoids repeating attribute iteration on the `<c>` element).
-fn read_value<'s, RS>(
+fn read_value<'s, R>(
     ctx: &WorkbookContext<'s>,
-    xml: &mut XlReader<'_, RS>,
+    xml: &mut XlReader<R>,
     e: &BytesStart<'_>,
     style_attr: Option<&str>,
     type_attr: Option<&str>,
     bufs: &mut ValueBufs,
 ) -> Result<DataRef<'s>, XlsxError>
 where
-    RS: Read + Seek,
+    R: Read,
 {
     Ok(match e.local_name().as_ref() {
         "is" => {
@@ -820,9 +820,9 @@ fn read_v<'s>(
     }
 }
 
-fn read_formula<RS>(xml: &mut XlReader<RS>, e: &BytesStart) -> Result<Option<String>, XlsxError>
+fn read_formula<R>(xml: &mut XlReader<R>, e: &BytesStart) -> Result<Option<String>, XlsxError>
 where
-    RS: Read + Seek,
+    R: Read,
 {
     match e.local_name().as_ref() {
         "is" | "v" => {

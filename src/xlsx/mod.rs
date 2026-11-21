@@ -42,7 +42,7 @@ pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
 };
 
-pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
+pub(crate) type XlReader<R> = XmlReader<BufReader<R>>;
 
 /// Maximum number of rows allowed in an XLSX file.
 pub const MAX_ROWS: u32 = 1_048_576;
@@ -2633,7 +2633,7 @@ where
 /// Caller has already consumed the opening `<hyperlinks>` event; this reads
 /// child `<hyperlink>` elements until the matching close tag.
 fn read_hyperlinks<RS>(
-    xml: &mut XlReader<'_, RS>,
+    xml: &mut XlReader<ZipFile<'_, RS>>,
     rels: &HashMap<String, String>,
 ) -> Result<Vec<Hyperlink>, XlsxError>
 where
@@ -2732,7 +2732,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn worksheet_cells_reader<'a>(
         &'a mut self,
         name: &str,
-    ) -> Result<XlsxCellReader<'a, RS>, XlsxError> {
+    ) -> Result<XlsxCellReader<'a, ZipFile<'a, RS>>, XlsxError> {
         let (_, path) = self
             .sheets
             .iter()
@@ -2783,6 +2783,67 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
         drop(cell_reader);
         Ok(StyleRange::from_style_ids(cells, self.styles.clone()))
+    }
+}
+
+#[cfg(feature = "parallel")]
+impl<RS: Read + Seek> Xlsx<RS> {
+    /// Reads all worksheets in parallel.
+    ///
+    /// Worksheet XML is extracted sequentially (the underlying zip archive is
+    /// not thread-safe), then decoded in parallel with `rayon`. The returned
+    /// vector preserves worksheet order.
+    pub fn worksheets_parallel(&mut self) -> Vec<(String, Range<Data>)> {
+        use rayon::prelude::*;
+
+        let mut pending = Vec::with_capacity(self.sheets.len());
+        for (name, path) in &self.sheets {
+            let zip_path = cached_zip_path(&self.zip_path_cache, path);
+            if let Ok(mut file) = self.zip.by_name(zip_path) {
+                let mut xml = Vec::new();
+                if file.read_to_end(&mut xml).is_ok() {
+                    pending.push((name.clone(), xml));
+                }
+            }
+        }
+
+        let strings = &self.strings;
+        let formats = &self.formats;
+        let styles = &self.styles;
+        let is_1904 = self.is_1904;
+
+        pending
+            .into_par_iter()
+            .filter_map(|(name, xml)| {
+                let mut xml = XmlReader::from_reader(BufReader::new(Cursor::new(xml)));
+                let config = xml.config_mut();
+                config.check_end_names = false;
+                config.trim_text(false);
+                config.check_comments = false;
+                config.expand_empty_elements = true;
+                let mut reader = match XlsxCellReader::new(xml, strings, formats, styles, is_1904) {
+                    Ok(reader) => reader,
+                    Err(XlsxError::NotAWorksheet(_)) => {
+                        return Some((name, Range::default()));
+                    }
+                    Err(_) => return None,
+                };
+                let mut cells = Vec::new();
+                while let Ok(Some(cell)) = reader.next_cell() {
+                    cells.push(cell);
+                }
+                let range = Range::from_sparse(cells);
+                let inner = range.inner.into_iter().map(|v| v.into()).collect();
+                Some((
+                    name,
+                    Range {
+                        start: range.start,
+                        end: range.end,
+                        inner,
+                    },
+                ))
+            })
+            .collect()
     }
 }
 
@@ -3018,7 +3079,7 @@ pub(crate) fn xml_reader<'a, RS: Read + Seek>(
     zip: &'a mut ZipArchive<RS>,
     path: &str,
     cache: &HashMap<String, String>,
-) -> Option<Result<XlReader<'a, RS>, XlsxError>> {
+) -> Option<Result<XlReader<ZipFile<'a, RS>>, XlsxError>> {
     let zip_path = cached_zip_path(cache, path);
 
     match zip.by_name(zip_path) {
@@ -3134,14 +3195,14 @@ fn get_row_and_optional_column(range: &str) -> Result<(u32, Option<u32>), XlsxEr
 
 /// Attempts to read either a simple or richtext string, reusing caller-provided
 /// buffers to avoid per-call allocations.
-pub(crate) fn read_string_with_bufs<RS>(
-    xml: &mut XlReader<'_, RS>,
+pub(crate) fn read_string_with_bufs<R>(
+    xml: &mut XlReader<R>,
     closing: QName,
     xml_buf: &mut Vec<u8>,
     text_buf: &mut Vec<u8>,
 ) -> Result<Option<String>, XlsxError>
 where
-    RS: Read + Seek,
+    R: Read,
 {
     let mut rich_buffer: Option<String> = None;
     let mut is_phonetic_text = false;
@@ -3210,7 +3271,7 @@ fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), 
     Ok(())
 }
 
-fn read_merge_cells<RS>(xml: &mut XlReader<'_, RS>) -> Result<Vec<Dimensions>, XlsxError>
+fn read_merge_cells<RS>(xml: &mut XlReader<ZipFile<'_, RS>>) -> Result<Vec<Dimensions>, XlsxError>
 where
     RS: Read + Seek,
 {
@@ -4047,7 +4108,7 @@ impl PivotTableRef {
 pub struct PivotCacheIter<'a, RS: Read + Seek + 'a> {
     definitions: HashMap<String, Vec<(Tag, Value)>>,
     field_names: Vec<String>,
-    reader: XlReader<'a, RS>,
+    reader: XlReader<ZipFile<'a, RS>>,
 }
 fn get_pivot_cache_iter<'a, RS: Read + Seek + 'a>(
     xl: &'a mut crate::Xlsx<RS>,
@@ -4137,7 +4198,7 @@ impl<'a, RS: Read + Seek + 'a> PivotCacheIter<'a, RS> {
     fn new(
         definitions: HashMap<String, Vec<(Tag, Value)>>,
         field_names: Vec<String>,
-        reader: XlReader<'a, RS>,
+        reader: XlReader<ZipFile<'a, RS>>,
     ) -> Self {
         Self {
             definitions,

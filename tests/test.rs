@@ -5109,3 +5109,18 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[cfg(feature = "parallel")]
+#[test]
+fn test_xlsx_worksheets_parallel_matches_sequential() {
+    // Test that the parallel worksheet reader returns the same ranges in the
+    // same order as the sequential one.
+    let mut xlsx: Xlsx<_> = open_workbook(test_path("any_sheets.xlsx")).unwrap();
+    let sequential = xlsx.worksheets();
+    let parallel = xlsx.worksheets_parallel();
+    assert_eq!(sequential.len(), parallel.len());
+    for ((name_a, range_a), (name_b, range_b)) in sequential.iter().zip(parallel.iter()) {
+        assert_eq!(name_a, name_b);
+        assert_eq!(range_a, range_b);
+    }
+}
