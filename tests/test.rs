@@ -3754,6 +3754,35 @@ fn test_xls_biff5_formula_ptg_ref() {
 }
 
 #[test]
+fn test_xls_defined_name_with_array_constant() {
+    // Test that a defined name formula is read from after the name and not from
+    // the end of the record, where the values of an array constant follow it.
+    // See issue #814.
+    let excel: Xls<_> = wb("biff5_defined_name_array_constant.xls");
+    assert_eq!(
+        excel.defined_names(),
+        [
+            ("Prices".to_string(), "Unsupported ptg: 60".to_string()),
+            ("Region".to_string(), "Data!$A$1:$B$2".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_xls_truncated_defined_name_formula() {
+    // Test that a defined name formula shorter than its token returns an error
+    // instead of panicking. See issue #814.
+    let path = test_path("biff5_truncated_defined_name.xls");
+    assert!(
+        matches!(
+            open_workbook::<Xls<_>, _>(path),
+            Err(calamine::XlsError::Len { .. })
+        ),
+        "Expected XlsError::Len"
+    );
+}
+
+#[test]
 fn test_xls_truncated_ptgexp() {
     // Test that an xls file with a truncated PtgExp token (array/shared
     // formula) with 2 bytes instead of 4 is read.
