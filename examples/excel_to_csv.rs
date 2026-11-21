@@ -54,10 +54,12 @@ fn main() {
 // separators or other special cases. See the `csv.rs` crate for a more robust
 // solution.
 fn write_to_csv<W: Write>(output_file: &mut W, range: &Range<Data>) -> std::io::Result<()> {
-    let max_column = range.get_size().1 - 1;
-
     for rows in range.rows() {
         for (col_number, cell_data) in rows.iter().enumerate() {
+            if col_number != 0 {
+                write!(output_file, ";")?;
+            }
+
             match cell_data {
                 Data::Empty => Ok(()),
                 Data::Int(i) => write!(output_file, "{i}"),
@@ -69,15 +71,25 @@ fn write_to_csv<W: Write>(output_file: &mut W, range: &Range<Data>) -> std::io::
                     write!(output_file, "{s}")
                 }
             }?;
-
-            // Write the field separator except for the last column.
-            if col_number != max_column {
-                write!(output_file, ";")?;
-            }
         }
 
         write!(output_file, "\r\n")?;
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_empty_worksheet_csv() {
+        // Test that exporting an empty worksheet writes no CSV records.
+        let mut output = Vec::new();
+
+        write_to_csv(&mut output, &Range::empty()).unwrap();
+
+        assert!(output.is_empty());
+    }
 }
