@@ -865,19 +865,35 @@ fn parse_lbl(
     encoding: &XlsEncoding,
     biff: Biff,
 ) -> Result<(String, (Option<usize>, String)), XlsError> {
+    if r.data.len() < 14 {
+        return Err(XlsError::Len {
+            typ: "Lbl",
+            expected: 14,
+            found: r.data.len(),
+        });
+    }
     let cch = r.data[3] as usize;
     let cce = read_u16(&r.data[4..]) as usize;
     let mut name = String::with_capacity(cch);
-    match biff {
+    let name_len = match biff {
         Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
             // BIFF5 and earlier: plain byte string, no flags byte
-            encoding.decode_to(&r.data[14..], cch, &mut name, None);
+            encoding.decode_to(&r.data[14..], cch, &mut name, None).1
         }
-        Biff::Biff8 => {
-            read_unicode_string_no_cch(encoding, &r.data[14..], cch, &mut name)?;
-        }
-    }
-    let rgce = &r.data[r.data.len() - cce..];
+        Biff::Biff8 => read_unicode_string_no_cch(encoding, &r.data[14..], cch, &mut name)?,
+    };
+
+    // The formula follows the name. It isn't read from the end of the record
+    // because extra data, such as the values of an array constant, can follow
+    // the formula.
+    let start = 14 + name_len;
+    let Some(rgce) = r.data.get(start..start + cce) else {
+        return Err(XlsError::Len {
+            typ: "Lbl formula",
+            expected: start + cce,
+            found: r.data.len(),
+        });
+    };
     let formula = parse_defined_names(rgce, biff)?;
     Ok((name, formula))
 }
@@ -1499,6 +1515,7 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
             let (sheet_idx, row, col) = match biff {
                 Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
                     // ixals(2) + reserved(8) + itabFirst(2) + itabLast(2) + row(2) + col(1)
+                    check_name_token_len(rgce, 18)?;
                     (
                         read_u16(&rgce[11..13]) as usize,
                         read_u16(&rgce[15..17]) as u32 & 0x3FFF,
@@ -1507,6 +1524,7 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
                 }
                 Biff::Biff8 => {
                     // ixti(2) + row(2) + col(2)
+                    check_name_token_len(rgce, 7)?;
                     (
                         read_u16(&rgce[1..3]) as usize,
                         read_u16(&rgce[3..5]) as u32,
@@ -1524,6 +1542,7 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
             let (sheet_idx, row_first, row_last, col_first, col_last) = match biff {
                 Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
                     // ixals(2) + reserved(8) + itabFirst(2) + itabLast(2) + rowFirst(2) + rowLast(2) + colFirst(1) + colLast(1)
+                    check_name_token_len(rgce, 21)?;
                     (
                         read_u16(&rgce[11..13]) as usize,
                         read_u16(&rgce[15..17]) as u32 & 0x3FFF,
@@ -1534,6 +1553,7 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
                 }
                 Biff::Biff8 => {
                     // ixti(2) + rowFirst(2) + rowLast(2) + colFirst(2) + colLast(2)
+                    check_name_token_len(rgce, 11)?;
                     (
                         read_u16(&rgce[1..3]) as usize,
                         read_u16(&rgce[3..5]) as u32,
@@ -1553,8 +1573,12 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
         0x3c | 0x5c | 0x7c | 0x3d | 0x5d | 0x7d => {
             // PtgAreaErr3d or PtgRefErr3d
             let sheet_idx = match biff {
-                Biff::Biff8 => read_u16(&rgce[1..3]) as usize,
+                Biff::Biff8 => {
+                    check_name_token_len(rgce, 3)?;
+                    read_u16(&rgce[1..3]) as usize
+                }
                 Biff::Biff2 | Biff::Biff3 | Biff::Biff4 | Biff::Biff5 => {
+                    check_name_token_len(rgce, 13)?;
                     read_u16(&rgce[11..13]) as usize
                 }
             };
@@ -1563,6 +1587,18 @@ fn parse_defined_names(rgce: &[u8], biff: Biff) -> Result<(Option<usize>, String
         _ => (None, format!("Unsupported ptg: {ptg:x}")),
     };
     Ok(res)
+}
+
+/// Returns an error if a defined name formula is shorter than its token.
+fn check_name_token_len(rgce: &[u8], len: usize) -> Result<(), XlsError> {
+    if rgce.len() < len {
+        return Err(XlsError::Len {
+            typ: "defined name formula",
+            expected: len,
+            found: rgce.len(),
+        });
+    }
+    Ok(())
 }
 
 /// Formula parsing
