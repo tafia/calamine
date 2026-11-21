@@ -4,12 +4,14 @@
 
 mod cells_reader;
 
+use cells_reader::parse_dimensions;
 pub use cells_reader::XlsbCellsReader;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Cursor, Read, Seek};
 
+use cfb::CompoundFile;
 use log::debug;
 
 use encoding_rs::UTF_16LE;
@@ -29,8 +31,8 @@ use crate::utils::{
 use crate::vba::VbaProject;
 use crate::xlsx::{read_app_properties, read_core_properties, read_custom_properties};
 use crate::{
-    Cell, Data, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType, SheetVisible,
-    WorkbookProperties,
+    Cell, Data, Dimensions, HeaderRow, Metadata, Range, Reader, ReaderRef, Sheet, SheetType,
+    SheetVisible, WorkbookProperties,
 };
 
 /// A Xlsb specific error
@@ -496,6 +498,159 @@ impl<RS: Read + Seek> Xlsb<RS> {
             .expect("workbook properties are initialized above"))
     }
 
+    /// Get the merged cells/regions in a worksheet by sheet name.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] for the merged cells in
+    /// the named worksheet.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The name of the worksheet.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsbError::WorksheetNotFound`] if no worksheet with the given name
+    ///   exists.
+    /// - [`XlsbError::Unrecognized`] if a merged cell record is malformed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Reader, Xlsb};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merge_cells.xlsb";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsb<_> = open_workbook(path)?;
+    ///
+    ///     // Get the names of all the sheets in the workbook.
+    ///     let sheet_names = workbook.sheet_names();
+    ///
+    ///     for sheet_name in &sheet_names {
+    ///         println!("{sheet_name}:");
+    ///
+    ///         // Get the merged cells in the current sheet.
+    ///         let merge_cells = workbook.merge_cells_by_sheet_name(sheet_name)?;
+    ///
+    ///         // Print the dimensions of each merged region.
+    ///         for dimension in &merge_cells {
+    ///             println!("    {dimension:?}");
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Sheet1:
+    ///     Dimensions { start: (0, 0), end: (0, 1) }
+    ///     Dimensions { start: (1, 0), end: (3, 0) }
+    ///     Dimensions { start: (1, 1), end: (3, 3) }
+    /// ```
+    ///
+    pub fn merge_cells_by_sheet_name(&mut self, name: &str) -> Result<Vec<Dimensions>, XlsbError> {
+        let path = match self.sheets.iter().find(|&(n, _)| n == name) {
+            Some((_, path)) => path.clone(),
+            None => return Err(XlsbError::WorksheetNotFound(name.into())),
+        };
+        let mut iter = RecordIter::from_zip(&mut self.zip, &path, &self.zip_path_cache)?;
+        let mut buf = Vec::with_capacity(64);
+        let mut merge_cells = Vec::new();
+
+        // MS-XLSB 2.1.7.62 Worksheet: the MERGECELLS block follows the sheet data.
+        loop {
+            let typ = iter.read_type()?;
+            let len = iter.fill_buffer(&mut buf)?;
+            match typ {
+                // BrtMergeCell
+                0x00B0 => {
+                    if len < 16 {
+                        return Err(XlsbError::Unrecognized {
+                            typ: "BrtMergeCell record length",
+                            val: len.to_string(),
+                        });
+                    }
+                    merge_cells.push(parse_dimensions(&buf[..16]));
+                }
+                // BrtEndMergeCells | BrtEndSheet
+                0x00B2 | 0x0082 => break,
+                _ => {}
+            }
+        }
+
+        Ok(merge_cells)
+    }
+
+    /// Get the merged cells/regions in a worksheet by sheet index.
+    ///
+    /// Merged cells in Excel are a range of cells that have been merged to act
+    /// as a single cell. It is often used to create headers or titles that span
+    /// multiple columns or rows.
+    ///
+    /// The function returns a vector of [`Dimensions`] for the merged cells in
+    /// the worksheet at the given index.
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: The zero-based index of the worksheet.
+    ///
+    /// # Errors
+    ///
+    /// - [`XlsbError::WorksheetNotFound`] if `id` is out of range.
+    /// - [`XlsbError::Unrecognized`] if a merged cell record is malformed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use calamine::{open_workbook, Error, Xlsb};
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let path = "tests/merge_cells.xlsb";
+    ///
+    ///     // Open the workbook.
+    ///     let mut workbook: Xlsb<_> = open_workbook(path)?;
+    ///
+    ///     // Get the merged cells in the first worksheet.
+    ///     let merge_cells = workbook.merge_cells_by_sheet_id(0)?;
+    ///
+    ///     // Print the dimensions of each merged region.
+    ///     for dimension in &merge_cells {
+    ///         println!("{dimension:?}");
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Output:
+    ///
+    /// ```text
+    /// Dimensions { start: (0, 0), end: (0, 1) }
+    /// Dimensions { start: (1, 0), end: (3, 0) }
+    /// Dimensions { start: (1, 1), end: (3, 3) }
+    /// ```
+    ///
+    pub fn merge_cells_by_sheet_id(&mut self, id: usize) -> Result<Vec<Dimensions>, XlsbError> {
+        let name = self
+            .metadata()
+            .sheets
+            .get(id)
+            .map(|sheet| sheet.name.clone())
+            .ok_or_else(|| {
+                XlsbError::WorksheetNotFound(format!("Sheet index {id} out of range"))
+            })?;
+
+        self.merge_cells_by_sheet_name(&name)
+    }
+
     #[cfg(feature = "picture")]
     fn read_pictures(&mut self) -> Result<(), XlsbError> {
         let mut pics = Vec::new();
@@ -566,8 +721,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         let Some(mut f) = self.zip.by_name("xl/vbaProject.bin").ok() else {
             return Ok(None);
         };
-        let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len)?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // Wrap the buffer in a Cursor to supply the Seek bound that
+        // `VbaProject::new()` requires of the cfb crate.
+        let mut cursor = Cursor::new(buf);
+        let vba = VbaProject::new(&mut cursor)?;
         Ok(Some(vba))
     }
 
@@ -1110,11 +1271,8 @@ fn cell_format<'a>(formats: &'a [CellFormat], buf: &[u8]) -> Option<&'a CellForm
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsbError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsbError::Password);
         }
     }

@@ -475,6 +475,7 @@ where
             }
             Ok(Event::End(e)) if e.name() == QName("table:table") => break,
             Err(e) => return Err(OdsError::Xml(e)),
+            Ok(Event::Eof) => return Err(OdsError::Eof("table:table")),
             Ok(_) => (),
         }
         buf.clear();
@@ -668,6 +669,9 @@ where
                     reader.read_to_end_into(e.name(), cell_buf)?;
                 }
             }
+            Ok(Event::Text(e))
+                if e.bytes()
+                    .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n')) => {}
             Ok(Event::End(e)) if e.name() == QName("table:table-row") => break,
             Err(e) => return Err(OdsError::Xml(e)),
             Ok(e) => {
@@ -757,6 +761,7 @@ where
                             break;
                         }
                         Err(e) => return Err(OdsError::Xml(e)),
+                        Ok(Event::Eof) => return Err(OdsError::Eof("office:annotation")),
                         _ => (),
                     }
                 },

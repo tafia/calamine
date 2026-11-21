@@ -10,10 +10,11 @@ mod style_parser;
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
 use std::collections::HashSet;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
+use cfb::CompoundFile;
 use log::warn;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
@@ -361,7 +362,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Event::Start(e)) if e.local_name().as_ref() == "sst" => {
                     if let Some(count) = e.raw_attr("uniqueCount")? {
                         if let Ok(n) = atoi_simd::parse::<usize, true, false>(count.as_bytes()) {
-                            self.strings.reserve(n);
+                            self.strings.reserve(n.min(8192));
                         }
                     }
                     break;
@@ -2832,8 +2833,14 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let Some(mut f) = self.zip.by_name(path.as_ref()).ok() else {
             return Ok(None);
         };
-        let len = f.size() as usize;
-        let vba = VbaProject::new(&mut f, len)?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+
+        // Wrap the buffer in a Cursor to supply the Seek bound that
+        // `VbaProject::new()` requires of the cfb crate.
+        let mut cursor = Cursor::new(buf);
+        let vba = VbaProject::new(&mut cursor)?;
         Ok(Some(vba))
     }
 
@@ -3045,18 +3052,21 @@ pub(crate) fn get_dimension(dimension: &str) -> Result<Dimensions, XlsxError> {
             end: parts[0],
         }),
         2 => {
-            let rows = parts[1].0 - parts[0].0;
-            let columns = parts[1].1 - parts[0].1;
-            if rows > MAX_ROWS {
-                warn!("xlsx has more than maximum number of rows ({rows} > {MAX_ROWS})");
+            // The `ref` may be in reversed order like `C5:A1`.
+            let dim = Dimensions::new(parts[0], parts[1]);
+            if dim.end.0 >= MAX_ROWS {
+                warn!(
+                    "file has more than maximum supported number of rows ({} >= {MAX_ROWS})",
+                    dim.end.0
+                );
             }
-            if columns > MAX_COLUMNS {
-                warn!("xlsx has more than maximum number of columns ({columns} > {MAX_COLUMNS})");
+            if dim.end.1 >= MAX_COLUMNS {
+                warn!(
+                    "file has more than maximum supported number of columns ({} >= {MAX_COLUMNS})",
+                    dim.end.1
+                );
             }
-            Ok(Dimensions {
-                start: parts[0],
-                end: parts[1],
-            })
+            Ok(dim)
         }
         len => Err(XlsxError::DimensionCount(len)),
     }
@@ -3191,11 +3201,8 @@ where
 }
 
 fn check_for_password_protected<RS: Read + Seek>(reader: &mut RS) -> Result<(), XlsxError> {
-    let offset_end = reader.seek(std::io::SeekFrom::End(0))? as usize;
-    reader.seek(std::io::SeekFrom::Start(0))?;
-
-    if let Ok(cfb) = crate::cfb::Cfb::new(reader, offset_end) {
-        if cfb.has_directory("EncryptedPackage") {
+    if let Ok(cfb) = CompoundFile::open(reader) {
+        if cfb.exists("EncryptedPackage") {
             return Err(XlsxError::Password);
         }
     }
@@ -4456,6 +4463,51 @@ mod tests {
             get_dimension("A1:XFD1048576").unwrap().len(),
             17_179_869_184
         );
+    }
+
+    #[test]
+    fn test_xlsx_reversed_dimension_is_normalised() {
+        // Test that a reversed `ref` such as `C5:A1` gives the same `Dimensions`
+        // as `A1:C5`. See issue #692.
+        let reversed = get_dimension("C5:A1").unwrap();
+        assert_eq!(
+            reversed,
+            Dimensions {
+                start: (0, 0),
+                end: (4, 2),
+            }
+        );
+        assert_eq!(reversed, get_dimension("A1:C5").unwrap());
+        assert_eq!(reversed.len(), 15);
+
+        // Reversed on one axis only.
+        assert_eq!(
+            get_dimension("A5:C1").unwrap(),
+            get_dimension("A1:C5").unwrap()
+        );
+        assert_eq!(
+            get_dimension("C1:A5").unwrap(),
+            get_dimension("A1:C5").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_all_dimensions_new_normalises_order() {
+        // Test that `Dimensions::new()` orders the corners so that the start
+        // cell precedes the end cell.
+        let dim = Dimensions::new((4, 2), (0, 0));
+        assert_eq!(
+            dim,
+            Dimensions {
+                start: (0, 0),
+                end: (4, 2),
+            }
+        );
+        assert_eq!(dim.len(), 15);
+        assert_eq!(Dimensions::new((7, 7), (7, 7)).len(), 1);
+
+        // A full axis must not overflow the `+ 1` in `len()`.
+        assert_eq!(Dimensions::new((0, 0), (u32::MAX, 0)).len(), 4_294_967_296);
     }
 
     #[test]

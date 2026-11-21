@@ -147,6 +147,18 @@ fn test_xlsm_vba() {
 }
 
 #[test]
+fn test_xls_vba() {
+    // Test that the VBA project module source is read from an xls file.
+    let mut excel: Xls<_> = wb("vba.xls");
+    let vba = excel.vba_project().unwrap().unwrap();
+    assert_eq!(
+        vba.get_module("testVBA").unwrap(),
+        "Attribute VB_Name = \"testVBA\"\r\nPublic Sub test()\r\n    MsgBox \"Hello from \
+         vba!\"\r\nEnd Sub\r\n"
+    );
+}
+
+#[test]
 fn test_xlsb_range_values() {
     // Test that a range of numbers and strings is read from an xlsb file.
     let mut excel: Xlsb<_> = wb("issues.xlsb");
@@ -248,6 +260,48 @@ fn test_ods_data_types() {
 
     let range = excel.worksheet_range("issue5").unwrap();
     range_eq!(range, [[Float(0.5)]]);
+}
+
+#[test]
+fn test_ods_row_with_whitespace() {
+    // Test that XML whitespace between cells preserves their values and text spacing.
+    let mut ods: Ods<_> = wb("ods-row-whitespace.ods");
+    let sheets = [
+        "Compact",
+        "Indented",
+        "Space",
+        "Tab",
+        "Carriage return",
+        "Line feed",
+        "Mixed",
+    ];
+    assert_eq!(ods.sheet_names(), sheets);
+    for sheet in sheets {
+        let range = ods.worksheet_range(sheet).unwrap();
+        range_eq!(
+            range,
+            [[String("  INV-SEC-1  ".into()), Float(125.5), Bool(true)]]
+        );
+    }
+}
+
+#[test]
+fn test_ods_read_errors() {
+    // Test that ordinary text and non-XML whitespace between cells are rejected.
+    assert!(matches!(
+        open_workbook::<Ods<_>, _>(test_path("ods-row-unexpected-text.ods")),
+        Err(calamine::OdsError::Mismatch {
+            expected: "table-cell",
+            ..
+        })
+    ));
+    assert!(matches!(
+        open_workbook::<Ods<_>, _>(test_path("ods-row-non-xml-whitespace.ods")),
+        Err(calamine::OdsError::Mismatch {
+            expected: "table-cell",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -1773,6 +1827,53 @@ fn test_xlsx_merge_cells_by_sheet_id() {
 }
 
 #[test]
+fn test_xlsb_merge_cells_by_sheet_name() {
+    // Test that merged cells are read by sheet name.
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    let merge_cells = excel.merge_cells_by_sheet_name("Sheet1").unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn test_xlsb_merge_cells_by_sheet_id() {
+    // Test that merged cells are read by sheet index.
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    let merge_cells = excel.merge_cells_by_sheet_id(0).unwrap();
+
+    assert_eq!(
+        merge_cells,
+        [
+            Dimensions::new((0, 0), (0, 1)),
+            Dimensions::new((1, 0), (3, 0)),
+            Dimensions::new((1, 1), (3, 3))
+        ]
+    );
+}
+
+#[test]
+fn test_xlsb_merge_cells_none() {
+    // Test that a sheet without merged cells returns an empty list.
+    let mut excel: Xlsb<_> = wb("date.xlsb");
+    assert!(excel.merge_cells_by_sheet_id(0).unwrap().is_empty());
+}
+
+#[test]
+fn test_xlsb_merge_cells_not_found() {
+    // Test that merged cells for an unknown sheet name or index return an error.
+    let mut excel: Xlsb<_> = wb("merge_cells.xlsb");
+    assert!(excel.merge_cells_by_sheet_name("NoSuchSheet").is_err());
+    assert!(excel.merge_cells_by_sheet_id(99).is_err());
+}
+
+#[test]
 fn test_xlsx_merge_cells_by_sheet_name_not_found() {
     // Test that merged cells for an unknown sheet name return an error.
     let mut excel: Xlsx<_> = wb("merge_cells.xlsx");
@@ -3225,14 +3326,13 @@ fn test_xls_oom_allocation() {
     assert_eq!(ws.len(), 1);
     assert_eq!(ws[0].0, "Colsale (Aug".to_string());
 
+    // The cfb crate rejects the malformed FAT up front.
     let path = test_path("OOM_alloc3.xls");
-    assert!(
-        matches!(
-            open_workbook::<Xls<_>, _>(path),
-            Err(calamine::XlsError::Cfb(_))
-        ),
-        "Is expected to return XlsError::Cfb error"
-    );
+    match open_workbook::<Xls<_>, _>(path) {
+        Err(calamine::XlsError::Cfb(e)) if e.to_string().contains("FAT") => {}
+        Err(e) => panic!("Is expected to return a malformed-FAT error: {e}"),
+        Ok(_) => panic!("Is expected to return a malformed-FAT error"),
+    }
 }
 
 // Test that an SST table with an incorrect unique string count is read.
@@ -3383,6 +3483,20 @@ fn test_ods_dos_protection() {
     assert!(
         err_msg.contains("Cell limit exceeded"),
         "Error should indicate cell limit exceeded: {err_msg}"
+    );
+}
+
+#[test]
+fn test_ods_unclosed_table() {
+    // Test that an ods file whose table:table element is never closed returns
+    // an error instead of looping forever at the end of the xml. See issue #773.
+    let path = test_path("unclosed_table.ods");
+    assert!(
+        matches!(
+            open_workbook::<Ods<_>, _>(path),
+            Err(calamine::OdsError::Eof("table:table"))
+        ),
+        "Is expected to return OdsError::Eof error"
     );
 }
 
@@ -4049,12 +4163,10 @@ fn test_xls_too_small() {
     let path = test_path("too_small.xls");
     let res: Result<Xls<_>, _> = open_workbook(&path);
     match res {
-
-        Err(calamine::XlsError::Cfb(e)) if e.to_string() == "Invalid OLE (68 bytes is too small, signature \\x41\\x74\\x74\\x61\\x63\\x68\\x6d\\x65 invalid, not an office document?)" => {}
-        Err(calamine::XlsError::Cfb(e)) => {
-            panic!("Is expected to return CfbError::Ole(_) error: {e}")
-        }
-        Ok(_) | Err(_) => panic!("Is expected to return CfbError::Ole(_) error"),
+        // The cfb crate rejects the undersized container up front.
+        Err(calamine::XlsError::Cfb(e)) if e.to_string().contains("too small") => {}
+        Err(e) => panic!("Is expected to return an undersized CFB error: {e}"),
+        Ok(_) => panic!("Is expected to return an undersized CFB error"),
     }
 }
 
@@ -5091,9 +5203,14 @@ fn test_xlsb_short_formula_record() {
 #[test]
 fn test_xls_cfb_short_directory_chunk_does_not_panic() {
     // Test that a compound file whose directory stream length is not a multiple
-    // of 128 doesn't panic. See pull request #762.
-    let xls: Xls<_> = wb("cfb_dir_short_chunk_panic.xls");
-    assert_eq!(xls.sheet_names(), vec!["Sheet1"]);
+    // of 128 doesn't panic. The cfb crate rejects the inconsistent FAT up front,
+    // so the file is reported as malformed rather than read.
+    let path = test_path("cfb_dir_short_chunk_panic.xls");
+    match open_workbook::<Xls<_>, _>(path) {
+        Err(XlsError::Cfb(e)) if e.to_string().contains("Malformed FAT") => {}
+        Err(e) => panic!("Is expected to return a malformed-FAT error: {e}"),
+        Ok(_) => panic!("Is expected to return a malformed-FAT error"),
+    }
 }
 
 #[test]
