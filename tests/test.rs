@@ -8,7 +8,7 @@ use calamine::{
     open_workbook, open_workbook_auto, BorderStyle, Color, DataRef, DataType, Dimensions,
     ExcelDateTime, ExcelDateTimeType, HeaderRow, HorizontalAlignment, Ods, Range, Reader,
     ReaderRef, Sheet, SheetType, SheetVisible, TextRotation, UnderlineStyle, VerticalAlignment,
-    Xls, XlsError, Xlsb, Xlsx, XlsxFormulaMetadata,
+    Xls, XlsError, XlsOptions, Xlsb, Xlsx, XlsxFormulaMetadata,
 };
 use calamine::{CellErrorType::*, Data};
 use rstest::rstest;
@@ -1926,6 +1926,51 @@ fn test_xls_merge_cells() {
             Dimensions::new((1, 1), (3, 3))
         ]
     );
+}
+
+fn xls_with_shared_string_copy_limit(
+    name: &str,
+    limit: usize,
+) -> Result<Xls<BufReader<File>>, XlsError> {
+    let reader = BufReader::new(File::open(test_path(name)).unwrap());
+    let mut options = XlsOptions::default();
+    options.max_shared_string_copy_bytes = Some(limit);
+    Xls::new_with_options(reader, options)
+}
+
+#[test]
+fn test_xls_shared_string_copy_budget_across_sheets() {
+    // The two sheets contain 31 two-byte labels, including repeated labels.
+    let mut expected: Xls<_> = wb("merged_range.xls");
+    let mut workbook = xls_with_shared_string_copy_limit("merged_range.xls", 62).unwrap();
+    assert_eq!(workbook.worksheets(), expected.worksheets());
+    assert!(matches!(
+        xls_with_shared_string_copy_limit("merged_range.xls", 61),
+        Err(XlsError::Io(err)) if err.kind() == std::io::ErrorKind::InvalidData
+    ));
+}
+
+#[test]
+fn test_xls_shared_string_copy_budget_counts_utf8_bytes() {
+    // Account for the decoded UTF-8 representation of the accented headings.
+    let mut workbook: Xls<_> = wb("sheet_name_parsing.xls");
+    let sheet = workbook.worksheet_range("Sheet1").unwrap();
+    let labels: Vec<_> = sheet
+        .used_cells()
+        .filter_map(|(_, _, cell)| cell.get_string())
+        .collect();
+    let bytes: usize = labels.iter().map(|label| label.len()).sum();
+    assert!(labels.iter().any(|label| !label.is_ascii()));
+    assert!(xls_with_shared_string_copy_limit("sheet_name_parsing.xls", bytes).is_ok());
+    assert!(xls_with_shared_string_copy_limit("sheet_name_parsing.xls", bytes - 1).is_err());
+}
+
+#[test]
+fn test_xls_empty_shared_string_fits_zero_copy_budget() {
+    // Copying an empty shared string needs no payload bytes.
+    let mut expected: Xls<_> = wb("empty-string.xls");
+    let mut workbook = xls_with_shared_string_copy_limit("empty-string.xls", 0).unwrap();
+    assert_eq!(workbook.worksheets(), expected.worksheets());
 }
 
 #[test]
