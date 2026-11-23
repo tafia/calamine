@@ -5,7 +5,7 @@
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
-use std::io::{Read, Seek};
+use std::io::{self, Read, Seek};
 
 use cfb::CompoundFile;
 use log::debug;
@@ -160,6 +160,12 @@ pub struct XlsOptions {
     pub force_codepage: Option<u16>,
     /// Row to use as header
     pub header_row: HeaderRow,
+    /// Maximum cumulative UTF-8 bytes copied from shared strings into cells
+    /// while opening this workbook, across all sheets. Each occurrence counts.
+    /// The default is `None` (unlimited). Other allocations, including the
+    /// shared string table itself, are outside this limit.
+    /// Exceeding the limit returns [`XlsError::Io`] with [`io::ErrorKind::InvalidData`].
+    pub max_shared_string_copy_bytes: Option<usize>,
 }
 
 struct SheetData {
@@ -659,6 +665,7 @@ impl<RS: Read + Seek> Xls<RS> {
             .iter()
             .map(|(_, n)| n.clone())
             .collect::<Vec<_>>();
+        let mut remaining_copy_bytes = self.options.max_shared_string_copy_bytes;
         for (pos, name) in sheet_names {
             let sh = &stream[pos..];
             let records = RecordIter { stream: sh };
@@ -707,7 +714,11 @@ impl<RS: Read + Seek> Xls<RS> {
                         cells.push(Cell::new(fmla_pos, val));
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
-                    0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
+                    0x00FD => cells.extend(parse_label_sst(
+                        r.data,
+                        &strings,
+                        &mut remaining_copy_bytes,
+                    )?), // LabelSst
                     0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
                     0x00E5 => parse_merge_cells(r.data, &mut merge_cells)?, // 229: Merge Cells
                     0x000A => break,                                        // 10: EOF,
@@ -1121,7 +1132,11 @@ fn parse_label(r: &[u8], encoding: &XlsEncoding, biff: Biff) -> Result<Cell<Data
     ))
 }
 
-fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, XlsError> {
+fn parse_label_sst(
+    r: &[u8],
+    strings: &[String],
+    remaining_copy_bytes: &mut Option<usize>,
+) -> Result<Option<Cell<Data>>, XlsError> {
     if r.len() < 10 {
         return Err(XlsError::Len {
             typ: "label sst",
@@ -1133,6 +1148,14 @@ fn parse_label_sst(r: &[u8], strings: &[String]) -> Result<Option<Cell<Data>>, X
     let col = read_u16(&r[2..]);
     let i = read_u32(&r[6..]) as usize;
     if let Some(s) = strings.get(i) {
+        if let Some(remaining) = remaining_copy_bytes {
+            *remaining = remaining.checked_sub(s.len()).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "XLS shared-string copies exceed the configured byte limit",
+                )
+            })?;
+        }
         return Ok(Some(Cell::new(
             (row as u32, col as u32),
             Data::String(s.clone()),
