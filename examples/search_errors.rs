@@ -5,6 +5,12 @@
 //! An example for using the `calamine` crate to to search a directory for Excel
 //! files and check them for errors.
 //!
+//! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example search_errors -- tests
+//! ``
+//!
 //! Recursively searches for XLSX, XLSM, XLSB, and XLS Excel files and parses
 //! them to check for any `calamine` errors. Also checks for and counts the
 //! number of missing VBA references or the number of cells with Excel errors.

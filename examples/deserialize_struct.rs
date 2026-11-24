@@ -4,6 +4,12 @@
 
 //! An example of deserializing spreadsheet rows into a named struct.
 //!
+//! //! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example deserialize_struct
+//! ``
+//!
 //! Compared with `deserialize_range`, which uses an anonymous tuple, this
 //! example demonstrates how to deserialize spreadsheet data into a named struct
 //! derived with [`serde::Deserialize`] and how to collect all rows in a single

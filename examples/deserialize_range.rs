@@ -5,6 +5,12 @@
 //! This example demonstrates the simplest way to deserialize a spreadsheet row.
 //! An anonymous tuple is read one row at a time using [`Range::deserialize`].
 //!
+//! //! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example deserialize_range
+//! ``
+//!
 //! This is the starting point for the deserialization examples. The first row
 //! of the range is consumed as a header and the iterator yields the remaining
 //! rows. Each row is deserialized into the tuple type inferred from the call
@@ -53,6 +59,8 @@ fn main() -> Result<(), Error> {
 
         assert_eq!(label, "celsius");
         assert_eq!(value, 22.2222);
+
+        println!("{label} = {value}");
 
         Ok(())
     } else {

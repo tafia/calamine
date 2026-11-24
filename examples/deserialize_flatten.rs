@@ -5,6 +5,12 @@
 //! An example of deserializing rows that have a fixed set of named columns
 //! plus an unknown number of extra columns captured with `#[serde(flatten)]`.
 //!
+//! Run the example like this:
+//!
+//! ```text
+//! $ cargo run -q --example deserialize_flatten
+//! ``
+//!
 //! Compared with `deserialize_struct`, which requires every column to be
 //! declared as a struct field, this example shows how to use Serde's
 //! `#[serde(flatten)]` attribute to absorb any remaining columns into a
