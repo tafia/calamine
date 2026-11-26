@@ -560,9 +560,15 @@ impl<RS: Read + Seek> Xls<RS> {
                 let mut r = record?;
                 match r.typ {
                     // FilePass (MS-XLS 2.4.117)
-                    0x002F if read_u16(r.data) != 0 => return Err(XlsError::Password),
+                    0x002F => {
+                        r.need_len(2, "FilePass")?;
+                        if read_u16(r.data) != 0 {
+                            return Err(XlsError::Password);
+                        }
+                    }
                     // CodePage (MS-XLS 2.4.52)
                     0x0042 if self.options.force_codepage.is_none() => {
+                        r.need_len(2, "CodePage")?;
                         encoding = XlsEncoding::from_codepage(read_u16(r.data))?;
                     }
                     // RRTabId (MS-XLS 2.4.241)
@@ -572,8 +578,11 @@ impl<RS: Read + Seek> Xls<RS> {
                         self.metadata.sheets.reserve(sheet_len);
                     }
                     // DateMode (MS-XLS 2.4.77)
-                    0x0022 if read_u16(r.data) == 1 => {
-                        self.is_1904 = true;
+                    0x0022 => {
+                        r.need_len(2, "DateMode")?;
+                        if read_u16(r.data) == 1 {
+                            self.is_1904 = true;
+                        }
                     }
                     // Format (MS-XLS 2.4.126)
                     0x041E => match parse_format(&mut r, &encoding, biff) {
@@ -600,7 +609,10 @@ impl<RS: Read + Seek> Xls<RS> {
                     // Lbl (MS-XLS 2.4.150)
                     0x0018 => defined_names.push(parse_lbl(&r, &encoding, biff)?),
                     // ExternSheet (MS-XLS 2.4.106)
-                    0x0017 => xtis.extend(parse_extern_sheet(&r, biff)),
+                    0x0017 => {
+                        r.need_len(2, "ExternSheet")?;
+                        xtis.extend(parse_extern_sheet(&r, biff));
+                    }
                     // SST (MS-XLS 2.4.265)
                     0x00FC => strings = parse_sst(&mut r, &encoding)?,
                     #[cfg(feature = "picture")]
@@ -798,6 +810,7 @@ enum Biff {
 
 /// BOF [MS-XLS] 2.4.21
 fn parse_bof(r: &mut Record<'_>) -> Result<Bof, XlsError> {
+    r.need_len(2, "BOF")?;
     let mut dt = 0;
     let biff_version = read_u16(&r.data[..2]);
 
@@ -1371,6 +1384,18 @@ impl<'a> Record<'a> {
             self.data = self.cont.remove(0);
             true
         }
+    }
+
+    /// Check that the record body holds at least `len` bytes.
+    fn need_len(&self, len: usize, typ: &'static str) -> Result<(), XlsError> {
+        if self.data.len() < len {
+            return Err(XlsError::Len {
+                expected: len,
+                found: self.data.len(),
+                typ,
+            });
+        }
+        Ok(())
     }
 
     fn skip(&mut self, mut len: usize) -> Result<(), XlsError> {

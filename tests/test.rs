@@ -5109,3 +5109,22 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_xls_short_global_records() {
+    // Test that zero-length global records return an error instead of
+    // panicking. See issue #818.
+    let cases = [
+        ("short_bof.xls", "BOF"),
+        ("short_codepage.xls", "CodePage"),
+        ("short_externsheet.xls", "ExternSheet"),
+    ];
+    for (name, want) in cases {
+        let path = test_path(name);
+        match open_workbook::<Xls<_>, _>(path) {
+            Err(XlsError::Len { typ, .. }) => assert_eq!(typ, want, "{name}"),
+            Err(e) => panic!("{name}: expected a length error, got {e}"),
+            Ok(_) => panic!("{name}: expected a length error"),
+        }
+    }
+}
