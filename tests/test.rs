@@ -5109,3 +5109,11 @@ fn test_xls_cfb_difat_chain_does_not_oom() {
     let path = test_path("cfb_difat_oom.xls");
     assert!(open_workbook::<Xls<_>, _>(path).is_err());
 }
+
+#[test]
+fn test_xls_boundsheet_offset_past_end() {
+    // Test that a sheet offset past the end of the workbook stream returns an
+    // error instead of panicking. See issue #818.
+    let path = test_path("boundsheet_offset_past_end.xls");
+    assert!(open_workbook::<Xls<_>, _>(path).is_err());
+}

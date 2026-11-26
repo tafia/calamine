@@ -660,7 +660,11 @@ impl<RS: Read + Seek> Xls<RS> {
             .map(|(_, n)| n.clone())
             .collect::<Vec<_>>();
         for (pos, name) in sheet_names {
-            let sh = &stream[pos..];
+            // The sheet offset comes from the file and can point past the end
+            // of the workbook stream.
+            let sh = stream
+                .get(pos..)
+                .ok_or(XlsError::EoStream("BoundSheet8:lbPlyPos"))?;
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
