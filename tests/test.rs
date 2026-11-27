@@ -118,6 +118,14 @@ fn test_xlsx_error_cell_values() {
 }
 
 #[test]
+fn test_xlsx_xml_encodings() {
+    // Test UTF-16 package parts and EUC-KR shared and inline strings. See issue #821.
+    let mut excel: Xlsx<_> = wb("xlsx_xml_encodings.xlsx");
+    let range = excel.worksheet_range("시트").unwrap();
+    range_eq!(range, [[String("공유".into()), String("문자열".into())]]);
+}
+
+#[test]
 fn test_xlsx_rich_text_shared_strings() {
     // Test that shared strings with rich text runs are read as plain strings.
     // See issue #9.

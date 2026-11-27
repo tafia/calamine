@@ -10,12 +10,13 @@ mod style_parser;
 use std::collections::HashMap;
 #[cfg(feature = "picture")]
 use std::collections::HashSet;
-use std::io::{BufReader, Cursor};
+use std::io::{BufReader, Chain, Cursor};
 use std::io::{Read, Seek};
 use std::str::FromStr;
 
 use cfb::CompoundFile;
 use log::warn;
+use quick_xml::encoding::DecodingReader;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
 use quick_xml::Reader as XmlReader;
@@ -42,7 +43,8 @@ pub use cells_reader::{
     XlsxCellFormula, XlsxCellFormulaMetadataRecord, XlsxCellReader, XlsxFormulaMetadata,
 };
 
-pub(crate) type XlReader<'a, RS> = XmlReader<BufReader<ZipFile<'a, RS>>>;
+pub(crate) type XlReader<'a, RS> =
+    XmlReader<DecodingReader<BufReader<Chain<Cursor<Vec<u8>>, ZipFile<'a, RS>>>>>;
 
 /// Maximum number of rows allowed in an XLSX file.
 pub const MAX_ROWS: u32 = 1_048_576;
@@ -3022,18 +3024,39 @@ pub(crate) fn xml_reader<'a, RS: Read + Seek>(
     let zip_path = cached_zip_path(cache, path);
 
     match zip.by_name(zip_path) {
-        Ok(f) => {
-            let mut r = XmlReader::from_reader(BufReader::new(f));
-            let config = r.config_mut();
-            config.check_end_names = false;
-            config.trim_text(false);
-            config.check_comments = false;
-            config.expand_empty_elements = true;
-            Some(Ok(r))
-        }
+        Ok(f) => Some(xml_part_reader(f)),
         Err(ZipError::FileNotFound) => None,
         Err(e) => Some(Err(e.into())),
     }
+}
+
+fn xml_part_reader<RS: Read + Seek>(
+    mut file: ZipFile<'_, RS>,
+) -> Result<XlReader<'_, RS>, XlsxError> {
+    // Read an ASCII XML declaration before transcoding any bytes of the document body.
+    let mut prefix = Vec::with_capacity(6);
+    file.by_ref().take(6).read_to_end(&mut prefix)?;
+    let has_declaration = matches!(
+        prefix.as_slice(),
+        [b'<', b'?', b'x', b'm', b'l', b' ' | b'\t' | b'\r' | b'\n']
+    );
+    let input = BufReader::new(Cursor::new(prefix).chain(file));
+    let mut prolog = XmlReader::from_reader(input);
+    if has_declaration {
+        prolog.read_event_into(&mut Vec::new())?;
+    }
+
+    // For UTF-16 the decoder detects the byte order from the original prefix.
+    let encoding = prolog.encoding();
+    let mut decoder = DecodingReader::new(prolog.into_inner());
+    decoder.set_encoding(encoding);
+    let mut xml = XmlReader::from_reader(decoder);
+    let config = xml.config_mut();
+    config.check_end_names = false;
+    config.trim_text(false);
+    config.check_comments = false;
+    config.expand_empty_elements = true;
+    Ok(xml)
 }
 
 /// converts a text representation (e.g. "A6:G67") of a dimension into integers
